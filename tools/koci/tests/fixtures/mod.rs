@@ -5,11 +5,14 @@ use std::io::{Error as IoError, ErrorKind};
 use base64ct::{Base64, Base64Url, Encoding as _};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use getrandom::SysRng;
 use koci::arch;
-use ring::digest;
-use ring::rand::SystemRandom;
-use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
+use p256::ecdsa::SigningKey;
+use p256::elliptic_curve::Generate as _;
+use p256::elliptic_curve::pkcs8::{DecodePrivateKey as _, EncodePrivateKey as _};
+use p256::elliptic_curve::sec1::ToSec1Point as _;
 use serde_json::{Map, Value, json};
+use sha2::{Digest as _, Sha256};
 use tar::{Builder, Header};
 
 const SIG_ANNOTATION: &str = "dev.muak.sig";
@@ -20,25 +23,33 @@ pub(crate) struct TestKeys {
 }
 
 pub(crate) fn generate_test_keys() -> Result<TestKeys, Box<dyn Error>> {
-    let rng = SystemRandom::new();
-    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
+    let key = SigningKey::try_generate_from_rng(&mut SysRng)
         .map_err(|_error| IoError::other("failed to generate ECDSA test key"))?;
-    let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
-        .map_err(|_error| IoError::other("failed to parse generated ECDSA test key"))?;
+    let pkcs8 = key
+        .to_pkcs8_der()
+        .map_err(|_error| IoError::other("failed to encode ECDSA test key"))?;
 
     let private_key_pem = format!(
         "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-        Base64::encode_string(pkcs8.as_ref())
+        Base64::encode_string(pkcs8.as_bytes())
     );
     let public_key_pem = format!(
         "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-        Base64::encode_string(&build_p256_spki(key_pair.public_key().as_ref()))
+        Base64::encode_string(&build_p256_spki(&public_key_bytes(&key)))
     );
 
     Ok(TestKeys {
         private_key_pem,
         public_key_pem,
     })
+}
+
+fn public_key_bytes(key: &SigningKey) -> Vec<u8> {
+    key.verifying_key()
+        .as_affine()
+        .to_sec1_point(false)
+        .as_bytes()
+        .to_vec()
 }
 
 pub(crate) fn manifest_json(
@@ -138,11 +149,9 @@ pub(crate) fn signed_manifest_json(
     let manifest_json = str::from_utf8(manifest_json)?;
     let mut value: Value = serde_json::from_str(manifest_json)?;
     let digest = manifest_signing_digest(manifest_json)?;
-    let key_pair = parse_private_key_pem(private_key_pem)?;
-    let rng = SystemRandom::new();
-    let signature = key_pair
-        .sign(&rng, digest.as_bytes())
-        .map_err(|_error| IoError::other("failed to sign manifest fixture"))?;
+    let key = parse_private_key_pem(private_key_pem)?;
+    let signature: p256::ecdsa::Signature = signature::Signer::sign(&key, digest.as_bytes());
+    let signature = signature.to_der();
     let signature = Base64Url::encode_string(signature.as_ref());
 
     let object = value
@@ -181,10 +190,7 @@ pub(crate) fn layer_archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dy
 
 #[must_use]
 pub(crate) fn sha256_digest(bytes: &[u8]) -> String {
-    format!(
-        "sha256:{}",
-        hex_encode(digest::digest(&digest::SHA256, bytes).as_ref())
-    )
+    format!("sha256:{}", hex_encode(Sha256::digest(bytes).as_ref()))
 }
 
 fn manifest_signing_digest(manifest_json: &str) -> Result<String, Box<dyn Error>> {
@@ -209,7 +215,7 @@ fn manifest_signing_digest(manifest_json: &str) -> Result<String, Box<dyn Error>
     Ok(sha256_digest(&serde_json::to_vec(&value)?))
 }
 
-fn parse_private_key_pem(pem: &str) -> Result<EcdsaKeyPair, Box<dyn Error>> {
+fn parse_private_key_pem(pem: &str) -> Result<SigningKey, Box<dyn Error>> {
     let mut body = String::new();
     let mut in_block = false;
 
@@ -232,10 +238,9 @@ fn parse_private_key_pem(pem: &str) -> Result<EcdsaKeyPair, Box<dyn Error>> {
     }
 
     let der = Base64::decode_vec(&body)?;
-    let rng = SystemRandom::new();
-    let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &der, &rng)
+    let key = SigningKey::from_pkcs8_der(&der)
         .map_err(|_error| IoError::new(ErrorKind::InvalidData, "invalid ECDSA private key"))?;
-    Ok(key_pair)
+    Ok(key)
 }
 
 fn sort_keys(value: &mut Value) {

@@ -4,18 +4,14 @@ use core::error::Error;
 use core::fmt;
 use core::net::Ipv4Addr;
 use core::time::Duration;
-use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use anyhow::Result;
-use ring::rand::{SecureRandom as _, SystemRandom};
 
 use super::Lease;
 use super::packet::{
     DEFAULT_LEASE_SECS, DEFAULT_PREFIX_LEN, MAGIC_COOKIE, field, message_type, option,
 };
-
-static RNG: LazyLock<SystemRandom> = LazyLock::new(SystemRandom::new);
 
 /// Indicates the DHCP server sent a NAK, requiring a return to INIT state.
 #[derive(Debug)]
@@ -178,7 +174,7 @@ pub(crate) fn build_lease_from_ack(
 /// Generates a cryptographically random 32-bit DHCP transaction ID.
 pub(crate) fn generate_xid() -> Result<u32> {
     let mut buf = [0_u8; 4];
-    RNG.fill(&mut buf)
+    getrandom::fill(&mut buf)
         .map_err(|error| anyhow::anyhow!("failed to generate random DHCP xid: {error}"))?;
 
     Ok(u32::from_be_bytes(buf))

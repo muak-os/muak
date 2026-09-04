@@ -25,7 +25,7 @@ prost = { workspace = true }
 tar = { workspace = true }
 
 # Cryptography
-ring = { workspace = true }
+getrandom = { workspace = true }
 x509-cert = { workspace = true }
 zeroize = { workspace = true }
 

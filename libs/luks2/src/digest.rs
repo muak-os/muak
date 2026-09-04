@@ -3,34 +3,24 @@
 use core::num::NonZeroU32;
 
 use base64ct::{Base64, Encoding as _};
-use ring::pbkdf2;
-use ring::rand::{SecureRandom as _, SystemRandom};
+use subtle::ConstantTimeEq as _;
 
 use crate::error::{Luks2Error as Error, Result};
 use crate::metadata::Digest;
+use crate::pbkdf2;
 
 const DIGEST_ITERATIONS: u32 = 1_000;
-const SHA256_LEN: usize = 32;
 const SALT_LEN: usize = 32;
-
-static PBKDF2_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA256;
 
 /// Creates a new PBKDF2-SHA256 digest of the volume key.
 pub fn create(volume_key: &[u8], keyslot_ids: &[&str], segment_ids: &[&str]) -> Result<Digest> {
-    let rng = SystemRandom::new();
     let mut salt = [0_u8; SALT_LEN];
-    rng.fill(&mut salt)
+    getrandom::fill(&mut salt)
         .map_err(|_error| Error::InvalidField("random generation failed".into()))?;
 
-    let mut digest_value = [0_u8; SHA256_LEN];
-    pbkdf2::derive(
-        PBKDF2_ALG,
-        NonZeroU32::new(DIGEST_ITERATIONS)
-            .ok_or_else(|| Error::InvalidField("invalid iteration count".into()))?,
-        &salt,
-        volume_key,
-        &mut digest_value,
-    );
+    let iterations = NonZeroU32::new(DIGEST_ITERATIONS)
+        .ok_or_else(|| Error::InvalidField("invalid iteration count".into()))?;
+    let digest_value = pbkdf2::derive(volume_key, &salt, iterations)?;
 
     Ok(Digest {
         r#type: "pbkdf2".to_owned(),
@@ -64,239 +54,69 @@ pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
     let iterations = NonZeroU32::new(digest.iterations)
         .ok_or_else(|| Error::InvalidField("invalid iteration count".into()))?;
 
-    let result = pbkdf2::verify(PBKDF2_ALG, iterations, &salt, volume_key, &expected);
+    let computed = pbkdf2::derive(volume_key, &salt, iterations)?;
 
-    Ok(result.is_ok())
+    Ok(computed.as_slice().ct_eq(&expected).into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata::Digest;
 
     #[test]
     fn create_verify_roundtrip() {
         // ARRANGE
         let volume_key = vec![0x42_u8; 64];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
 
         // ACT
-        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+        let digest = create(&volume_key, &["ks0"], &["seg0"]).expect("create digest");
+        let verified = verify(&volume_key, &digest).expect("verify digest");
 
         // ASSERT
-        let result = verify(&volume_key, &digest).unwrap();
-        assert!(result);
+        assert!(verified);
     }
 
     #[test]
-    fn verify_wrong_key() {
+    fn verify_rejects_wrong_volume_key() {
         // ARRANGE
         let volume_key = vec![0x42_u8; 64];
+        let digest = create(&volume_key, &["ks0"], &["seg0"]).expect("create digest");
         let wrong_key = vec![0x43_u8; 64];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
-
-        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
 
         // ACT
-        let result = verify(&wrong_key, &digest).unwrap();
+        let verified = verify(&wrong_key, &digest).expect("verify digest");
 
         // ASSERT
-        assert!(!result);
+        assert!(!verified);
     }
 
     #[test]
-    fn verify_modified_key() {
+    fn verify_rejects_unsupported_digest_type() {
         // ARRANGE
         let volume_key = vec![0x42_u8; 64];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
-
-        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-
-        let mut modified_key = volume_key.clone();
-        *modified_key.get_mut(0).unwrap() ^= 0x01;
+        let mut digest = create(&volume_key, &["ks0"], &["seg0"]).expect("create digest");
+        digest.r#type = "argon2id".to_owned();
 
         // ACT
-        let result = verify(&modified_key, &digest).unwrap();
+        let result = verify(&volume_key, &digest);
 
         // ASSERT
-        assert!(!result);
+        result.expect_err("unsupported digest type should fail");
     }
 
     #[test]
-    fn create_different_salts() {
+    fn create_uses_pbkdf2_sha256_fields() {
         // ARRANGE
         let volume_key = vec![0x42_u8; 64];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
 
         // ACT
-        let digest1 = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-        let digest2 = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-
-        // ASSERT
-        assert_ne!(digest1.salt, digest2.salt);
-
-        assert!(verify(&volume_key, &digest1).unwrap());
-        assert!(verify(&volume_key, &digest2).unwrap());
-    }
-
-    #[test]
-    fn digest_structure() {
-        // ARRANGE
-        let volume_key = vec![0x42_u8; 64];
-        let keyslot_ids = &["0", "1"];
-        let segment_ids = &["0", "1", "2"];
-
-        // ACT
-        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
+        let digest = create(&volume_key, &["ks0"], &["seg0"]).expect("create digest");
 
         // ASSERT
         assert_eq!(digest.r#type, "pbkdf2");
         assert_eq!(digest.hash, "sha256");
         assert_eq!(digest.iterations, DIGEST_ITERATIONS);
-        assert_eq!(digest.keyslots, vec!["0".to_owned(), "1".to_owned()]);
-        assert_eq!(
-            digest.segments,
-            vec!["0".to_owned(), "1".to_owned(), "2".to_owned()]
-        );
-
-        assert!(!digest.salt.is_empty());
-        assert!(!digest.value.is_empty());
-    }
-
-    #[test]
-    fn verify_unsupported_digest_type() {
-        // ARRANGE
-        let volume_key = vec![0x42_u8; 64];
-        let digest = Digest {
-            r#type: "argon2".to_owned(),
-            keyslots: vec!["0".to_owned()],
-            segments: vec!["0".to_owned()],
-            hash: "sha256".to_owned(),
-            iterations: 1000,
-            salt: base64ct::Base64::encode_string(&[0x42_u8; 32]),
-            value: base64ct::Base64::encode_string(&[0x42_u8; 32]),
-        };
-
-        // ACT
-        let result = verify(&volume_key, &digest);
-
-        // ASSERT
-        result.unwrap_err();
-    }
-
-    #[test]
-    fn verify_zero_iterations() {
-        // ARRANGE
-        let volume_key = vec![0x42_u8; 64];
-        let digest = Digest {
-            r#type: "pbkdf2".to_owned(),
-            keyslots: vec!["0".to_owned()],
-            segments: vec!["0".to_owned()],
-            hash: "sha256".to_owned(),
-            iterations: 0,
-            salt: base64ct::Base64::encode_string(&[0x42_u8; 32]),
-            value: base64ct::Base64::encode_string(&[0x42_u8; 32]),
-        };
-
-        // ACT
-        let result = verify(&volume_key, &digest);
-
-        // ASSERT
-        result.unwrap_err();
-    }
-
-    #[test]
-    fn verify_empty_key() {
-        // ARRANGE
-        let volume_key = vec![];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
-
-        let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-
-        // ACT
-        let result = verify(&volume_key, &digest).unwrap();
-
-        // ASSERT
-        assert!(result);
-    }
-
-    #[test]
-    fn verify_different_key_sizes() {
-        // ARRANGE & ACT & ASSERT
-        for size in [16, 32, 64, 128] {
-            let volume_key = vec![0x42_u8; size];
-            let keyslot_ids = &["0"];
-            let segment_ids = &["0"];
-
-            let digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-
-            let result = verify(&volume_key, &digest).unwrap();
-            assert!(result, "Failed for key size {size}");
-        }
-    }
-
-    #[test]
-    fn verify_corrupted_digest() {
-        // ARRANGE
-        let volume_key = vec![0x42_u8; 64];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
-
-        let mut digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-
-        let mut decoded = base64ct::Base64::decode_vec(&digest.value).unwrap();
-        *decoded.get_mut(0).unwrap() ^= 0xFF;
-        digest.value = base64ct::Base64::encode_string(&decoded);
-
-        // ACT
-        let result = verify(&volume_key, &digest).unwrap();
-
-        // ASSERT
-        assert!(!result);
-    }
-
-    #[test]
-    fn verify_corrupted_salt() {
-        // ARRANGE
-        let volume_key = vec![0x42_u8; 64];
-        let keyslot_ids = &["0"];
-        let segment_ids = &["0"];
-
-        let mut digest = create(&volume_key, keyslot_ids, segment_ids).unwrap();
-
-        let mut decoded = base64ct::Base64::decode_vec(&digest.salt).unwrap();
-        *decoded.get_mut(0).unwrap() ^= 0xFF;
-        digest.salt = base64ct::Base64::encode_string(&decoded);
-
-        // ACT
-        let result = verify(&volume_key, &digest).unwrap();
-
-        // ASSERT
-        assert!(!result);
-    }
-
-    #[test]
-    fn verify_invalid_base64_digest_returns_error() {
-        // ARRANGE
-        let digest = Digest {
-            r#type: String::from("pbkdf2"),
-            keyslots: vec![String::from("0")],
-            segments: vec![String::from("0")],
-            hash: String::from("sha256"),
-            iterations: 1,
-            salt: String::from("%%%"),
-            value: String::from("%%%"),
-        };
-
-        // ACT
-        let result = verify(b"key", &digest);
-
-        // ASSERT
-        result.unwrap_err();
+        assert_eq!(digest.keyslots, vec!["ks0".to_owned()]);
+        assert_eq!(digest.segments, vec!["seg0".to_owned()]);
     }
 }

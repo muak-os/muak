@@ -1,6 +1,6 @@
 //! PCR#11 value calculation for sealing policy.
 
-use ring::digest;
+use sha2::{Digest as _, Sha256};
 
 pub(crate) type Digest = [u8; 32];
 
@@ -26,33 +26,35 @@ pub fn predict_pcr11(sections: &[(&str, &[u8; 32])]) -> Digest {
 #[must_use]
 pub(crate) fn compute_policy_digest(expected_pcr: &Digest) -> Digest {
     let mut policy = [0_u8; SHA256_DIGEST_SIZE];
-    let mut policy_ctx = digest::Context::new(&digest::SHA256);
-    policy_ctx.update(&policy);
-    policy_ctx.update(&TPM2_CC_POLICY_PCR.to_be_bytes());
-    policy_ctx.update(&PCR11_SELECTION);
-    policy_ctx.update(digest::digest(&digest::SHA256, expected_pcr).as_ref());
-    policy.copy_from_slice(policy_ctx.finish().as_ref());
+    let mut policy_ctx = Sha256::new();
+    policy_ctx.update(policy);
+    policy_ctx.update(TPM2_CC_POLICY_PCR.to_be_bytes());
+    policy_ctx.update(PCR11_SELECTION);
+    policy_ctx.update(Sha256::digest(expected_pcr));
+    policy.copy_from_slice(&policy_ctx.finalize());
 
     policy
 }
 
 /// Hashes a section name with a null terminator using SHA256.
-fn hash_name(name: &str) -> digest::Digest {
-    let mut context = digest::Context::new(&digest::SHA256);
+fn hash_name(name: &str) -> [u8; SHA256_DIGEST_SIZE] {
+    let mut context = Sha256::new();
     context.update(name.as_bytes());
-    context.update(&[0_u8]);
+    context.update([0_u8]);
 
-    context.finish()
+    let mut out = [0_u8; SHA256_DIGEST_SIZE];
+    out.copy_from_slice(&context.finalize());
+
+    out
 }
 
 /// PCR extend: `SHA256(old_value || measurement)`.
 fn extend(current: &Digest, measurement: &[u8]) -> Digest {
-    let mut context = digest::Context::new(&digest::SHA256);
+    let mut context = Sha256::new();
     context.update(current);
     context.update(measurement);
-    let result = context.finish();
     let mut out = [0_u8; SHA256_DIGEST_SIZE];
-    out.copy_from_slice(result.as_ref());
+    out.copy_from_slice(&context.finalize());
 
     out
 }
@@ -64,6 +66,14 @@ pub(crate) fn pcr11_selection_bytes() -> &'static [u8; 10] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sha256_arr(data: &[u8]) -> [u8; 32] {
+        let digest = Sha256::digest(data);
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&digest);
+
+        hash
+    }
 
     #[test]
     fn predict_pcr11_empty() {
@@ -80,9 +90,9 @@ mod tests {
         let mut h_cmdline = [0; 32];
         let mut h_kernel = [0; 32];
         let mut h_initrd = [0; 32];
-        h_cmdline.copy_from_slice(digest::digest(&digest::SHA256, b"console=ttyS0").as_ref());
-        h_kernel.copy_from_slice(digest::digest(&digest::SHA256, &[0xDE, 0xAD]).as_ref());
-        h_initrd.copy_from_slice(digest::digest(&digest::SHA256, &[0xBE, 0xEF]).as_ref());
+        h_cmdline.copy_from_slice(&Sha256::digest(b"console=ttyS0"));
+        h_kernel.copy_from_slice(&Sha256::digest([0xDE, 0xAD]));
+        h_initrd.copy_from_slice(&Sha256::digest([0xBE, 0xEF]));
 
         let sections: [(&str, &[u8; 32]); 3] = [
             (".cmdline", &h_cmdline),
@@ -142,12 +152,5 @@ mod tests {
             first_digest, second_digest,
             "policy digest should depend on PCR value"
         );
-    }
-
-    fn sha256_arr(data: &[u8]) -> [u8; 32] {
-        let digest = digest::digest(&digest::SHA256, data);
-        let mut hash = [0; 32];
-        hash.copy_from_slice(digest.as_ref());
-        hash
     }
 }

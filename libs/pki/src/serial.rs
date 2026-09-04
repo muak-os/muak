@@ -1,6 +1,5 @@
 //! Serial and SPKI helpers for certificate construction.
 
-use ring::rand::{SystemRandom, generate as generate_random};
 use signature::Keypair as _;
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::serial_number::SerialNumber;
@@ -27,10 +26,8 @@ pub fn signer_spki(signer: &Signer) -> Result<SubjectPublicKeyInfoOwned> {
 /// Returns an error if random byte generation fails or if the resulting serial
 /// number is invalid.
 pub fn generate() -> Result<SerialNumber> {
-    let rng = SystemRandom::new();
-    let random: [u8; 16] = generate_random(&rng)
-        .map_err(|_random_error| PkiError::Random)?
-        .expose();
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).map_err(|_random_error| PkiError::Random)?;
 
     SerialNumber::new(&random).map_err(|_serial_error| PkiError::SerialNumber)
 }

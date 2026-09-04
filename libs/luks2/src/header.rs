@@ -2,8 +2,7 @@
 
 use core::str;
 
-use ring::digest::{SHA256, digest};
-use ring::rand::{SecureRandom as _, SystemRandom};
+use sha2::{Digest as _, Sha256};
 
 use crate::error::{Luks2Error as Error, Result};
 
@@ -61,9 +60,7 @@ impl Header {
         copy_prefix(&mut uuid_buf, uuid_bytes, len)?;
 
         let mut salt = [0_u8; 64];
-        SystemRandom::new()
-            .fill(&mut salt)
-            .map_err(|_error| Error::Rng)?;
+        getrandom::fill(&mut salt).map_err(|_error| Error::Rng)?;
 
         Ok(Self {
             size: DEFAULT_HEADER_SIZE,
@@ -110,7 +107,7 @@ impl Header {
 
         fill_range(&mut buf, CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64, 0)?;
 
-        let hash = digest(&SHA256, &buf);
+        let hash = Sha256::digest(&buf);
         write_range(
             &mut buf,
             CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN,
@@ -174,8 +171,9 @@ impl Header {
 
         let mut verify_buf = read_range(data, 0..BINARY_HEADER_SIZE)?.to_vec();
         fill_range(&mut verify_buf, CHECKSUM_OFFSET..CHECKSUM_OFFSET + 64, 0)?;
-        let computed = digest(&SHA256, &verify_buf);
-        if computed.as_ref() != &checksum[..SHA256_LEN] {
+        let computed_hash = Sha256::digest(&verify_buf);
+        let computed: &[u8] = computed_hash.as_ref();
+        if computed != &checksum[..SHA256_LEN] {
             return Err(Error::ChecksumMismatch);
         }
 

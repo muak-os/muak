@@ -6,8 +6,6 @@ use pki::cert;
 use pki::csr;
 use pki::key::Signer;
 use pki::pem;
-use ring::rand::SecureRandom as _;
-use ring::rand::SystemRandom;
 use x509_cert::Certificate;
 use x509_cert::der::EncodePem as _;
 use x509_cert::der::pem::LineEnding;
@@ -104,9 +102,8 @@ pub fn sign_admin_csr(csr_pem: &str, ca: &CaMaterials) -> Result<(InstallResult,
 
 /// Generates a random LUKS key.
 pub fn generate_luks_key() -> Result<Vec<u8>> {
-    let rng = SystemRandom::new();
     let mut key = vec![0_u8; LUKS_KEY_SIZE];
-    rng.fill(&mut key)
+    getrandom::fill(&mut key)
         .map_err(|err| anyhow::anyhow!("Failed to generate random LUKS key: {err}"))?;
 
     Ok(key)

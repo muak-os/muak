@@ -37,7 +37,6 @@
 
 - Better code quality:
   - Fix all clippy warnings
-  - Remove `ring` crate and use rust crypto project crates instead (especially in `sbolt`).
   - Consolidate crypto code instead of duplicating (maybe in a single crate?)
 
 - Enchance `workloadd`:

@@ -12,7 +12,8 @@ categories.workspace = true
 
 [dependencies]
 # Cryptography
-ring = { workspace = true }
+getrandom = { workspace = true }
+sha2 = { workspace = true }
 zeroize = { workspace = true }
 
 # Error handling

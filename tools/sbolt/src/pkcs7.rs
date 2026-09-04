@@ -10,7 +10,7 @@ use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5912::ID_SHA_256;
 use der::asn1::{Any, OctetString, SetOfVec, UtcTime};
 use der::{Decode as _, Encode as _};
-use ring::digest::{Context, SHA256};
+use sha2::{Digest as _, Sha256};
 use x509_cert::Certificate;
 use x509_cert::attr::{Attribute, AttributeValue};
 
@@ -53,9 +53,7 @@ pub(crate) fn compute_authenticode_size(
     content: &[u8],
     certificate: &Certificate,
 ) -> Result<usize> {
-    let mut ctx = Context::new(&SHA256);
-    ctx.update(content);
-    let digest = ctx.finish();
+    let digest = Sha256::digest(content);
     let digest_bytes = parse_sha256_digest(digest.as_ref())?;
     let signed_attrs = build_signed_attributes(content_type, &digest_bytes)?;
     let zero_sig = [0_u8; 256];
@@ -84,9 +82,7 @@ pub(crate) fn build_detached_signed_data(
     signer: &rsa2048::Signer,
     certificate: &Certificate,
 ) -> Result<Vec<u8>> {
-    let mut ctx = Context::new(&SHA256);
-    ctx.update(data);
-    let digest = ctx.finish();
+    let digest = Sha256::digest(data);
     let digest_bytes = parse_sha256_digest(digest.as_ref())?;
 
     let signed_attrs = build_signed_attributes(ID_DATA, &digest_bytes)?;
@@ -349,9 +345,7 @@ mod tests {
         // ARRANGE
         let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let content = [0x30_u8, 0x00];
-        let mut ctx = Context::new(&SHA256);
-        ctx.update(&content);
-        let digest = ctx.finish();
+        let digest = Sha256::digest(content);
         let digest_bytes = parse_sha256_digest(digest.as_ref()).expect("parse digest");
         let signed_attrs =
             build_signed_attributes(ID_DATA, &digest_bytes).expect("build signed attrs");
@@ -373,9 +367,7 @@ mod tests {
         // ARRANGE
         let (signer, cert) = signer_and_cert().expect("generate signer and certificate");
         let content = [0x30_u8, 0x00];
-        let mut ctx = Context::new(&SHA256);
-        ctx.update(&content);
-        let digest = ctx.finish();
+        let digest = Sha256::digest(content);
         let digest_bytes = parse_sha256_digest(digest.as_ref()).expect("parse digest");
         let signed_attrs =
             build_signed_attributes(ID_DATA, &digest_bytes).expect("build signed attrs");

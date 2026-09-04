@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use ring::digest;
+use sha2::{Digest as _, Sha256};
 
 pub(crate) const RELEASE_API_VERSION: &str = "muak-release-v1";
 const PROFILE_API_VERSION: &str = "muak-profile-v1";
@@ -68,7 +68,7 @@ impl ResolutionId {
         platform: &str,
         policy: &str,
     ) -> Self {
-        let mut context = digest::Context::new(&digest::SHA256);
+        let mut context = Sha256::new();
         context.update(RESOLUTION_API_VERSION.as_bytes());
         context.update(b"\0");
         context.update(profile.as_bytes());
@@ -77,7 +77,7 @@ impl ResolutionId {
         context.update(platform.as_bytes());
         context.update(policy.as_bytes());
         let mut out = [0_u8; 32];
-        out.copy_from_slice(context.finish().as_ref());
+        out.copy_from_slice(context.finalize().as_ref());
 
         Self(out)
     }
@@ -85,12 +85,12 @@ impl ResolutionId {
 
 /// Domain-separated SHA-256 over `data`, with a NUL between domain and data.
 fn domain_hash(domain: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut context = digest::Context::new(&digest::SHA256);
+    let mut context = Sha256::new();
     context.update(domain);
     context.update(b"\0");
     context.update(data);
     let mut out = [0_u8; 32];
-    out.copy_from_slice(context.finish().as_ref());
+    out.copy_from_slice(context.finalize().as_ref());
 
     out
 }

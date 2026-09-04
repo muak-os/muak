@@ -1,6 +1,6 @@
 //! Signature utilities: `WIN_CERTIFICATE` builder, hashing, arithmetic.
 
-use ring::digest::Context;
+use sha2::{Digest as _, Sha256};
 
 use crate::error::{Result, SboltError};
 
@@ -27,7 +27,7 @@ pub(super) fn build_win_certificate(pkcs7_der: &[u8]) -> Result<Vec<u8>> {
 
 /// Hash a range of data, excluding specified regions.
 pub(super) fn hash_range_excluding(
-    ctx: &mut Context,
+    ctx: &mut Sha256,
     data: &[u8],
     start: usize,
     end: usize,

@@ -4,7 +4,6 @@ use core::str::FromStr as _;
 use core::time::Duration;
 
 use der::Decode as _;
-use ring::rand::{SystemRandom, generate};
 use signature::Keypair as _;
 use spki::{EncodePublicKey as _, SubjectPublicKeyInfoOwned};
 use x509_cert::Certificate;
@@ -115,12 +114,10 @@ pub fn generate_db(
 }
 
 fn generate_serial() -> Result<SerialNumber> {
-    let rng = SystemRandom::new();
-    let random: [u8; 16] = generate(&rng)
-        .map_err(|_random_error| {
-            SboltError::KeyGeneration("failed to generate random serial".into())
-        })?
-        .expose();
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).map_err(|_random_error| {
+        SboltError::KeyGeneration("failed to generate random serial".into())
+    })?;
 
     SerialNumber::new(&random)
         .map_err(|e| SboltError::CertificateCreation(format!("invalid serial: {e}")))

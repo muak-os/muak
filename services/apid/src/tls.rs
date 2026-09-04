@@ -7,11 +7,11 @@ use alloc::sync::Arc;
 use anyhow::{Context as _, Result};
 use pki::cert;
 use pki::hex;
-use ring::digest::{SHA256, digest};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
+use sha2::{Digest as _, Sha256};
 use tokio_rustls::TlsAcceptor;
 use x509_cert::der::Encode as _;
 
@@ -125,8 +125,7 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
 /// Extracts SHA256 fingerprint from a DER-encoded certificate.
 #[must_use]
 pub fn extract_fingerprint(cert_der: &[u8]) -> String {
-    let digest = digest(&SHA256, cert_der);
-    hex::encode_lower(digest.as_ref())
+    hex::encode_lower(Sha256::digest(cert_der).as_ref())
 }
 
 #[cfg(test)]

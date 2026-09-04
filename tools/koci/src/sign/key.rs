@@ -1,8 +1,8 @@
 //! PEM key parsing for ECDSA P-256 signing and verification.
 
 use base64ct::Encoding as _;
-use ring::rand::SystemRandom;
-use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair};
+use p256::ecdsa::SigningKey;
+use p256::elliptic_curve::pkcs8::DecodePrivateKey as _;
 
 use crate::error::{KociError, Result};
 
@@ -10,7 +10,7 @@ const POINT_OFFSET: usize = 26;
 const POINT_LEN: usize = 65;
 
 /// Parse a PKCS#8 PEM-encoded ECDSA P-256 private key.
-pub(crate) fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
+pub(crate) fn parse_pem_private_key(pem: &str) -> Result<SigningKey> {
     let b64 = pem_body(
         pem,
         "-----BEGIN PRIVATE KEY-----",
@@ -30,13 +30,11 @@ pub(crate) fn parse_pem_private_key(pem: &str) -> Result<EcdsaKeyPair> {
         ))
     })?;
 
-    EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &der, &SystemRandom::new()).map_err(
-        |error| {
-            KociError::SignatureVerificationFailed(format!(
-                "Failed to parse ECDSA P-256 private key (must be PKCS#8 format): {error}"
-            ))
-        },
-    )
+    SigningKey::from_pkcs8_der(&der).map_err(|error| {
+        KociError::SignatureVerificationFailed(format!(
+            "Failed to parse ECDSA P-256 private key (must be PKCS#8 format): {error}"
+        ))
+    })
 }
 
 /// Parse a PEM-encoded ECDSA P-256 public key and return the raw `SubjectPublicKeyInfo` DER bytes.
@@ -103,17 +101,19 @@ fn pem_body(pem: &str, begin_marker: &str, end_marker: &str) -> String {
 #[cfg(test)]
 mod tests {
     use base64ct::Base64;
-    use ring::signature::KeyPair as _;
+    use getrandom::SysRng;
+    use p256::elliptic_curve::Generate as _;
+    use p256::elliptic_curve::pkcs8::EncodePrivateKey as _;
+    use p256::elliptic_curve::sec1::ToSec1Point as _;
 
     use super::*;
 
     fn generate_private_key_pem() -> String {
-        let rng = SystemRandom::new();
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
-            .expect("generate private key");
+        let key = SigningKey::try_generate_from_rng(&mut SysRng).expect("generate private key");
+        let pkcs8 = key.to_pkcs8_der().expect("encode private key");
         format!(
             "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-            Base64::encode_string(pkcs8.as_ref())
+            Base64::encode_string(pkcs8.as_bytes())
         )
     }
 
@@ -174,7 +174,14 @@ mod tests {
         let key_pair = parse_pem_private_key(&pem).expect("private key parsing should succeed");
 
         // ASSERT
-        assert!(!key_pair.public_key().as_ref().is_empty());
+        assert!(
+            !key_pair
+                .verifying_key()
+                .as_affine()
+                .to_sec1_point(false)
+                .as_bytes()
+                .is_empty()
+        );
     }
 
     #[test]

@@ -11,12 +11,12 @@ mod error;
 mod header;
 mod keyslot;
 mod metadata;
+mod pbkdf2;
 mod xts;
 
 use error::{Luks2Error as Error, Result};
 use header::Header;
 use metadata::Metadata;
-use ring::rand::{SecureRandom as _, SystemRandom};
 use zeroize::Zeroize as _;
 
 /// Represents a TPM2 token stored in the LUKS2 JSON metadata.
@@ -42,13 +42,12 @@ const VOLUME_KEY_SIZE: usize = 64;
 /// Returns an error when random generation, metadata construction, or device
 /// I/O fails.
 pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
-    let rng = SystemRandom::new();
     let mut volume_key = vec![0_u8; VOLUME_KEY_SIZE];
-    rng.fill(&mut volume_key)
+    getrandom::fill(&mut volume_key)
         .map_err(|_error| Error::InvalidField("random generation failed".into()))?;
 
     let mut kdf_salt = [0_u8; 64];
-    rng.fill(&mut kdf_salt)
+    getrandom::fill(&mut kdf_salt)
         .map_err(|_error| Error::InvalidField("random generation failed".into()))?;
 
     let sector_size = dm::device::detect_sector_size(device);

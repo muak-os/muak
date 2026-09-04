@@ -1,7 +1,5 @@
 //! TPM session and transient-handle commands.
 
-use ring::rand::{SecureRandom as _, SystemRandom};
-
 use super::TpmCommand;
 use crate::buffer::CommandBuffer;
 use crate::error::{Result, Tpm2Error};
@@ -26,10 +24,8 @@ impl TpmCommand for StartAuthSessionCommand {
     const COMMAND_CODE: u32 = TPM2_CC_START_AUTH_SESSION;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        let rng = SystemRandom::new();
         let mut nonce = [0_u8; 16];
-        rng.fill(&mut nonce)
-            .map_err(|_rng_error| Tpm2Error::RngFailed)?;
+        getrandom::fill(&mut nonce).map_err(|_rng_error| Tpm2Error::RngFailed)?;
 
         command.write_handle(HierarchyHandle::NULL);
         command.write_handle(HierarchyHandle::NULL);

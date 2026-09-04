@@ -2,7 +2,7 @@
 
 use std::io::{Read, Write};
 
-use ring::digest;
+use sha2::{Digest as _, Sha256};
 use uki::align;
 use uki::section::{CMDLINE, INITRD, KERNEL};
 
@@ -78,7 +78,7 @@ pub fn write<W: Write>(
             }
         };
 
-        let mut ctx = digest::Context::new(&digest::SHA256);
+        let mut ctx = Sha256::new();
         io::copy_exact(reader, output, size, planned.name, &mut |chunk| {
             ctx.update(chunk);
         })?;
@@ -91,7 +91,7 @@ pub fn write<W: Write>(
         pos = file_offset.saturating_add(u64::from(aligned));
 
         let mut section = planned.clone();
-        section.checksum.copy_from_slice(ctx.finish().as_ref());
+        section.checksum.copy_from_slice(ctx.finalize().as_ref());
         sections.push(section);
     }
 

@@ -19,7 +19,7 @@ required-features = ["cli"]
 tar = { workspace = true }
 
 # Cryptography
-ring = { workspace = true }
+sha2 = { workspace = true }
 
 # CLI
 clap = { workspace = true, optional = true }

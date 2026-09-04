@@ -3,8 +3,7 @@
 use core::num::NonZeroUsize;
 
 use base64ct::{Base64, Encoding as _};
-use ring::digest::{Context, SHA256};
-use ring::rand::{SecureRandom as _, SystemRandom};
+use sha2::{Digest as _, Sha256};
 use zeroize::Zeroize as _;
 
 use crate::error::{Luks2Error, Result};
@@ -48,14 +47,12 @@ pub fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
         .ok_or_else(|| Luks2Error::InvalidField("AF split size overflow".into()))?;
     let mut buf = vec![0_u8; total];
 
-    let rng = SystemRandom::new();
-
     // Generate random data for all stripes except the last
     for stripe in buf
         .chunks_exact_mut(key_size)
         .take(stripes.saturating_sub(1))
     {
-        rng.fill(stripe)
+        getrandom::fill(stripe)
             .map_err(|_error| Luks2Error::InvalidField("random generation failed".into()))?;
     }
 
@@ -115,28 +112,22 @@ fn af_diffuse(data: &mut [u8]) -> Result<()> {
     let mut chunk_count = 0_usize;
 
     for (index, chunk) in chunks.iter_mut().enumerate() {
-        let mut ctx = Context::new(&SHA256);
         let index = u32::try_from(index)
             .map_err(|_error| Luks2Error::InvalidField("too many AF chunks".into()))?;
-        ctx.update(&index.to_be_bytes());
-        ctx.update(chunk);
-        let hash = ctx.finish();
-        let hash_prefix = hash
-            .as_ref()
-            .get(..SHA256_LEN)
-            .ok_or_else(|| Luks2Error::InvalidField("hash shorter than chunk".into()))?;
-        chunk.copy_from_slice(hash_prefix);
+        let mut hasher = Sha256::new();
+        hasher.update(index.to_be_bytes());
+        hasher.update(chunk.as_slice());
+        chunk.copy_from_slice(&hasher.finalize());
         chunk_count = chunk_count.saturating_add(1);
     }
     if let Some(remainder_len) = NonZeroUsize::new(remainder.len()) {
-        let mut ctx = Context::new(&SHA256);
         let index = u32::try_from(chunk_count)
             .map_err(|_error| Luks2Error::InvalidField("too many AF chunks".into()))?;
-        ctx.update(&index.to_be_bytes());
-        ctx.update(remainder);
-        let hash = ctx.finish();
+        let mut hasher = Sha256::new();
+        hasher.update(index.to_be_bytes());
+        hasher.update(&mut *remainder);
+        let hash = hasher.finalize();
         let hash_prefix = hash
-            .as_ref()
             .get(..remainder_len.get())
             .ok_or_else(|| Luks2Error::InvalidField("hash shorter than remainder".into()))?;
         remainder.copy_from_slice(hash_prefix);
@@ -154,6 +145,7 @@ pub fn encrypt_keyslot(passphrase: &[u8], volume_key: &[u8], keyslot: &Keyslot) 
     xts::encrypt(&derived_key, &tweak, &mut striped)?;
 
     derived_key.zeroize();
+
     Ok(striped)
 }
 

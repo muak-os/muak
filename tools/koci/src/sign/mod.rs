@@ -4,8 +4,7 @@ use core::mem;
 
 use base64ct::{Base64Url, Encoding as _};
 use hyper::body::Bytes;
-use ring::rand::SystemRandom;
-use ring::signature::EcdsaKeyPair;
+use p256::ecdsa::SigningKey;
 
 use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
@@ -37,8 +36,7 @@ async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
     let client = build_client();
 
     let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
-    let key_pair = parse_pem_private_key(privkey_pem)?;
-    let rng = SystemRandom::new();
+    let key = parse_pem_private_key(privkey_pem)?;
 
     let manifest_url = manifest::build_url(&image_ref, &image_ref.manifest_ref);
     let manifest_json = manifest::fetch(&client, &manifest_url, token.as_deref()).await?;
@@ -48,8 +46,7 @@ async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
         for descriptor in &parsed.manifests {
             let platform_url = manifest::build_url(&image_ref, &descriptor.digest);
             let platform_json = manifest::fetch(&client, &platform_url, token.as_deref()).await?;
-            let (signed_bytes, content_type) =
-                build_signed_manifest(&platform_json, &key_pair, &rng)?;
+            let (signed_bytes, content_type) = build_signed_manifest(&platform_json, &key)?;
             push_manifest(
                 &client,
                 &image_ref,
@@ -62,7 +59,7 @@ async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
         }
     }
 
-    let (signed_bytes, content_type) = build_signed_manifest(&manifest_json, &key_pair, &rng)?;
+    let (signed_bytes, content_type) = build_signed_manifest(&manifest_json, &key)?;
 
     push_manifest(
         &client,
@@ -139,20 +136,12 @@ fn sort_keys(value: &mut serde_json::Value) {
 /// Build a signed manifest: compute the payload, sign it and inject the annotation.
 pub(crate) fn build_signed_manifest(
     manifest_json: &str,
-    key_pair: &EcdsaKeyPair,
-    rng: &SystemRandom,
+    key: &SigningKey,
 ) -> Result<(Bytes, String)> {
     let digest = manifest_signing_payload(manifest_json)?;
 
-    let sig = match key_pair.sign(rng, digest.as_bytes()) {
-        Ok(signature) => signature,
-        Err(error) => {
-            return Err(KociError::SignatureVerificationFailed(format!(
-                "Signing failed: {error}"
-            )));
-        }
-    };
-    let sig_b64 = Base64Url::encode_string(sig.as_ref());
+    let signature: p256::ecdsa::Signature = signature::Signer::sign(key, digest.as_bytes());
+    let sig_b64 = Base64Url::encode_string(signature.to_der().as_ref());
 
     let mut manifest_value: serde_json::Value = match serde_json::from_str(manifest_json) {
         Ok(value) => value,
@@ -207,19 +196,17 @@ async fn push_manifest(
 mod tests {
     use core::str;
 
-    use ring::signature::{
-        ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _,
-        UnparsedPublicKey,
-    };
+    use getrandom::SysRng;
+    use p256::ecdsa::{Signature as EcdsaSignature, SigningKey, VerifyingKey};
+    use p256::elliptic_curve::Generate as _;
+    use p256::elliptic_curve::sec1::ToSec1Point as _;
+    use signature::Verifier as _;
 
     use super::*;
     use crate::digest::sha256_hex;
 
-    fn generate_test_key_pair(rng: &SystemRandom) -> EcdsaKeyPair {
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, rng)
-            .expect("generate ECDSA test key");
-        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), rng)
-            .expect("parse generated ECDSA test key")
+    fn generate_test_key() -> SigningKey {
+        SigningKey::try_generate_from_rng(&mut SysRng).expect("generate test key")
     }
 
     fn decode_base64url(input: &str) -> Vec<u8> {
@@ -269,13 +256,12 @@ mod tests {
     #[test]
     fn build_signed_manifest_roundtrip() {
         // ARRANGE
-        let rng = SystemRandom::new();
-        let key_pair = generate_test_key_pair(&rng);
+        let key = generate_test_key();
         let manifest_json = r#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:abc","size":1},"layers":[]}"#;
 
         // ACT
         let (signed_bytes, _content_type) =
-            build_signed_manifest(manifest_json, &key_pair, &rng).expect("build signed manifest");
+            build_signed_manifest(manifest_json, &key).expect("build signed manifest");
         let signed_value: serde_json::Value =
             serde_json::from_slice(&signed_bytes).expect("parse signed manifest");
         let sig_b64 = signed_value
@@ -286,12 +272,19 @@ mod tests {
         let sig_bytes = decode_base64url(sig_b64);
         let digest =
             manifest_signing_payload(manifest_json).expect("compute manifest signing payload");
-        let pub_key =
-            UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, key_pair.public_key().as_ref());
+        let signature = EcdsaSignature::from_der(&sig_bytes).expect("parse ASN.1 DER signature");
+        let verifying_key = VerifyingKey::from_sec1_bytes(
+            key.verifying_key()
+                .as_affine()
+                .to_sec1_point(false)
+                .as_bytes(),
+        )
+        .expect("parse public key point");
 
         // ASSERT
+        let result = verifying_key.verify(digest.as_bytes(), &signature);
         assert!(
-            pub_key.verify(digest.as_bytes(), &sig_bytes).is_ok(),
+            result.is_ok(),
             "signature must verify against the canonical manifest digest"
         );
     }
@@ -355,12 +348,10 @@ mod tests {
     #[test]
     fn build_signed_manifest_rejects_invalid_json() {
         // ARRANGE
-        let rng = SystemRandom::new();
-        let key_pair = generate_test_key_pair(&rng);
+        let key = generate_test_key();
 
         // ACT
-        let error =
-            build_signed_manifest("not json", &key_pair, &rng).expect_err("signing should fail");
+        let error = build_signed_manifest("not json", &key).expect_err("signing should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::OciParseError(_)));
@@ -369,13 +360,11 @@ mod tests {
     #[test]
     fn build_signed_manifest_rejects_non_object_annotations() {
         // ARRANGE
-        let rng = SystemRandom::new();
-        let key_pair = generate_test_key_pair(&rng);
+        let key = generate_test_key();
         let manifest_json = r#"{"schemaVersion":2,"annotations":[],"layers":[]}"#;
 
         // ACT
-        let error =
-            build_signed_manifest(manifest_json, &key_pair, &rng).expect_err("signing should fail");
+        let error = build_signed_manifest(manifest_json, &key).expect_err("signing should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));

@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use der::Encode as _;
 use object::pe::{IMAGE_DIRECTORY_ENTRY_SECURITY, ImageDataDirectory, ImageOptionalHeader64};
 use ops::{CERT_TABLE_ENTRY_SIZE, build_win_certificate, hash_range_excluding, put_u32_le};
-use ring::digest::{Context, SHA256};
+use sha2::{Digest as _, Sha256};
 use spc::build_spc_indirect_data;
 use uki::align;
 use uki::metadata;
@@ -100,7 +100,7 @@ pub fn sign<R: Read, W: Write>(
         .ok_or_else(|| SboltError::PeOperation("cert table size offset overflow".into()))?;
     put_u32_le(&mut header_buf, cert_table_size_offset, cert_size_u32)?;
 
-    let mut hash_ctx = Context::new(&SHA256);
+    let mut hash_ctx = Sha256::new();
     hash_range_excluding(
         &mut hash_ctx,
         header_buf.as_slice(),
@@ -157,7 +157,7 @@ pub fn sign<R: Read, W: Write>(
 fn stream_sections<W: Write>(
     reader: &mut dyn Read,
     writer: &mut W,
-    hash: &mut Context,
+    hash: &mut Sha256,
     expected: usize,
 ) -> Result<usize> {
     let mut remaining = expected;
@@ -195,25 +195,19 @@ fn stream_sections<W: Write>(
 
 /// Build the Authenticode signature and write the `WIN_CERTIFICATE` with padding.
 fn build_and_write_signature<W: Write>(
-    hash_ctx: Context,
+    hash_ctx: Sha256,
     signer: &rsa2048::Signer,
     certificate: &Certificate,
     writer: &mut W,
     written: usize,
 ) -> Result<()> {
-    let hash: [u8; 32] = hash_ctx
-        .finish()
-        .as_ref()
-        .try_into()
-        .map_err(|e| SboltError::Signing(format!("hash extraction: {e}")))?;
+    let digest = hash_ctx.finalize();
+    let mut hash = [0_u8; 32];
+    hash.copy_from_slice(&digest);
     let spc_content = build_spc_indirect_data(&hash)?;
-    let mut spc_ctx = Context::new(&SHA256);
-    spc_ctx.update(&spc_content);
-    let digest = spc_ctx.finish();
-    let digest_bytes: [u8; 32] = digest
-        .as_ref()
-        .try_into()
-        .map_err(|e| SboltError::Signing(format!("digest mismatch: {e}")))?;
+    let digest = Sha256::digest(&spc_content);
+    let mut digest_bytes = [0_u8; 32];
+    digest_bytes.copy_from_slice(&digest);
     let signed_attrs = pkcs7::build_signed_attributes(SPC_INDIRECT_DATA_OBJID, &digest_bytes)?;
     let attrs_der = signed_attrs
         .to_der()
@@ -268,7 +262,7 @@ mod tests {
     use der::Decode as _;
     use der::asn1::OctetString;
     use object::pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC;
-    use ring::digest::{Context, SHA256};
+    use sha2::Sha256;
 
     use super::*;
     use crate::keys::cert;
@@ -636,13 +630,11 @@ mod tests {
             .expect("decode md as OctetString");
         let message_digest = md_octet.as_bytes();
 
-        let mut ctx = Context::new(&SHA256);
-        ctx.update(value_octets);
-        let computed = ctx.finish();
+        let computed = Sha256::digest(value_octets);
+        let computed: &[u8] = computed.as_ref();
 
         assert_eq!(
-            message_digest,
-            computed.as_ref(),
+            message_digest, computed,
             "messageDigest must equal SHA-256 of eContent value octets \
              (OVMF firmware strips the SEQUENCE tag+length before hashing)"
         );

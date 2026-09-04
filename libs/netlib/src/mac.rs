@@ -1,14 +1,14 @@
 //! Deterministic MAC address generation.
 
-use ring::digest;
+use sha2::{Digest as _, Sha256};
 
 /// Generates a deterministic locally-administered unicast MAC from an identifier.
 #[must_use]
 pub fn generate(id: &str) -> [u8; 6] {
-    let result = digest::digest(&digest::SHA256, id.as_bytes());
+    let result = Sha256::digest(id.as_bytes());
 
     let mut mac = [0_u8; 6];
-    for (dst, src) in mac.iter_mut().zip(result.as_ref()) {
+    for (dst, src) in mac.iter_mut().zip(result.iter()) {
         *dst = *src;
     }
 

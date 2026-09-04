@@ -1,6 +1,5 @@
 //! Key type and hierarchy definitions.
 
-use ring::rand::{SecureRandom as _, SystemRandom};
 use x509_cert::Certificate;
 
 use super::cert;
@@ -106,9 +105,8 @@ impl Bundle {
 
     /// Generate a random owner GUID.
     fn generate_owner_guid() -> Result<uefi::Guid> {
-        let rng = SystemRandom::new();
         let mut bytes = [0_u8; 16];
-        rng.fill(&mut bytes)
+        getrandom::fill(&mut bytes)
             .map_err(|_guid_error| SboltError::KeyGeneration("failed to generate GUID".into()))?;
 
         bytes[6] = (bytes[6] & 0x0f) | 0x40;

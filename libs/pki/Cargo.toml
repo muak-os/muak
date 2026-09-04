@@ -16,7 +16,9 @@ x509-cert = { workspace = true }
 der = { workspace = true }
 spki = { workspace = true }
 const-oid = { workspace = true }
-ring = { workspace = true }
+getrandom = { workspace = true }
+p256 = { workspace = true }
+sha2 = { workspace = true }
 signature = { workspace = true }
 zeroize = { workspace = true }
 

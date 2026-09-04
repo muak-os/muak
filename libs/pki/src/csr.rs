@@ -4,8 +4,9 @@ use core::str::FromStr as _;
 use core::time::Duration;
 
 use der::{DecodePem as _, Encode as _, EncodePem as _, pem::LineEnding};
-use ring::digest::{SHA256, digest};
-use ring::signature::{ECDSA_P256_SHA256_ASN1, UnparsedPublicKey};
+use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
+use sha2::{Digest as _, Sha256};
+use signature::Verifier as _;
 use x509_cert::Certificate;
 use x509_cert::builder::{Builder as _, CertificateBuilder};
 use x509_cert::name::Name;
@@ -77,10 +78,13 @@ fn verify_signature(csr: &CertReq) -> Result<()> {
 
     let sig_bytes = csr.signature.as_bytes().ok_or(PkiError::CsrVerification)?;
 
-    let public_key = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, pub_key_der);
+    let verifying_key = VerifyingKey::from_sec1_bytes(pub_key_der)
+        .map_err(|_key_error| PkiError::CsrVerification)?;
+    let signature =
+        EcdsaSignature::from_der(sig_bytes).map_err(|_sig_error| PkiError::CsrVerification)?;
 
-    public_key
-        .verify(&info_der, sig_bytes)
+    verifying_key
+        .verify(&info_der, &signature)
         .map_err(|_verification_error| PkiError::CsrVerification)
 }
 
@@ -92,7 +96,7 @@ fn verify_signature(csr: &CertReq) -> Result<()> {
 pub fn compute_fingerprint(csr_pem: &str) -> Result<String> {
     let csr = CertReq::from_pem(csr_pem)?;
     let spki_der = csr.info.public_key.to_der()?;
-    let digest = digest(&SHA256, &spki_der);
+    let digest = Sha256::digest(&spki_der);
 
     Ok(encode_lower(digest.as_ref()))
 }

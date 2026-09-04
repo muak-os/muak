@@ -1,12 +1,12 @@
 //! Cryptographic digest utilities for OCI blob integrity.
 
-use ring::digest;
+use sha2::{Digest as _, Sha256};
 
 use crate::error::{KociError, Result};
 
 /// Streaming SHA-256 digest verifier.
 pub(crate) struct StreamingDigest {
-    context: digest::Context,
+    context: Sha256,
     expected: String,
 }
 
@@ -23,7 +23,7 @@ impl StreamingDigest {
                 })?;
 
         Ok(Self {
-            context: digest::Context::new(&digest::SHA256),
+            context: Sha256::new(),
             expected: expected_hash.to_owned(),
         })
     }
@@ -35,7 +35,7 @@ impl StreamingDigest {
 
     /// Finalize and verify the digest matches the expected value.
     pub(crate) fn verify(self) -> Result<()> {
-        let hash = self.context.finish();
+        let hash = self.context.finalize();
         let actual = hex_encode(hash.as_ref());
 
         if actual != self.expected {
@@ -52,8 +52,7 @@ impl StreamingDigest {
 
 /// Compute the SHA-256 hex digest of the given bytes.
 pub(crate) fn sha256_hex(data: &[u8]) -> String {
-    let hash = digest::digest(&digest::SHA256, data);
-    hex_encode(hash.as_ref())
+    hex_encode(Sha256::digest(data).as_ref())
 }
 
 /// Encode bytes as a lowercase hex string.

@@ -4,7 +4,7 @@ use core::str::FromStr as _;
 use core::time::Duration;
 
 use der::Encode as _;
-use ring::digest::{SHA256, digest};
+use sha2::{Digest as _, Sha256};
 use x509_cert::Certificate;
 use x509_cert::builder::{Builder as _, CertificateBuilder};
 use x509_cert::name::Name;
@@ -77,7 +77,7 @@ pub fn generate_server(
 pub fn compute_fingerprint(cert: &Certificate) -> Result<String> {
     cert.to_der()
         .map(|cert_der| {
-            let digest = digest(&SHA256, &cert_der);
+            let digest = Sha256::digest(&cert_der);
             encode_lower(digest.as_ref())
         })
         .map_err(PkiError::from)

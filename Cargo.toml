@@ -93,7 +93,6 @@ tar = "0.4"
 zstd = { version = "0.13", default-features = false, features = ["zstdmt"] }
 
 ## Cryptography
-ring = { version = "0.17", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 x509-cert = { version = "0.3", features = ["builder"] }
 der = { version = "0.8", features = ["alloc", "oid", "pem", "std"] }
@@ -103,6 +102,11 @@ rsa = "0.10.0-rc.18"
 cms = "0.3.0-pre.2"
 aes = "0.9"
 argon2 = { version = "0.6", default-features = false, features = ["password-hash", "alloc", "rand_core", "zeroize"] }
+p256 = "0.14.0"
+getrandom = { version = "0.4", features = ["sys_rng"] }
+hmac = "0.13"
+sha2 = "0.11"
+subtle = "2.6"
 zeroize = "1.9"
 webpki-roots = "1.0"
 

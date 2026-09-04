@@ -16,7 +16,8 @@ linux = ["dep:rustix"]
 
 [dependencies]
 # Cryptography
-ring = { workspace = true }
+getrandom = { workspace = true }
+sha2 = { workspace = true }
 rsa = { workspace = true }
 x509-cert = { workspace = true }
 der = { workspace = true }
