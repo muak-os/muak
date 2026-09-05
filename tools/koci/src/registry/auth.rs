@@ -54,9 +54,17 @@ impl Credentials {
 
     /// Read credentials from [`USERNAME_ENV`] and [`PASSWORD_ENV`].
     pub(crate) fn from_env() -> Option<Self> {
+        Self::from_parts(
+            std::env::var(USERNAME_ENV).ok().as_deref(),
+            std::env::var(PASSWORD_ENV).ok().as_deref(),
+        )
+    }
+
+    /// Build credentials from optional raw values, ignoring empty ones.
+    fn from_parts(username: Option<&str>, password: Option<&str>) -> Option<Self> {
         Some(Self::new(
-            std::env::var(USERNAME_ENV).ok()?,
-            std::env::var(PASSWORD_ENV).ok()?,
+            username.filter(|value| !value.is_empty())?,
+            password.filter(|value| !value.is_empty())?,
         ))
     }
 
@@ -370,6 +378,15 @@ mod tests {
 
         // ACT / ASSERT
         assert_eq!(credentials.basic_header(), "Basic dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn from_parts_ignores_empty_values() {
+        // ARRANGE / ACT / ASSERT
+        assert!(Credentials::from_parts(Some("user"), Some("pass")).is_some());
+        assert!(Credentials::from_parts(Some("user"), Some("")).is_none());
+        assert!(Credentials::from_parts(Some(""), Some("pass")).is_none());
+        assert!(Credentials::from_parts(None, None).is_none());
     }
 
     #[test]

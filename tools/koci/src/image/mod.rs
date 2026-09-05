@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub(crate) mod manifest;
 
@@ -18,17 +18,19 @@ pub struct OciManifest {
 }
 
 /// OCI descriptor used to reference a blob.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct OciDescriptor {
     #[serde(rename = "mediaType")]
     pub media_type: Option<String>,
     pub digest: String,
     #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
     pub platform: Option<Platform>,
 }
 
 /// Platform information for multi-architecture images.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Serialize)]
 pub struct Platform {
     pub architecture: Option<String>,
     pub os: Option<String>,

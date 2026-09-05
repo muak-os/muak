@@ -9,6 +9,7 @@ pub mod arch;
 mod digest;
 pub mod error;
 mod image;
+pub mod merge;
 pub mod pull;
 mod registry;
 mod runtime;

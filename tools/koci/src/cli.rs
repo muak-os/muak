@@ -9,6 +9,7 @@ use koci::annotations::{self, Verification};
 use koci::arch;
 use koci::arch::Arch;
 use koci::error;
+use koci::merge;
 use koci::pull;
 
 /// Top-level CLI arguments.
@@ -58,6 +59,16 @@ enum Command {
 
         #[arg(long, value_name = "PREFIX")]
         exclude: Vec<String>,
+    },
+    Merge {
+        #[arg(short, long)]
+        image: String,
+
+        #[arg(short, long = "tag", required = true)]
+        tags: Vec<String>,
+
+        #[arg(value_name = "ARCH=REF", required = true)]
+        sources: Vec<String>,
     },
 }
 
@@ -133,6 +144,25 @@ fn run_command(command: Command) -> Result<()> {
             annotations::sizes(&image, &annotation, &exclude)
                 .context("Failed to annotate image")?;
             println!("Successfully annotated {image}");
+
+            Ok(())
+        }
+        Command::Merge {
+            image,
+            tags,
+            sources,
+        } => {
+            let sources = sources
+                .iter()
+                .map(|spec| merge::parse_source(spec))
+                .collect::<error::Result<Vec<_>>>()
+                .context("Failed to parse sources")?;
+
+            merge::index(&image, &tags, &sources).context("Failed to merge index")?;
+            println!(
+                "Successfully merged {} source(s) into {image}",
+                sources.len()
+            );
 
             Ok(())
         }
@@ -241,6 +271,51 @@ mod tests {
 
         // ASSERT
         assert!(error.to_string().contains("--sig-annotation"));
+    }
+
+    #[test]
+    fn merge_subcommand_parses_tags_and_arch_ref_sources() {
+        // ARRANGE
+        let args = Args::try_parse_from([
+            "koci",
+            "merge",
+            "--image",
+            "repo:test",
+            "--tag",
+            "v1",
+            "--tag",
+            "latest",
+            "amd64=v1-amd64",
+            "arm64=sha256:abc",
+        ])
+        .expect("parse merge args");
+
+        // ACT
+        let command = args.command;
+
+        // ASSERT
+        assert!(matches!(
+            command,
+            Command::Merge {
+                image,
+                tags,
+                sources,
+            } if image == "repo:test"
+                && tags == vec!["v1".to_owned(), "latest".to_owned()]
+                && sources == vec!["amd64=v1-amd64".to_owned(), "arm64=sha256:abc".to_owned()]
+        ));
+    }
+
+    #[test]
+    fn merge_requires_at_least_one_tag_and_source() {
+        // ARRANGE / ACT / ASSERT
+        let error = Args::try_parse_from(["koci", "merge", "--image", "repo:test"])
+            .expect_err("merge without tags or sources should not parse");
+        assert!(error.to_string().contains("--tag"));
+
+        let error = Args::try_parse_from(["koci", "merge", "--image", "repo:test", "--tag", "v1"])
+            .expect_err("merge without sources should not parse");
+        assert!(error.to_string().contains("ARCH=REF"));
     }
 
     #[test]

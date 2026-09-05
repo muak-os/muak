@@ -17,6 +17,7 @@ mod tests {
     use koci::annotations;
     use koci::arch::Arch;
     use koci::error::KociError;
+    use koci::merge;
     use koci::pull;
     use serde_json::Value;
     use tempfile::TempDir;
@@ -383,6 +384,117 @@ mod tests {
                 .and_then(Value::as_str)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn merge_creates_multi_arch_index_from_per_arch_manifests() {
+        // ARRANGE
+        let amd64_manifest = manifest_json("sha256:aaa", 1).expect("build amd64 manifest");
+        let arm64_manifest = manifest_json("sha256:bbb", 2).expect("build arm64 manifest");
+        let registry = MockRegistry::start(HashMap::from([
+            get(
+                "/v2/repo/manifests/v1-amd64",
+                HttpResponse::json(amd64_manifest.clone()),
+            ),
+            get(
+                "/v2/repo/manifests/v1-arm64",
+                HttpResponse::json(arm64_manifest.clone()),
+            ),
+            put("/v2/repo/manifests/v1", HttpResponse::ok()),
+            put("/v2/repo/manifests/latest", HttpResponse::ok()),
+        ]))
+        .expect("start mock registry");
+        let sources = vec![
+            merge::Source {
+                arch: Arch::Amd64,
+                reference: "v1-amd64".to_owned(),
+            },
+            merge::Source {
+                arch: Arch::Arm64,
+                reference: "v1-arm64".to_owned(),
+            },
+        ];
+
+        // ACT
+        merge::index(
+            &registry.reference("repo", "v1"),
+            &["v1".to_owned(), "latest".to_owned()],
+            &sources,
+        )
+        .expect("merge should succeed");
+
+        // ASSERT
+        for tag in ["v1", "latest"] {
+            let request = required_request(&registry, "PUT", &format!("/v2/repo/manifests/{tag}"));
+            let index: Value = serde_json::from_slice(&request.body).expect("parse index body");
+            assert_eq!(index.get("schemaVersion").and_then(Value::as_u64), Some(2));
+            assert_eq!(
+                index.get("mediaType").and_then(Value::as_str),
+                Some("application/vnd.oci.image.index.v1+json")
+            );
+
+            let manifests = index
+                .get("manifests")
+                .and_then(Value::as_array)
+                .expect("manifests array");
+            assert_eq!(manifests.len(), 2);
+
+            let amd64_descriptor = manifests.first().expect("amd64 descriptor");
+            assert_eq!(
+                amd64_descriptor
+                    .get("platform")
+                    .and_then(|platform| platform.get("architecture"))
+                    .and_then(Value::as_str),
+                Some("amd64")
+            );
+            assert_eq!(
+                amd64_descriptor.get("digest").and_then(Value::as_str),
+                Some(sha256_digest(&amd64_manifest).as_str()),
+            );
+            assert_eq!(
+                amd64_descriptor.get("size").and_then(Value::as_u64),
+                Some(u64::try_from(amd64_manifest.len()).expect("size fits u64"))
+            );
+
+            let arm64_descriptor = manifests.get(1).expect("arm64 descriptor");
+            assert_eq!(
+                arm64_descriptor
+                    .get("platform")
+                    .and_then(|platform| platform.get("architecture"))
+                    .and_then(Value::as_str),
+                Some("arm64")
+            );
+            assert_eq!(
+                arm64_descriptor.get("digest").and_then(Value::as_str),
+                Some(sha256_digest(&arm64_manifest).as_str()),
+            );
+            assert_eq!(
+                arm64_descriptor.get("size").and_then(Value::as_u64),
+                Some(u64::try_from(arm64_manifest.len()).expect("size fits u64"))
+            );
+        }
+    }
+
+    #[test]
+    fn merge_rejects_duplicate_platforms_before_network() {
+        // ARRANGE
+        let sources = vec![
+            merge::Source {
+                arch: Arch::Amd64,
+                reference: "v1-amd64".to_owned(),
+            },
+            merge::Source {
+                arch: Arch::Amd64,
+                reference: "v1-amd64-copy".to_owned(),
+            },
+        ];
+
+        // ACT
+        let error = merge::index("127.0.0.1:9/repo:v1", &["v1".to_owned()], &sources)
+            .expect_err("duplicate platforms should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::InvalidOciFormat(_)));
     }
 
     #[test]
