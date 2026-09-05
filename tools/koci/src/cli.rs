@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
+use koci::annotate;
 use koci::arch;
 use koci::arch::Arch;
 use koci::error;
@@ -42,6 +43,13 @@ enum Command {
 
         #[arg(long, value_name = "PATH")]
         key: PathBuf,
+    },
+    Annotate {
+        #[arg(short, long)]
+        image: String,
+
+        #[arg(long, value_name = "PREFIX")]
+        exclude: Vec<String>,
     },
 }
 
@@ -93,6 +101,12 @@ fn run_command(command: Command) -> Result<()> {
 
             sign::manifest(&image, &private_key_pem).context("Failed to sign image")?;
             println!("Successfully signed {image}");
+
+            Ok(())
+        }
+        Command::Annotate { image, exclude } => {
+            annotate::manifest(&image, &exclude).context("Failed to annotate image")?;
+            println!("Successfully annotated {image}");
 
             Ok(())
         }
@@ -193,6 +207,33 @@ mod tests {
         assert!(matches!(
             command,
             Command::Sign { image, key } if image == "repo:test" && key == Path::new("koci.key")
+        ));
+    }
+
+    #[test]
+    fn annotate_subcommand_parses_excludes() {
+        // ARRANGE
+        let args = Args::try_parse_from([
+            "koci",
+            "annotate",
+            "--image",
+            "repo:test",
+            "--exclude",
+            "lib/modules",
+            "--exclude",
+            "usr/share",
+        ])
+        .expect("parse annotate args");
+
+        // ACT
+        let command = args.command;
+
+        // ASSERT
+        assert!(matches!(
+            command,
+            Command::Annotate { image, exclude }
+                if image == "repo:test"
+                    && exclude == vec!["lib/modules".to_owned(), "usr/share".to_owned()]
         ));
     }
 

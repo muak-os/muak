@@ -1,5 +1,6 @@
 pub(crate) mod auth;
 pub(crate) mod http;
+pub(crate) mod session;
 
 /// Accepted media types for OCI manifest requests.
 pub(crate) const OCI_MANIFEST_ACCEPT_HEADERS: &[&str] = &[

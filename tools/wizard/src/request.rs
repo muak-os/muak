@@ -8,9 +8,11 @@ use sbolt::keys::SigningPair;
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
+use crate::domain::overlay;
 use crate::domain::profile::Profile;
+use crate::domain::resolution::Resolution;
 use crate::error::{Result, WizardError};
-use crate::nodes::overlay::discovery::assets;
+use crate::nodes::entry_sizes;
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
@@ -121,11 +123,7 @@ impl<'a> Request<'a> {
         }
 
         let mut resolution = resolver::plan(&self, profile)?;
-        let overlay_assets = match resolution.build().overlay() {
-            Some(overlay) => Some(assets(overlay)?),
-            None => None,
-        };
-        resolution.set_overlay_assets(overlay_assets);
+        discover_assets(&mut resolution)?;
         let profile_bytes = profile.canonical_bytes()?;
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
         let ctx = BuildContext {
@@ -168,6 +166,25 @@ impl fmt::Display for Platform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
+}
+
+/// Discovers every overlay asset from the overlay image's `dev.muak.sizes`
+/// annotation and stores them on the resolution.
+///
+/// # Errors
+///
+/// Returns an error when the sizes annotation is missing or malformed or an
+/// entry references a malformed placement.
+fn discover_assets(resolution: &mut Resolution) -> Result<()> {
+    let Some(overlay) = resolution.build().overlay() else {
+        return Ok(());
+    };
+    let entries: Vec<(String, u64)> = entry_sizes(&overlay.source, overlay.arch)?
+        .into_iter()
+        .collect();
+    resolution.set_overlay_assets(Some(overlay::classify(overlay, entries)?));
+
+    Ok(())
 }
 
 #[cfg(test)]

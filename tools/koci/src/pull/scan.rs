@@ -1,12 +1,11 @@
 //! Scanning and processing OCI layer tar archives.
 
-use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 
-use super::entries::{FileEntry, MetadataEntry};
+use super::entries::FileEntry;
+use super::paths::{normalize_entry_path, whiteout_target};
 use crate::error::{KociError, Result};
-use crate::pull::layer::{normalize_entry_path, whiteout_target};
 
 /// Outcome of classifying a tar entry.
 pub(crate) enum EntryInfo {
@@ -78,45 +77,19 @@ pub(crate) fn scan_whiteouts<R: Read>(data: R) -> Result<Vec<PathBuf>> {
     Ok(whiteouts)
 }
 
-/// Process a single tar entry for metadata extraction.
-pub(crate) fn handle_metadata_entry(
-    info: EntryInfo,
-    layer_idx: usize,
-    whiteout_layers: &HashMap<PathBuf, usize>,
-    handler: &mut impl FnMut(MetadataEntry) -> Result<()>,
-) -> Result<()> {
-    if let EntryInfo::File(path, size, mode) = info {
-        let blocked = whiteout_layers.get(&path).is_some_and(|&wl| wl > layer_idx);
-        if !blocked {
-            handler(MetadataEntry {
-                path: path.to_string_lossy().to_string(),
-                size,
-                mode,
-            })?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Process a single tar entry for file streaming.
+/// Process a single live tar entry for file streaming.
 pub(crate) fn handle_file_entry<R: Read>(
     mut entry: tar::Entry<R>,
     info: EntryInfo,
-    layer_idx: usize,
-    whiteout_layers: &HashMap<PathBuf, usize>,
     handler: &mut impl FnMut(FileEntry) -> Result<()>,
 ) -> Result<()> {
     if let EntryInfo::File(path, size, mode) = info {
-        let blocked = whiteout_layers.get(&path).is_some_and(|&wl| wl > layer_idx);
-        if !blocked {
-            handler(FileEntry {
-                path: path.to_string_lossy().to_string(),
-                size,
-                mode,
-                reader: &mut entry,
-            })?;
-        }
+        handler(FileEntry {
+            path: path.to_string_lossy().to_string(),
+            size,
+            mode,
+            reader: &mut entry,
+        })?;
     }
 
     Ok(())

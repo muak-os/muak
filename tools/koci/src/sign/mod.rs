@@ -3,15 +3,12 @@
 use core::mem;
 
 use base64ct::{Base64Url, Encoding as _};
-use hyper::body::Bytes;
 use p256::ecdsa::SigningKey;
 
 use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
 use crate::image::manifest;
-use crate::image::{ImageReference, OciManifest};
-use crate::registry::auth::fetch_auth_token;
-use crate::registry::http::{HttpClient, build_client, put};
+use crate::registry::session::Session;
 use crate::runtime;
 use crate::sign::verify::parse_pem_private_key;
 
@@ -31,42 +28,30 @@ pub fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
 
 /// Sign an OCI image manifest in the registry.
 async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
-    let image_ref = ImageReference::parse(reference);
-    let client = build_client();
-
-    let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
+    let session = Session::new(reference).await?;
     let key = parse_pem_private_key(privkey_pem)?;
 
-    let manifest_url = manifest::build_url(&image_ref, &image_ref.manifest_ref);
-    let manifest_json = manifest::fetch(&client, &manifest_url, token.as_deref()).await?;
-    let parsed: OciManifest = manifest::parse(&manifest_json)?;
+    let manifest_url = manifest::build_url(&session.image, &session.image.manifest_ref);
+    let manifest_json = manifest::fetch(&session.client, &manifest_url, session.token()).await?;
+    let parsed = manifest::parse(&manifest_json)?;
 
     if !parsed.manifests.is_empty() {
         for descriptor in &parsed.manifests {
-            let platform_url = manifest::build_url(&image_ref, &descriptor.digest);
-            let platform_json = manifest::fetch(&client, &platform_url, token.as_deref()).await?;
+            let platform_url = manifest::build_url(&session.image, &descriptor.digest);
+            let platform_json =
+                manifest::fetch(&session.client, &platform_url, session.token()).await?;
             let (signed_bytes, content_type) = build_signed_manifest(&platform_json, &key)?;
-            push_manifest(
-                &client,
-                &image_ref,
-                token.as_deref(),
-                signed_bytes,
-                &content_type,
-                &descriptor.digest,
-            )
-            .await?;
+            manifest::put(&session, &descriptor.digest, &content_type, signed_bytes).await?;
         }
     }
 
     let (signed_bytes, content_type) = build_signed_manifest(&manifest_json, &key)?;
 
-    push_manifest(
-        &client,
-        &image_ref,
-        token.as_deref(),
-        signed_bytes,
+    manifest::put(
+        &session,
+        &session.image.manifest_ref,
         &content_type,
-        &image_ref.manifest_ref,
+        signed_bytes,
     )
     .await
 }
@@ -136,59 +121,13 @@ fn sort_keys(value: &mut serde_json::Value) {
 pub(crate) fn build_signed_manifest(
     manifest_json: &str,
     key: &SigningKey,
-) -> Result<(Bytes, String)> {
+) -> Result<(hyper::body::Bytes, String)> {
     let digest = manifest_signing_payload(manifest_json)?;
 
     let signature: p256::ecdsa::Signature = signature::Signer::sign(key, digest.as_bytes());
     let sig_b64 = Base64Url::encode_string(signature.to_der().as_ref());
 
-    let mut manifest_value: serde_json::Value = match serde_json::from_str(manifest_json) {
-        Ok(value) => value,
-        Err(error) => {
-            return Err(KociError::OciParseError(format!(
-                "Failed to parse manifest JSON: {error}"
-            )));
-        }
-    };
-
-    manifest_value
-        .as_object_mut()
-        .ok_or_else(|| KociError::InvalidOciFormat("Manifest is not a JSON object".to_owned()))?
-        .entry("annotations")
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
-        .as_object_mut()
-        .ok_or_else(|| {
-            KociError::InvalidOciFormat("Manifest annotations is not a JSON object".to_owned())
-        })?
-        .insert(
-            SIG_ANNOTATION.to_owned(),
-            serde_json::Value::String(sig_b64),
-        );
-
-    let content_type = manifest_value
-        .get("mediaType")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("application/vnd.oci.image.manifest.v1+json")
-        .to_owned();
-
-    let signed_bytes = serde_json::to_vec(&manifest_value)?;
-
-    Ok((Bytes::from(signed_bytes), content_type))
-}
-
-/// Push a manifest to the registry via PUT.
-async fn push_manifest(
-    client: &HttpClient,
-    image_ref: &ImageReference,
-    token: Option<&str>,
-    body: Bytes,
-    content_type: &str,
-    reference: &str,
-) -> Result<()> {
-    let url = manifest::build_url(image_ref, reference);
-    put(client, &url, token, content_type, body).await?;
-
-    Ok(())
+    manifest::with_annotation(manifest_json, SIG_ANNOTATION, &sig_b64)
 }
 
 #[cfg(test)]
@@ -367,27 +306,5 @@ mod tests {
 
         // ASSERT
         assert!(matches!(error, KociError::InvalidOciFormat(_)));
-    }
-
-    #[tokio::test]
-    async fn push_manifest_propagates_put_failures() {
-        // ARRANGE
-        let client = build_client();
-        let image_ref = ImageReference::parse("127.0.0.1:9/repo:test");
-
-        // ACT
-        let error = push_manifest(
-            &client,
-            &image_ref,
-            None,
-            Bytes::from_static(b"{}"),
-            "application/vnd.oci.image.manifest.v1+json",
-            "test",
-        )
-        .await
-        .expect_err("push manifest should fail");
-
-        // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
     }
 }

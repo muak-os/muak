@@ -1,5 +1,7 @@
 //! OCI image structures and utilities.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 pub(crate) mod manifest;
@@ -11,6 +13,8 @@ pub struct OciManifest {
     pub layers: Vec<OciDescriptor>,
     #[serde(default)]
     pub manifests: Vec<OciDescriptor>,
+    #[serde(default)]
+    pub annotations: Option<HashMap<String, String>>,
 }
 
 /// OCI descriptor used to reference a blob.

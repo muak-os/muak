@@ -163,6 +163,30 @@ pub(crate) fn signed_manifest_json(
     Ok(serde_json::to_vec(&value)?)
 }
 
+pub(crate) fn with_annotation_json(
+    manifest_json: &[u8],
+    key: &str,
+    value: &str,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut value_json: Value = serde_json::from_slice(manifest_json)?;
+    let object = value_json
+        .as_object_mut()
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "manifest is not a JSON object"))?;
+    let annotations = object
+        .entry("annotations")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| {
+            IoError::new(
+                ErrorKind::InvalidData,
+                "manifest annotations is not a JSON object",
+            )
+        })?;
+    annotations.insert(key.to_owned(), Value::String(value.to_owned()));
+
+    Ok(serde_json::to_vec(&value_json)?)
+}
+
 pub(crate) fn layer_archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dyn Error>> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut archive = Builder::new(encoder);

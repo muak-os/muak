@@ -1,14 +1,11 @@
 //! Routes the installer initramfs into the build stream.
 
-use std::collections::HashMap;
-
 use koci::error::KociError;
 use koci::pull;
-use koci::pull::entries::MetadataEntry;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind};
+use crate::nodes::{NodeDescriptor, NodeKind, entry_sizes};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -36,26 +33,16 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
     Vec::new()
 }
 
-/// Exact tar-entry size via the koci metadata callback.
+/// Exact initramfs size from the manifest sizes annotation.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
-    let mut sizes = HashMap::new();
-    pull::metadata(
-        build.installer(),
-        &build.arch(),
-        None,
-        |entry: MetadataEntry| {
-            sizes.insert(entry.path, entry.size);
-
-            Ok(())
-        },
-    )
-    .map_err(|e| WizardError::BuildError(format!("extract installer metadata: {e}")))?;
-
-    let size = sizes.get(INITRAMFS_PATH).copied().ok_or_else(|| {
-        WizardError::BuildError(format!("missing installer size for {INITRAMFS_PATH}"))
-    })?;
+    let size = entry_sizes(build.installer(), build.arch())?
+        .get(INITRAMFS_PATH)
+        .copied()
+        .ok_or_else(|| {
+            WizardError::BuildError(format!("missing installer size for {INITRAMFS_PATH}"))
+        })?;
 
     let binding = graph
         .node(id)?

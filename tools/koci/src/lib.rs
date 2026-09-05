@@ -1,7 +1,10 @@
-//! OCI image pulling and manifest signing.
+//! OCI image pulling, annotation, and signing.
 
 #![warn(missing_docs)]
 
+extern crate alloc;
+
+pub mod annotate;
 pub mod arch;
 mod digest;
 pub mod error;

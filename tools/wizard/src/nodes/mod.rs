@@ -1,5 +1,7 @@
 //! Build pipeline node runners.
 
+use alloc::collections::BTreeMap;
+
 pub(crate) mod initramfs;
 pub(crate) mod installer;
 pub(crate) mod kernel;
@@ -10,8 +12,11 @@ pub(crate) mod sign;
 pub(crate) mod stub;
 pub(crate) mod uki;
 
+use koci::arch::Arch;
+use koci::pull;
+
 use crate::artifact::Artifact;
-use crate::error::Result;
+use crate::error::{Result, WizardError};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -73,9 +78,52 @@ pub(crate) fn produces(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortI
     (descriptor(kind).produces)(kind, ctx)
 }
 
+/// Byte size of every file entry of an image, from its `dev.muak.sizes` manifest annotation.
+///
+/// # Errors
+///
+/// Returns an error when the annotations cannot be fetched or the sizes
+/// annotation is missing or malformed.
+pub(crate) fn entry_sizes(reference: &str, arch: Arch) -> Result<BTreeMap<String, u64>> {
+    let annotations = pull::annotations(reference, &arch, None)
+        .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
+
+    parse_sizes(reference, &annotations)
+}
+
+fn parse_sizes(
+    reference: &str,
+    annotations: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, u64>> {
+    let Some(raw) = annotations.get(pull::SIZES_ANNOTATION) else {
+        let available = annotations.keys().cloned().collect::<Vec<_>>().join(", ");
+        let available = if available.is_empty() {
+            "none".to_owned()
+        } else {
+            available
+        };
+
+        return Err(WizardError::BuildError(format!(
+            "missing {} annotation on {reference} (present: {available})",
+            pull::SIZES_ANNOTATION
+        )));
+    };
+
+    serde_json::from_str(raw).map_err(|e| {
+        WizardError::BuildError(format!(
+            "malformed {} annotation on {reference}: expected a JSON object mapping \
+             entry paths to byte sizes: {e}",
+            pull::SIZES_ANNOTATION
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeMap;
+
     use koci::arch::Arch;
+    use koci::pull::SIZES_ANNOTATION;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 
@@ -83,6 +131,63 @@ mod tests {
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::ResolvedBuild;
     use crate::request::Platform;
+
+    fn sizes_annotation(value: &str) -> BTreeMap<String, String> {
+        BTreeMap::from([(SIZES_ANNOTATION.to_owned(), value.to_owned())])
+    }
+
+    #[test]
+    fn parse_sizes_reads_entry_sizes() {
+        // ARRANGE
+        let annotations = sizes_annotation(r#"{"vmlinuz":12,"cmdline":3}"#);
+
+        // ACT
+        let sizes = parse_sizes("reg.io/img:tag", &annotations).expect("parse sizes");
+
+        // ASSERT
+        assert_eq!(sizes.get("vmlinuz"), Some(&12));
+        assert_eq!(sizes.get("cmdline"), Some(&3));
+    }
+
+    #[test]
+    fn parse_sizes_rejects_missing_annotation_and_lists_present_keys() {
+        // ARRANGE
+        let annotations = BTreeMap::from([("dev.muak.sig".to_owned(), "AA".to_owned())]);
+
+        // ACT
+        let error = parse_sizes("reg.io/img:tag", &annotations).expect_err("missing must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains(SIZES_ANNOTATION));
+        assert!(error.to_string().contains("dev.muak.sig"));
+    }
+
+    #[test]
+    fn parse_sizes_reports_missing_annotation_without_present_keys() {
+        // ARRANGE / ACT
+        let error = parse_sizes("reg.io/img:tag", &BTreeMap::new()).expect_err("missing must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains("(present: none)"));
+    }
+
+    #[test]
+    fn parse_sizes_rejects_malformed_json() {
+        // ARRANGE
+        let annotations = sizes_annotation("not json");
+
+        // ACT / ASSERT
+        parse_sizes("reg.io/img:tag", &annotations).expect_err("malformed must fail");
+    }
+
+    #[test]
+    fn parse_sizes_rejects_non_numeric_size() {
+        // ARRANGE
+        let annotations = sizes_annotation(r#"{"vmlinuz":"big"}"#);
+
+        // ACT / ASSERT
+        parse_sizes("reg.io/img:tag", &annotations).expect_err("non-numeric must fail");
+    }
 
     fn build_plan() -> ResolvedBuild {
         ResolvedBuild::new(

@@ -9,7 +9,7 @@ use koci::pull::entries::FileEntry;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::layers::Layer;
-use crate::nodes::{NodeDescriptor, NodeKind};
+use crate::nodes::{NodeDescriptor, NodeKind, entry_sizes};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -37,16 +37,11 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
     vec![(KERNEL, Artifact::Kernel), (CMDLINE, Artifact::Cmdline)]
 }
 
-/// Exact sizes of the kernel and cmdline entries via the koci metadata callback.
+/// Exact kernel and cmdline sizes from the manifest sizes annotation.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let source = ctx.build.kernel().source();
 
-    let mut sizes = std::collections::HashMap::new();
-    pull::metadata(source, &ctx.build.arch(), None, |entry| {
-        sizes.insert(entry.path, entry.size);
-        Ok(())
-    })
-    .map_err(|e| WizardError::BuildError(format!("extract kernel metadata: {e}")))?;
+    let sizes = entry_sizes(source, ctx.build.arch())?;
 
     let bindings = graph
         .node(id)?

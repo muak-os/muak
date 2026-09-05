@@ -15,7 +15,6 @@
   - E2E encryption between CLI and the daemon?
 
 - Enhance `wizard`:
-  - Remove preflights OCI pull and use annotations
   - Add manifest release OCI instead of hardcoded
   - Add extension catalog in resolver (using OCI image?)
   - Parallel preflights

@@ -1,58 +1,137 @@
-//! OCI layer processing and tar path utilities.
+//! OCI layer downloading, decompression, and tar entry iteration.
 
+use alloc::collections::BTreeMap;
 use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use tar::Archive;
 use tokio::task::JoinSet;
 
-use super::{cache, download, resolve, scan};
+use super::entries::FileEntry;
+use super::{download, resolve, scan};
 use crate::arch::Arch;
 use crate::error::{KociError, Result};
-use crate::image::ImageReference;
-use crate::pull::download::LayerReader;
-use crate::registry::auth::fetch_auth_token;
-use crate::registry::http::build_client;
+use crate::image::OciDescriptor;
+use crate::registry::session::Session;
 
-/// Process all layers in an image, calling `on_entry` for each file entry.
-pub(crate) async fn process<F>(
+/// Stream every live file entry of the image's platform layers.
+///
+/// # Errors
+///
+/// Returns an error if the image cannot be fetched, signature verification
+/// fails, a layer cannot be decompressed, or the handler returns an error.
+pub(crate) async fn files<F>(
     reference: &str,
     arch: &Arch,
     pubkey_pem: Option<&str>,
-    mut on_entry: F,
+    mut handler: F,
 ) -> Result<()>
+where
+    F: FnMut(FileEntry<'_>) -> Result<()>,
+{
+    let session = Session::new(reference).await?;
+    eprintln!("Pulling {reference} for {}", arch.as_str());
+    let layers = resolve::layers(&session, arch, pubkey_pem).await?;
+    eprintln!("Resolved {} layer(s)", layers.len());
+
+    walk(&session, &layers, |_layer_idx, entry, info| {
+        scan::handle_file_entry(entry, info, &mut handler)
+    })
+    .await
+}
+
+/// Collect the byte size of every live file entry, keyed by normalized path.
+///
+/// # Errors
+///
+/// Returns an error if a layer cannot be downloaded or decompressed.
+pub(crate) async fn entry_sizes(
+    session: &Session,
+    layers: &[OciDescriptor],
+    exclude: &[String],
+) -> Result<BTreeMap<String, u64>> {
+    let mut sizes = BTreeMap::new();
+
+    walk(session, layers, |_layer_idx, _entry, info| {
+        if let scan::EntryInfo::File(path, size, _) = info
+            && !excluded(&path, exclude)
+        {
+            sizes.insert(path.to_string_lossy().to_string(), size);
+        }
+
+        Ok(())
+    })
+    .await?;
+
+    Ok(sizes)
+}
+
+/// Download all layers, then iterate every archive entry not blocked by a whiteout.
+async fn walk<F>(session: &Session, layers: &[OciDescriptor], mut on_entry: F) -> Result<()>
 where
     F: for<'a, 'b> FnMut(
         usize,
-        tar::Entry<&'b mut LayerReader<'a>>,
+        tar::Entry<&'b mut download::LayerReader<'a>>,
         scan::EntryInfo,
-        &HashMap<PathBuf, usize>,
     ) -> Result<()>,
 {
-    let cache = cache::Store::new();
-    let image_ref = ImageReference::parse(reference);
-    let client = build_client();
-    let token = fetch_auth_token(&client, &image_ref.registry, &image_ref.name).await?;
+    let (blobs, whiteouts) = download_all(session, layers).await?;
+    let n = layers.len();
 
-    eprintln!("Pulling {} for {}", reference, arch.as_str());
-    let layers = resolve::layers(
-        &cache,
-        &client,
-        &image_ref,
-        token.as_deref(),
-        arch,
-        pubkey_pem,
-    )
-    .await?;
-    eprintln!("Resolved {} layer(s)", layers.len());
+    for (layer_idx, layer) in layers.iter().enumerate() {
+        let data = blobs.get(layer_idx).ok_or_else(|| {
+            KociError::DownloadError(format!("missing layer bytes for layer {layer_idx}"))
+        })?;
+        eprintln!(
+            "Extracting layer {}/{}: {}",
+            layer_idx.saturating_add(1),
+            n,
+            short_digest(&layer.digest)
+        );
+        let mut reader = download::decompress(data, layer.media_type.as_deref())?;
+        extract_layer(&mut reader, layer_idx, &whiteouts, &mut on_entry)?;
+    }
+
+    Ok(())
+}
+
+/// Iterate one layer's archive, skipping entries blocked by whiteouts.
+fn extract_layer<'a, F>(
+    reader: &mut download::LayerReader<'a>,
+    layer_idx: usize,
+    whiteouts: &HashMap<PathBuf, usize>,
+    on_entry: &mut F,
+) -> Result<()>
+where
+    F: FnMut(usize, tar::Entry<&mut download::LayerReader<'a>>, scan::EntryInfo) -> Result<()>,
+{
+    let mut archive = Archive::new(reader);
+    let entries = archive.entries()?;
+    for entry_result in entries {
+        let entry = entry_result?;
+        let info = scan::classify_tar_entry(&entry)?;
+        if blocked_by_whiteout(&info, layer_idx, whiteouts) {
+            continue;
+        }
+        on_entry(layer_idx, entry, info)?;
+    }
+
+    Ok(())
+}
+
+/// Download every layer blob concurrently, then map whiteout targets to the first layer that must be hidden by them.
+async fn download_all(
+    session: &Session,
+    layers: &[OciDescriptor],
+) -> Result<(Vec<Vec<u8>>, HashMap<PathBuf, usize>)> {
     let n = layers.len();
 
     let mut downloads = JoinSet::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let cache = cache.clone();
-        let client = client.clone();
-        let image_ref = image_ref.clone();
-        let token = token.clone();
+        let cache = session.cache.clone();
+        let client = session.client.clone();
+        let image = session.image.clone();
+        let token = session.token().map(str::to_owned);
         let digest = layer.digest.clone();
         downloads.spawn(async move {
             let layer_number = layer_idx.saturating_add(1);
@@ -60,60 +139,38 @@ where
             eprintln!("Downloading layer {layer_number}/{n}: {short}");
             (
                 layer_idx,
-                download::cached(&cache, &client, &image_ref, &digest, token.as_deref()).await,
+                download::cached(&cache, &client, &image, &digest, token.as_deref()).await,
             )
         });
     }
 
-    let mut blobs: Vec<Option<Result<Vec<u8>>>> =
-        std::iter::repeat_with(|| None).take(layers.len()).collect();
+    let mut blobs: Vec<Option<Result<Vec<u8>>>> = std::iter::repeat_with(|| None).take(n).collect();
     while let Some(joined) = downloads.join_next().await {
         let (layer_idx, blob) = joined.map_err(|error| {
             KociError::NetworkError(format!("layer download task failed: {error}"))
         })?;
-        let slot = blobs.get_mut(layer_idx).ok_or_else(|| {
+        *blobs.get_mut(layer_idx).ok_or_else(|| {
             KociError::DownloadError(format!("missing download slot for layer {layer_idx}"))
-        })?;
-        *slot = Some(blob);
+        })? = Some(blob);
     }
 
-    let mut whiteout_layers: HashMap<PathBuf, usize> = HashMap::new();
-
-    let mut layer_bytes: Vec<Vec<u8>> = Vec::with_capacity(n);
+    let mut bytes = Vec::with_capacity(n);
+    let mut whiteouts: HashMap<PathBuf, usize> = HashMap::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let bytes = blobs
+        let blob = blobs
             .get_mut(layer_idx)
             .and_then(Option::take)
             .ok_or_else(|| {
                 KociError::DownloadError(format!("missing download for layer {layer_idx}"))
             })??;
-        let reader = download::decompress(&bytes, layer.media_type.as_deref())?;
-        let whiteouts = scan::scan_whiteouts(reader)?;
-        for whiteout in whiteouts {
-            whiteout_layers.entry(whiteout).or_insert(layer_idx);
+        let reader = download::decompress(&blob, layer.media_type.as_deref())?;
+        for whiteout in scan::scan_whiteouts(reader)? {
+            whiteouts.entry(whiteout).or_insert(layer_idx);
         }
-        layer_bytes.push(bytes);
+        bytes.push(blob);
     }
 
-    for (layer_idx, layer) in layers.iter().enumerate() {
-        let layer_number = layer_idx.saturating_add(1);
-        let short = short_digest(&layer.digest);
-        eprintln!("Extracting layer {layer_number}/{n}: {short}");
-        let bytes = layer_bytes.get(layer_idx).ok_or_else(|| {
-            KociError::DownloadError(format!("missing layer bytes for layer {layer_idx}"))
-        })?;
-        let mut reader = download::decompress(bytes, layer.media_type.as_deref())?;
-
-        let mut archive = Archive::new(&mut reader);
-        let entries = archive.entries()?;
-        for entry_result in entries {
-            let entry = entry_result?;
-            let info = scan::classify_tar_entry(&entry)?;
-            on_entry(layer_idx, entry, info, &whiteout_layers)?;
-        }
-    }
-
-    Ok(())
+    Ok((bytes, whiteouts))
 }
 
 fn short_digest(digest: &str) -> &str {
@@ -124,55 +181,29 @@ fn short_digest(digest: &str) -> &str {
     }
 }
 
-/// Normalize a tar entry path, rejecting parent traversal and skipping `.` / root entries.
-pub(crate) fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
-    let mut normalized = PathBuf::new();
-
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => normalized.push(part),
-            Component::CurDir | Component::RootDir => {}
-            Component::ParentDir => {
-                return Err(KociError::LayerExtractionError(format!(
-                    "OCI layer entry escapes extraction root: {}",
-                    path.display()
-                )));
-            }
-            Component::Prefix(prefix) => {
-                #[cfg(windows)]
-                {
-                    let _ = prefix;
-                    return Err(KociError::LayerExtractionError(format!(
-                        "OCI layer entry uses unsupported path prefix: {}",
-                        path.display()
-                    )));
-                }
-
-                #[cfg(not(windows))]
-                normalized.push(prefix.as_os_str());
-            }
-        }
-    }
-
-    if normalized.as_os_str().is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(normalized))
-    }
+/// Whether a file entry is deleted by a whiteout recorded in a later layer.
+fn blocked_by_whiteout(
+    info: &scan::EntryInfo,
+    layer_idx: usize,
+    whiteouts: &HashMap<PathBuf, usize>,
+) -> bool {
+    matches!(
+        info,
+        scan::EntryInfo::File(path, ..)
+            if whiteouts.get(path).is_some_and(|&blocking| blocking > layer_idx)
+    )
 }
 
-/// If `path` is a whiteout entry, return the target path that should be removed.
-pub(crate) fn whiteout_target(path: &Path) -> Option<PathBuf> {
-    let file_name = path.file_name().and_then(|name| name.to_str())?;
+/// Whether a normalized entry path matches an exclusion prefix at a path segment boundary.
+fn excluded(path: &Path, exclude: &[String]) -> bool {
+    let text = path.to_string_lossy();
 
-    if file_name == ".wh..wh..opq" {
-        return Some(path.parent().unwrap_or_else(|| Path::new("")).to_path_buf());
-    }
-
-    let stripped = file_name.strip_prefix(".wh.")?;
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-
-    Some(parent.join(stripped))
+    exclude.iter().any(|prefix| {
+        text == prefix.as_str()
+            || text
+                .strip_prefix(prefix.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 #[cfg(test)]
@@ -180,51 +211,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalize_entry_path_returns_none_for_current_directory() {
+    fn excluded_matches_exact_path_and_directory_prefixes() {
         // ARRANGE
-        let path = Path::new("./");
+        let exclude = ["lib/modules".to_owned(), "etc/motd".to_owned()];
 
-        // ACT
-        let normalized = normalize_entry_path(path).expect("normalize path");
-
-        // ASSERT
-        assert!(normalized.is_none());
+        // ACT / ASSERT
+        assert!(excluded(Path::new("lib/modules"), &exclude));
+        assert!(excluded(
+            Path::new("lib/modules/7.2.0/kernel/x.ko"),
+            &exclude
+        ));
+        assert!(excluded(Path::new("etc/motd"), &exclude));
     }
 
     #[test]
-    fn normalize_entry_path_rejects_parent_traversal() {
-        // ACT
-        let error =
-            normalize_entry_path(Path::new("../escape")).expect_err("normalize should fail");
+    fn excluded_requires_segment_boundary() {
+        // ARRANGE
+        let exclude = ["lib/modules".to_owned()];
 
-        // ASSERT
-        assert!(matches!(error, KociError::LayerExtractionError(_)));
-    }
-
-    #[test]
-    fn whiteout_target_returns_none_for_non_whiteout_path() {
-        // ACT
-        let target = whiteout_target(Path::new("etc/file"));
-
-        // ASSERT
-        assert!(target.is_none());
-    }
-
-    #[test]
-    fn whiteout_target_returns_file_target() {
-        // ACT
-        let target = whiteout_target(Path::new("etc/.wh.obsolete"));
-
-        // ASSERT
-        assert_eq!(target, Some(PathBuf::from("etc/obsolete")));
-    }
-
-    #[test]
-    fn whiteout_target_returns_opaque_directory_target() {
-        // ACT
-        let target = whiteout_target(Path::new("etc/.wh..wh..opq"));
-
-        // ASSERT
-        assert_eq!(target, Some(PathBuf::from("etc")));
+        // ACT / ASSERT
+        assert!(!excluded(Path::new("lib/modules.builtin"), &exclude));
+        assert!(!excluded(Path::new("vmlinuz"), &exclude));
     }
 }

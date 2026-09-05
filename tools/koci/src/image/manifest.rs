@@ -1,9 +1,12 @@
-//! OCI manifest fetching, parsing, and platform selection.
+//! OCI manifest fetching, parsing, platform selection, and writing.
+
+use hyper::body::Bytes;
 
 use crate::error::{KociError, Result};
 use crate::image::{ImageReference, OciDescriptor, OciManifest};
 use crate::registry::OCI_MANIFEST_ACCEPT_HEADERS;
-use crate::registry::http::{HttpClient, collect_body, get};
+use crate::registry::http::{self, HttpClient, collect_body, get};
+use crate::registry::session::Session;
 
 /// Build the manifest URL for a given image reference and tag or digest.
 pub(crate) fn build_url(image_ref: &ImageReference, reference: &str) -> String {
@@ -56,6 +59,52 @@ pub(crate) fn select_platform<'a>(
                 "No linux/{target_arch} manifest found in manifest list"
             ))
         })
+}
+
+/// Set one manifest annotation, preserving the others, and serialize the manifest with its content type.
+pub(crate) fn with_annotation(
+    manifest_json: &str,
+    key: &str,
+    value: &str,
+) -> Result<(Bytes, String)> {
+    let mut manifest_value: serde_json::Value =
+        serde_json::from_str(manifest_json).map_err(|error| {
+            KociError::OciParseError(format!("Failed to parse manifest JSON: {error}"))
+        })?;
+
+    manifest_value
+        .as_object_mut()
+        .ok_or_else(|| KociError::InvalidOciFormat("Manifest is not a JSON object".to_owned()))?
+        .entry("annotations")
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| {
+            KociError::InvalidOciFormat("Manifest annotations is not a JSON object".to_owned())
+        })?
+        .insert(key.to_owned(), serde_json::Value::String(value.to_owned()));
+
+    let content_type = manifest_value
+        .get("mediaType")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("application/vnd.oci.image.manifest.v1+json")
+        .to_owned();
+
+    let body = serde_json::to_vec(&manifest_value)?;
+
+    Ok((Bytes::from(body), content_type))
+}
+
+/// Push a manifest to the registry via PUT.
+pub(crate) async fn put(
+    session: &Session,
+    manifest_ref: &str,
+    content_type: &str,
+    body: Bytes,
+) -> Result<()> {
+    let url = build_url(&session.image, manifest_ref);
+    http::put(&session.client, &url, session.token(), content_type, body).await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -323,5 +372,102 @@ mod tests {
 
         // ASSERT
         assert!(matches!(result, Err(KociError::InvalidOciFormat(_))));
+    }
+
+    #[test]
+    fn with_annotation_sets_key_and_preserves_others() {
+        // ARRANGE
+        let manifest_json = r#"{"schemaVersion":2,"annotations":{"dev.muak.sig":"AA"},"mediaType":"application/vnd.oci.image.manifest.v1+json","layers":[]}"#;
+
+        // ACT
+        let (body, content_type) =
+            with_annotation(manifest_json, "dev.muak.sizes", "{}").expect("annotate manifest");
+
+        // ASSERT
+        let annotated: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse annotated manifest");
+        let annotations = annotated
+            .get("annotations")
+            .and_then(serde_json::Value::as_object)
+            .expect("annotated manifest must keep its annotations object");
+        assert_eq!(
+            annotations
+                .get("dev.muak.sig")
+                .and_then(serde_json::Value::as_str),
+            Some("AA")
+        );
+        assert_eq!(
+            annotations
+                .get("dev.muak.sizes")
+                .and_then(serde_json::Value::as_str),
+            Some("{}")
+        );
+        assert_eq!(content_type, "application/vnd.oci.image.manifest.v1+json");
+    }
+
+    #[test]
+    fn with_annotation_creates_annotations_map_and_defaults_content_type() {
+        // ARRANGE
+        let manifest_json = r#"{"schemaVersion":2,"layers":[]}"#;
+
+        // ACT
+        let (body, content_type) =
+            with_annotation(manifest_json, "dev.muak.sizes", "{}\"").expect("annotate manifest");
+
+        // ASSERT
+        let annotated: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse annotated manifest");
+        assert_eq!(
+            annotated
+                .get("annotations")
+                .and_then(|annotations| annotations.get("dev.muak.sizes"))
+                .and_then(serde_json::Value::as_str),
+            Some("{}\"")
+        );
+        assert_eq!(content_type, "application/vnd.oci.image.manifest.v1+json");
+    }
+
+    #[test]
+    fn with_annotation_rejects_non_object_manifest() {
+        // ARRANGE / ACT
+        let error =
+            with_annotation("[]", "dev.muak.sizes", "{}").expect_err("annotate should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+    }
+
+    #[test]
+    fn with_annotation_rejects_non_object_annotations() {
+        // ARRANGE
+        let manifest_json = r#"{"schemaVersion":2,"annotations":[],"layers":[]}"#;
+
+        // ACT
+        let error = with_annotation(manifest_json, "dev.muak.sizes", "{}")
+            .expect_err("annotate should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+    }
+
+    #[tokio::test]
+    async fn put_manifest_propagates_failures() {
+        // ARRANGE
+        let session = Session::new("127.0.0.1:9/repo:test")
+            .await
+            .expect("build session");
+
+        // ACT
+        let error = put(
+            &session,
+            "test",
+            "application/vnd.oci.image.manifest.v1+json",
+            Bytes::from_static(b"{}"),
+        )
+        .await
+        .expect_err("put manifest should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::NetworkError(_)));
     }
 }
