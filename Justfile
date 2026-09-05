@@ -369,7 +369,7 @@ _test-run runner label *pkgs:
         done
         {{ runner }} $pkg_args
     else
-        {{ runner }} -E 'not package(e2e)'
+        {{ runner }} --workspace --exclude e2e -E 'not package(e2e)'
     fi
 
 [private]
