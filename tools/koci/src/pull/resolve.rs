@@ -53,7 +53,7 @@ async fn fetch_cached_manifest(session: &Session, manifest_ref: &str) -> Result<
             return Ok(cached);
         }
         let url = manifest::build_url(&session.image, manifest_ref);
-        let json = manifest::fetch(&session.client, &url, session.token()).await?;
+        let json = manifest::fetch(&session.client, &url, session.authorization()).await?;
         session.cache.put_blob(manifest_ref, json.as_bytes());
 
         Ok(json)
@@ -66,7 +66,7 @@ async fn fetch_cached_manifest(session: &Session, manifest_ref: &str) -> Result<
             return Ok(cached);
         }
         let url = manifest::build_url(&session.image, manifest_ref);
-        let json = manifest::fetch(&session.client, &url, session.token()).await?;
+        let json = manifest::fetch(&session.client, &url, session.authorization()).await?;
         session.cache.put_ref(
             &session.image.registry,
             &session.image.name,

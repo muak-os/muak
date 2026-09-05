@@ -3,13 +3,14 @@
 use crate::error::Result;
 use crate::image::ImageReference;
 use crate::pull::cache::Store;
-use crate::registry::auth::fetch_auth_token;
+use crate::registry::auth::{Access, Credentials, authenticate};
 use crate::registry::http::{HttpClient, build_client};
 
 /// An authenticated connection to one image's registry.
 ///
 /// Bundles everything every registry operation needs: the parsed image
-/// reference, a shared HTTP client, an auth token, and the local blob cache.
+/// reference, a shared HTTP client, the resolved authorization header value,
+/// and the local blob cache.
 pub(crate) struct Session {
     /// Local blob and tag-manifest cache.
     pub(crate) cache: Store,
@@ -17,31 +18,47 @@ pub(crate) struct Session {
     pub(crate) client: HttpClient,
     /// Parsed image reference.
     pub(crate) image: ImageReference,
-    /// Bearer token, when the registry issues one.
-    token: Option<String>,
+    /// `Authorization` header value for registry requests, when authenticated.
+    authorization: Option<String>,
 }
 
 impl Session {
-    /// Parse the reference, build the client, and fetch an auth token.
+    /// Parse the reference, build the client, and resolve registry auth.
+    ///
+    /// Explicit `credentials` win over the `KOCI_REGISTRY_USERNAME` and
+    /// `KOCI_REGISTRY_PASSWORD` environment variables.
     ///
     /// # Errors
     ///
-    /// Returns an error when the auth token request fails.
-    pub(crate) async fn new(reference: &str) -> Result<Self> {
+    /// Returns an error when registry authentication fails.
+    pub(crate) async fn new(
+        reference: &str,
+        access: Access,
+        credentials: Option<Credentials>,
+    ) -> Result<Self> {
         let image = ImageReference::parse(reference);
         let client = build_client();
-        let token = fetch_auth_token(&client, &image.registry, &image.name).await?;
+        let credentials = credentials.or_else(Credentials::from_env);
+        let authorization = authenticate(
+            &client,
+            image.scheme(),
+            &image.registry,
+            &image.name,
+            access,
+            credentials.as_ref(),
+        )
+        .await?;
 
         Ok(Self {
             cache: Store::new(),
             client,
             image,
-            token,
+            authorization,
         })
     }
 
-    /// Bearer token for registry requests.
-    pub(crate) fn token(&self) -> Option<&str> {
-        self.token.as_deref()
+    /// `Authorization` header value for registry requests, when authenticated.
+    pub(crate) fn authorization(&self) -> Option<&str> {
+        self.authorization.as_deref()
     }
 }

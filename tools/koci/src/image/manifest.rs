@@ -23,9 +23,15 @@ pub(crate) fn build_url(image_ref: &ImageReference, reference: &str) -> String {
 pub(crate) async fn fetch(
     client: &HttpClient,
     manifest_url: &str,
-    token: Option<&str>,
+    authorization: Option<&str>,
 ) -> Result<String> {
-    let resp = get(client, manifest_url, token, OCI_MANIFEST_ACCEPT_HEADERS).await?;
+    let resp = get(
+        client,
+        manifest_url,
+        authorization,
+        OCI_MANIFEST_ACCEPT_HEADERS,
+    )
+    .await?;
     let body = collect_body(resp).await?;
     match core::str::from_utf8(&body) {
         Ok(text) => Ok(text.to_owned()),
@@ -102,7 +108,14 @@ pub(crate) async fn put(
     body: Bytes,
 ) -> Result<()> {
     let url = build_url(&session.image, manifest_ref);
-    http::put(&session.client, &url, session.token(), content_type, body).await?;
+    http::put(
+        &session.client,
+        &url,
+        session.authorization(),
+        content_type,
+        body,
+    )
+    .await?;
 
     Ok(())
 }
@@ -116,6 +129,7 @@ mod tests {
     use super::*;
     use crate::arch;
     use crate::image::{ImageReference, Platform};
+    use crate::registry::auth::Access;
     use crate::registry::http::build_client;
 
     struct TestServer {
@@ -125,15 +139,20 @@ mod tests {
 
     impl TestServer {
         fn spawn(status: &str, body: &[u8]) -> Self {
+            Self::spawn_responses(&[(status, body)])
+        }
+
+        fn spawn_responses(responses: &[(&str, &[u8])]) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
             let address = listener
                 .local_addr()
                 .expect("get test server address")
                 .to_string();
-            let status = status.to_owned();
-            let body = body.to_vec();
-
-            let handle = thread::spawn(move || serve_manifest(&listener, &status, &body));
+            let responses = responses
+                .iter()
+                .map(owned_response)
+                .collect::<Vec<(String, Vec<u8>)>>();
+            let handle = thread::spawn(move || serve_responses(&listener, responses));
 
             Self {
                 address,
@@ -146,19 +165,27 @@ mod tests {
         }
     }
 
-    fn serve_manifest(listener: &TcpListener, status: &str, body: &[u8]) {
-        let (mut stream, _) = listener.accept().expect("accept test client");
-        let mut request = [0_u8; 1024];
-        let _: usize = stream.read(&mut request).expect("read test request");
+    fn owned_response(response: &(&str, &[u8])) -> (String, Vec<u8>) {
+        let (status, body) = *response;
 
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/vnd.oci.image.manifest.v1+json\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
-        stream
-            .write_all(response.as_bytes())
-            .expect("write test response headers");
-        stream.write_all(body).expect("write test response body");
+        (status.to_owned(), body.to_vec())
+    }
+
+    fn serve_responses(listener: &TcpListener, responses: Vec<(String, Vec<u8>)>) {
+        for (status, body) in responses {
+            let (mut stream, _) = listener.accept().expect("accept test client");
+            let mut request = [0_u8; 1024];
+            let _: usize = stream.read(&mut request).expect("read test request");
+
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/vnd.oci.image.manifest.v1+json\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write test response headers");
+            stream.write_all(&body).expect("write test response body");
+        }
     }
 
     impl Drop for TestServer {
@@ -453,7 +480,12 @@ mod tests {
     #[tokio::test]
     async fn put_manifest_propagates_failures() {
         // ARRANGE
-        let session = Session::new("127.0.0.1:9/repo:test")
+        let server = TestServer::spawn_responses(&[
+            ("200 OK", b""),                     // auth ping
+            ("405 Method Not Allowed", b"nope"), // manifest PUT
+        ]);
+        let reference = format!("{}/repo:test", server.address);
+        let session = Session::new(&reference, Access::Pull, None)
             .await
             .expect("build session");
 
@@ -468,6 +500,6 @@ mod tests {
         .expect_err("put manifest should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, KociError::DownloadError(_)));
     }
 }

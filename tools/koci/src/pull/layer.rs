@@ -12,6 +12,7 @@ use super::{download, resolve, scan};
 use crate::arch::Arch;
 use crate::error::{KociError, Result};
 use crate::image::OciDescriptor;
+use crate::registry::auth::Access;
 use crate::registry::session::Session;
 
 /// Stream every live file entry of the image's platform layers.
@@ -29,7 +30,7 @@ pub(crate) async fn files<F>(
 where
     F: FnMut(FileEntry<'_>) -> Result<()>,
 {
-    let session = Session::new(reference).await?;
+    let session = Session::new(reference, Access::Pull, None).await?;
     eprintln!("Pulling {reference} for {}", arch.as_str());
     let layers = resolve::layers(&session, arch, pubkey_pem).await?;
     eprintln!("Resolved {} layer(s)", layers.len());
@@ -131,7 +132,7 @@ async fn download_all(
         let cache = session.cache.clone();
         let client = session.client.clone();
         let image = session.image.clone();
-        let token = session.token().map(str::to_owned);
+        let authorization = session.authorization().map(str::to_owned);
         let digest = layer.digest.clone();
         downloads.spawn(async move {
             let layer_number = layer_idx.saturating_add(1);
@@ -139,7 +140,7 @@ async fn download_all(
             eprintln!("Downloading layer {layer_number}/{n}: {short}");
             (
                 layer_idx,
-                download::cached(&cache, &client, &image, &digest, token.as_deref()).await,
+                download::cached(&cache, &client, &image, &digest, authorization.as_deref()).await,
             )
         });
     }

@@ -8,6 +8,7 @@ use p256::ecdsa::SigningKey;
 use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
 use crate::image::manifest;
+use crate::registry::auth::Access;
 use crate::registry::session::Session;
 use crate::runtime;
 use crate::sign::verify::parse_pem_private_key;
@@ -28,18 +29,19 @@ pub fn manifest(reference: &str, privkey_pem: &str) -> Result<()> {
 
 /// Sign an OCI image manifest in the registry.
 async fn sign_manifest(reference: &str, privkey_pem: &str) -> Result<()> {
-    let session = Session::new(reference).await?;
     let key = parse_pem_private_key(privkey_pem)?;
+    let session = Session::new(reference, Access::PullPush, None).await?;
 
     let manifest_url = manifest::build_url(&session.image, &session.image.manifest_ref);
-    let manifest_json = manifest::fetch(&session.client, &manifest_url, session.token()).await?;
+    let manifest_json =
+        manifest::fetch(&session.client, &manifest_url, session.authorization()).await?;
     let parsed = manifest::parse(&manifest_json)?;
 
     if !parsed.manifests.is_empty() {
         for descriptor in &parsed.manifests {
             let platform_url = manifest::build_url(&session.image, &descriptor.digest);
             let platform_json =
-                manifest::fetch(&session.client, &platform_url, session.token()).await?;
+                manifest::fetch(&session.client, &platform_url, session.authorization()).await?;
             let (signed_bytes, content_type) = build_signed_manifest(&platform_json, &key)?;
             manifest::put(&session, &descriptor.digest, &content_type, signed_bytes).await?;
         }

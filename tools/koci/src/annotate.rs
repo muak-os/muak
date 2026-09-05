@@ -3,6 +3,7 @@
 use crate::error::Result;
 use crate::image::manifest;
 use crate::pull;
+use crate::registry::auth::Access;
 use crate::registry::session::Session;
 use crate::runtime;
 
@@ -18,7 +19,7 @@ pub fn manifest(reference: &str, exclude: &[String]) -> Result<()> {
 
 /// Annotate the referenced manifest (or every platform manifest of an index).
 async fn annotate(reference: &str, exclude: &[String]) -> Result<()> {
-    let session = Session::new(reference).await?;
+    let session = Session::new(reference, Access::PullPush, None).await?;
     let manifest_json = fetch_manifest(&session, &session.image.manifest_ref).await?;
     let parsed = manifest::parse(&manifest_json)?;
 
@@ -44,7 +45,7 @@ async fn annotate(reference: &str, exclude: &[String]) -> Result<()> {
 async fn fetch_manifest(session: &Session, manifest_ref: &str) -> Result<String> {
     let url = manifest::build_url(&session.image, manifest_ref);
 
-    manifest::fetch(&session.client, &url, session.token()).await
+    manifest::fetch(&session.client, &url, session.authorization()).await
 }
 
 /// Scan a manifest's layers, inject the `dev.muak.sizes` annotation, and PUT

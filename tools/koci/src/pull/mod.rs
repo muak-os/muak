@@ -5,6 +5,7 @@ use alloc::collections::BTreeMap;
 use crate::arch::Arch;
 use crate::error::Result;
 use crate::image::manifest;
+use crate::registry::auth::Access;
 use crate::registry::session::Session;
 use crate::runtime;
 
@@ -33,7 +34,7 @@ pub fn annotations(
     pubkey_pem: Option<&str>,
 ) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
-        let session = Session::new(reference).await?;
+        let session = Session::new(reference, Access::Pull, None).await?;
         let json = resolve::platform_manifest_json(&session, arch, pubkey_pem).await?;
         let parsed = manifest::parse(&json)?;
 

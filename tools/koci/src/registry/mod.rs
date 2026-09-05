@@ -1,4 +1,5 @@
 pub(crate) mod auth;
+pub(crate) mod challenge;
 pub(crate) mod http;
 pub(crate) mod session;
 

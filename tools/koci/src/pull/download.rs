@@ -30,7 +30,7 @@ pub(crate) async fn blob(
     client: &HttpClient,
     image_ref: &ImageReference,
     digest: &str,
-    token: Option<&str>,
+    authorization: Option<&str>,
 ) -> Result<Vec<u8>> {
     let blob_url = format!(
         "{}://{}/v2/{}/blobs/{}",
@@ -40,7 +40,7 @@ pub(crate) async fn blob(
         digest
     );
 
-    let resp = get(client, &blob_url, token, &[]).await?;
+    let resp = get(client, &blob_url, authorization, &[]).await?;
     let mut digest_verifier = StreamingDigest::new(digest)?;
 
     let bytes = stream_body_to_vec(resp, &mut digest_verifier).await?;
@@ -55,13 +55,13 @@ pub(crate) async fn cached(
     client: &HttpClient,
     image_ref: &ImageReference,
     digest: &str,
-    token: Option<&str>,
+    authorization: Option<&str>,
 ) -> Result<Vec<u8>> {
     if let Some(bytes) = read_cached(cache, digest) {
         return Ok(bytes);
     }
 
-    let bytes = blob(client, image_ref, digest, token).await?;
+    let bytes = blob(client, image_ref, digest, authorization).await?;
     cache.put_blob(digest, &bytes);
 
     Ok(bytes)

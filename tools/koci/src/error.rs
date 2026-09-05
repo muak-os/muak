@@ -31,6 +31,15 @@ pub enum KociError {
     #[error("Failed to download image: {0}")]
     DownloadError(String),
 
+    /// Registry rejected the authentication attempt.
+    #[error("Registry authentication failed for {registry}: {details}")]
+    AuthError {
+        /// Registry host the authentication failed against.
+        registry: String,
+        /// Failure details from the registry or the auth challenge.
+        details: String,
+    },
+
     /// OCI manifest or config is malformed.
     #[error("Invalid OCI format: {0}")]
     InvalidOciFormat(String),

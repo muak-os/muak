@@ -1,11 +1,9 @@
 //! Shared HTTP/HTTPS client and low-level request helpers for OCI registry communication.
 
-use core::result::Result as CoreResult;
 use core::time::Duration;
 
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::http::Error as HttpError;
 use hyper::{Method, Request, Response};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -44,13 +42,49 @@ pub(crate) fn build_client() -> HttpClient {
     Client::builder(TokioExecutor::new()).build(connector)
 }
 
-/// Execute an authenticated GET, returning the response on 2xx.
+/// Execute an authorized GET, returning the response on 2xx.
 pub(crate) async fn get(
     client: &HttpClient,
     url: &str,
-    token: Option<&str>,
+    authorization: Option<&str>,
     accept_headers: &[&str],
 ) -> Result<Response<Incoming>> {
+    let response = get_any_status(client, url, authorization, accept_headers).await?;
+    ensure_success(url, response)
+}
+
+/// Execute a GET and return the response whatever its status.
+pub(crate) async fn get_any_status(
+    client: &HttpClient,
+    url: &str,
+    authorization: Option<&str>,
+    accept_headers: &[&str],
+) -> Result<Response<Incoming>> {
+    let request = get_request(url, authorization, accept_headers)?;
+
+    send(client, url, request).await
+}
+
+/// Execute an authorized PUT with a raw body, returning the response on 2xx.
+pub(crate) async fn put(
+    client: &HttpClient,
+    url: &str,
+    authorization: Option<&str>,
+    content_type: &str,
+    body: Bytes,
+) -> Result<Response<Incoming>> {
+    let request = put_request(url, authorization, content_type, body)?;
+    let response = send(client, url, request).await?;
+
+    ensure_success(url, response)
+}
+
+/// Build a GET request with optional authorization and Accept headers.
+fn get_request(
+    url: &str,
+    authorization: Option<&str>,
+    accept_headers: &[&str],
+) -> Result<Request<Full<Bytes>>> {
     let mut builder = Request::builder()
         .method(Method::GET)
         .uri(url)
@@ -59,56 +93,61 @@ pub(crate) async fn get(
     for accept in accept_headers {
         builder = builder.header("Accept", *accept);
     }
-    if let Some(token_value) = token {
-        builder = builder.header("Authorization", format!("Bearer {token_value}"));
+    if let Some(value) = authorization {
+        builder = builder.header("Authorization", value);
     }
 
-    send(client, builder.body(Full::new(Bytes::new())), url).await
+    builder
+        .body(Full::new(Bytes::new()))
+        .map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))
 }
 
-/// Execute an authenticated PUT with a raw body, returning the response on 2xx.
-pub(crate) async fn put(
-    client: &HttpClient,
+/// Build a PUT request with optional authorization and a raw body.
+fn put_request(
     url: &str,
-    token: Option<&str>,
+    authorization: Option<&str>,
     content_type: &str,
     body: Bytes,
-) -> Result<Response<Incoming>> {
+) -> Result<Request<Full<Bytes>>> {
     let mut builder = Request::builder()
         .method(Method::PUT)
         .uri(url)
         .header("User-Agent", USER_AGENT)
         .header("Content-Type", content_type);
 
-    if let Some(token_value) = token {
-        builder = builder.header("Authorization", format!("Bearer {token_value}"));
+    if let Some(value) = authorization {
+        builder = builder.header("Authorization", value);
     }
 
-    send(client, builder.body(Full::new(body)), url).await
+    builder
+        .body(Full::new(body))
+        .map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))
 }
 
-/// Dispatch a pre-built request and validate the response status.
+/// Dispatch a pre-built request, ignoring the response status.
 async fn send(
     client: &HttpClient,
-    req: CoreResult<Request<Full<Bytes>>, HttpError>,
     url: &str,
+    request: Request<Full<Bytes>>,
 ) -> Result<Response<Incoming>> {
-    let req =
-        req.map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))?;
-    let resp = timeout(HTTP_TIMEOUT, client.request(req))
+    timeout(HTTP_TIMEOUT, client.request(request))
         .await
         .map_err(|error| {
             KociError::NetworkError(format!(
                 "HTTP request timed out after {HTTP_TIMEOUT:?} for URL: {url}: {error}"
             ))
         })?
-        .map_err(|error| KociError::NetworkError(format!("HTTP request failed: {error}")))?;
-    if resp.status().is_success() {
-        Ok(resp)
+        .map_err(|error| KociError::NetworkError(format!("HTTP request failed: {error}")))
+}
+
+/// Map a non-2xx response to a download error.
+fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<Incoming>> {
+    if response.status().is_success() {
+        Ok(response)
     } else {
         Err(KociError::DownloadError(format!(
             "HTTP {} for URL: {}",
-            resp.status(),
+            response.status(),
             url
         )))
     }

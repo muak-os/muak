@@ -21,12 +21,12 @@
   - Add SBOM precursor generation for each artifact
 
 - Enchance `koci`:
-  - Support for proper auth token for pull following the OCI standard
   - Support custom HTTP proxy
   - Support for self-signed certificates
-  - Remove HTTP only support
-  - Sign extensions and verify them for better supply chain security
-    - Allow for "community extensions" that are still usable with a warning about security risks
+  - Condition HTTP only support behind flag only
+
+- Sign extensions and verify them for better supply chain security
+  - Allow for "community extensions" that are still usable with a warning about security risks
 
 - In `provisiond` save koci cache in /run/state and clean cache on updates if it's stale (more than 3 weeks old for example)
 
