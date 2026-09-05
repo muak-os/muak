@@ -17,7 +17,9 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 use tar::{Builder, Header};
 
-const SIG_ANNOTATION: &str = "dev.muak.sig";
+pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
+
+pub(crate) const SIZES_ANNOTATION: &str = "dev.muak.sizes";
 
 pub(crate) struct TestKeys {
     pub(crate) private_key_pem: String,

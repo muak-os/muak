@@ -2,6 +2,7 @@
 
 use alloc::collections::BTreeMap;
 
+use crate::annotations::Verification;
 use crate::arch::Arch;
 use crate::error::Result;
 use crate::image::manifest;
@@ -17,9 +18,6 @@ pub(crate) mod paths;
 pub(crate) mod resolve;
 pub(crate) mod scan;
 
-/// Manifest annotation carrying per-file sizes.
-pub const SIZES_ANNOTATION: &str = "dev.muak.sizes";
-
 /// Fetch the manifest annotations of the platform manifest matching `arch`.
 ///
 /// Index-aware, cache-aware, and signature-verified. No blobs are downloaded.
@@ -31,11 +29,11 @@ pub const SIZES_ANNOTATION: &str = "dev.muak.sizes";
 pub fn annotations(
     reference: &str,
     arch: &Arch,
-    pubkey_pem: Option<&str>,
+    verification: Option<&Verification<'_>>,
 ) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
         let session = Session::new(reference, Access::Pull, None).await?;
-        let json = resolve::platform_manifest_json(&session, arch, pubkey_pem).await?;
+        let json = resolve::platform_manifest_json(&session, arch, verification).await?;
         let parsed = manifest::parse(&json)?;
 
         Ok(parsed.annotations.unwrap_or_default().into_iter().collect())
@@ -48,37 +46,14 @@ pub fn annotations(
 ///
 /// Returns an error if the image cannot be fetched, signature verification
 /// fails, a layer cannot be decompressed, or the handler returns an error.
-pub fn files<F>(reference: &str, arch: &Arch, pubkey_pem: Option<&str>, handler: F) -> Result<()>
+pub fn files<F>(
+    reference: &str,
+    arch: &Arch,
+    verification: Option<&Verification<'_>>,
+    handler: F,
+) -> Result<()>
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    runtime::runtime()?.block_on(layer::files(reference, arch, pubkey_pem, handler))
-}
-
-#[cfg(test)]
-mod tests {
-    use alloc::collections::BTreeMap;
-
-    use super::*;
-
-    fn annotated(sizes: &[(&str, u64)]) -> BTreeMap<String, String> {
-        let pairs = sizes
-            .iter()
-            .map(|&(path, size)| format!(r#""{path}":{size}"#))
-            .collect::<Vec<_>>()
-            .join(",");
-        BTreeMap::from([(SIZES_ANNOTATION.to_owned(), format!(r"{{{pairs}}}"))])
-    }
-
-    #[test]
-    fn annotations_carry_the_sizes_annotation_value_verbatim() {
-        // ARRANGE
-        let annotations = annotated(&[("vmlinuz", 12), ("cmdline", 3)]);
-
-        // ACT / ASSERT
-        assert_eq!(
-            annotations.get(SIZES_ANNOTATION).map(String::as_str),
-            Some(r#"{"vmlinuz":12,"cmdline":3}"#),
-        );
-    }
+    runtime::runtime()?.block_on(layer::files(reference, arch, verification, handler))
 }

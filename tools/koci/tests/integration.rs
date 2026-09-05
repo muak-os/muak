@@ -14,11 +14,10 @@ mod tests {
     use std::process::Command;
     use std::time::{Duration, Instant, SystemTime};
 
-    use koci::annotate;
+    use koci::annotations;
     use koci::arch::Arch;
     use koci::error::KociError;
     use koci::pull;
-    use koci::sign;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -44,9 +43,9 @@ mod tests {
         contents: Vec<u8>,
     }
 
-    fn collect_files(reference: &str, arch: Arch, pubkey_pem: Option<&str>) -> Vec<CollectedFile> {
+    fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
         let mut files = Vec::new();
-        pull::files(reference, &arch, pubkey_pem, |entry| {
+        pull::files(reference, &arch, None, |entry| {
             let path = entry.path.clone();
             let mut contents = Vec::new();
             entry.reader.read_to_end(&mut contents)?;
@@ -57,13 +56,12 @@ mod tests {
         files
     }
 
-    fn expect_stream_error(reference: &str, pubkey_pem: Option<&str>) -> KociError {
-        pull::files(reference, &Arch::Amd64, pubkey_pem, |_entry| Ok(()))
-            .expect_err("stream should fail")
+    fn expect_stream_error(reference: &str) -> KociError {
+        pull::files(reference, &Arch::Amd64, None, |_entry| Ok(())).expect_err("stream should fail")
     }
 
     fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
-        sign::manifest(reference, private_key_pem).expect_err("sign should fail")
+        annotations::sign(reference, private_key_pem, SIG_ANNOTATION).expect_err("sign should fail")
     }
 
     fn assert_signed_manifest_has_signature(registry: &MockRegistry, path: &str) {
@@ -107,7 +105,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64);
 
         // ASSERT
         assert_eq!(files.len(), 2);
@@ -159,7 +157,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), Arch::Arm64, None);
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Arm64);
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -221,7 +219,6 @@ mod tests {
         let files = collect_files(
             &registry.digest_reference("repo", &manifest_digest),
             Arch::Amd64,
-            None,
         );
 
         // ASSERT
@@ -259,7 +256,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error = expect_stream_error(&registry.reference("repo", "test"), None);
+        let error = expect_stream_error(&registry.reference("repo", "test"));
 
         // ASSERT
         assert!(matches!(error, KociError::DigestMismatch { .. }));
@@ -304,8 +301,12 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
-            .expect("sign image");
+        annotations::sign(
+            &registry.reference("repo", "test"),
+            &keys.private_key_pem,
+            SIG_ANNOTATION,
+        )
+        .expect("sign image");
 
         // ASSERT
         let signed_paths = [
@@ -333,8 +334,12 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
-            .expect("sign image");
+        annotations::sign(
+            &registry.reference("repo", "test"),
+            &keys.private_key_pem,
+            SIG_ANNOTATION,
+        )
+        .expect("sign image");
 
         // ASSERT
         let request = required_request(&registry, "PUT", path);
@@ -360,8 +365,12 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        sign::manifest(&registry.reference("repo", "test"), &keys.private_key_pem)
-            .expect("sign image");
+        annotations::sign(
+            &registry.reference("repo", "test"),
+            &keys.private_key_pem,
+            SIG_ANNOTATION,
+        )
+        .expect("sign image");
 
         // ASSERT
         let request = required_request(&registry, "PUT", path);
@@ -477,6 +486,8 @@ mod tests {
             .arg(&output_dir)
             .arg("--pub-key")
             .arg(&pub_key_path)
+            .arg("--sig-annotation")
+            .arg("dev.muak.sig")
             .output()
             .expect("run koci pull");
 
@@ -513,6 +524,8 @@ mod tests {
             .arg(&output_dir)
             .arg("--pub-key")
             .arg(&missing_key)
+            .arg("--sig-annotation")
+            .arg("dev.muak.sig")
             .output()
             .expect("run koci pull");
 
@@ -621,7 +634,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64);
 
         // ASSERT
         assert_eq!(files.len(), 1);
@@ -674,7 +687,7 @@ mod tests {
 
         // ACT
         let start = Instant::now();
-        collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
+        collect_files(&registry.reference("repo", "test"), Arch::Amd64);
         let elapsed = start.elapsed();
 
         // ASSERT
@@ -702,7 +715,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error = expect_stream_error(&registry.reference("repo", "test"), None);
+        let error = expect_stream_error(&registry.reference("repo", "test"));
 
         // ASSERT
         assert!(matches!(error, KociError::UnsupportedLayerMediaType(_)));
@@ -718,7 +731,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64, None);
+        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64);
 
         // ASSERT
         assert!(files.is_empty());
@@ -737,7 +750,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let error = expect_stream_error(&registry.reference("repo", "test"), None);
+        let error = expect_stream_error(&registry.reference("repo", "test"));
 
         // ASSERT
         assert!(matches!(error, KociError::DownloadError(_)));
@@ -919,6 +932,8 @@ mod tests {
             .arg(registry.reference("repo", "test"))
             .arg("--key")
             .arg(&key_path)
+            .arg("--annotation")
+            .arg("dev.muak.sig")
             .output()
             .expect("run koci sign");
 
@@ -962,6 +977,8 @@ mod tests {
             .arg("127.0.0.1:9/repo:test")
             .arg("--key")
             .arg(&missing_path)
+            .arg("--annotation")
+            .arg("dev.muak.sig")
             .output()
             .expect("run koci sign");
 
@@ -998,7 +1015,8 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        annotate::manifest(&registry.reference("repo", "test"), &[]).expect("annotate image");
+        annotations::sizes(&registry.reference("repo", "test"), SIZES_ANNOTATION, &[])
+            .expect("annotate image");
 
         // ASSERT
         let request = required_request(&registry, "PUT", tag_path);
@@ -1050,8 +1068,9 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        annotate::manifest(
+        annotations::sizes(
             &registry.reference("repo", "test"),
+            SIZES_ANNOTATION,
             &["lib/modules".to_owned()],
         )
         .expect("annotate image");
@@ -1116,7 +1135,8 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        annotate::manifest(&registry.reference("repo", "test"), &[]).expect("annotate image");
+        annotations::sizes(&registry.reference("repo", "test"), SIZES_ANNOTATION, &[])
+            .expect("annotate image");
 
         // ASSERT
         for (digest, size) in [(first_platform, 6), (second_platform, 7)] {
@@ -1163,6 +1183,8 @@ mod tests {
             .arg("annotate")
             .arg("--image")
             .arg(registry.reference("repo", "test"))
+            .arg("--annotation")
+            .arg("dev.muak.sizes")
             .output()
             .expect("run koci annotate");
 

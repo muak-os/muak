@@ -24,6 +24,9 @@ use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
+/// Manifest annotation carrying the per-file sizes of a producer image.
+const SIZES_ANNOTATION: &str = "dev.muak.sizes";
+
 /// Generates the `NodeKind` enum, its `ALL` table, and the descriptor dispatch from the single node registry.
 macro_rules! node_registry {
     ( $( $kind:ident => $descriptor:path ),+ $(,)? ) => {
@@ -78,7 +81,7 @@ pub(crate) fn produces(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortI
     (descriptor(kind).produces)(kind, ctx)
 }
 
-/// Byte size of every file entry of an image, from its `dev.muak.sizes` manifest annotation.
+/// Byte size of every file entry of an image, from its sizes manifest annotation.
 ///
 /// # Errors
 ///
@@ -95,7 +98,7 @@ fn parse_sizes(
     reference: &str,
     annotations: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, u64>> {
-    let Some(raw) = annotations.get(pull::SIZES_ANNOTATION) else {
+    let Some(raw) = annotations.get(SIZES_ANNOTATION) else {
         let available = annotations.keys().cloned().collect::<Vec<_>>().join(", ");
         let available = if available.is_empty() {
             "none".to_owned()
@@ -104,16 +107,14 @@ fn parse_sizes(
         };
 
         return Err(WizardError::BuildError(format!(
-            "missing {} annotation on {reference} (present: {available})",
-            pull::SIZES_ANNOTATION
+            "missing {SIZES_ANNOTATION} annotation on {reference} (present: {available})"
         )));
     };
 
     serde_json::from_str(raw).map_err(|e| {
         WizardError::BuildError(format!(
-            "malformed {} annotation on {reference}: expected a JSON object mapping \
-             entry paths to byte sizes: {e}",
-            pull::SIZES_ANNOTATION
+            "malformed {SIZES_ANNOTATION} annotation on {reference}: expected a JSON object \
+             mapping entry paths to byte sizes: {e}"
         ))
     })
 }
@@ -123,7 +124,6 @@ mod tests {
     use alloc::collections::BTreeMap;
 
     use koci::arch::Arch;
-    use koci::pull::SIZES_ANNOTATION;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 

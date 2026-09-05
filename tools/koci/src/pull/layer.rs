@@ -9,6 +9,7 @@ use tokio::task::JoinSet;
 
 use super::entries::FileEntry;
 use super::{download, resolve, scan};
+use crate::annotations::Verification;
 use crate::arch::Arch;
 use crate::error::{KociError, Result};
 use crate::image::OciDescriptor;
@@ -24,7 +25,7 @@ use crate::registry::session::Session;
 pub(crate) async fn files<F>(
     reference: &str,
     arch: &Arch,
-    pubkey_pem: Option<&str>,
+    verification: Option<&Verification<'_>>,
     mut handler: F,
 ) -> Result<()>
 where
@@ -32,7 +33,7 @@ where
 {
     let session = Session::new(reference, Access::Pull, None).await?;
     eprintln!("Pulling {reference} for {}", arch.as_str());
-    let layers = resolve::layers(&session, arch, pubkey_pem).await?;
+    let layers = resolve::layers(&session, arch, verification).await?;
     eprintln!("Resolved {} layer(s)", layers.len());
 
     walk(&session, &layers, |_layer_idx, entry, info| {

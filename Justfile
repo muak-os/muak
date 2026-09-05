@@ -104,7 +104,8 @@ sign image=(registry + "/installer:" + tag):
         {{ tools }} \
         /koci sign \
             --image "{{ image }}" \
-            --key /key
+            --key /key \
+            --annotation dev.muak.sig
 
 # Build boot artifacts (e.g., just artifact uki iso, just artifact raw)
 [script]
