@@ -6,6 +6,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
+use crate::image::ImageReference;
+
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -47,6 +49,29 @@ impl Store {
         Self { root, ttl }
     }
 
+    /// Return a cached manifest.
+    pub(crate) fn get_manifest(
+        &self,
+        image: &ImageReference,
+        manifest_ref: &str,
+    ) -> Option<String> {
+        if is_digest(manifest_ref) {
+            let path = self.blob_path(manifest_ref)?;
+            return std::fs::read_to_string(path).ok();
+        }
+
+        self.get_ref(&image.registry, &image.name, manifest_ref)
+    }
+
+    /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
+    pub(crate) fn put_manifest(&self, image: &ImageReference, manifest_ref: &str, manifest: &str) {
+        if is_digest(manifest_ref) {
+            self.put_blob(manifest_ref, manifest.as_bytes());
+        } else {
+            self.put_ref(&image.registry, &image.name, manifest_ref, manifest);
+        }
+    }
+
     /// Store blob bytes atomically, so a crash never leaves a partial entry.
     pub(crate) fn put_blob(&self, digest: &str, data: &[u8]) {
         if let Some(path) = self.blob_path(digest) {
@@ -62,9 +87,8 @@ impl Store {
         Some(root.join("blobs").join("sha256").join(hash))
     }
 
-    /// Return cached manifest JSON for a tag reference, or `None` if
-    /// missing or the TTL has expired.
-    pub(crate) fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
+    /// Return cached manifest JSON for a tag reference or `None` if missing or the TTL has expired.
+    fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
         let path = self.ref_path(registry, name, tag)?;
         let metadata = std::fs::metadata(&path).ok()?;
 
@@ -82,7 +106,7 @@ impl Store {
     }
 
     /// Store manifest JSON for a tag reference.
-    pub(crate) fn put_ref(&self, registry: &str, name: &str, tag: &str, manifest: &str) {
+    fn put_ref(&self, registry: &str, name: &str, tag: &str, manifest: &str) {
         let Some(path) = self.ref_path(registry, name, tag) else {
             return;
         };
@@ -94,6 +118,11 @@ impl Store {
 
         Some(root.join("refs").join(registry).join(name).join(tag))
     }
+}
+
+/// Whether a manifest reference is a content digest rather than a tag.
+fn is_digest(manifest_ref: &str) -> bool {
+    manifest_ref.starts_with("sha256:")
 }
 
 /// Write `data` to `path` atomically using a temporary file + rename.
@@ -272,32 +301,27 @@ mod tests {
     }
 
     #[test]
-    fn put_blob_roundtrip() {
+    fn manifest_cache_routes_digest_and_tag_references() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let cache = new_cache(&tmp);
-        let digest = "sha256:abcd1234";
+        let image = ImageReference::parse("ghcr.io/org/image:v1");
 
         // ACT
-        cache.put_blob(digest, b"hello blob");
+        cache.put_manifest(&image, "sha256:abc", r#"{"kind":"digest"}"#);
+        cache.put_manifest(&image, "v1", r#"{"kind":"tag"}"#);
 
         // ASSERT
-        let path = cache.blob_path(digest).expect("blob path");
-        let got = std::fs::read(&path).expect("read blob");
-        assert_eq!(got, b"hello blob");
-        let files: Vec<String> = tmp
-            .path()
-            .read_dir()
-            .expect("read dir")
-            .map(|entry| {
-                entry
-                    .expect("dir entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-        assert_eq!(files, vec!["blobs"]);
+        assert_eq!(
+            cache.get_manifest(&image, "sha256:abc").as_deref(),
+            Some(r#"{"kind":"digest"}"#),
+            "digest references must be cached as blobs"
+        );
+        assert_eq!(
+            cache.get_manifest(&image, "v1").as_deref(),
+            Some(r#"{"kind":"tag"}"#),
+            "tag references must be cached under the ref path"
+        );
     }
 
     #[test]

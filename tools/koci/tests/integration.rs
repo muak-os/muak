@@ -457,25 +457,31 @@ mod tests {
         let keys = generate_test_keys().expect("generate test keys");
         let workspace = TempDir::new().expect("create temp dir");
         let output_dir = workspace.path().join("out");
+        let key_path = workspace.path().join("koci.key.pem");
+        std::fs::write(&key_path, &keys.private_key_pem).expect("write private key");
         let pub_key_path = workspace.path().join("koci.pub.pem");
         std::fs::write(&pub_key_path, &keys.public_key_pem).expect("write public key");
 
         let layer =
             layer_archive(&[("etc/cli", b"pulled from cli\n")]).expect("build layer archive");
         let layer_digest = sha256_digest(&layer);
-        let manifest = signed_manifest_json(
-            &manifest_json(&layer_digest, layer.len()).expect("build manifest json"),
-            &keys.private_key_pem,
-        )
-        .expect("sign manifest json");
+        let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
         let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{layer_digest}"),
                 HttpResponse::octet_stream(layer),
             ),
+            put("/v2/repo/manifests/test", HttpResponse::ok()),
         ]))
         .expect("start mock registry");
+
+        annotations::sign(
+            &registry.reference("repo", "test"),
+            &keys.private_key_pem,
+            SIG_ANNOTATION,
+        )
+        .expect("sign image");
 
         // ACT
         let output = Command::new(koci_bin())
@@ -761,17 +767,15 @@ mod tests {
         // ARRANGE
         let layer = layer_archive(&[("etc/motd", b"hello\n")]).expect("build layer archive");
         let layer_digest = sha256_digest(&layer);
-        let manifest = with_annotation_json(
-            &with_annotation_json(
-                &manifest_json(&layer_digest, layer.len()).expect("build manifest json"),
-                "dev.muak.sig",
-                "AA",
-            )
-            .expect("sign manifest json"),
-            "dev.muak.sizes",
-            r#"{"etc/motd":6}"#,
+        let manifest = annotated_manifest_json(
+            &layer_digest,
+            layer.len(),
+            &[
+                (SIG_ANNOTATION, "AA"),
+                (SIZES_ANNOTATION, r#"{"etc/motd":6}"#),
+            ],
         )
-        .expect("annotate manifest json");
+        .expect("build annotated manifest json");
 
         let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
@@ -807,18 +811,18 @@ mod tests {
             (arm64_digest, "arm64", "linux"),
         ])
         .expect("build index json");
-        let amd64_manifest = with_annotation_json(
-            &minimal_manifest_json().expect("build manifest json"),
-            "dev.muak.sizes",
-            r#"{"vmlinuz-amd64":1}"#,
+        let amd64_manifest = annotated_manifest_json(
+            amd64_digest,
+            1,
+            &[(SIZES_ANNOTATION, r#"{"vmlinuz-amd64":1}"#)],
         )
-        .expect("annotate amd64 manifest json");
-        let arm64_manifest = with_annotation_json(
-            &minimal_manifest_json().expect("build manifest json"),
-            "dev.muak.sizes",
-            r#"{"vmlinuz-arm64":2}"#,
+        .expect("build amd64 manifest json");
+        let arm64_manifest = annotated_manifest_json(
+            arm64_digest,
+            2,
+            &[(SIZES_ANNOTATION, r#"{"vmlinuz-arm64":2}"#)],
         )
-        .expect("annotate arm64 manifest json");
+        .expect("build arm64 manifest json");
 
         let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::index(index)),
@@ -997,12 +1001,9 @@ mod tests {
         let layer = layer_archive(&[("vmlinuz", b"kernel-bytes\n"), ("cmdline", b"args\n")])
             .expect("build layer archive");
         let layer_digest = sha256_digest(&layer);
-        let manifest = with_annotation_json(
-            &manifest_json(&layer_digest, layer.len()).expect("build manifest json"),
-            "dev.muak.sig",
-            "AA",
-        )
-        .expect("sign manifest json");
+        let manifest =
+            annotated_manifest_json(&layer_digest, layer.len(), &[(SIG_ANNOTATION, "AA")])
+                .expect("build annotated manifest json");
         let tag_path = "/v2/repo/manifests/test";
         let registry = MockRegistry::start(HashMap::from([
             get(tag_path, HttpResponse::json(manifest)),

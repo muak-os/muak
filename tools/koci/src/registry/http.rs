@@ -4,6 +4,7 @@ use core::time::Duration;
 
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
+use hyper::http::request::Builder;
 use hyper::{Method, Request, Response};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -85,21 +86,12 @@ fn get_request(
     authorization: Option<&str>,
     accept_headers: &[&str],
 ) -> Result<Request<Full<Bytes>>> {
-    let mut builder = Request::builder()
-        .method(Method::GET)
-        .uri(url)
-        .header("User-Agent", USER_AGENT);
-
+    let mut builder = base_request(Method::GET, url);
     for accept in accept_headers {
         builder = builder.header("Accept", *accept);
     }
-    if let Some(value) = authorization {
-        builder = builder.header("Authorization", value);
-    }
 
-    builder
-        .body(Full::new(Bytes::new()))
-        .map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))
+    finish_request(builder, authorization, Full::new(Bytes::new()))
 }
 
 /// Build a PUT request with optional authorization and a raw body.
@@ -109,18 +101,32 @@ fn put_request(
     content_type: &str,
     body: Bytes,
 ) -> Result<Request<Full<Bytes>>> {
-    let mut builder = Request::builder()
-        .method(Method::PUT)
+    let builder = base_request(Method::PUT, url).header("Content-Type", content_type);
+
+    finish_request(builder, authorization, Full::new(body))
+}
+
+/// Start a request builder with method, URL, and User-Agent set.
+fn base_request(method: Method, url: &str) -> Builder {
+    Request::builder()
+        .method(method)
         .uri(url)
         .header("User-Agent", USER_AGENT)
-        .header("Content-Type", content_type);
+}
 
-    if let Some(value) = authorization {
-        builder = builder.header("Authorization", value);
-    }
+/// Attach optional authorization and a body, then validate the request.
+fn finish_request(
+    builder: Builder,
+    authorization: Option<&str>,
+    body: Full<Bytes>,
+) -> Result<Request<Full<Bytes>>> {
+    let builder = match authorization {
+        Some(value) => builder.header("Authorization", value),
+        None => builder,
+    };
 
     builder
-        .body(Full::new(body))
+        .body(body)
         .map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))
 }
 

@@ -32,15 +32,9 @@ pub(crate) async fn blob(
     digest: &str,
     authorization: Option<&str>,
 ) -> Result<Vec<u8>> {
-    let blob_url = format!(
-        "{}://{}/v2/{}/blobs/{}",
-        image_ref.scheme(),
-        image_ref.registry,
-        image_ref.name,
-        digest
-    );
+    let url = blob_url(image_ref, digest);
 
-    let resp = get(client, &blob_url, authorization, &[]).await?;
+    let resp = get(client, &url, authorization, &[]).await?;
     let mut digest_verifier = StreamingDigest::new(digest)?;
 
     let bytes = stream_body_to_vec(resp, &mut digest_verifier).await?;
@@ -87,4 +81,14 @@ fn read_cached(cache: &Store, digest: &str) -> Option<Vec<u8>> {
     let path = cache.blob_path(digest)?;
 
     std::fs::read(path).ok()
+}
+
+fn blob_url(image_ref: &ImageReference, digest: &str) -> String {
+    format!(
+        "{}://{}/v2/{}/blobs/{}",
+        image_ref.scheme(),
+        image_ref.registry,
+        image_ref.name,
+        digest
+    )
 }

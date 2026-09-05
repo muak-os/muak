@@ -9,24 +9,6 @@ use thiserror::Error;
     reason = "The public error type name intentionally includes the crate name"
 )]
 pub enum KociError {
-    /// Failed to read a file from disk.
-    #[error("Failed to read {file}: {source}")]
-    ReadError {
-        /// Path to the file that could not be read.
-        file: String,
-        /// Underlying I/O error.
-        source: std::io::Error,
-    },
-
-    /// Failed to write a file to disk.
-    #[error("Failed to write {file}: {source}")]
-    WriteError {
-        /// Path to the file that could not be written.
-        file: String,
-        /// Underlying I/O error.
-        source: std::io::Error,
-    },
-
     /// Failed to download an OCI image.
     #[error("Failed to download image: {0}")]
     DownloadError(String),
@@ -59,10 +41,6 @@ pub enum KociError {
     /// A network request failed.
     #[error("Network error: {0}")]
     NetworkError(String),
-
-    /// Failed to create or use a temporary directory.
-    #[error("Temporary directory error: {0}")]
-    TempDirError(String),
 
     /// An I/O error occurred.
     #[error("IO error: {0}")]

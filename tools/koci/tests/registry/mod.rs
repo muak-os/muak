@@ -36,11 +36,15 @@ impl MockRegistry {
         let address = listener.local_addr()?.to_string();
         let routes = Arc::new(routes);
         let requests = Arc::new(Mutex::new(Vec::new()));
+        // Body of the last accepted PUT per path, served on subsequent GETs
+        // like a real registry would serve a pushed manifest.
+        let pushed = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
         let connections = Arc::new(Mutex::new(Vec::new()));
 
         let thread_routes = Arc::clone(&routes);
         let thread_requests = Arc::clone(&requests);
+        let thread_pushed = Arc::clone(&pushed);
         let thread_shutdown = Arc::clone(&shutdown);
         let thread_connections = Arc::clone(&connections);
 
@@ -48,6 +52,7 @@ impl MockRegistry {
             run_registry_server(
                 &listener,
                 &thread_routes,
+                &thread_pushed,
                 &thread_requests,
                 &thread_shutdown,
                 &thread_connections,
@@ -176,6 +181,7 @@ pub(crate) fn put<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey
 fn run_registry_server(
     listener: &TcpListener,
     routes: &Arc<HashMap<RouteKey, HttpResponse>>,
+    pushed: &Arc<Mutex<HashMap<String, Vec<u8>>>>,
     requests: &Arc<Mutex<Vec<RecordedRequest>>>,
     shutdown: &AtomicBool,
     connections: &Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
@@ -192,9 +198,10 @@ fn run_registry_server(
         };
 
         let routes = Arc::clone(routes);
+        let pushed = Arc::clone(pushed);
         let requests = Arc::clone(requests);
         let connection_handle = thread::spawn(move || {
-            drop(handle_connection(stream, &routes, &requests));
+            drop(handle_connection(stream, &routes, &pushed, &requests));
         });
         connections
             .lock()
@@ -217,13 +224,31 @@ fn accept_connection(listener: &TcpListener) -> Result<Option<TcpStream>, IoErro
 fn handle_connection(
     mut stream: TcpStream,
     routes: &HashMap<RouteKey, HttpResponse>,
+    pushed: &Mutex<HashMap<String, Vec<u8>>>,
     requests: &Mutex<Vec<RecordedRequest>>,
 ) -> Result<(), IoError> {
     let request = read_request(&mut stream)?;
-    let response = routes
-        .get(&(request.method.clone(), request.path.clone()))
+
+    let route_key = (request.method.clone(), request.path.clone());
+    let mut response = routes
+        .get(&route_key)
         .cloned()
         .unwrap_or_else(not_found_response);
+
+    if request.method == "PUT" && response.status == 200 {
+        pushed
+            .lock()
+            .map_err(|_error| IoError::other("pushed manifest mutex poisoned"))?
+            .insert(request.path.clone(), request.body.clone());
+    }
+    if request.method == "GET"
+        && let Some(body) = pushed
+            .lock()
+            .map_err(|_error| IoError::other("pushed manifest mutex poisoned"))?
+            .get(&request.path)
+    {
+        response = HttpResponse::json(body.clone());
+    }
 
     requests
         .lock()

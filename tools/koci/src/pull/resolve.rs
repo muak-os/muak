@@ -43,38 +43,15 @@ pub(crate) async fn platform_manifest_json(
 
 /// Fetch a manifest, checking the local cache before hitting the network.
 async fn fetch_cached_manifest(session: &Session, manifest_ref: &str) -> Result<String> {
-    let is_digest = manifest_ref.starts_with("sha256:");
-
-    if is_digest {
-        if let Some(cached) = session
-            .cache
-            .blob_path(manifest_ref)
-            .and_then(|path| std::fs::read_to_string(&path).ok())
-        {
-            return Ok(cached);
-        }
-        let url = manifest::build_url(&session.image, manifest_ref);
-        let json = manifest::fetch(&session.client, &url, session.authorization()).await?;
-        session.cache.put_blob(manifest_ref, json.as_bytes());
-
-        Ok(json)
-    } else {
-        if let Some(cached) =
-            session
-                .cache
-                .get_ref(&session.image.registry, &session.image.name, manifest_ref)
-        {
-            return Ok(cached);
-        }
-        let url = manifest::build_url(&session.image, manifest_ref);
-        let json = manifest::fetch(&session.client, &url, session.authorization()).await?;
-        session.cache.put_ref(
-            &session.image.registry,
-            &session.image.name,
-            manifest_ref,
-            &json,
-        );
-
-        Ok(json)
+    if let Some(cached) = session.cache.get_manifest(&session.image, manifest_ref) {
+        return Ok(cached);
     }
+
+    let url = manifest::build_url(&session.image, manifest_ref);
+    let json = manifest::fetch(&session.client, &url, session.authorization()).await?;
+    session
+        .cache
+        .put_manifest(&session.image, manifest_ref, &json);
+
+    Ok(json)
 }
