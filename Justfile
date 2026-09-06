@@ -146,7 +146,7 @@ oci *pkgs:
             tools)    just _build-oci tools tools/Dockerfile ;;
             *)
                 dockerfile=""
-                for dir in core services tools pkgs; do
+                for dir in init services tools pkgs; do
                     if [ -f "$dir/$pkg/Dockerfile" ]; then
                         dockerfile="$dir/$pkg/Dockerfile"
                         break
