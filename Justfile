@@ -35,6 +35,7 @@ release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 # Container runtime
 
 container_runtime := env_var_or_default("CONTAINER_RUNTIME", "podman")
+digest := env_var_or_default("DIGEST", "false")
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
@@ -74,25 +75,17 @@ build release="" *pkgs:
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
     pkgs="granola provisiond modd networkd apid workloadd timed consoled millefeuille"
-    pkg_args=()
+    extra=()
     if [ "{{ prod }}" = "false" ]; then
         for pkg in $pkgs; do
-            pkg_args+=(--build-context "pkg-$pkg={{ release_dir }}")
+            extra+=(--build-context "pkg-$pkg={{ release_dir }}")
         done
     else
         for pkg in $pkgs; do
-            pkg_args+=(--build-arg "PKG_${pkg^^}={{ registry }}/pkgs/$pkg:{{ tag }}")
+            extra+=(--build-arg "PKG_${pkg^^}={{ registry }}/pkgs/$pkg:{{ tag }}")
         done
     fi
-    {{ build_cmd }} {{ common_args }} {{ pull_arg }} \
-        --build-context services=. \
-        --build-arg TOOLS={{ tools }} \
-        "${pkg_args[@]}" \
-        $(just _cache-from installer) $(just _cache-to installer) \
-        --tag {{ registry }}/installer:{{ tag }} \
-        --file Dockerfile \
-        .
-    if [ "{{ push }}" = "true" ]; then {{ container_runtime }} push "{{ registry }}/installer:{{ tag }}"; fi
+    just _build-oci installer Dockerfile "${extra[@]}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
 # Sign an OCI image in the registry (default to installer image)
@@ -134,6 +127,10 @@ artifacts *types:
             --platform metal \
             -o /out
 
+# ─────────────────────────────────────────────────────────────────────────────
+# OCI Images
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Build OCI images (e.g., just oci granola installer cli tools)
 [script]
 oci *pkgs:
@@ -163,6 +160,36 @@ oci *pkgs:
                 ;;
         esac
     done
+
+# Merge per-platform images into a multi-arch OCI index
+[script]
+merge image *sources:
+    tags=""
+    if [ "{{ latest }}" = "true" ]; then
+        tags="--tag latest"
+    fi
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        {{ tools }} \
+        /koci merge \
+            --image "{{ registry }}/{{ image }}" \
+            --tag "{{ tag }}" \
+            ${tags} \
+            {{ sources }}
+
+# Extract an OCI image's files with koci
+[script]
+extract image arch=oci_arch output=(out + "/extract"):
+    mkdir -p "{{ output }}"
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        -v "{{ absolute_path(output) }}:/out" \
+        {{ tools }} \
+        /koci pull \
+            --image "{{ image }}" \
+            --arch "{{ arch }}" \
+            --output /out
+    printf "{{ green }}Extracted {{ image }} ({{ arch }}) to {{ output }}{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Testing
@@ -276,16 +303,6 @@ flame pkg *args: _ensure-out
 # Utilities
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Extract an OCI image filesystem to local artifacts
-[arg("image", long="image")]
-[script]
-extract image: _ensure-out
-    printf "{{ cyan }}Extracting assets from {{ image }}{{ reset }}\n"
-    cid=$({{ container_runtime }} create "{{ image }}")
-    {{ container_runtime }} export "$cid" | tar -x -C {{ out }}
-    {{ container_runtime }} rm "$cid" >/dev/null
-    printf "{{ green }}Assets extracted to {{ out }}/{{ reset }}\n"
-
 # Validate SELinux CIL policy
 [script]
 policy:
@@ -321,12 +338,28 @@ _build-oci name dockerfile *extra:
     if [ "{{ latest }}" = "true" ]; then
         tags="${tags} --tag {{ registry }}/{{ name }}:latest"
     fi
+    output=""
+    metadata=""
+    push_flags=""
+    if [ "{{ push }}" = "true" ]; then
+        if [ "{{ digest }}" = "true" ]; then
+            if [ "{{ container_runtime }}" = "podman" ]; then
+                printf "{{ red }}{{ bold }}Error:{{ reset }} podman cannot push by digest; use CONTAINER_RUNTIME=docker or drop DIGEST=true\n"
+                exit 1
+            fi
+            tags=""
+            output="--output type=image,name={{ registry }}/{{ name }},push-by-digest=true"
+            metadata="--metadata-file metadata-{{ replace(name, "/", "-") }}-{{ oci_arch }}.json"
+        elif [ "{{ container_runtime }}" = "docker" ]; then
+            push_flags="--push"
+        fi
+    fi
     printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }}, latest={{ latest }})\n"
     {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
-        ${cache_from} ${cache_to} ${tags} {{ extra }} \
+        ${cache_from} ${cache_to} ${output} ${metadata} ${push_flags} ${tags} {{ extra }} \
         --file {{ dockerfile }} \
         .
-    if [ "{{ push }}" = "true" ]; then
+    if [ "{{ container_runtime }}" = "podman" ] && [ "{{ push }}" = "true" ]; then
         {{ container_runtime }} push "${image}"
         if [ "{{ latest }}" = "true" ]; then {{ container_runtime }} push "{{ registry }}/{{ name }}:latest"; fi
     fi

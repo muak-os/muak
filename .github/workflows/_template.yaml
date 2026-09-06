@@ -84,36 +84,110 @@ jobs:
             echo "tag=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup cosign key
-        if: inputs.sign
+      - name: Prepare image names
+        if: inputs.push
+        id: names
+        env:
+          NAME: ${{ inputs.image_prefix }}${{ inputs.image }}
         run: |
-          echo "${{ secrets.COSIGN_KEY }}" > cosign.key
-          chmod 600 cosign.key
+          FLAT="${NAME//\//-}"
+          echo "flat=${FLAT}" >> "$GITHUB_OUTPUT"
 
       - name: Build ${{ inputs.image }} (${{ matrix.arch }})
         run: |
           CONTAINER_RUNTIME=docker \
           ARCH=${{ matrix.arch }} \
           PUSH=${{ inputs.push }} \
-          LATEST=${{ inputs.latest }} \
           TAG=${{ steps.tag.outputs.tag }} \
+          DIGEST=true \
           just ${{ inputs.recipe }}
 
-      - name: Sign ${{ inputs.image }} (${{ matrix.arch }})
+      - name: Export digest
+        if: inputs.push
+        run: |
+          jq -r '."containerimage.digest"' \
+            "metadata-${{ steps.names.outputs.flat }}-${{ matrix.arch }}.json" \
+            > "digest-${{ steps.names.outputs.flat }}-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.push
+        with:
+          name: digests-${{ steps.names.outputs.flat }}-${{ matrix.arch }}
+          path: digest-${{ steps.names.outputs.flat }}-${{ matrix.arch }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  manifest:
+    name: Combine multi-arch manifest
+    needs: build
+    if: inputs.push
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io/muak-os
+      CONTAINER_RUNTIME: docker
+      TOOLS: ghcr.io/muak-os/tools:latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: taiki-e/install-action@just
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          merge-multiple: true
+          path: /tmp/digests
+
+      - name: Setup cosign key
         if: inputs.sign
         run: |
-          CONTAINER_RUNTIME=docker \
-          TAG=${{ steps.tag.outputs.tag }} \
-          just sign
+          echo "${{ secrets.COSIGN_KEY }}" > cosign.key
+          chmod 600 cosign.key
+
+      - name: Create multi-arch manifest (${{ steps.tag.outputs.tag }})
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          LATEST: ${{ inputs.latest }}
+          KOCI_REGISTRY_USERNAME: ${{ github.actor }}
+          KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NAME="${{ inputs.image_prefix }}${{ inputs.image }}"
+          just merge "${NAME}" \
+            "amd64=$(cat "/tmp/digests/digest-${NAME//\//-}-amd64.txt")" \
+            "arm64=$(cat "/tmp/digests/digest-${NAME//\//-}-arm64.txt")"
+
+      - name: Sign ${{ inputs.image }}
+        if: inputs.sign
+        env:
+          CONTAINER_RUNTIME: docker
+          TAG: ${{ steps.tag.outputs.tag }}
+          SIGNATURE: cosign.key
+        run: just sign
 
       - name: Cleanup cosign key
         if: inputs.sign && always()
         run: rm -f cosign.key
 
       - name: Build summary
-        if: inputs.push
+        env:
+          NAME: ${{ inputs.image_prefix }}${{ inputs.image }}
         run: |
-          IMAGE_REF="${{ env.REGISTRY }}/${{ inputs.image_prefix }}${{ inputs.image }}"
-          echo "### ${{ inputs.image }} (${{ matrix.arch }}) Built" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag:** \`${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** \`${IMAGE_REF}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          FLAT="${NAME//\//-}"
+          echo "### Multi-arch manifest created for ${{ inputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${REGISTRY}/${NAME}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ inputs.latest }}" == "true" ]]; then
+            echo "- **Latest:** \`${REGISTRY}/${NAME}:latest\`" >> $GITHUB_STEP_SUMMARY
+          fi
