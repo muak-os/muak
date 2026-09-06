@@ -47,7 +47,11 @@ default = ["cli"]
 cli = ["anyhow", "clap"]
 
 [dev-dependencies]
+flate2 = { workspace = true }
+object = { workspace = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }
+zstd = { workspace = true }
 
 [lints]
 workspace = true
