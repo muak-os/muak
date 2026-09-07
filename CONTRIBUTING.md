@@ -38,7 +38,7 @@ EOF
 ```
 
 ```sh
-REGISTRY="localhost:5000" PUSH="true" just dev
+REGISTRY="localhost:5000" just dev
 just start
 
 REGISTRY="10.0.2.2:5000" just e2e
@@ -47,12 +47,12 @@ REGISTRY="10.0.2.2:5000" just e2e
 ### Local tool image
 
 ```sh
-REGISTRY="localhost:5000" PUSH="true" just oci tools
-TOOLS="localhost:5000/tools:latest" REGISTRY="localhost:5000" PUSH="true" just dev
+REGISTRY="localhost:5000" just oci tools
+TOOLS="localhost:5000/tools:latest" REGISTRY="localhost:5000" just dev
 ```
 
 ### ARM
 
 ```sh
-ARCH=aarch64 REGISTRY="localhost:5000" PUSH="true" just dev
+ARCH=aarch64 REGISTRY="localhost:5000" just dev
 ```
