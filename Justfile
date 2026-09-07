@@ -54,7 +54,7 @@ reset := '\e[0m'
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → uki + iso)
-dev: (build "--release" "") installer sign (artifacts "iso")
+dev: (build "--release" "") installer annotate sign (artifacts "iso")
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [arg("release", long="release", value="--release")]
@@ -87,6 +87,17 @@ installer prod="false":
     fi
     just _build-oci installer Dockerfile "${extra[@]}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
+
+# Annotate an OCI image in the registry with per-entry sizes.
+[arg("image", long="image")]
+annotate image=(registry + "/installer:" + tag):
+    @printf "{{ cyan }}Annotating OCI image {{ image }}{{ reset }}\n"
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        {{ tools }} \
+        /koci annotate \
+            --image "{{ image }}" \
+            --annotation dev.muak.sizes
 
 # Sign an OCI image in the registry (default to installer image)
 [arg("image", long="image")]
