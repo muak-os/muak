@@ -15,8 +15,6 @@ on:
       - "Justfile"
       - "rust-toolchain.toml"
       - ".dockerignore"
-    tags:
-      - "v[0-9]+.*"
   pull_request:
     paths:
       - "pkgs/**"
@@ -30,6 +28,7 @@ on:
       - "Justfile"
       - "rust-toolchain.toml"
       - ".dockerignore"
+  workflow_call:
   workflow_dispatch:
     inputs:
       package:

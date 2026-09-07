@@ -13,8 +13,6 @@ on:
       - "Justfile"
       - "rust-toolchain.toml"
       - ".dockerignore"
-    tags:
-      - "v[0-9]+.*"
   pull_request:
     paths:
       - "cli/**"
@@ -26,6 +24,16 @@ on:
       - "Justfile"
       - "rust-toolchain.toml"
       - ".dockerignore"
+  workflow_call:
+    inputs:
+      latest:
+        required: false
+        type: boolean
+        default: false
+      tag:
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       latest:
@@ -48,5 +56,5 @@ jobs:
       image: muakctl
       recipe: oci cli
       push: ${{ github.event_name != 'pull_request' }}
-      latest: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.latest) }}
-      tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+      latest: ${{ startsWith(github.ref, 'refs/tags/') || inputs.latest }}
+      tag: ${{ inputs.tag }}

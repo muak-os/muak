@@ -1,6 +1,13 @@
 name: Build Installer
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to build (defaults to current commit)"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       tag:

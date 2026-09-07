@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (defaults to current commit)"
+        required: false
+        type: string
+      latest:
+        description: "Also tag the images as latest"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tools:
+    uses: ./.github/workflows/build-tools.yaml
+    with:
+      latest: ${{ startsWith(github.ref, 'refs/tags/') || inputs.latest }}
+      tag: ${{ inputs.tag || '' }}
+    secrets: inherit
+
+  packages:
+    needs: tools
+    uses: ./.github/workflows/build-packages.yaml
+    secrets: inherit
+
+  cli:
+    needs: tools
+    uses: ./.github/workflows/build-cli.yaml
+    with:
+      latest: ${{ startsWith(github.ref, 'refs/tags/') || inputs.latest }}
+      tag: ${{ inputs.tag || '' }}
+    secrets: inherit
+
+  installer:
+    needs: [packages, cli]
+    uses: ./.github/workflows/build-installer.yaml
+    with:
+      tag: ${{ inputs.tag || '' }}
+    secrets: inherit
