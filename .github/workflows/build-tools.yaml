@@ -62,6 +62,6 @@ jobs:
       image: tools
       recipe: oci tools
       push: ${{ github.event_name != 'pull_request' }}
-      latest: ${{ startsWith(github.ref, 'refs/tags/') || inputs.latest }}
+      latest: ${{ startsWith(github.ref, 'refs/tags/') || inputs.latest == true }}
       tag: ${{ inputs.tag }}
       arch_matrix: '["amd64","arm64"]'
