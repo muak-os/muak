@@ -39,7 +39,7 @@ build_cmd := if container_runtime == "podman" { "podman build" } else { "docker 
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
 push_arg := if container_runtime == "podman" { "" } else { if push == "true" { "--push" } else { "" } }
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
+common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " --build-arg TOOLS=" + tools + " " + provenance_arg
 
 # Colors
 
@@ -85,6 +85,7 @@ installer prod="false":
             extra+=(--build-arg "PKG_${pkg^^}={{ registry }}/pkgs/$pkg:{{ tag }}")
         done
     fi
+    extra+=(--build-context "services=services")
     just _build-oci installer Dockerfile "${extra[@]}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
