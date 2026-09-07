@@ -1,6 +1,7 @@
 pub(crate) mod auth;
 pub(crate) mod challenge;
 pub(crate) mod http;
+pub(crate) mod redirect;
 pub(crate) mod session;
 
 /// Media type of an OCI image manifest.

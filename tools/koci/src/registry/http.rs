@@ -15,6 +15,7 @@ use tokio::time::timeout;
 use crate::digest::StreamingDigest;
 use crate::error::{KociError, Result};
 use crate::registry::USER_AGENT;
+use crate::registry::redirect;
 
 const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
 
@@ -50,7 +51,8 @@ pub(crate) async fn get(
     authorization: Option<&str>,
     accept_headers: &[&str],
 ) -> Result<Response<Incoming>> {
-    let response = get_any_status(client, url, authorization, accept_headers).await?;
+    let response = redirect::follow(client, url, authorization, accept_headers).await?;
+
     ensure_success(url, response)
 }
 
