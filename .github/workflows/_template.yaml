@@ -84,38 +84,13 @@ jobs:
             echo "tag=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare image names
-        if: inputs.push
-        id: names
-        env:
-          NAME: ${{ inputs.image_prefix }}${{ inputs.image }}
-        run: |
-          FLAT="${NAME//\//-}"
-          echo "flat=${FLAT}" >> "$GITHUB_OUTPUT"
-
       - name: Build ${{ inputs.image }} (${{ matrix.arch }})
         run: |
           CONTAINER_RUNTIME=docker \
           ARCH=${{ matrix.arch }} \
           PUSH=${{ inputs.push }} \
-          TAG=${{ steps.tag.outputs.tag }} \
-          DIGEST=true \
+          TAG=ci-${{ matrix.arch }} \
           just ${{ inputs.recipe }}
-
-      - name: Export digest
-        if: inputs.push
-        run: |
-          jq -r '."containerimage.digest"' \
-            "metadata-${{ steps.names.outputs.flat }}-${{ matrix.arch }}.json" \
-            > "digest-${{ steps.names.outputs.flat }}-${{ matrix.arch }}.txt"
-
-      - uses: actions/upload-artifact@v4
-        if: inputs.push
-        with:
-          name: digests-${{ steps.names.outputs.flat }}-${{ matrix.arch }}
-          path: digest-${{ steps.names.outputs.flat }}-${{ matrix.arch }}.txt
-          retention-days: 1
-          if-no-files-found: error
 
   manifest:
     name: Combine multi-arch manifest
@@ -145,18 +120,6 @@ jobs:
             echo "tag=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: digests-*
-          merge-multiple: true
-          path: /tmp/digests
-
-      - name: Setup cosign key
-        if: inputs.sign
-        run: |
-          echo "${{ secrets.COSIGN_KEY }}" > cosign.key
-          chmod 600 cosign.key
-
       - name: Create multi-arch manifest (${{ steps.tag.outputs.tag }})
         env:
           TAG: ${{ steps.tag.outputs.tag }}
@@ -165,9 +128,13 @@ jobs:
           KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NAME="${{ inputs.image_prefix }}${{ inputs.image }}"
-          just merge "${NAME}" \
-            "amd64=$(cat "/tmp/digests/digest-${NAME//\//-}-amd64.txt")" \
-            "arm64=$(cat "/tmp/digests/digest-${NAME//\//-}-arm64.txt")"
+          just merge "${NAME}" amd64=ci-amd64 arm64=ci-arm64
+
+      - name: Setup cosign key
+        if: inputs.sign
+        run: |
+          echo "${{ secrets.COSIGN_KEY }}" > cosign.key
+          chmod 600 cosign.key
 
       - name: Sign ${{ inputs.image }}
         if: inputs.sign
@@ -185,7 +152,6 @@ jobs:
         env:
           NAME: ${{ inputs.image_prefix }}${{ inputs.image }}
         run: |
-          FLAT="${NAME//\//-}"
           echo "### Multi-arch manifest created for ${{ inputs.image }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** \`${REGISTRY}/${NAME}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ inputs.latest }}" == "true" ]]; then

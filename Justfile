@@ -35,9 +35,9 @@ release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 # Container runtime
 
 container_runtime := env_var_or_default("CONTAINER_RUNTIME", "podman")
-digest := env_var_or_default("DIGEST", "false")
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
+push_arg := if container_runtime == "podman" { "" } else { if push == "true" { "--push" } else { "" } }
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
 common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " " + provenance_arg
 
@@ -338,25 +338,9 @@ _build-oci name dockerfile *extra:
     if [ "{{ latest }}" = "true" ]; then
         tags="${tags} --tag {{ registry }}/{{ name }}:latest"
     fi
-    output=""
-    metadata=""
-    push_flags=""
-    if [ "{{ push }}" = "true" ]; then
-        if [ "{{ digest }}" = "true" ]; then
-            if [ "{{ container_runtime }}" = "podman" ]; then
-                printf "{{ red }}{{ bold }}Error:{{ reset }} podman cannot push by digest; use CONTAINER_RUNTIME=docker or drop DIGEST=true\n"
-                exit 1
-            fi
-            tags=""
-            output="--output type=image,name={{ registry }}/{{ name }},push-by-digest=true"
-            metadata="--metadata-file metadata-{{ replace(name, "/", "-") }}-{{ oci_arch }}.json"
-        elif [ "{{ container_runtime }}" = "docker" ]; then
-            push_flags="--push"
-        fi
-    fi
     printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }}, latest={{ latest }})\n"
     {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
-        ${cache_from} ${cache_to} ${output} ${metadata} ${push_flags} ${tags} {{ extra }} \
+        ${cache_from} ${cache_to} {{ push_arg }} ${tags} {{ extra }} \
         --file {{ dockerfile }} \
         .
     if [ "{{ container_runtime }}" = "podman" ] && [ "{{ push }}" = "true" ]; then
