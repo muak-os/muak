@@ -1,0 +1,3 @@
+name       = "workloadd"
+command    = "/sbin/workloadd"
+depends_on = ["networkd"]
