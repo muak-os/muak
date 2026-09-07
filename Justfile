@@ -89,29 +89,6 @@ installer prod="false":
     just _build-oci installer Dockerfile "${extra[@]}"
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
-# Annotate an OCI image in the registry with per-entry sizes.
-[arg("image", long="image")]
-annotate image=(registry + "/installer:" + tag):
-    @printf "{{ cyan }}Annotating OCI image {{ image }}{{ reset }}\n"
-    {{ container_runtime }} run --rm --network=host \
-        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
-        {{ tools }} \
-        /koci annotate \
-            --image "{{ image }}" \
-            --annotation dev.muak.sizes
-
-# Sign an OCI image in the registry (default to installer image)
-[arg("image", long="image")]
-sign image=(registry + "/installer:" + tag):
-    @printf "{{ cyan }}Signing OCI image {{ image }}{{ reset }}\n"
-    {{ container_runtime }} run --rm --network=host \
-        -v "{{ absolute_path(signature) }}:/key:ro" \
-        {{ tools }} \
-        /koci sign \
-            --image "{{ image }}" \
-            --key /key \
-            --annotation dev.muak.sig
-
 # Build boot artifacts (e.g., just artifact uki iso, just artifact raw)
 [script]
 artifacts *types:
@@ -188,6 +165,29 @@ merge image *sources:
             --tag "{{ tag }}" \
             ${tags} \
             {{ sources }}
+
+# Annotate an OCI image in the registry with per-entry sizes.
+[arg("image", long="image")]
+annotate image=(registry + "/installer:" + tag):
+    @printf "{{ cyan }}Annotating OCI image {{ image }}{{ reset }}\n"
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        {{ tools }} \
+        /koci annotate \
+            --image "{{ image }}" \
+            --annotation dev.muak.sizes
+
+# Sign an OCI image in the registry (default to installer image)
+[arg("image", long="image")]
+sign image=(registry + "/installer:" + tag):
+    @printf "{{ cyan }}Signing OCI image {{ image }}{{ reset }}\n"
+    {{ container_runtime }} run --rm --network=host \
+        -v "{{ absolute_path(signature) }}:/key:ro" \
+        {{ tools }} \
+        /koci sign \
+            --image "{{ image }}" \
+            --key /key \
+            --annotation dev.muak.sig
 
 # Extract an OCI image's files with koci
 [script]
