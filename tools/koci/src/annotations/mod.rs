@@ -2,11 +2,14 @@
 
 pub(crate) mod signature;
 
+use hyper::body::Bytes;
 use p256::ecdsa::SigningKey;
 
-use crate::error::Result;
+use crate::digest::sha256_hex;
+use crate::error::{KociError, Result};
 use crate::image::manifest;
 use crate::pull;
+use crate::registry::OCI_IMAGE_INDEX_MEDIA_TYPE;
 use crate::registry::auth::Access;
 use crate::registry::session::Session;
 use crate::runtime;
@@ -54,26 +57,51 @@ pub fn sizes(reference: &str, annotation: &str, exclude: &[String]) -> Result<()
     ))
 }
 
-/// Apply `mutation` to the plain manifest of an image, or to every platform manifest of an index.
+/// Platform manifests of an index are addressed by digest: a mutated manifest
+/// changes bytes, so it is pushed under its NEW digest and the index
+/// descriptors are repointed before the index is pushed back under its tag.
 async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) -> Result<()> {
     let session = Session::new(reference, Access::PullPush, None).await?;
     let root_json = fetch_manifest(&session, &session.image.manifest_ref).await?;
     let parsed = manifest::parse(&root_json)?;
 
-    for descriptor in &parsed.manifests {
+    if parsed.manifests.is_empty() {
+        let (body, content_type) = mutation.transform(&session, &root_json).await?;
+
+        return manifest::put(&session, &session.image.manifest_ref, &content_type, body).await;
+    }
+
+    let mut index: serde_json::Value = serde_json::from_str(&root_json).map_err(|error| {
+        KociError::OciParseError(format!("Failed to parse manifest JSON: {error}"))
+    })?;
+    let entries = index
+        .get_mut("manifests")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| KociError::InvalidOciFormat("Index manifests is not an array".to_owned()))?;
+
+    for (entry, descriptor) in entries.iter_mut().zip(&parsed.manifests) {
         let platform_json = fetch_manifest(&session, &descriptor.digest).await?;
-        mutation
-            .apply(&session, &descriptor.digest, &platform_json)
-            .await?;
+        let (body, content_type) = mutation.transform(&session, &platform_json).await?;
+        let digest = format!("sha256:{}", sha256_hex(&body));
+        manifest::put(&session, &digest, &content_type, body.clone()).await?;
+        entry["digest"] = serde_json::Value::String(digest);
+        entry["size"] = serde_json::Value::from(body.len());
     }
 
-    if include_root || parsed.manifests.is_empty() {
+    let (body, content_type) = if include_root {
         mutation
-            .apply(&session, &session.image.manifest_ref, &root_json)
-            .await?;
-    }
+            .transform(&session, &serde_json::to_string(&index)?)
+            .await?
+    } else {
+        let content_type = index
+            .get("mediaType")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(OCI_IMAGE_INDEX_MEDIA_TYPE)
+            .to_owned();
+        (Bytes::from(serde_json::to_vec(&index)?), content_type)
+    };
 
-    Ok(())
+    manifest::put(&session, &session.image.manifest_ref, &content_type, body).await
 }
 
 /// One manifest rewrite.
@@ -92,13 +120,10 @@ enum Mutation<'a> {
 }
 
 impl Mutation<'_> {
-    /// Transform one manifest and PUT it back under the same reference.
-    async fn apply(self, session: &Session, manifest_ref: &str, manifest_json: &str) -> Result<()> {
+    /// Transform one manifest, returning its new body and content type.
+    async fn transform(self, session: &Session, manifest_json: &str) -> Result<(Bytes, String)> {
         match self {
-            Mutation::Sign { key, annotation } => {
-                let (body, content_type) = signature::inject(manifest_json, key, annotation)?;
-                manifest::put(session, manifest_ref, &content_type, body).await
-            }
+            Mutation::Sign { key, annotation } => signature::inject(manifest_json, key, annotation),
             Mutation::Sizes {
                 annotation,
                 exclude,
@@ -107,10 +132,8 @@ impl Mutation<'_> {
                 let sizes = pull::layer::entry_sizes(session, &parsed.layers, exclude).await?;
                 eprintln!("Annotating {} file(s)", sizes.len());
                 let sizes_json = serde_json::to_string(&sizes)?;
-                let (body, content_type) =
-                    manifest::with_annotation(manifest_json, annotation, &sizes_json)?;
 
-                manifest::put(session, manifest_ref, &content_type, body).await
+                manifest::with_annotation(manifest_json, annotation, &sizes_json)
             }
         }
     }

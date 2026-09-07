@@ -65,6 +65,15 @@ mod tests {
         annotations::sign(reference, private_key_pem, SIG_ANNOTATION).expect_err("sign should fail")
     }
 
+    fn sizes_annotation_path(request: &RecordedRequest, size: u8) -> Option<String> {
+        let manifest: Value = serde_json::from_slice(&request.body).ok()?;
+        let sizes = manifest
+            .get("annotations")?
+            .get(SIZES_ANNOTATION)?
+            .as_str()?;
+        (sizes == format!(r#"{{"vmlinuz":{size}}}"#).as_str()).then(|| request.path.clone())
+    }
+
     fn assert_signed_manifest_has_signature(registry: &MockRegistry, path: &str) {
         let request = required_request(registry, "PUT", path);
         let manifest: Value =
@@ -289,15 +298,6 @@ mod tests {
                 format!("/v2/repo/manifests/{second_platform_digest}"),
                 HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
             ),
-            put(
-                format!("/v2/repo/manifests/{first_platform_digest}"),
-                HttpResponse::ok(),
-            ),
-            put(
-                format!("/v2/repo/manifests/{second_platform_digest}"),
-                HttpResponse::ok(),
-            ),
-            put(top_level_path, HttpResponse::ok()),
         ]))
         .expect("start mock registry");
 
@@ -310,11 +310,43 @@ mod tests {
         .expect("sign image");
 
         // ASSERT
-        let signed_paths = [
-            top_level_path.to_owned(),
-            format!("/v2/repo/manifests/{first_platform_digest}"),
-            format!("/v2/repo/manifests/{second_platform_digest}"),
-        ];
+        let puts = registry.puts().expect("read mock registry request log");
+
+        let index_put = puts
+            .iter()
+            .find(|request| request.path == top_level_path)
+            .expect("signed index pushed under its tag");
+        let index: Value = serde_json::from_slice(&index_put.body).expect("parse signed index");
+        assert!(
+            index
+                .get("annotations")
+                .is_some_and(|annotations| annotations.get(SIG_ANNOTATION).is_some()),
+            "signed index must include the signature annotation",
+        );
+        let digests: Vec<&str> = index
+            .get("manifests")
+            .and_then(Value::as_array)
+            .expect("index manifests array")
+            .iter()
+            .map(|entry| {
+                entry
+                    .get("digest")
+                    .and_then(Value::as_str)
+                    .expect("entry digest")
+            })
+            .collect();
+        assert!(!digests.is_empty());
+        assert!(
+            !digests
+                .iter()
+                .any(|digest| *digest == first_platform_digest || *digest == second_platform_digest),
+            "index must reference the NEW digests of the signed platform manifests",
+        );
+
+        let signed_paths: Vec<String> = digests
+            .iter()
+            .map(|digest| format!("/v2/repo/manifests/{digest}"))
+            .collect();
         assert_signed_manifests_have_signatures(&registry, &signed_paths);
     }
 
@@ -1236,14 +1268,6 @@ mod tests {
                 format!("/v2/repo/blobs/{second_digest}"),
                 HttpResponse::octet_stream(second_layer),
             ),
-            put(
-                format!("/v2/repo/manifests/{first_platform}"),
-                HttpResponse::ok(),
-            ),
-            put(
-                format!("/v2/repo/manifests/{second_platform}"),
-                HttpResponse::ok(),
-            ),
         ]))
         .expect("start mock registry");
 
@@ -1252,26 +1276,46 @@ mod tests {
             .expect("annotate image");
 
         // ASSERT
-        for (digest, size) in [(first_platform, 6), (second_platform, 7)] {
-            let request =
-                required_request(&registry, "PUT", &format!("/v2/repo/manifests/{digest}"));
-            let annotated: Value =
-                serde_json::from_slice(&request.body).expect("parse annotated manifest body");
+        let puts = registry.puts().expect("read mock registry request log");
+
+        let mut pushed_paths = Vec::new();
+        for (old_digest, size) in [(first_platform, 6), (second_platform, 7)] {
+            assert!(
+                puts.iter()
+                    .all(|request| request.path != format!("/v2/repo/manifests/{old_digest}")),
+                "mutated manifests must not be pushed under their original digest",
+            );
+
+            let path = puts
+                .iter()
+                .find_map(|request| sizes_annotation_path(request, size))
+                .expect("platform manifest pushed with its sizes annotation");
+            pushed_paths.push(path);
+        }
+
+        let index_put = required_request(&registry, "PUT", tag_path);
+        let pushed_index: Value =
+            serde_json::from_slice(&index_put.body).expect("parse pushed index body");
+        let referenced: Vec<&str> = pushed_index
+            .get("manifests")
+            .and_then(Value::as_array)
+            .expect("index manifests array")
+            .iter()
+            .map(|entry| {
+                entry
+                    .get("digest")
+                    .and_then(Value::as_str)
+                    .expect("entry digest")
+            })
+            .collect();
+        assert_eq!(referenced.len(), pushed_paths.len());
+        for (digest, path) in referenced.iter().zip(&pushed_paths) {
             assert_eq!(
-                annotated
-                    .get("annotations")
-                    .and_then(|annotations| annotations.get("dev.muak.sizes"))
-                    .and_then(Value::as_str),
-                Some(format!(r#"{{"vmlinuz":{size}}}"#).as_str()),
+                format!("/v2/repo/manifests/{digest}"),
+                *path,
+                "index must reference the digests the platform manifests were pushed under",
             );
         }
-        assert!(
-            registry
-                .request("PUT", tag_path)
-                .expect("read log")
-                .is_none(),
-            "the index itself must not be rewritten"
-        );
     }
 
     #[test]

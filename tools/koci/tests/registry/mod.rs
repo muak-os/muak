@@ -10,6 +10,8 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::thread;
 
+use sha2::{Digest as _, Sha256};
+
 type RouteKey = (String, String);
 
 #[derive(Clone, Debug)]
@@ -36,8 +38,6 @@ impl MockRegistry {
         let address = listener.local_addr()?.to_string();
         let routes = Arc::new(routes);
         let requests = Arc::new(Mutex::new(Vec::new()));
-        // Body of the last accepted PUT per path, served on subsequent GETs
-        // like a real registry would serve a pushed manifest.
         let pushed = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
         let connections = Arc::new(Mutex::new(Vec::new()));
@@ -88,10 +88,24 @@ impl MockRegistry {
             .requests
             .lock()
             .map_err(|_error| IoError::other("request log mutex poisoned"))?;
+
         Ok(requests
             .iter()
             .find(|request| request.method == method && request.path == path)
             .cloned())
+    }
+
+    pub(crate) fn puts(&self) -> Result<Vec<RecordedRequest>, IoError> {
+        let requests = self
+            .requests
+            .lock()
+            .map_err(|_error| IoError::other("request log mutex poisoned"))?;
+
+        Ok(requests
+            .iter()
+            .filter(|request| request.method == "PUT")
+            .cloned()
+            .collect())
     }
 }
 
@@ -162,10 +176,20 @@ impl HttpResponse {
         }
     }
 
-    /// Delays the response by `delay`, simulating a slow registry.
+    #[must_use]
+    pub(crate) fn bad_request() -> Self {
+        Self {
+            status: 400,
+            content_type: "application/json",
+            body: Vec::new(),
+            delay: Duration::ZERO,
+        }
+    }
+
     #[must_use]
     pub(crate) fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
+
         self
     }
 }
@@ -233,7 +257,15 @@ fn handle_connection(
     let mut response = routes
         .get(&route_key)
         .cloned()
-        .unwrap_or_else(not_found_response);
+        .unwrap_or_else(|| default_response(&request));
+
+    if request.method == "PUT"
+        && response.status == 200
+        && let Some(expected) = path_manifest_digest(&request.path)
+        && expected != format!("sha256:{}", hex(&request.body))
+    {
+        response = HttpResponse::bad_request();
+    }
 
     if request.method == "PUT" && response.status == 200 {
         pushed
@@ -394,4 +426,27 @@ fn not_found_response() -> HttpResponse {
         body: b"not found".to_vec(),
         delay: Duration::ZERO,
     }
+}
+
+/// Response for unrouted request.
+fn default_response(request: &RecordedRequest) -> HttpResponse {
+    if request.method == "PUT" {
+        HttpResponse::ok()
+    } else {
+        not_found_response()
+    }
+}
+
+/// Digest embedded in a manifest path, when the path addresses it by digest.
+fn path_manifest_digest(path: &str) -> Option<String> {
+    if !path.contains("/manifests/") {
+        return None;
+    }
+    let last = path.rsplit('/').next()?;
+    last.starts_with("sha256:").then(|| last.to_owned())
+}
+
+/// Lowercase hex encoding of the SHA-256 of `bytes`.
+fn hex(bytes: &[u8]) -> String {
+    base16ct::lower::encode_string(Sha256::digest(bytes).as_ref())
 }
