@@ -40,7 +40,7 @@ on:
         description: "Tag the image as latest"
         required: false
         type: boolean
-        default: true
+        default: false
       tag:
         description: "Tag to build (defaults to current commit)"
         required: false
