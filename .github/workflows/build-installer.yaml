@@ -27,6 +27,7 @@ jobs:
       push: true
       latest: true
       tag: ${{ inputs.tag }}
+      annotate: true
       sign: true
     secrets:
       COSIGN_KEY: ${{ secrets.COSIGN_KEY }}

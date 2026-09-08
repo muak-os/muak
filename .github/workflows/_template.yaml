@@ -31,6 +31,10 @@ on:
         description: "Run 'just sign' after the build step (installer only)"
         type: boolean
         default: false
+      annotate:
+        description: "Run 'just annotate' after the merge step (installer only)"
+        type: boolean
+        default: false
       arch_matrix:
         description: "JSON array of architectures to build"
         type: string
@@ -129,6 +133,22 @@ jobs:
         run: |
           NAME="${{ inputs.image_prefix }}${{ inputs.image }}"
           just merge "${NAME}" amd64=ci-amd64 arm64=ci-arm64
+
+      - name: Annotate image sizes (${{ steps.tag.outputs.tag }})
+        if: inputs.annotate
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          KOCI_REGISTRY_USERNAME: ${{ github.actor }}
+          KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: just annotate
+
+      - name: Annotate image sizes (latest)
+        if: inputs.annotate && inputs.latest
+        env:
+          TAG: latest
+          KOCI_REGISTRY_USERNAME: ${{ github.actor }}
+          KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: just annotate
 
       - name: Setup cosign key
         if: inputs.sign
