@@ -43,9 +43,6 @@ on:
       COSIGN_KEY:
         required: false
 
-env:
-  REGISTRY: ghcr.io/muak-os
-
 jobs:
   build:
     permissions:
@@ -105,9 +102,7 @@ jobs:
       packages: write
     runs-on: ubuntu-latest
     env:
-      REGISTRY: ghcr.io/muak-os
       CONTAINER_RUNTIME: docker
-      TOOLS: ghcr.io/muak-os/tools:latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -173,7 +168,7 @@ jobs:
           NAME: ${{ inputs.image_prefix }}${{ inputs.image }}
         run: |
           echo "### Multi-arch manifest created for ${{ inputs.image }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag:** \`${REGISTRY}/${NAME}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${NAME}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ inputs.latest }}" == "true" ]]; then
-            echo "- **Latest:** \`${REGISTRY}/${NAME}:latest\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Latest:** \`${NAME}:latest\`" >> $GITHUB_STEP_SUMMARY
           fi
