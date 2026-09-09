@@ -316,7 +316,12 @@ mod tests {
                 len: module_payload_size(),
             },
             ramune::Entry {
-                path: "profile.toml".to_owned(),
+                path: "metadata/".to_owned(),
+                mode: 0o040_755,
+                len: 0,
+            },
+            ramune::Entry {
+                path: "metadata/profile.toml".to_owned(),
                 mode: 0o100_644,
                 len: profile_len,
             },
@@ -349,7 +354,7 @@ mod tests {
             "initramfs must start with the raw CPIO tail member"
         );
         assert!(contains(&initramfs, b"modules.erofs"));
-        assert!(contains(&initramfs, b"profile.toml"));
+        assert!(contains(&initramfs, b"metadata/profile.toml"));
     }
 
     #[test]

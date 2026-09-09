@@ -38,6 +38,8 @@ pub async fn run(
     validate_disks(system_disk, data_disk, force, &progress).await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
+    let (booted_profile, profile_bytes) =
+        profile::load_with_bytes().context("failed to load booted profile")?;
 
     let tpm_available = tpm2::device::is_available(None);
 
@@ -46,8 +48,8 @@ pub async fn run(
 
     let (sections, sb_hierarchy) = build_and_deploy_efi(
         &partitions.efi,
-        &config.host.image,
-        &config.host.extensions,
+        config,
+        booted_profile,
         &luks_key,
         tpm_available,
         sb_hierarchy,
@@ -80,6 +82,7 @@ pub async fn run(
         &pki_result.auth_config,
         &pki_result.server_pki,
         sb_hierarchy.as_ref(),
+        &profile_bytes,
         &progress,
     )
     .await?;
@@ -169,8 +172,8 @@ async fn generate_keys(
 
 async fn build_and_deploy_efi(
     efi_part: &str,
-    image: &str,
-    extensions: &[String],
+    config: &SystemConfig,
+    booted_profile: Profile,
     luks_key: &[u8],
     tpm_available: bool,
     sb_hierarchy: Option<Bundle>,
@@ -178,10 +181,10 @@ async fn build_and_deploy_efi(
 ) -> Result<(Vec<wizard::SectionInfo>, Option<Bundle>)> {
     send_progress(progress, "Building and deploying EFI").await;
 
-    let install_profile = derive_install_profile(extensions)?;
+    let install_profile = derive_install_profile(&booted_profile, &config.host.extensions)?;
     let has_overlay = install_profile.overlay().is_some();
 
-    let (registry, version) = image_parts(image)?;
+    let (registry, version) = image_parts(&config.host.image)?;
     configure(Config {
         cache_dir: None,
         registry,
@@ -246,8 +249,7 @@ async fn build_and_deploy_efi(
     Ok((metadata.sections, sb_hierarchy))
 }
 
-fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
-    let booted = profile::load().context("failed to load booted profile")?;
+fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Profile> {
     let customization =
         CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
 
@@ -400,10 +402,18 @@ async fn initialize_state(
     auth_config: &config::AuthConfig,
     server_pki: &pki::Server,
     sb_hierarchy: Option<&Bundle>,
+    profile_bytes: &[u8],
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Initializing STATE partition").await;
-    state::init(dm_state, config, auth_config, server_pki, sb_hierarchy)?;
+    state::init(
+        dm_state,
+        config,
+        auth_config,
+        server_pki,
+        sb_hierarchy,
+        profile_bytes,
+    )?;
 
     Ok(())
 }

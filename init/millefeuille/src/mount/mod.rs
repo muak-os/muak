@@ -1,5 +1,6 @@
 //! Mount operations for early boot.
 
+mod boot;
 mod layers;
 mod luks;
 mod partition;
@@ -13,6 +14,7 @@ pub(crate) const IMAGE_EXTENSION: &str = "erofs";
 /// Kernel filesystem type used to mount image files.
 pub(crate) const IMAGE_FSTYPE: &str = IMAGE_EXTENSION;
 
+pub(crate) use boot::{BOOT_DIR, bridge};
 pub(crate) use persistent::persistent;
 pub(crate) use pseudo::pseudo;
 pub(crate) use rootfs::rootfs;

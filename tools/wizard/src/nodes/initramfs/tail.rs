@@ -18,6 +18,9 @@ use crate::pipeline::runtime::NodePorts;
 pub(crate) const TAIL_OUTPUT: PortId = PortId(0);
 pub(crate) const TAIL_INPUTS_FIRST: PortId = PortId(1);
 
+/// Initramfs directory carrying boot-image metadata exposed on running system.
+pub(crate) const METADATA_DIR: &str = "metadata/";
+
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
     produces,
@@ -44,7 +47,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
     Vec::new()
 }
 
-/// Exact CPIO tail size from the named layer input streams plus the profile entry.
+/// Exact CPIO tail size from the named layer input streams plus the metadata entries.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
@@ -59,7 +62,8 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let profile_len = u64::try_from(ctx.profile.len())
         .map_err(|e| WizardError::BuildError(format!("profile size overflow: {e}")))?;
     if !ctx.profile.is_empty() {
-        entries.push(profile_entry(profile_len));
+        entries.push(metadata_dir_entry());
+        entries.push(metadata_file_entry("profile.toml", profile_len));
     }
     let tail = ramune::archive::size(&entries);
 
@@ -77,7 +81,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     Ok(())
 }
 
-/// Streams one CPIO entry per layer input stream plus the profile entry in canonical order.
+/// Streams one CPIO entry per layer input stream plus the metadata entries in canonical order.
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
@@ -97,12 +101,14 @@ fn run(
             reader,
         ));
     }
+    let mut empty = std::io::empty();
     let mut profile: &[u8] = ctx.profile;
     if !profile.is_empty() {
         let len = u64::try_from(ctx.profile.len())
             .map_err(|e| WizardError::BuildError(format!("profile size overflow: {e}")))?;
         let reader: &mut dyn Read = &mut profile;
-        pairs.push((profile_entry(len), reader));
+        pairs.push((metadata_dir_entry(), &mut empty));
+        pairs.push((metadata_file_entry("profile.toml", len), reader));
     }
 
     let mut output = ports.output(TAIL_OUTPUT)?;
@@ -113,9 +119,18 @@ fn run(
 }
 
 #[must_use]
-fn profile_entry(len: u64) -> Entry {
+fn metadata_dir_entry() -> Entry {
     Entry {
-        path: "profile.toml".to_owned(),
+        path: METADATA_DIR.to_owned(),
+        mode: 0o040_755,
+        len: 0,
+    }
+}
+
+#[must_use]
+fn metadata_file_entry(name: &str, len: u64) -> Entry {
+    Entry {
+        path: format!("{METADATA_DIR}{name}"),
         mode: 0o100_644,
         len,
     }

@@ -58,6 +58,9 @@ fn run() -> Result<()> {
         kmsg::info!("No valid persistent state found (maintenance mode)");
     }
 
+    mount::bridge();
+    kmsg::info!("Boot metadata bridged to {}", mount::BOOT_DIR);
+
     kmsg::info!("Switching to new root");
     switchroot::new_root(NEWROOT)?;
 
