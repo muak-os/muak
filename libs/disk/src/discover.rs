@@ -1,17 +1,40 @@
-//! Partition discovery utilities.
+//! Partition discovery via sysfs.
 
 use std::fs;
 use std::path::Path;
 
+use crate::doc::Doc;
+use crate::role::Role;
+
 const SYS_CLASS_BLOCK: &str = "/sys/class/block";
 const DEV_DIR: &str = "/dev";
 
-/// Find partition device paths by their GPT partition name via sysfs.
-pub fn find_partitions_by_partname(partname: &str) -> Vec<String> {
-    find_partitions_by_partname_in(Path::new(SYS_CLASS_BLOCK), Path::new(DEV_DIR), partname)
+/// Finds partition device paths by their GPT partition name via sysfs.
+#[must_use]
+pub fn find_by_partname(partname: &str) -> Vec<String> {
+    find_by_partname_in(Path::new(SYS_CLASS_BLOCK), Path::new(DEV_DIR), partname)
 }
 
-fn find_partitions_by_partname_in(sysfs_dir: &Path, dev_dir: &Path, partname: &str) -> Vec<String> {
+/// Finds the device path of the partition carrying `role`.
+#[must_use]
+pub fn find_partition_device(doc: Option<&Doc>, role: Role) -> Option<String> {
+    find_partition_device_in(Path::new(SYS_CLASS_BLOCK), Path::new(DEV_DIR), doc, role)
+}
+
+fn find_partition_device_in(
+    sysfs_dir: &Path,
+    dev_dir: &Path,
+    doc: Option<&Doc>,
+    role: Role,
+) -> Option<String> {
+    let name = crate::doc::partition_name(doc, role);
+
+    find_by_partname_in(sysfs_dir, dev_dir, &name)
+        .into_iter()
+        .next()
+}
+
+fn find_by_partname_in(sysfs_dir: &Path, dev_dir: &Path, partname: &str) -> Vec<String> {
     let Ok(entries) = fs::read_dir(sysfs_dir) else {
         return Vec::new();
     };
@@ -45,7 +68,6 @@ fn find_partitions_by_partname_in(sysfs_dir: &Path, dev_dir: &Path, partname: &s
     devices
 }
 
-/// Returns true if `uevent_content` contains a `PARTNAME=<partname>` line.
 fn matches_partname(uevent_content: &str, partname: &str) -> bool {
     let target = format!("PARTNAME={partname}");
 
@@ -57,15 +79,11 @@ mod tests {
     use super::*;
 
     fn create_partition(sysfs: &Path, dev: &Path, name: &str, partname: &str) {
-        create_partition_without_uevent(sysfs, dev, name);
-        let uevent = format!("DEVNAME={name}\nDEVTYPE=partition\nPARTNAME={partname}\n");
-        std::fs::write(sysfs.join(name).join("uevent"), uevent).expect("write uevent");
-    }
-
-    fn create_partition_without_uevent(sysfs: &Path, dev: &Path, name: &str) {
         let entry = sysfs.join(name);
         std::fs::create_dir_all(&entry).expect("create sysfs partition");
         std::fs::write(entry.join("partition"), b"1").expect("write partition marker");
+        let uevent = format!("DEVNAME={name}\nDEVTYPE=partition\nPARTNAME={partname}\n");
+        std::fs::write(entry.join("uevent"), uevent).expect("write uevent");
         std::fs::write(dev.join(name), b"").expect("create dev node placeholder");
     }
 
@@ -124,16 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_partname_matches_data_partition() {
-        // ARRANGE
-        let uevent = "DEVNAME=nvme0n1p3\nPARTNAME=DATA\nDEVTYPE=partition\n";
-
-        // ACT + ASSERT
-        assert!(matches_partname(uevent, "DATA"));
-    }
-
-    #[test]
-    fn find_partitions_by_partname_returns_matching_devices() {
+    fn find_by_partname_returns_matching_devices() {
         // ARRANGE
         let temp = tempfile::tempdir().expect("create tempdir");
         let sysfs = temp.path().join("sys");
@@ -144,7 +153,7 @@ mod tests {
         create_partition(&sysfs, &dev, "nvme0n1p3", "DATA");
 
         // ACT
-        let partitions = find_partitions_by_partname_in(&sysfs, &dev, "STATE");
+        let partitions = find_by_partname_in(&sysfs, &dev, "STATE");
 
         // ASSERT
         assert_eq!(
@@ -154,18 +163,20 @@ mod tests {
     }
 
     #[test]
-    fn find_partitions_by_partname_skips_unreadable_uevent() {
+    fn find_by_partname_skips_unreadable_uevent() {
         // ARRANGE
         let temp = tempfile::tempdir().expect("create tempdir");
         let sysfs = temp.path().join("sys");
         let dev = temp.path().join("dev");
         std::fs::create_dir_all(&sysfs).expect("create sysfs");
         std::fs::create_dir_all(&dev).expect("create dev");
-        create_partition_without_uevent(&sysfs, &dev, "bad0p1");
+        let bad = sysfs.join("bad0p1");
+        std::fs::create_dir_all(&bad).expect("create sysfs partition");
+        std::fs::write(bad.join("partition"), b"1").expect("write partition marker");
         create_partition(&sysfs, &dev, "nvme0n1p2", "STATE");
 
         // ACT
-        let partitions = find_partitions_by_partname_in(&sysfs, &dev, "STATE");
+        let partitions = find_by_partname_in(&sysfs, &dev, "STATE");
 
         // ASSERT
         assert_eq!(
@@ -175,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn find_partitions_by_partname_returns_sorted_matches() {
+    fn find_by_partname_returns_sorted_matches() {
         // ARRANGE
         let temp = tempfile::tempdir().expect("create tempdir");
         let sysfs = temp.path().join("sys");
@@ -186,7 +197,7 @@ mod tests {
         create_partition(&sysfs, &dev, "nvme0n1p2", "STATE");
 
         // ACT
-        let partitions = find_partitions_by_partname_in(&sysfs, &dev, "STATE");
+        let partitions = find_by_partname_in(&sysfs, &dev, "STATE");
 
         // ASSERT
         assert_eq!(
@@ -195,6 +206,58 @@ mod tests {
                 dev.join("nvme0n1p2").to_string_lossy().into_owned(),
                 dev.join("nvme0n1p3").to_string_lossy().into_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn find_partition_device_resolves_role_through_the_document() {
+        // ARRANGE
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let sysfs = temp.path().join("sys");
+        let dev = temp.path().join("dev");
+        std::fs::create_dir_all(&sysfs).expect("create sysfs");
+        std::fs::create_dir_all(&dev).expect("create dev");
+        create_partition(&sysfs, &dev, "nvme0n1p2", "SYSTEMVOL");
+        let doc = crate::doc::Doc::new(
+            true,
+            vec![crate::doc::Partition {
+                role: Role::State,
+                name: "SYSTEMVOL".to_owned(),
+                type_guid: crate::doc::guid(&[0x0F; 16]),
+                size: crate::plan::Size::Fill,
+                partuuid: Some(crate::doc::guid(&[0xCD; 16])),
+            }],
+        );
+
+        // ACT
+        let device = find_partition_device_in(&sysfs, &dev, Some(&doc), Role::State);
+
+        // ASSERT
+        assert_eq!(
+            device,
+            Some(dev.join("nvme0n1p2").to_string_lossy().into_owned()),
+            "recorded names must resolve through the document"
+        );
+    }
+
+    #[test]
+    fn find_partition_device_falls_back_to_canonical_gpt_name() {
+        // ARRANGE
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let sysfs = temp.path().join("sys");
+        let dev = temp.path().join("dev");
+        std::fs::create_dir_all(&sysfs).expect("create sysfs");
+        std::fs::create_dir_all(&dev).expect("create dev");
+        create_partition(&sysfs, &dev, "nvme0n1p2", "STATE");
+
+        // ACT
+        let device = find_partition_device_in(&sysfs, &dev, None, Role::State);
+
+        // ASSERT
+        assert_eq!(
+            device,
+            Some(dev.join("nvme0n1p2").to_string_lossy().into_owned()),
+            "absent docs must fall back to the canonical GPT name"
         );
     }
 }

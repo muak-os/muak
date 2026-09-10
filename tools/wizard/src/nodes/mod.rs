@@ -211,6 +211,7 @@ mod tests {
         BuildContext {
             build,
             profile: b"",
+            disk_doc: b"",
             signing: None,
         }
     }
@@ -281,6 +282,7 @@ mod tests {
         let ctx = BuildContext {
             build: &build,
             profile: b"",
+            disk_doc: b"",
             signing: Some(&signing),
         };
 

@@ -4,9 +4,8 @@ use core::time::Duration;
 use std::fs::OpenOptions;
 use std::path::Path;
 
+use ::disk::plan::EFI_SIZE;
 use anyhow::{Context as _, Result, bail};
-
-use crate::disk::constants::EFI_SIZE;
 
 // Wait for a device node to appear.
 pub fn wait_for_device(device: &str) -> Result<()> {

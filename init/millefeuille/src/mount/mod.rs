@@ -3,7 +3,6 @@
 mod boot;
 mod layers;
 mod luks;
-mod partition;
 mod persistent;
 mod pseudo;
 mod rootfs;

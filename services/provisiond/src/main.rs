@@ -1,6 +1,5 @@
 //! Provisioning daemon for Muak.
 
-mod constants;
 mod disk;
 mod efi;
 mod history;

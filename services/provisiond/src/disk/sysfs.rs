@@ -53,35 +53,6 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
     Ok(())
 }
 
-/// Finds a partition device path by its GPT partition name.
-pub async fn find_partition_by_partname(partname: &str) -> Option<String> {
-    let mut entries = fs::read_dir("/sys/class/block").await.ok()?;
-    let target = format!("PARTNAME={partname}");
-
-    while let Some(entry) = entries.next_entry().await.ok()? {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-
-        if !entry.path().join("partition").exists() {
-            continue;
-        }
-
-        let uevent = entry.path().join("uevent");
-        let content = fs::read_to_string(&uevent).await.ok()?;
-        let found = content.lines().any(|line| line.trim() == target);
-        if !found {
-            continue;
-        }
-
-        let dev_path = format!("/dev/{name}");
-        if Path::new(&dev_path).exists() {
-            return Some(dev_path);
-        }
-    }
-
-    None
-}
-
 /// Checks if a block device name represents a physical disk.
 fn is_physical_disk(name: &str) -> bool {
     !name.starts_with("loop")
@@ -93,16 +64,17 @@ fn is_physical_disk(name: &str) -> bool {
 /// Reads a u64 value from a sysfs file.
 async fn read_sysfs_u64(path: &Path) -> Result<u64> {
     let content = fs::read_to_string(path).await?;
+
     Ok(content.trim().parse()?)
 }
 
 /// Reads a string value from a sysfs file.
 async fn read_sysfs_string(path: &Path) -> Result<String> {
     let content = fs::read_to_string(path).await?;
+
     Ok(content.trim().to_owned())
 }
 
-/// Detects the filesystem type by reading magic bytes from the device.
 fn detect_filesystem(device_path: &str) -> String {
     use std::fs::File;
 
@@ -133,7 +105,6 @@ fn detect_filesystem(device_path: &str) -> String {
     String::new()
 }
 
-/// Detects FAT filesystem variants by reading the boot sector.
 fn detect_fat_filesystem(file: &mut std::fs::File) -> Option<String> {
     if file.seek(std::io::SeekFrom::Start(0)).is_err() {
         return None;
@@ -157,7 +128,6 @@ fn detect_fat_filesystem(file: &mut std::fs::File) -> Option<String> {
     None
 }
 
-/// Reads partition information from sysfs.
 async fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
     let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
 
@@ -180,7 +150,6 @@ async fn read_partition_info(disk_name: &str, part_name: &str) -> Result<Partiti
     })
 }
 
-/// Reads disk information from sysfs including all partitions.
 async fn read_disk_info(name: &str) -> Result<DiskInfo> {
     let sysfs_path = Path::new("/sys/block").join(name);
 
@@ -208,7 +177,6 @@ async fn read_disk_info(name: &str) -> Result<DiskInfo> {
     })
 }
 
-/// Discovers all partitions belonging to a disk.
 async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
     let Ok(mut entries) = fs::read_dir(sysfs_path).await else {
         return Vec::new();
@@ -226,7 +194,6 @@ async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<Partitio
     partitions
 }
 
-/// Attempts to read partition information from a sysfs directory entry.
 async fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
     let part_name = entry.file_name();
     let part_name_str = part_name.to_string_lossy();
@@ -242,7 +209,6 @@ async fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<Part
     read_partition_info(disk_name, &part_name_str).await.ok()
 }
 
-/// Lists all physical disks on the system.
 pub async fn list_disks() -> Result<Vec<DiskInfo>> {
     let block_dir = Path::new("/sys/block");
     if !block_dir.exists() {
@@ -263,7 +229,6 @@ pub async fn list_disks() -> Result<Vec<DiskInfo>> {
     Ok(disks)
 }
 
-/// Attempts to read disk information from a sysfs directory entry.
 async fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
     let name = entry.file_name();
     let name_str = name.to_string_lossy();

@@ -22,11 +22,16 @@ use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
 
-use crate::constants::{SECRETS_DIR, UPDATE_DIR};
 use crate::history::{self, ChangeKind};
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::profile;
 use crate::streaming;
+
+/// Staging directory for update operations.
+pub(crate) const UPDATE_DIR: &str = "/run/state/update";
+
+/// Base directory for secrets on the mounted STATE partition.
+pub(crate) const SECRETS_DIR: &str = "/run/state/secrets";
 
 /// Status of a system update.
 #[derive(Debug, Clone, PartialEq, Eq)]

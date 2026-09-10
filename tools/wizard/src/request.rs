@@ -125,10 +125,15 @@ impl<'a> Request<'a> {
         let mut resolution = resolver::plan(&self, profile)?;
         discover_assets(&mut resolution)?;
         let profile_bytes = profile.canonical_bytes()?;
+        let (system_plan, _) = disk::plan::uefi(true);
+        let disk_doc_bytes = disk::doc::Doc::from_plan(&system_plan)?
+            .to_toml()?
+            .into_bytes();
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
         let ctx = BuildContext {
             build: resolution.build(),
             profile: &profile_bytes,
+            disk_doc: &disk_doc_bytes,
             signing: self.signing,
         };
         let mut writers = TargetWriters::new(self.targets);

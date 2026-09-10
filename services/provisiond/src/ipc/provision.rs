@@ -59,17 +59,7 @@ impl ProvisionService for ServiceImpl {
         let csr = req.csr;
 
         let stream = streaming::run(
-            move |progress_tx| async move {
-                install::run(
-                    &config.disk.system.clone(),
-                    config.disk.data_disk(),
-                    force,
-                    &config,
-                    &csr,
-                    progress_tx,
-                )
-                .await
-            },
+            move |progress_tx| async move { install::run(force, &config, &csr, progress_tx).await },
             move |result, out_tx| {
                 let msg = match result {
                     Ok(result) => {

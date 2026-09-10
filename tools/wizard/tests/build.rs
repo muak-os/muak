@@ -309,6 +309,12 @@ mod tests {
         let profile = base_profile();
         let profile_bytes = profile.canonical_bytes().expect("canonical profile");
         let profile_len = u64::try_from(profile_bytes.len()).expect("profile length");
+        let (system_plan, _) = disk::plan::uefi(true);
+        let disk_doc = disk::doc::Doc::from_plan(&system_plan)
+            .expect("doc from plan")
+            .to_toml()
+            .expect("disk doc toml");
+        let disk_len = u64::try_from(disk_doc.len()).expect("disk doc length");
         let tail_size = ramune::archive::size(&[
             ramune::Entry {
                 path: "modules.erofs".to_owned(),
@@ -324,6 +330,11 @@ mod tests {
                 path: "metadata/profile.toml".to_owned(),
                 mode: 0o100_644,
                 len: profile_len,
+            },
+            ramune::Entry {
+                path: "metadata/disk.toml".to_owned(),
+                mode: 0o100_644,
+                len: disk_len,
             },
         ]);
         let base = random_bytes(0x1a7a, INITRAMFS_BYTES);
@@ -355,6 +366,7 @@ mod tests {
         );
         assert!(contains(&initramfs, b"modules.erofs"));
         assert!(contains(&initramfs, b"metadata/profile.toml"));
+        assert!(contains(&initramfs, b"metadata/disk.toml"));
     }
 
     #[test]

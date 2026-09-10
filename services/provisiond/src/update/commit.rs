@@ -9,8 +9,8 @@ use sbolt::keys::storage::load_hierarchy;
 use wizard::SectionInfo;
 use zeroize::Zeroizing;
 
-use crate::constants::{SECRETS_DIR, UPDATE_DIR};
-use crate::disk;
+use super::{SECRETS_DIR, UPDATE_DIR};
+use crate::disk::{self, Role, find_partition_device};
 use crate::efi;
 use crate::secrets;
 
@@ -18,11 +18,16 @@ use crate::secrets;
 pub async fn apply() -> Result<()> {
     kmsg::info!("Validation succeeded, committing update");
 
-    let efi_device = disk::find_partition_by_partname("EFI")
-        .await
-        .ok_or_else(|| anyhow::anyhow!("EFI partition not found"))?;
-
-    let state_device = disk::find_partition_by_partname("STATE").await;
+    let doc = disk::load_installed_doc()?;
+    let (efi_device, state_device) = tokio::task::spawn_blocking(move || {
+        (
+            find_partition_device(doc.as_ref(), Role::Esp),
+            find_partition_device(doc.as_ref(), Role::State),
+        )
+    })
+    .await
+    .context("Failed to scan for partition devices")?;
+    let efi_device = efi_device.ok_or_else(|| anyhow::anyhow!("EFI partition not found"))?;
 
     let update_dir = Path::new(UPDATE_DIR);
     let assets_dir = update_dir.join("assets");

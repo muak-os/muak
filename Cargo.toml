@@ -24,6 +24,7 @@ members = [
 
     "libs/btrfs",
     "libs/config",
+    "libs/disk",
     "libs/esp",
     "libs/parttable",
     "libs/kmod",
@@ -72,6 +73,7 @@ kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
 parttable = { path = "libs/parttable" }
+disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
 tpm2 = { path = "libs/tpm2" }
 uki = { path = "libs/uki" }

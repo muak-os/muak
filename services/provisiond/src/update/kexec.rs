@@ -11,7 +11,7 @@ use anyhow::{Context as _, Result, anyhow};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
-use crate::constants::UPDATE_DIR;
+use super::UPDATE_DIR;
 
 #[cfg(target_arch = "x86_64")]
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 320;

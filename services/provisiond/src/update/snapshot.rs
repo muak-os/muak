@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context as _, Result};
 use config::{CONFIG_EXTENSION, CONFIG_PATH};
 
-use crate::constants::UPDATE_DIR;
+use super::UPDATE_DIR;
 use crate::history::{self, ChangeKind};
 
 /// Generates a unique update ID and saves a copy of the current config to `UPDATE_DIR`.

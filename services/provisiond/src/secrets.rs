@@ -5,6 +5,9 @@ use luks2::Tpm2Token;
 use wizard::SectionInfo;
 use zeroize::Zeroizing;
 
+/// Base directory for secrets.
+pub(crate) const SECRETS_DIR: &str = "/run/state/secrets";
+
 /// Result of sealing a LUKS key against a UKI.
 pub enum SealResult {
     Sealed(Tpm2Token),

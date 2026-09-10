@@ -4,27 +4,26 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use btrfs::quota;
+use disk::discover::find_by_partname;
+use disk::role::Role;
 use rustix::fs::{CWD, Mode, mkdirat};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
 use super::luks::resolve_key;
-use super::partition::find_partitions_by_partname;
 
-const DM_STATE: &str = "muak-state";
-const DM_DATA: &str = "muak-data";
 const STATE_MOUNT: &str = "/run/state";
 const DATA_MOUNT: &str = "/run/data";
 const STATE_CONFIG: &str = "/run/state/config.toml";
 
 /// Mount persistent STATE and DATA partitions if the system is installed.
 pub(crate) fn persistent() -> bool {
-    let state_devices = find_partitions_by_partname("STATE");
+    let state_devices = find_by_partname(Role::State.gpt_name());
     if state_devices.is_empty() {
         return false;
     }
 
-    let data_devices = find_partitions_by_partname("DATA");
+    let data_devices = find_by_partname(Role::Data.gpt_name());
     for state_dev in state_devices {
         match try_mount_persistent_candidate(&state_dev, &data_devices) {
             Ok(()) => return true,
@@ -51,9 +50,9 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
         );
     };
 
-    luks2::open(state_dev, DM_STATE, &key)
+    luks2::open(state_dev, Role::State.dm_name(), &key)
         .with_context(|| format!("Failed to open LUKS device: {state_dev}"))?;
-    let state_device = format!("/dev/mapper/{DM_STATE}");
+    let state_device = format!("/dev/mapper/{}", Role::State.dm_name());
 
     mount_btrfs(&state_device, STATE_MOUNT)
         .with_context(|| format!("Failed to mount STATE partition: {state_dev}"))?;
@@ -65,9 +64,9 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
     kmsg::info!("Mounted STATE partition at /run/state");
 
     if let Some(data_dev) = data_devices.first() {
-        luks2::open(data_dev, DM_DATA, &key)
+        luks2::open(data_dev, Role::Data.dm_name(), &key)
             .with_context(|| format!("Failed to open LUKS device: {data_dev}"))?;
-        let data_device = format!("/dev/mapper/{DM_DATA}");
+        let data_device = format!("/dev/mapper/{}", Role::Data.dm_name());
 
         mount_btrfs(&data_device, DATA_MOUNT)
             .with_context(|| format!("Failed to mount DATA partition: {data_dev}"))?;
@@ -95,11 +94,19 @@ fn mount_btrfs(device: &str, target: &str) -> Result<()> {
 fn cleanup_persistent_mounts() {
     try_unmount(DATA_MOUNT);
     try_unmount(STATE_MOUNT);
-    if let Err(error) = luks2::close(DM_DATA) {
-        kmsg::warn!("Failed to close LUKS mapping {}: {}", DM_DATA, error);
+    if let Err(error) = luks2::close(Role::Data.dm_name()) {
+        kmsg::warn!(
+            "Failed to close LUKS mapping {}: {}",
+            Role::Data.dm_name(),
+            error
+        );
     }
-    if let Err(error) = luks2::close(DM_STATE) {
-        kmsg::warn!("Failed to close LUKS mapping {}: {}", DM_STATE, error);
+    if let Err(error) = luks2::close(Role::State.dm_name()) {
+        kmsg::warn!(
+            "Failed to close LUKS mapping {}: {}",
+            Role::State.dm_name(),
+            error
+        );
     }
 }
 

@@ -17,7 +17,7 @@ use super::proto::auth::{
     ListPendingCsrsResponse, ListUsersRequest, ListUsersResponse, PendingCsr, RevokeCertRequest,
     RevokeCertResponse, SubmitCsrRequest, SubmitCsrResponse,
 };
-use crate::constants::SECRETS_DIR;
+use crate::secrets::SECRETS_DIR;
 
 fn pending_dir() -> PathBuf {
     Path::new(SECRETS_DIR).join("pending")

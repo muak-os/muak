@@ -2,6 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 
+use ::disk::role::Role;
 use anyhow::Result;
 use parttable::gpt;
 use parttable::mbr::read;
@@ -29,8 +30,21 @@ pub fn has_state_partition(disk: &str) -> Result<bool> {
         Ok(gpt) => Ok(gpt
             .used_partitions()
             .into_iter()
-            .any(|(_, partition)| partition.name == "STATE")),
+            .any(|(_, partition)| partition.name == Role::State.gpt_name())),
         Err(_) => Ok(false),
+    }
+}
+
+/// Returns the partition number of the partition named `name` on `disk`.
+pub fn find_partition_number(disk: &str, name: &str) -> Result<Option<u32>> {
+    let mut file = File::open(disk)?;
+    match gpt::io::read(&mut file) {
+        Ok(gpt) => Ok(gpt
+            .used_partitions()
+            .into_iter()
+            .find(|entry| entry.1.name == name)
+            .map(|(number, _)| number)),
+        Err(_) => Ok(None),
     }
 }
 
@@ -193,6 +207,34 @@ mod tests {
 
         // ASSERT
         assert!(result);
+    }
+
+    #[test]
+    fn find_partition_number_returns_number_by_name() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["EFI", "STATE"]);
+
+        // ACT
+        let number =
+            find_partition_number(disk.path().to_str().expect("path"), Role::State.gpt_name())
+                .expect("should succeed");
+
+        // ASSERT
+        assert_eq!(number, Some(2), "STATE must be found at partition 2");
+    }
+
+    #[test]
+    fn find_partition_number_returns_none_for_absent_name() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["EFI"]);
+
+        // ACT
+        let number =
+            find_partition_number(disk.path().to_str().expect("path"), Role::State.gpt_name())
+                .expect("should succeed");
+
+        // ASSERT
+        assert_eq!(number, None, "absent partitions must resolve to none");
     }
 
     #[test]

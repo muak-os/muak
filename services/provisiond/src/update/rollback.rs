@@ -9,8 +9,8 @@ use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 use serde::{Deserialize, Serialize};
 
+use super::UPDATE_DIR;
 use super::snapshot;
-use crate::constants::UPDATE_DIR;
 
 /// Directory holding rollback entries.
 pub const ROLLBACKS_DIR: &str = "/run/state/rollbacks";

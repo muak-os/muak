@@ -1,5 +1,6 @@
 //! Installation workflow orchestration.
 
+mod layout;
 pub mod pki;
 mod state;
 
@@ -8,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use config::SystemConfig;
+use layout::plans_from_doc;
 use pki::InstallResult;
 use sbolt::efi::{enroll, setup_mode};
 use sbolt::keys::SigningPair;
@@ -18,7 +20,6 @@ use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::{Platform, Request};
 
-use crate::constants::{DM_DATA, DM_STATE};
 use crate::disk;
 use crate::efi;
 use crate::ipc::proto::provision::InstallProgress;
@@ -26,16 +27,29 @@ use crate::profile;
 use crate::secrets;
 use crate::streaming;
 
-/// Installs Muak to the specified disks with the given configuration.
+/// Path of the disk document embedded in the boot image.
+const BOOT_DOC_PATH: &str = "/run/boot/disk.toml";
+
+/// dm-crypt mapping name for the STATE volume.
+const DM_STATE: &str = disk::Role::State.dm_name();
+
+/// dm-crypt mapping name for the DATA volume.
+const DM_DATA: &str = disk::Role::Data.dm_name();
+
+/// Installs Muak to the disks assigned in `config`, with the given configuration.
 pub async fn run(
-    system_disk: &str,
-    data_disk: &str,
     force: bool,
     config: &SystemConfig,
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
-    validate_disks(system_disk, data_disk, force, &progress).await?;
+    validate_disks(
+        &config.disk.system,
+        config.disk.data_disk(),
+        force,
+        &progress,
+    )
+    .await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let (booted_profile, profile_bytes) =
@@ -43,7 +57,7 @@ pub async fn run(
 
     let tpm_available = tpm2::device::is_available(None);
 
-    let partitions = partition_disks(system_disk, data_disk, &progress).await?;
+    let partitions = partition_disks(config, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
     let (sections, sb_hierarchy) = build_and_deploy_efi(
@@ -79,9 +93,9 @@ pub async fn run(
     initialize_state(
         &dm_state,
         config,
-        &pki_result.auth_config,
-        &pki_result.server_pki,
+        &pki_result,
         sb_hierarchy.as_ref(),
+        &partitions.layout,
         &profile_bytes,
         &progress,
     )
@@ -278,37 +292,43 @@ struct PartitionInfo {
     efi: String,
     state: String,
     data: String,
+    layout: disk::Doc,
 }
 
-/// Partitions both the system disk (EFI + STATE) and the data disk (DATA).
 async fn partition_disks(
-    system_disk: &str,
-    data_disk: &str,
+    config: &SystemConfig,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<PartitionInfo> {
-    send_progress(progress, &format!("Partitioning {system_disk}")).await;
+    send_progress(progress, &format!("Partitioning {}", config.disk.system)).await;
 
-    let system_disk = system_disk.to_owned();
-    let data_disk = data_disk.to_owned();
+    let disk_config = config.disk.clone();
 
-    tokio::task::spawn_blocking(move || partition_disks_blocking(&system_disk, &data_disk)).await?
+    tokio::task::spawn_blocking(move || partition_disks_blocking(&disk_config)).await?
 }
 
-fn partition_disks_blocking(system_disk: &str, data_disk: &str) -> Result<PartitionInfo> {
-    disk::delete_all_partitions_blkpg(system_disk)?;
-    disk::wipe(system_disk)?;
-    let (efi_part, state_part) = disk::create_system_partitions(system_disk)?;
+fn partition_disks_blocking(disk_config: &config::DiskConfig) -> Result<PartitionInfo> {
+    let shared_data = !disk_config.is_split();
+    let doc = disk::Doc::read(Path::new(BOOT_DOC_PATH))
+        .with_context(|| format!("failed to read the boot disk document {BOOT_DOC_PATH}"))?;
+    let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
 
-    if system_disk != data_disk {
-        disk::delete_all_partitions_blkpg(data_disk)?;
-        disk::wipe(data_disk)?;
-    }
-    let data_part = disk::create_data_partition(data_disk)?;
+    let system = disk::apply_plan(&disk_config.system, &system_plan)?;
+    let efi = system.role(disk::Role::Esp)?;
+    let state = system.role(disk::Role::State)?;
+    let data = match data_plan {
+        Some(ref plan) => disk::apply_plan(disk_config.data_disk(), plan)?
+            .role(disk::Role::Data)?
+            .clone(),
+        None => system.role(disk::Role::Data)?.clone(),
+    };
+
+    let layout = disk::Doc::new(true, vec![efi.record()?, state.record()?, data.record()?]);
 
     Ok(PartitionInfo {
-        efi: efi_part,
-        state: state_part,
-        data: data_part,
+        efi: efi.device.clone(),
+        state: state.device.clone(),
+        data: data.device,
+        layout,
     })
 }
 
@@ -326,7 +346,7 @@ async fn format_partitions(
             let state_part = partitions.state.clone();
             let luks_key = luks_key.to_vec();
             move || {
-                luks2::format(&state_part, &luks_key, "STATE")
+                luks2::format(&state_part, &luks_key, disk::Role::State.gpt_name())
                     .context("Failed to LUKS format STATE")
             }
         })),
@@ -334,7 +354,8 @@ async fn format_partitions(
             let data_part = partitions.data.clone();
             let luks_key = luks_key.to_vec();
             move || {
-                luks2::format(&data_part, &luks_key, "DATA").context("Failed to LUKS format DATA")
+                luks2::format(&data_part, &luks_key, disk::Role::Data.gpt_name())
+                    .context("Failed to LUKS format DATA")
             }
         })),
     );
@@ -382,11 +403,11 @@ async fn format_btrfs_volumes(
     let (state_result, data_result) = tokio::join!(
         flatten_join_result(tokio::task::spawn_blocking({
             let dm_state = dm_state.to_owned();
-            move || disk::format_btrfs_partition(&dm_state, "STATE")
+            move || disk::format_btrfs_partition(&dm_state, disk::Role::State.gpt_name())
         })),
         flatten_join_result(tokio::task::spawn_blocking({
             let dm_data = dm_data.to_owned();
-            move || disk::format_btrfs_partition(&dm_data, "DATA")
+            move || disk::format_btrfs_partition(&dm_data, disk::Role::Data.gpt_name())
         })),
     );
 
@@ -399,9 +420,9 @@ async fn format_btrfs_volumes(
 async fn initialize_state(
     dm_state: &str,
     config: &SystemConfig,
-    auth_config: &config::AuthConfig,
-    server_pki: &pki::Server,
+    pki_result: &PkiResult,
     sb_hierarchy: Option<&Bundle>,
+    layout: &disk::Doc,
     profile_bytes: &[u8],
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
@@ -409,9 +430,10 @@ async fn initialize_state(
     state::init(
         dm_state,
         config,
-        auth_config,
-        server_pki,
+        &pki_result.auth_config,
+        &pki_result.server_pki,
         sb_hierarchy,
+        layout,
         profile_bytes,
     )?;
 

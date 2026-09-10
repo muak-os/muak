@@ -49,6 +49,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 
 /// Exact CPIO tail size from the named layer input streams plus the metadata entries.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
+    let metadata_files = metadata_files(ctx);
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
     for binding in graph.node(id)?.input_bindings() {
@@ -59,11 +60,13 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
             len: stream.size,
         });
     }
-    let profile_len = u64::try_from(ctx.profile.len())
-        .map_err(|e| WizardError::BuildError(format!("profile size overflow: {e}")))?;
-    if !ctx.profile.is_empty() {
+    if !metadata_files.is_empty() {
         entries.push(metadata_dir_entry());
-        entries.push(metadata_file_entry("profile.toml", profile_len));
+    }
+    for file in &metadata_files {
+        let len = u64::try_from(file.bytes.len())
+            .map_err(|e| WizardError::BuildError(format!("metadata size overflow: {e}")))?;
+        entries.push(metadata_file_entry(file.name, len));
     }
     let tail = ramune::archive::size(&entries);
 
@@ -101,14 +104,22 @@ fn run(
             reader,
         ));
     }
+    let metadata_files = metadata_files(ctx);
+    let mut file_slices: Vec<&[u8]> = metadata_files.iter().map(|file| file.bytes).collect();
+    let is_empty = file_slices.is_empty();
     let mut empty = std::io::empty();
-    let mut profile: &[u8] = ctx.profile;
-    if !profile.is_empty() {
-        let len = u64::try_from(ctx.profile.len())
-            .map_err(|e| WizardError::BuildError(format!("profile size overflow: {e}")))?;
-        let reader: &mut dyn Read = &mut profile;
+    let mut readers: Vec<&mut dyn Read> = file_slices
+        .iter_mut()
+        .map(|slice| -> &mut dyn Read { slice })
+        .collect();
+
+    if !is_empty {
         pairs.push((metadata_dir_entry(), &mut empty));
-        pairs.push((metadata_file_entry("profile.toml", len), reader));
+    }
+    for (reader, file) in readers.iter_mut().zip(&metadata_files) {
+        let len = u64::try_from(file.bytes.len())
+            .map_err(|e| WizardError::BuildError(format!("metadata size overflow: {e}")))?;
+        pairs.push((metadata_file_entry(file.name, len), &mut **reader));
     }
 
     let mut output = ports.output(TAIL_OUTPUT)?;
@@ -116,6 +127,29 @@ fn run(
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
     Ok(None)
+}
+
+struct MetadataFile<'data> {
+    name: &'static str,
+    bytes: &'data [u8],
+}
+
+fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Vec<MetadataFile<'data>> {
+    let mut files = Vec::new();
+    if !ctx.profile.is_empty() {
+        files.push(MetadataFile {
+            name: "profile.toml",
+            bytes: ctx.profile,
+        });
+    }
+    if !ctx.disk_doc.is_empty() {
+        files.push(MetadataFile {
+            name: "disk.toml",
+            bytes: ctx.disk_doc,
+        });
+    }
+
+    files
 }
 
 #[must_use]
