@@ -277,6 +277,8 @@ mod tests {
     fn network_config_dns_valid_populates_split_lists() {
         // ARRANGE
         let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [network]
 dns = ["9.9.9.9", "2620:fe::fe"]
 "#;
@@ -296,6 +298,8 @@ dns = ["9.9.9.9", "2620:fe::fe"]
     fn network_config_dns_invalid_rejects_at_deserialization() {
         // ARRANGE
         let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [network]
 dns = ["not-an-ip"]
 "#;
@@ -308,6 +312,8 @@ dns = ["not-an-ip"]
     fn multiple_addresses_deserialization() {
         // ARRANGE
         let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [[network.interfaces]]
 name = "eth0"
 type = "ethernet"
@@ -334,6 +340,8 @@ ipv4.gateway = "192.168.1.1"
     fn dhcp_interface_has_empty_addresses_by_default() {
         // ARRANGE
         let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [[network.interfaces]]
 name = "eth0"
 type = "ethernet"
@@ -425,6 +433,8 @@ ipv4.dhcp = true
     fn static_ipv6_interface_deserialization() {
         // ARRANGE
         let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [[network.interfaces]]
 name = "eth0"
 type = "ethernet"
@@ -452,6 +462,8 @@ ipv6.gateway = "2001:db8::1"
     fn auto_ethernet_interface_deserialization() {
         // ARRANGE
         let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [[network.interfaces]]
 name = "auto"
 type = "ethernet"

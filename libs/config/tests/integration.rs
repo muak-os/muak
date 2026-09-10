@@ -9,6 +9,8 @@ fn load_from_path_with_file() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
     let config_content = r#"
+api_version = "muak.dev/config/v1-beta"
+
 [host]
 name = "muak"
 image = "test_image"
@@ -53,7 +55,8 @@ fn load_from_path_reads_tempfile() {
     // ARRANGE
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("config.toml");
-    let content = "[host]\nname = \"frompath\"\nport = 5555\n";
+    let content =
+        "api_version = \"muak.dev/config/v1-beta\"\n[host]\nname = \"frompath\"\nport = 5555\n";
     fs::write(&path, content).unwrap();
 
     // ACT

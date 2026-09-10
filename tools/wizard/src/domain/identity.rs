@@ -4,9 +4,9 @@ use core::fmt;
 
 use sha2::{Digest as _, Sha256};
 
-pub(crate) const RELEASE_API_VERSION: &str = "muak-release-v1";
-const PROFILE_API_VERSION: &str = "muak-profile-v1";
-const RESOLUTION_API_VERSION: &str = "muak-resolution-v1";
+pub(crate) const RELEASE_API_VERSION: &str = "muak.dev/release/v1-beta";
+const PROFILE_API_VERSION: &str = "muak.dev/profile/v1-beta";
+const RESOLUTION_API_VERSION: &str = "muak.dev/resolution/v1-beta";
 
 macro_rules! id_type {
     ($name:ident, $doc:literal) => {

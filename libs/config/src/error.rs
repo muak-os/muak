@@ -19,6 +19,15 @@ pub enum ConfigError {
     #[error("Config validation failed: {0}")]
     ValidationError(String),
 
+    /// The config document uses a schema version this reader does not know.
+    #[error("unsupported config api_version '{found}' (supported: {supported})")]
+    UnsupportedVersion {
+        /// Schema version carried by the document.
+        found: String,
+        /// Schema version supported by this reader.
+        supported: String,
+    },
+
     /// Config has already been initialized.
     #[error("Config already initialized")]
     AlreadyInitialized,

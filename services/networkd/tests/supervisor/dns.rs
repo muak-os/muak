@@ -13,6 +13,8 @@ use super::MockNetlinkOps;
 fn config_with_ipv4_dns() -> Arc<config::NetworkConfig> {
     let sys = config::parse_from_str(
         r#"
+api_version = "muak.dev/config/v1-beta"
+
 [host]
 name = "test"
 port = 50051
@@ -36,6 +38,8 @@ ipv4.gateway = "10.0.0.1"
 fn config_with_ipv6_dns() -> Arc<config::NetworkConfig> {
     let sys = config::parse_from_str(
         r#"
+api_version = "muak.dev/config/v1-beta"
+
 [host]
 name = "test"
 port = 50051

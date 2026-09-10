@@ -10,7 +10,9 @@ use crate::plan::{Plan, Size};
 use crate::role::Role;
 
 /// Schema version of the disk document.
-pub const API_VERSION: &str = "muak-disk-v1";
+///
+/// Beta until the 1.0.0 release; readers reject unknown versions.
+pub const API_VERSION: &str = "muak.dev/disk/v1-beta";
 
 /// Errors produced when reading, writing, or converting disk documents.
 #[derive(Debug, Error)]
@@ -291,7 +293,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            serialized.contains("api_version = \"muak-disk-v1\""),
+            serialized.contains("api_version = \"muak.dev/disk/v1-beta\""),
             "serialized document must carry the api version: {serialized}"
         );
     }
@@ -299,7 +301,7 @@ mod tests {
     #[test]
     fn from_toml_rejects_unknown_api_version() {
         // ARRANGE
-        let bytes = "api_version = \"muak-disk-v999\"\nwipe = true\n[[partitions]]\nrole = \"esp\"\nname = \"EFI\"\ntype_guid = \"00000000-0000-0000-0000-000000000000\"\nsize = \"fill\"\n";
+        let bytes = "api_version = \"muak.dev/disk/v999\"\nwipe = true\n[[partitions]]\nrole = \"esp\"\nname = \"EFI\"\ntype_guid = \"00000000-0000-0000-0000-000000000000\"\nsize = \"fill\"\n";
 
         // ACT
         let result = Doc::from_toml(bytes);

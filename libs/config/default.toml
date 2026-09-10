@@ -4,6 +4,8 @@
 # Generate a copy with: muakctl config generate > config.toml
 # Install with:         muakctl install --endpoint <ip>:50051 --config <path> --insecure
 
+api_version = "muak.dev/config/v1-beta"
+
 [host]
 name = "muak"
 image = "ghcr.io/muak-os/installer:latest"

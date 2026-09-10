@@ -25,6 +25,13 @@ pub const CONFIG_PATH: &str = "/run/state/config.toml";
 /// File extension for system config files.
 pub const CONFIG_EXTENSION: &str = "toml";
 
+/// Schema version of the system config document.
+///
+/// `v1-beta` is additive-only while the format settles: fields may be added,
+/// never removed or repurposed. Breaking changes require a new version, which
+/// is a new acceptance gate, not an in-place migration.
+pub const API_VERSION: &str = "muak.dev/config/v1-beta";
+
 pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
 
 const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
@@ -33,6 +40,8 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
+    /// Schema version of this document.
+    pub api_version: String,
     /// Host-level configuration (name, image, networking ports, etc.).
     #[serde(default)]
     pub host: HostConfig,
@@ -76,6 +85,7 @@ impl SystemConfig {
                 "host.ntp must be specified".to_string(),
             ));
         }
+
         Ok(())
     }
 
@@ -95,6 +105,7 @@ impl SystemConfig {
                     .to_string(),
             ));
         }
+
         Ok(())
     }
 }
@@ -106,6 +117,7 @@ pub fn init() -> Result<()> {
     CONFIG
         .set(config)
         .map_err(|_| ConfigError::AlreadyInitialized)?;
+
     Ok(())
 }
 
@@ -121,17 +133,31 @@ pub fn serialize_default() -> String {
 
 /// Parses a [`SystemConfig`] from a string, validating it.
 pub fn parse_from_str(contents: &str) -> Result<SystemConfig> {
-    let config: SystemConfig = TomlCodec::decode(contents)?;
+    let config = decode(contents)?;
     config.validate()?;
+    Ok(config)
+}
+
+/// Deserializes a [`SystemConfig`], rejecting unsupported schema versions.
+fn decode(contents: &str) -> Result<SystemConfig> {
+    let config: SystemConfig = TomlCodec::decode(contents)?;
+    if config.api_version != API_VERSION {
+        return Err(ConfigError::UnsupportedVersion {
+            found: config.api_version,
+            supported: API_VERSION.to_owned(),
+        });
+    }
+
     Ok(config)
 }
 
 /// Diffs two config strings, returning `(field_path, before, after)` for each changed field.
 pub fn diff(a: &str, b: &str) -> Result<Vec<(String, String, String)>> {
-    let a = TomlCodec::decode(a)?;
-    let b = TomlCodec::decode(b)?;
+    let a = toml::Value::try_from(decode(a)?)?;
+    let b = toml::Value::try_from(decode(b)?)?;
     let mut changes = Vec::new();
     diff_values(&mut changes, "", &a, &b);
+
     Ok(changes)
 }
 
@@ -139,9 +165,9 @@ pub fn diff(a: &str, b: &str) -> Result<Vec<(String, String, String)>> {
 pub fn load_from_path(path: &Path) -> Result<SystemConfig> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
-        TomlCodec::decode(&contents)
+        decode(&contents)
     } else {
-        TomlCodec::decode(DEFAULT_CONFIG)
+        decode(DEFAULT_CONFIG)
     }
 }
 
@@ -180,6 +206,10 @@ fn diff_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn with_version(body: &str) -> String {
+        format!("api_version = \"{API_VERSION}\"\n{body}")
+    }
 
     #[test]
     fn host_config_serialization() {
@@ -326,17 +356,19 @@ mod tests {
     #[test]
     fn config_rejects_unknown_sections() {
         // ARRANGE
-        let toml_str = r#"
+        let toml_str = with_version(
+            r#"
 [host]
 name = "muak"
 port = 50051
 
 [system]
 image = "10.0.2.2:5000/installer:latest"
-"#;
+"#,
+        );
 
         // ACT
-        let result: Result<SystemConfig> = TomlCodec::decode(toml_str);
+        let result = parse_from_str(&toml_str);
 
         // ASSERT
         assert!(result.is_err());
@@ -407,6 +439,7 @@ image = "10.0.2.2:5000/installer:latest"
         let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
 
         // ASSERT
+        assert_eq!(restored.api_version, API_VERSION);
         assert_eq!(restored.host.port, 9090);
         assert_eq!(restored.host.name, "testhost");
         assert_eq!(restored.disk.system, "/dev/nvme0n1");
@@ -421,15 +454,17 @@ image = "10.0.2.2:5000/installer:latest"
     #[test]
     fn parse_from_str_valid() {
         // ARRANGE
-        let toml_str = r#"
+        let toml_str = with_version(
+            r#"
 [host]
 name = "myhost"
 port = 1234
 ntp = "pool.ntp.org"
-"#;
+"#,
+        );
 
         // ACT
-        let config = parse_from_str(toml_str).unwrap();
+        let config = parse_from_str(&toml_str).unwrap();
 
         // ASSERT
         assert_eq!(config.host.name, "myhost");
@@ -448,10 +483,10 @@ ntp = "pool.ntp.org"
     #[test]
     fn parse_from_str_validation_error() {
         // ARRANGE
-        let str = "[host]\nport = 0\n";
+        let str = with_version("[host]\nport = 0\n");
 
         // ACT
-        let result = parse_from_str(str);
+        let result = parse_from_str(&str);
 
         // ASSERT
         assert!(result.is_err());
@@ -462,7 +497,8 @@ ntp = "pool.ntp.org"
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let content = "[host]\nname = \"loaded\"\nport = 7777\nntp = \"pool.ntp.org\"\n";
+        let content =
+            with_version("[host]\nname = \"loaded\"\nport = 7777\nntp = \"pool.ntp.org\"\n");
         std::fs::write(&path, content).unwrap();
 
         // ACT
@@ -488,10 +524,10 @@ ntp = "pool.ntp.org"
     #[test]
     fn diff_no_changes() {
         // ARRANGE
-        let config = "[host]\nname = \"x\"\nport = 1\n";
+        let config = with_version("[host]\nname = \"x\"\nport = 1\n");
 
         // ACT
-        let changes = diff(config, config).unwrap();
+        let changes = diff(&config, &config).unwrap();
 
         // ASSERT
         assert!(changes.is_empty());
@@ -500,11 +536,11 @@ ntp = "pool.ntp.org"
     #[test]
     fn diff_changed_scalar() {
         // ARRANGE
-        let a = "[host]\nname = \"alpha\"\nport = 8080\n";
-        let b = "[host]\nname = \"beta\"\nport = 8080\n";
+        let a = with_version("[host]\nname = \"alpha\"\nport = 8080\n");
+        let b = with_version("[host]\nname = \"beta\"\nport = 8080\n");
 
         // ACT
-        let changes = diff(a, b).unwrap();
+        let changes = diff(&a, &b).unwrap();
 
         // ASSERT
         assert_eq!(changes.len(), 1);
@@ -516,11 +552,11 @@ ntp = "pool.ntp.org"
     #[test]
     fn diff_added_key() {
         // ARRANGE
-        let a = "[host]\nport = 1\n\n[network]\nipv6 = false\n";
-        let b = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
+        let a = with_version("[host]\nport = 1\n\n[network]\nipv6 = false\n");
+        let b = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
 
         // ACT
-        let changes = diff(a, b).unwrap();
+        let changes = diff(&a, &b).unwrap();
 
         // ASSERT
         let found = changes.iter().any(|(k, before, after)| {
@@ -532,11 +568,11 @@ ntp = "pool.ntp.org"
     #[test]
     fn diff_removed_key() {
         // ARRANGE
-        let a = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
-        let b = "[host]\nport = 1\n\n[network]\nipv6 = false\n";
+        let a = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
+        let b = with_version("[host]\nport = 1\n\n[network]\nipv6 = false\n");
 
         // ACT
-        let changes = diff(a, b).unwrap();
+        let changes = diff(&a, &b).unwrap();
 
         // ASSERT
         let found = changes.iter().any(|(k, before, after)| {
@@ -546,38 +582,44 @@ ntp = "pool.ntp.org"
     }
 
     #[test]
-    fn diff_whole_section_added() {
+    fn diff_section_added_shows_field_changes_against_defaults() {
         // ARRANGE
-        let a = "[host]\nport = 1\n";
-        let b = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
+        let a = with_version("[host]\nport = 1\n");
+        let b = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
 
         // ACT
-        let changes = diff(a, b).unwrap();
+        let changes = diff(&a, &b).unwrap();
 
         // ASSERT
-        let found = changes
-            .iter()
-            .any(|(k, before, _after)| k == "network" && before.is_empty());
-        assert!(found, "expected network section added, got: {:?}", changes);
+        assert_eq!(
+            changes,
+            vec![(
+                "network.ipv6".to_owned(),
+                "false".to_owned(),
+                "true".to_owned()
+            )],
+            "added sections must diff field-by-field against defaults"
+        );
     }
 
     #[test]
-    fn diff_whole_section_removed() {
+    fn diff_section_removed_shows_field_changes_against_defaults() {
         // ARRANGE
-        let a = "[host]\nport = 1\n\n[network]\nipv6 = true\n";
-        let b = "[host]\nport = 1\n";
+        let a = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
+        let b = with_version("[host]\nport = 1\n");
 
         // ACT
-        let changes = diff(a, b).unwrap();
+        let changes = diff(&a, &b).unwrap();
 
         // ASSERT
-        let found = changes
-            .iter()
-            .any(|(k, _before, after)| k == "network" && after.is_empty());
-        assert!(
-            found,
-            "expected network section removed, got: {:?}",
-            changes
+        assert_eq!(
+            changes,
+            vec![(
+                "network.ipv6".to_owned(),
+                "true".to_owned(),
+                "false".to_owned()
+            )],
+            "removed sections must diff field-by-field against defaults"
         );
     }
 
@@ -612,5 +654,34 @@ ntp = "pool.ntp.org"
         assert_eq!(restored.host.extensions, vec!["ext1"]);
         assert_eq!(restored.host.ntp, "pool.ntp.org");
         assert!(restored.host.secureboot);
+    }
+
+    #[test]
+    fn rejects_unsupported_api_version() {
+        // ARRANGE
+        let toml = "api_version = \"muak.dev/config/v999\"\n[host]\nname = \"x\"\nport = 1\n";
+
+        // ACT
+        let result = parse_from_str(toml);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ConfigError::UnsupportedVersion { found, supported })
+            if found == "muak.dev/config/v999" && supported == API_VERSION
+        ));
+    }
+
+    #[test]
+    fn rejects_missing_api_version() {
+        // ARRANGE
+        let toml = "[host]\nname = \"x\"\nport = 1\n";
+
+        // ACT
+        let result = parse_from_str(toml);
+
+        // ASSERT
+        let error = result.expect_err("missing api_version must be rejected");
+        assert!(error.to_string().contains("api_version"), "{error}");
     }
 }

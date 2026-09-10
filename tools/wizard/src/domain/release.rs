@@ -8,7 +8,7 @@ use crate::error::{Result, WizardError};
 
 /// TODO: replace this with published OCI release manifest.
 const MANIFEST_TOML: &str = r#"
-api_version = "muak-release-v1"
+api_version = "muak.dev/release/v1-beta"
 name = "muak-os/release"
 version = "latest"
 
@@ -305,7 +305,7 @@ mod tests {
     use super::*;
 
     const MANIFEST: &str = r#"
-api_version = "muak-release-v1"
+api_version = "muak.dev/release/v1-beta"
 name = "muak-os/release"
 version = "v1.0.0"
 
@@ -454,7 +454,7 @@ tag = "v1.0.0"
     #[test]
     fn rejects_unknown_fields() {
         // ARRANGE
-        let raw = b"unknown_key = true\napi_version = \"muak-release-v1\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
+        let raw = b"unknown_key = true\napi_version = \"muak.dev/release/v1-beta\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
 
         // ACT
         let err = Manifest::from_toml(raw).expect_err("should fail");
@@ -478,7 +478,7 @@ tag = "v1.0.0"
     #[test]
     fn rejects_empty_repository() {
         // ARRANGE
-        let raw = b"api_version = \"muak-release-v1\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
+        let raw = b"api_version = \"muak.dev/release/v1-beta\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
 
         // ACT
         let err = Manifest::from_toml(raw).expect_err("should fail");
@@ -490,7 +490,7 @@ tag = "v1.0.0"
     #[test]
     fn rejects_missing_installer() {
         // ARRANGE
-        let raw = b"api_version = \"muak-release-v1\"\nname = \"r\"\nversion = \"v1\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
+        let raw = b"api_version = \"muak.dev/release/v1-beta\"\nname = \"r\"\nversion = \"v1\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
 
         // ACT
         let err = Manifest::from_toml(raw).expect_err("should fail");
@@ -502,7 +502,7 @@ tag = "v1.0.0"
     #[test]
     fn default_extensions_and_overlays_are_empty() {
         // ARRANGE
-        let raw = b"api_version = \"muak-release-v1\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[stub]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
+        let raw = b"api_version = \"muak.dev/release/v1-beta\"\nname = \"r\"\nversion = \"v1\"\n[installer]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[stub]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"\n[kernel]\nsource = \"s\"\nrepository = \"r\"\ntag = \"t\"";
 
         // ACT
         let manifest = Manifest::from_toml(raw).expect("parse");
