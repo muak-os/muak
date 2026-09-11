@@ -1,23 +1,23 @@
-//! Platform layout planning driven by the boot image's disk document.
+//! Platform layout planning driven by the boot image's disk plan.
 
-use ::disk::doc::Doc;
+use ::disk::plan::Document;
 use ::disk::plan::Plan;
 use ::disk::role::Role;
 use anyhow::{Result, bail};
 
 /// Builds the system-disk and data-disk plans from the boot image's disk
-/// document, splitting DATA onto its own disk when the assignment is split.
+/// plan, splitting DATA onto its own disk when the assignment is split.
 ///
 /// # Errors
 ///
 /// Returns an error when the document cannot be converted to a plan or is
 /// missing a required role.
-pub fn plans_from_doc(doc: &Doc, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
+pub fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
     let plan = doc.to_plan()?;
 
     for role in [Role::Esp, Role::State, Role::Data] {
         if !plan.partitions.iter().any(|spec| spec.role == Some(role)) {
-            bail!("disk document is missing the '{role:?}' partition");
+            bail!("disk plan is missing the '{role:?}' partition");
         }
     }
 
@@ -47,17 +47,16 @@ pub fn plans_from_doc(doc: &Doc, shared_data: bool) -> Result<(Plan, Option<Plan
 
 #[cfg(test)]
 mod tests {
-    use ::disk::plan;
+    use ::disk::layout::Layout;
+    use ::disk::plan::{Document, Partition};
 
     use super::*;
 
-    fn standard_doc() -> Doc {
-        let (system, _) = plan::uefi(true);
-
-        Doc::from_plan(&system).expect("doc from plan")
+    fn standard_doc() -> Document {
+        Document::from_plan(&Layout::Uefi.plan()).expect("doc from plan")
     }
 
-    fn replace(doc: &Doc, partition: &::disk::doc::Partition) -> Doc {
+    fn replace(doc: &Document, partition: &Partition) -> Document {
         let mut partitions: Vec<_> = doc
             .partitions()
             .iter()
@@ -66,7 +65,7 @@ mod tests {
             .collect();
         partitions.push(partition.clone());
 
-        Doc::new(doc.wipe(), partitions)
+        Document::new(doc.wipe(), partitions)
     }
 
     #[test]
@@ -121,10 +120,10 @@ mod tests {
     #[test]
     fn plans_require_all_roles() {
         // ARRANGE
-        let doc = Doc::new(
+        let doc = Document::new(
             true,
             vec![
-                Doc::from_plan(&plan::uefi(true).0)
+                Document::from_plan(&Layout::Uefi.plan())
                     .expect("doc from plan")
                     .find(Role::Esp)
                     .cloned()

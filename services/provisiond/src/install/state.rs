@@ -25,7 +25,6 @@ pub fn init(
     auth_config: &AuthConfig,
     server_pki: &Server,
     sb_hierarchy: Option<&hierarchy::Bundle>,
-    layout: &disk::Doc,
     profile_bytes: &[u8],
 ) -> Result<()> {
     std::fs::create_dir_all(MOUNT_POINT)
@@ -48,8 +47,6 @@ pub fn init(
 
     std::fs::write(format!("{MOUNT_POINT}/profile.toml"), profile_bytes)
         .context("Failed to write booted profile")?;
-
-    disk::write_doc(Path::new(MOUNT_POINT), layout).context("Failed to write disk document")?;
 
     let secrets_dir = format!("{MOUNT_POINT}/secrets");
     std::fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;

@@ -1,5 +1,6 @@
 //! The resolved build and its identity.
 
+use disk::layout::Layout;
 use koci::arch::Arch;
 
 use super::overlay::Asset;
@@ -15,6 +16,7 @@ pub struct ResolvedBuild {
     extensions: Vec<Extension>,
     overlay: Option<Overlay>,
     overlay_assets: Option<Vec<Asset>>,
+    layout: Option<Layout>,
     kernel: Kernel,
     installer: String,
     stub: String,
@@ -30,6 +32,7 @@ impl ResolvedBuild {
             extensions: Vec::new(),
             overlay: None,
             overlay_assets: None,
+            layout: None,
             kernel,
             installer: String::new(),
             stub: String::new(),
@@ -99,6 +102,17 @@ impl ResolvedBuild {
     /// Attaches the discovered overlay assets to the build.
     pub(crate) fn set_overlay_assets(&mut self, assets: Option<Vec<Asset>>) {
         self.overlay_assets = assets;
+    }
+
+    /// Returns the resolved disk layout, defaulting to UEFI.
+    #[must_use]
+    pub fn layout(&self) -> Layout {
+        self.layout.unwrap_or(Layout::Uefi)
+    }
+
+    /// Attaches the resolved disk layout to the build.
+    pub(crate) fn set_layout(&mut self, layout: Layout) {
+        self.layout = Some(layout);
     }
 
     /// Returns the resolved kernel source.
@@ -172,6 +186,11 @@ impl Resolution {
     /// Attaches the discovered overlay assets to the resolved build.
     pub(crate) fn set_overlay_assets(&mut self, assets: Option<Vec<Asset>>) {
         self.build.set_overlay_assets(assets);
+    }
+
+    /// Attaches the resolved disk layout to the resolved build.
+    pub(crate) fn set_layout(&mut self, layout: Layout) {
+        self.build.set_layout(layout);
     }
 }
 

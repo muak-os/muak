@@ -1,8 +1,8 @@
-//! Declarative partition plan describing what a platform install places on disk.
+//! The partition plan: executor types and their serialized document.
 
-use parttable::gpt::partition::LINUX_FS_GUID;
 use serde::{Deserialize, Serialize};
 
+use crate::error::DiskError;
 use crate::role::Role;
 
 /// GPT type GUID of the EFI System Partition (wire byte order).
@@ -15,6 +15,9 @@ pub const EFI_SIZE: u64 = 512 * 1024 * 1024;
 
 /// Frozen size of the STATE partition.
 pub const STATE_SIZE: u64 = 1024 * 1024 * 1024;
+
+/// Schema version of the plan document.
+pub const API_VERSION: &str = "muak.dev/diskplan/v1-beta";
 
 /// Size of a planned partition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,42 +75,184 @@ impl Plan {
     }
 }
 
-/// Builds the standard UEFI platform layout.
-#[must_use]
-pub fn uefi(shared_data: bool) -> (Plan, Option<Plan>) {
-    let mut partitions = vec![
-        PartitionSpec::create(
-            Role::Esp,
-            Role::Esp.gpt_name(),
-            ESP_TYPE_GUID,
-            Size::Fixed(EFI_SIZE),
-        ),
-        PartitionSpec::create(
-            Role::State,
-            Role::State.gpt_name(),
-            LINUX_FS_GUID,
-            Size::Fixed(STATE_SIZE),
-        ),
-    ];
+/// One planned partition, as recorded in the document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Partition {
+    /// Functional role used by consumers for lookup.
+    pub role: Role,
+    /// GPT partition name.
+    pub name: String,
+    /// GPT partition type GUID.
+    pub type_guid: String,
+    /// Partition size.
+    pub size: Size,
+}
 
-    if shared_data {
-        partitions.push(data_spec());
-        (Plan::wiped(partitions), None)
-    } else {
-        (
-            Plan::wiped(partitions),
-            Some(Plan::wiped(vec![data_spec()])),
-        )
+/// The serialized plan document (`diskplan.toml`) authored at build time and
+/// applied by the installer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Document {
+    /// Schema version of this document.
+    api_version: String,
+    /// Whether the install wipes the disk before placing the partitions.
+    wipe: bool,
+    /// All Muak-managed partitions of the install, in placement order.
+    partitions: Vec<Partition>,
+}
+
+impl Document {
+    /// Creates a plan document for the given partitions.
+    #[must_use]
+    pub fn new(wipe: bool, partitions: Vec<Partition>) -> Self {
+        Self {
+            api_version: API_VERSION.to_owned(),
+            wipe,
+            partitions,
+        }
+    }
+
+    /// Returns the first partition with the given role.
+    #[must_use]
+    pub fn find(&self, role: Role) -> Option<&Partition> {
+        self.partitions
+            .iter()
+            .find(|partition| partition.role == role)
+    }
+
+    /// Returns whether the install wipes the disk before placing partitions.
+    #[must_use]
+    pub const fn wipe(&self) -> bool {
+        self.wipe
+    }
+
+    /// Returns all planned partitions, in placement order.
+    #[must_use]
+    pub fn partitions(&self) -> &[Partition] {
+        &self.partitions
+    }
+
+    /// Deserializes and validates a plan document from TOML.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiskError`] when parsing fails or the document uses an unknown schema version.
+    pub fn from_toml(bytes: &str) -> Result<Self, DiskError> {
+        let doc: Self = toml::from_str(bytes).map_err(|e| DiskError::Toml(e.to_string()))?;
+
+        if doc.api_version != API_VERSION {
+            return Err(DiskError::UnsupportedApiVersion(doc.api_version));
+        }
+
+        Ok(doc)
+    }
+
+    /// Serializes the plan document to TOML.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiskError`] when serialization fails.
+    pub fn to_toml(&self) -> Result<String, DiskError> {
+        toml::to_string(self).map_err(|e| DiskError::Toml(e.to_string()))
+    }
+
+    /// Writes the plan document to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiskError`] when serialization or writing fails.
+    pub fn write(&self, path: &std::path::Path) -> Result<(), DiskError> {
+        std::fs::write(path, self.to_toml()?)?;
+        Ok(())
+    }
+
+    /// Reads and validates a plan document from `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiskError`] when reading or validation fails.
+    pub fn read(path: &std::path::Path) -> Result<Self, DiskError> {
+        Self::from_toml(&std::fs::read_to_string(path)?)
+    }
+
+    /// Builds the document from a partition plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiskError`] when a plan partition carries no role.
+    pub fn from_plan(plan: &Plan) -> Result<Self, DiskError> {
+        let partitions = plan
+            .partitions
+            .iter()
+            .map(partition_from_spec)
+            .collect::<Result<Vec<_>, DiskError>>()?;
+
+        Ok(Self::new(plan.wipe, partitions))
+    }
+
+    /// Converts the document back into a partition plan for the executor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiskError`] when a type GUID is not a valid UUID.
+    pub fn to_plan(&self) -> Result<Plan, DiskError> {
+        let partitions = self
+            .partitions
+            .iter()
+            .map(|partition| {
+                let type_guid = parse_type_guid(&partition.type_guid)?;
+
+                Ok(PartitionSpec {
+                    role: Some(partition.role),
+                    name: partition.name.clone(),
+                    type_guid,
+                    size: partition.size,
+                })
+            })
+            .collect::<Result<Vec<_>, DiskError>>()?;
+
+        Ok(Plan {
+            wipe: self.wipe,
+            partitions,
+        })
     }
 }
 
-fn data_spec() -> PartitionSpec {
-    PartitionSpec::create(Role::Data, Role::Data.gpt_name(), LINUX_FS_GUID, Size::Fill)
+fn partition_from_spec(spec: &PartitionSpec) -> Result<Partition, DiskError> {
+    let role = spec
+        .role
+        .ok_or_else(|| DiskError::Plan(format!("partition '{}' has no role", spec.name)))?;
+
+    Ok(Partition {
+        role,
+        name: spec.name.clone(),
+        type_guid: guid(&spec.type_guid),
+        size: spec.size,
+    })
+}
+
+fn parse_type_guid(text: &str) -> Result<[u8; 16], DiskError> {
+    let parsed = uuid::Uuid::parse_str(text)
+        .map_err(|e| DiskError::Plan(format!("bad type GUID '{text}': {e}")))?;
+
+    Ok(parsed.into_bytes())
+}
+
+/// Formats raw GPT GUID bytes as a hyphenated UUID string.
+#[must_use]
+pub fn guid(bytes: &[u8; 16]) -> String {
+    uuid::Uuid::from_bytes(*bytes).hyphenated().to_string()
 }
 
 #[cfg(test)]
 mod tests {
+    use parttable::gpt::partition::LINUX_FS_GUID;
+
     use super::*;
+    use crate::layout::Layout;
+
+    fn sample() -> Document {
+        Document::from_plan(&Layout::Uefi.plan()).expect("doc from plan")
+    }
 
     #[test]
     fn create_spec_sets_role_name_and_size() {
@@ -138,59 +283,141 @@ mod tests {
     }
 
     #[test]
-    fn standard_uefi_layout_is_frozen() {
-        // ARRANGE / ACT
-        let (system, data) = uefi(true);
+    fn toml_round_trip_preserves_partitions() {
+        // ARRANGE
+        let doc = sample();
+
+        // ACT
+        let serialized = doc.to_toml().expect("serialize");
+        let parsed = Document::from_toml(&serialized).expect("deserialize");
 
         // ASSERT
-        assert!(system.wipe, "the system disk must be wiped");
-        let roles: Vec<_> = system.partitions.iter().map(|spec| spec.role).collect();
-        let names: Vec<_> = system
-            .partitions
-            .iter()
-            .map(|spec| spec.name.clone())
-            .collect();
-        let sizes: Vec<_> = system.partitions.iter().map(|spec| spec.size).collect();
-        let guids: Vec<_> = system
-            .partitions
-            .iter()
-            .map(|spec| spec.type_guid)
-            .collect();
-        assert_eq!(
-            roles,
-            vec![Some(Role::Esp), Some(Role::State), Some(Role::Data)]
-        );
-        assert_eq!(names, vec!["EFI", "STATE", "DATA"]);
-        assert_eq!(
-            sizes,
-            vec![Size::Fixed(EFI_SIZE), Size::Fixed(STATE_SIZE), Size::Fill]
-        );
-        assert_eq!(guids, vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID]);
-        assert_eq!(data, None, "shared DATA must not produce a data plan");
+        assert_eq!(parsed, doc, "round trip must preserve the document");
     }
 
     #[test]
-    fn standard_uefi_split_layout_keeps_data_off_the_system_disk() {
-        // ARRANGE / ACT
-        let (system, data) = uefi(false);
+    fn serialized_document_carries_api_version() {
+        // ARRANGE
+        let doc = sample();
+
+        // ACT
+        let serialized = doc.to_toml().expect("serialize");
+
+        // ASSERT
+        assert!(
+            serialized.contains("api_version = \"muak.dev/diskplan/v1-beta\""),
+            "serialized document must carry the api version: {serialized}"
+        );
+    }
+
+    #[test]
+    fn from_toml_rejects_unknown_api_version() {
+        // ARRANGE
+        let bytes = "api_version = \"muak.dev/diskplan/v999\"\nwipe = true\n[[partitions]]\nrole = \"esp\"\nname = \"EFI\"\ntype_guid = \"00000000-0000-0000-0000-000000000000\"\nsize = \"fill\"\n";
+
+        // ACT
+        let result = Document::from_toml(bytes);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(DiskError::UnsupportedApiVersion(_))),
+            "unknown api_version must be rejected"
+        );
+    }
+
+    #[test]
+    fn from_toml_rejects_missing_api_version() {
+        // ARRANGE
+        let bytes = "wipe = true\n[[partitions]]\nrole = \"esp\"\nname = \"EFI\"\ntype_guid = \"00000000-0000-0000-0000-000000000000\"\nsize = \"fill\"\n";
+
+        // ACT
+        let result = Document::from_toml(bytes);
+
+        // ASSERT
+        let error = result.expect_err("missing api_version must fail");
+        assert!(error.to_string().contains("api_version"), "{error}");
+    }
+
+    #[test]
+    fn find_returns_partition_by_role() {
+        // ARRANGE
+        let doc = sample();
+
+        // ACT
+        let found = doc.find(Role::State).expect("state partition");
+
+        // ASSERT
+        assert_eq!(found.name, "STATE", "role lookup must return STATE");
+    }
+
+    #[test]
+    fn find_returns_none_for_missing_role() {
+        // ARRANGE
+        let doc = Document::new(
+            true,
+            vec![Partition {
+                role: Role::Esp,
+                name: "EFI".to_owned(),
+                type_guid: guid(&ESP_TYPE_GUID),
+                size: Size::Fill,
+            }],
+        );
+
+        // ACT
+        let found = doc.find(Role::Data);
+
+        // ASSERT
+        assert!(found.is_none(), "absent roles must return none");
+    }
+
+    #[test]
+    fn write_and_read_round_trip_through_the_filesystem() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("diskplan.toml");
+        let doc = sample();
+
+        // ACT
+        doc.write(&path).expect("write");
+        let loaded = Document::read(&path).expect("read");
 
         // ASSERT
         assert_eq!(
-            system.partitions.len(),
-            2,
-            "system disk carries ESP + STATE only"
+            loaded, doc,
+            "filesystem round trip must preserve the document"
         );
-        assert!(
-            system
-                .partitions
-                .iter()
-                .all(|spec| spec.role != Some(Role::Data))
+    }
+
+    #[test]
+    fn plan_conversion_round_trips() {
+        // ARRANGE
+        let plan = Layout::Uefi.plan();
+
+        // ACT
+        let doc = Document::from_plan(&plan).expect("from plan");
+        let converted = doc.to_plan().expect("to plan");
+
+        // ASSERT
+        assert_eq!(converted, plan, "plan conversion must round trip");
+    }
+
+    #[test]
+    fn plan_conversion_rejects_bad_type_guids() {
+        // ARRANGE
+        let doc = Document::new(
+            true,
+            vec![Partition {
+                role: Role::Esp,
+                name: "EFI".to_owned(),
+                type_guid: "not-a-uuid".to_owned(),
+                size: Size::Fill,
+            }],
         );
-        let data = data.expect("split layout must produce a data plan");
-        assert!(data.wipe, "the data disk must be wiped");
-        assert_eq!(data.partitions.len(), 1, "the data disk carries DATA only");
-        let spec = data.partitions.first().expect("data spec");
-        assert_eq!(spec.role, Some(Role::Data), "data spec role must be DATA");
-        assert_eq!(spec.size, Size::Fill, "data spec must fill the disk");
+
+        // ACT
+        let result = doc.to_plan();
+
+        // ASSERT
+        assert!(result.is_err(), "invalid type GUIDs must be rejected");
     }
 }

@@ -11,7 +11,6 @@ use crate::domain::resolution::ResolvedBuild;
 pub(crate) struct BuildContext<'data, 'sign> {
     pub(crate) build: &'data ResolvedBuild,
     pub(crate) profile: &'data [u8],
-    pub(crate) disk_doc: &'data [u8],
     pub(crate) signing: Option<&'sign SigningPair<'sign>>,
 }
 

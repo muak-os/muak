@@ -173,11 +173,13 @@ fn run_resolve(
         registry: registry.to_owned(),
     })?;
     let request = Request::new(version, platform).arch(arch);
-    let resolved = resolver::plan(&request, &profile)?;
+    let mut resolved = resolver::plan(&request, &profile)?;
+    wizard::request::discover_layout(&mut resolved)?;
 
     println!("profile id: {}", resolved.profile_id());
     println!("release id: {}", resolved.release_id());
     println!("resolution id: {}", resolved.resolution_id());
+    println!("disk layout: {}", resolved.build().layout().name());
     println!("resolved installer: {}", resolved.build().installer());
     println!(
         "resolved kernel: {} -> {}",

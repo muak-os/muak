@@ -12,7 +12,7 @@ use crate::domain::overlay;
 use crate::domain::profile::Profile;
 use crate::domain::resolution::Resolution;
 use crate::error::{Result, WizardError};
-use crate::nodes::entry_sizes;
+use crate::nodes::{disk_layout_annotation, entry_sizes};
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
@@ -124,16 +124,12 @@ impl<'a> Request<'a> {
 
         let mut resolution = resolver::plan(&self, profile)?;
         discover_assets(&mut resolution)?;
+        discover_layout(&mut resolution)?;
         let profile_bytes = profile.canonical_bytes()?;
-        let (system_plan, _) = disk::plan::uefi(true);
-        let disk_doc_bytes = disk::doc::Doc::from_plan(&system_plan)?
-            .to_toml()?
-            .into_bytes();
         let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
         let ctx = BuildContext {
             build: resolution.build(),
             profile: &profile_bytes,
-            disk_doc: &disk_doc_bytes,
             signing: self.signing,
         };
         let mut writers = TargetWriters::new(self.targets);
@@ -188,6 +184,26 @@ fn discover_assets(resolution: &mut Resolution) -> Result<()> {
         .into_iter()
         .collect();
     resolution.set_overlay_assets(Some(overlay::classify(overlay, entries)?));
+
+    Ok(())
+}
+
+/// Resolves the disk layout of a resolution onto it.
+///
+/// # Errors
+///
+/// Returns an error when the annotations cannot be fetched or name an unknown
+/// layout.
+pub fn discover_layout(resolution: &mut Resolution) -> Result<()> {
+    let layout = match resolution.build().overlay() {
+        Some(overlay) => match disk_layout_annotation(&overlay.source, overlay.arch)? {
+            Some(name) => disk::layout::Layout::by_name(&name)?,
+            None => disk::layout::Layout::Uefi,
+        },
+        None => disk::layout::Layout::Uefi,
+    };
+
+    resolution.set_layout(layout);
 
     Ok(())
 }

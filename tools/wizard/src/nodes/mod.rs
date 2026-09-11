@@ -27,6 +27,9 @@ use crate::pipeline::runtime::NodePorts;
 /// Manifest annotation carrying the per-file sizes of a producer image.
 const SIZES_ANNOTATION: &str = "dev.muak.sizes";
 
+/// Manifest annotation carrying the disk layout required by a board image.
+pub(crate) const DISK_ANNOTATION: &str = "dev.muak.disk";
+
 /// Generates the `NodeKind` enum, its `ALL` table, and the descriptor dispatch from the single node registry.
 macro_rules! node_registry {
     ( $( $kind:ident => $descriptor:path ),+ $(,)? ) => {
@@ -92,6 +95,18 @@ pub(crate) fn entry_sizes(reference: &str, arch: Arch) -> Result<BTreeMap<String
         .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
 
     parse_sizes(reference, &annotations)
+}
+
+/// Fetches the disk layout requirement of an image, if annotated.
+///
+/// # Errors
+///
+/// Returns an error when the annotations cannot be fetched.
+pub(crate) fn disk_layout_annotation(reference: &str, arch: Arch) -> Result<Option<String>> {
+    let annotations = pull::annotations(reference, &arch, None)
+        .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
+
+    Ok(annotations.get(DISK_ANNOTATION).cloned())
 }
 
 fn parse_sizes(
@@ -211,7 +226,6 @@ mod tests {
         BuildContext {
             build,
             profile: b"",
-            disk_doc: b"",
             signing: None,
         }
     }
@@ -282,7 +296,6 @@ mod tests {
         let ctx = BuildContext {
             build: &build,
             profile: b"",
-            disk_doc: b"",
             signing: Some(&signing),
         };
 

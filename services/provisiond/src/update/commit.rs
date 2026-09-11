@@ -10,7 +10,7 @@ use wizard::SectionInfo;
 use zeroize::Zeroizing;
 
 use super::{SECRETS_DIR, UPDATE_DIR};
-use crate::disk::{self, Role, find_partition_device};
+use crate::disk::{Role, find_partition_device};
 use crate::efi;
 use crate::secrets;
 
@@ -18,11 +18,10 @@ use crate::secrets;
 pub async fn apply() -> Result<()> {
     kmsg::info!("Validation succeeded, committing update");
 
-    let doc = disk::load_installed_doc()?;
     let (efi_device, state_device) = tokio::task::spawn_blocking(move || {
         (
-            find_partition_device(doc.as_ref(), Role::Esp),
-            find_partition_device(doc.as_ref(), Role::State),
+            find_partition_device(Role::Esp),
+            find_partition_device(Role::State),
         )
     })
     .await

@@ -3,7 +3,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::Seek as _;
 
-use ::disk::doc::{self, Partition};
+use ::disk::plan;
 use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
 use anyhow::{Result, anyhow};
@@ -30,37 +30,10 @@ pub(crate) struct AppliedPartition {
     pub(crate) name: String,
     /// GPT partition type GUID (hyphenated UUID string).
     pub(crate) type_guid: String,
-    /// Unique GPT partition GUID (hyphenated UUID string).
-    pub(crate) partuuid: String,
     /// Placed size in bytes.
     pub(crate) size_bytes: u64,
     /// Resolved device path (e.g. `/dev/nvme0n1p1`).
     pub(crate) device: String,
-}
-
-impl AppliedPartition {
-    /// Converts the applied partition into a disk document record.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the partition carries no role (foreign
-    /// partitions kept by the platform are not disk records).
-    pub(crate) fn record(&self) -> Result<Partition> {
-        let role = self.role.ok_or_else(|| {
-            anyhow!(
-                "applied partition '{}' has no role and cannot be recorded",
-                self.name
-            )
-        })?;
-
-        Ok(Partition {
-            role,
-            name: self.name.clone(),
-            type_guid: self.type_guid.clone(),
-            size: Size::Fixed(self.size_bytes),
-            partuuid: Some(self.partuuid.clone()),
-        })
-    }
 }
 
 /// Result of applying a plan to a disk.
@@ -128,8 +101,7 @@ pub(crate) fn apply_plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
         applied.push(AppliedPartition {
             role,
             name: placement.partition.name.clone(),
-            type_guid: doc::guid(&placement.partition.type_guid),
-            partuuid: doc::guid(&placement.partition.unique_guid),
+            type_guid: plan::guid(&placement.partition.type_guid),
             size_bytes: partition_bytes(&placement.partition),
             device,
         });

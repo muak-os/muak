@@ -1,5 +1,6 @@
 //! Functional role of a partition, independent of its name or slot.
 
+use parttable::gpt::partition::LINUX_FS_GUID;
 use serde::{Deserialize, Serialize};
 
 /// Functional role of a partition, independent of its name or slot.
@@ -15,6 +16,15 @@ pub enum Role {
 }
 
 impl Role {
+    /// GPT partition type GUID for this role (wire byte order).
+    #[must_use]
+    pub const fn type_guid(self) -> [u8; 16] {
+        match self {
+            Self::Esp => crate::plan::ESP_TYPE_GUID,
+            Self::State | Self::Data => LINUX_FS_GUID,
+        }
+    }
+
     /// GPT partition name for this role.
     #[must_use]
     pub const fn gpt_name(self) -> &'static str {
@@ -46,6 +56,14 @@ mod tests {
         assert_eq!(Role::Esp.gpt_name(), "EFI");
         assert_eq!(Role::State.gpt_name(), "STATE");
         assert_eq!(Role::Data.gpt_name(), "DATA");
+    }
+
+    #[test]
+    fn type_guids_are_stable() {
+        // ARRANGE / ACT / ASSERT
+        assert_eq!(Role::Esp.type_guid(), crate::plan::ESP_TYPE_GUID);
+        assert_eq!(Role::State.type_guid(), LINUX_FS_GUID);
+        assert_eq!(Role::Data.type_guid(), LINUX_FS_GUID);
     }
 
     #[test]

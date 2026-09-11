@@ -3,7 +3,7 @@
 use ::disk::role::Role;
 use anyhow::{Result, bail};
 
-use crate::disk::{self, Doc};
+use crate::disk;
 
 /// Performs a factory reset by deleting the STATE and DATA partitions.
 pub fn factory_reset() -> Result<()> {
@@ -25,23 +25,21 @@ pub fn factory_reset() -> Result<()> {
         kmsg::warn!("Failed to close LUKS DATA mapping (may not exist): {}", e);
     }
 
-    let doc = disk::load_installed_doc()?;
-
     if disk_config.is_split() {
-        delete_role(doc.as_ref(), &system_disk, Role::State)?;
-        delete_role(doc.as_ref(), disk_config.data_disk(), Role::Data)?;
+        delete_role(&system_disk, Role::State)?;
+        delete_role(disk_config.data_disk(), Role::Data)?;
     } else {
-        delete_role(doc.as_ref(), &system_disk, Role::State)?;
-        delete_role(doc.as_ref(), &system_disk, Role::Data)?;
+        delete_role(&system_disk, Role::State)?;
+        delete_role(&system_disk, Role::Data)?;
     }
 
     kmsg::info!("Factory reset complete");
     Ok(())
 }
 
-fn delete_role(doc: Option<&Doc>, disk: &str, role: Role) -> Result<()> {
-    let name = disk::partition_name(doc, role);
-    match disk::find_partition_number(disk, &name)? {
+fn delete_role(disk: &str, role: Role) -> Result<()> {
+    let name = role.gpt_name();
+    match disk::find_partition_number(disk, name)? {
         Some(number) => disk::delete_partitions(disk, &[number])?,
         None => kmsg::info!("No '{name}' partition found on {disk}, nothing to delete"),
     }

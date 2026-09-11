@@ -3,7 +3,6 @@
 use std::fs;
 use std::path::Path;
 
-use crate::doc::Doc;
 use crate::role::Role;
 
 const SYS_CLASS_BLOCK: &str = "/sys/class/block";
@@ -17,19 +16,12 @@ pub fn find_by_partname(partname: &str) -> Vec<String> {
 
 /// Finds the device path of the partition carrying `role`.
 #[must_use]
-pub fn find_partition_device(doc: Option<&Doc>, role: Role) -> Option<String> {
-    find_partition_device_in(Path::new(SYS_CLASS_BLOCK), Path::new(DEV_DIR), doc, role)
+pub fn find_partition_device(role: Role) -> Option<String> {
+    find_partition_device_in(Path::new(SYS_CLASS_BLOCK), Path::new(DEV_DIR), role)
 }
 
-fn find_partition_device_in(
-    sysfs_dir: &Path,
-    dev_dir: &Path,
-    doc: Option<&Doc>,
-    role: Role,
-) -> Option<String> {
-    let name = crate::doc::partition_name(doc, role);
-
-    find_by_partname_in(sysfs_dir, dev_dir, &name)
+fn find_partition_device_in(sysfs_dir: &Path, dev_dir: &Path, role: Role) -> Option<String> {
+    find_by_partname_in(sysfs_dir, dev_dir, role.gpt_name())
         .into_iter()
         .next()
 }
@@ -210,38 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn find_partition_device_resolves_role_through_the_document() {
-        // ARRANGE
-        let temp = tempfile::tempdir().expect("create tempdir");
-        let sysfs = temp.path().join("sys");
-        let dev = temp.path().join("dev");
-        std::fs::create_dir_all(&sysfs).expect("create sysfs");
-        std::fs::create_dir_all(&dev).expect("create dev");
-        create_partition(&sysfs, &dev, "nvme0n1p2", "SYSTEMVOL");
-        let doc = crate::doc::Doc::new(
-            true,
-            vec![crate::doc::Partition {
-                role: Role::State,
-                name: "SYSTEMVOL".to_owned(),
-                type_guid: crate::doc::guid(&[0x0F; 16]),
-                size: crate::plan::Size::Fill,
-                partuuid: Some(crate::doc::guid(&[0xCD; 16])),
-            }],
-        );
-
-        // ACT
-        let device = find_partition_device_in(&sysfs, &dev, Some(&doc), Role::State);
-
-        // ASSERT
-        assert_eq!(
-            device,
-            Some(dev.join("nvme0n1p2").to_string_lossy().into_owned()),
-            "recorded names must resolve through the document"
-        );
-    }
-
-    #[test]
-    fn find_partition_device_falls_back_to_canonical_gpt_name() {
+    fn find_partition_device_resolves_by_role() {
         // ARRANGE
         let temp = tempfile::tempdir().expect("create tempdir");
         let sysfs = temp.path().join("sys");
@@ -251,13 +212,13 @@ mod tests {
         create_partition(&sysfs, &dev, "nvme0n1p2", "STATE");
 
         // ACT
-        let device = find_partition_device_in(&sysfs, &dev, None, Role::State);
+        let device = find_partition_device_in(&sysfs, &dev, Role::State);
 
         // ASSERT
         assert_eq!(
             device,
             Some(dev.join("nvme0n1p2").to_string_lossy().into_owned()),
-            "absent docs must fall back to the canonical GPT name"
+            "roles must resolve through their canonical GPT name"
         );
     }
 }

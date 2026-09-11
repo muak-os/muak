@@ -27,9 +27,6 @@ use crate::profile;
 use crate::secrets;
 use crate::streaming;
 
-/// Path of the disk document embedded in the boot image.
-const BOOT_DOC_PATH: &str = "/run/boot/disk.toml";
-
 /// dm-crypt mapping name for the STATE volume.
 const DM_STATE: &str = disk::Role::State.dm_name();
 
@@ -95,7 +92,6 @@ pub async fn run(
         config,
         &pki_result,
         sb_hierarchy.as_ref(),
-        &partitions.layout,
         &profile_bytes,
         &progress,
     )
@@ -292,7 +288,6 @@ struct PartitionInfo {
     efi: String,
     state: String,
     data: String,
-    layout: disk::Doc,
 }
 
 async fn partition_disks(
@@ -308,8 +303,7 @@ async fn partition_disks(
 
 fn partition_disks_blocking(disk_config: &config::DiskConfig) -> Result<PartitionInfo> {
     let shared_data = !disk_config.is_split();
-    let doc = disk::Doc::read(Path::new(BOOT_DOC_PATH))
-        .with_context(|| format!("failed to read the boot disk document {BOOT_DOC_PATH}"))?;
+    let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
 
     let system = disk::apply_plan(&disk_config.system, &system_plan)?;
@@ -322,13 +316,10 @@ fn partition_disks_blocking(disk_config: &config::DiskConfig) -> Result<Partitio
         None => system.role(disk::Role::Data)?.clone(),
     };
 
-    let layout = disk::Doc::new(true, vec![efi.record()?, state.record()?, data.record()?]);
-
     Ok(PartitionInfo {
         efi: efi.device.clone(),
         state: state.device.clone(),
         data: data.device,
-        layout,
     })
 }
 
@@ -422,7 +413,6 @@ async fn initialize_state(
     config: &SystemConfig,
     pki_result: &PkiResult,
     sb_hierarchy: Option<&Bundle>,
-    layout: &disk::Doc,
     profile_bytes: &[u8],
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
@@ -433,7 +423,6 @@ async fn initialize_state(
         &pki_result.auth_config,
         &pki_result.server_pki,
         sb_hierarchy,
-        layout,
         profile_bytes,
     )?;
 

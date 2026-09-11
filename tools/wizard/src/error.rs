@@ -21,9 +21,9 @@ pub enum WizardError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// Disk document authoring failed.
-    #[error("disk document: {0}")]
-    DiskDoc(#[from] disk::doc::DiskError),
+    /// Disk plan or layout operation failed.
+    #[error("disk: {0}")]
+    Disk(#[from] disk::error::DiskError),
 
     /// Build process failed.
     #[error("build failure: {0}")]

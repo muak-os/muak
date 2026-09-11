@@ -1,7 +1,9 @@
 //! The initramfs CPIO tail builder.
 
+use alloc::borrow::Cow;
 use std::io::Read;
 
+use disk::plan::Document;
 use ramune::Entry;
 
 use crate::artifact::Artifact;
@@ -49,7 +51,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 
 /// Exact CPIO tail size from the named layer input streams plus the metadata entries.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
-    let metadata_files = metadata_files(ctx);
+    let metadata_files = metadata_files(ctx)?;
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
     for binding in graph.node(id)?.input_bindings() {
@@ -104,8 +106,11 @@ fn run(
             reader,
         ));
     }
-    let metadata_files = metadata_files(ctx);
-    let mut file_slices: Vec<&[u8]> = metadata_files.iter().map(|file| file.bytes).collect();
+    let metadata_files = metadata_files(ctx)?;
+    let mut file_slices: Vec<&[u8]> = metadata_files
+        .iter()
+        .map(|file| file.bytes.as_ref())
+        .collect();
     let is_empty = file_slices.is_empty();
     let mut empty = std::io::empty();
     let mut readers: Vec<&mut dyn Read> = file_slices
@@ -131,25 +136,25 @@ fn run(
 
 struct MetadataFile<'data> {
     name: &'static str,
-    bytes: &'data [u8],
+    bytes: Cow<'data, [u8]>,
 }
 
-fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Vec<MetadataFile<'data>> {
+fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Result<Vec<MetadataFile<'data>>> {
     let mut files = Vec::new();
     if !ctx.profile.is_empty() {
         files.push(MetadataFile {
             name: "profile.toml",
-            bytes: ctx.profile,
-        });
-    }
-    if !ctx.disk_doc.is_empty() {
-        files.push(MetadataFile {
-            name: "disk.toml",
-            bytes: ctx.disk_doc,
+            bytes: Cow::Borrowed(ctx.profile),
         });
     }
 
-    files
+    let doc = Document::from_plan(&ctx.build.layout().plan())?;
+    files.push(MetadataFile {
+        name: "diskplan.toml",
+        bytes: Cow::Owned(doc.to_toml()?.into_bytes()),
+    });
+
+    Ok(files)
 }
 
 #[must_use]
