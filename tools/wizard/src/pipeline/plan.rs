@@ -187,11 +187,9 @@ mod tests {
     use crate::nodes::kernel;
     use crate::nodes::uki;
     use crate::pipeline::context::BuildContext;
-    use crate::request::Platform;
 
     fn build_plan() -> ResolvedBuild {
         ResolvedBuild::new(
-            Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
             Kernel::new(
@@ -212,7 +210,6 @@ mod tests {
 
     fn build_plan_with_overlay() -> ResolvedBuild {
         ResolvedBuild::new(
-            Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
             Kernel::new(

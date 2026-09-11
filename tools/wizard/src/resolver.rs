@@ -35,20 +35,10 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let extensions = match_extensions(profile, &manifest, registry)?;
     let overlay = match_overlay(profile, &manifest, registry, arch)?;
 
-    let build = ResolvedBuild::new(
-        request.platform(),
-        manifest.version().to_owned(),
-        arch,
-        kernel,
-    )
-    .with_sources(stub, installer, overlay, extensions);
-    let resolution_id = ResolutionId::compute(
-        &profile_id,
-        &release_id,
-        arch.as_str(),
-        request.platform().as_str(),
-        RESOLUTION_POLICY,
-    );
+    let build = ResolvedBuild::new(manifest.version().to_owned(), arch, kernel)
+        .with_sources(stub, installer, overlay, extensions);
+    let resolution_id =
+        ResolutionId::compute(&profile_id, &release_id, arch.as_str(), RESOLUTION_POLICY);
 
     Ok(Resolution::new(
         profile_id,
@@ -153,7 +143,6 @@ mod tests {
     use super::*;
     use crate::config;
     use crate::domain::profile::{CustomizationSpec, KernelSpec, OverlaySpec, Profile};
-    use crate::request::Platform;
 
     static CONFIGURE: Once = Once::new();
 
@@ -170,7 +159,7 @@ mod tests {
     /// Resolves via the public entry point against the single configure registry.
     fn resolve(profile: &Profile, version: &str, arch: Arch) -> Result<Resolution> {
         configure();
-        let request = Request::new(version, Platform::Metal).arch(arch);
+        let request = Request::new(version).arch(arch);
 
         plan(&request, profile)
     }
@@ -208,7 +197,6 @@ mod tests {
         assert_eq!(build.kernel().image(), "muak-os/linux");
         assert_eq!(build.version(), "latest");
         assert_eq!(build.arch(), Arch::Amd64);
-        assert_eq!(build.platform(), Platform::Metal);
     }
 
     #[test]

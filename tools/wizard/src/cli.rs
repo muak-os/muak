@@ -11,7 +11,7 @@ use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use wizard::artifact::Artifact;
 use wizard::config;
 use wizard::domain::profile::Profile;
-use wizard::request::{Platform, Request};
+use wizard::request::Request;
 use wizard::resolver;
 
 /// Runs the CLI with the given arguments.
@@ -76,9 +76,6 @@ enum Command {
 
         #[arg(long, value_parser = wizard::arch::parse)]
         arch: Arch,
-
-        #[arg(long, value_parser = parse_platform)]
-        platform: Platform,
     },
     Build(BuildArgs),
 }
@@ -101,9 +98,6 @@ struct BuildArgs {
     #[arg(long, value_parser = wizard::arch::parse)]
     arch: Arch,
 
-    #[arg(long, value_parser = parse_platform)]
-    platform: Platform,
-
     #[arg(short, long, default_value = ".")]
     output_dir: PathBuf,
 
@@ -112,15 +106,6 @@ struct BuildArgs {
 
     #[arg(long, requires = "signing_key")]
     signing_cert: Option<PathBuf>,
-}
-
-fn parse_platform(input: &str) -> Result<Platform> {
-    match input {
-        "metal" => Ok(Platform::Metal),
-        "aws" => Ok(Platform::Aws),
-        "gcp" => Ok(Platform::Gcp),
-        _ => Err(anyhow::anyhow!("unknown platform: {input}")),
-    }
 }
 
 fn parse_artifact(input: &str) -> Result<Artifact> {
@@ -144,8 +129,7 @@ fn run_command(command: Command) -> Result<()> {
             version,
             registry,
             arch,
-            platform,
-        } => run_resolve(&profile, &version, &registry, arch, platform),
+        } => run_resolve(&profile, &version, &registry, arch),
         Command::Build(args) => run_build(&args),
     }
 }
@@ -158,13 +142,7 @@ fn run_profile_id(profile_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn run_resolve(
-    profile_path: &Path,
-    version: &str,
-    registry: &str,
-    arch: Arch,
-    platform: Platform,
-) -> Result<()> {
+fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -> Result<()> {
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let profile = Profile::from_toml(&bytes)?;
@@ -172,7 +150,7 @@ fn run_resolve(
         cache_dir: None,
         registry: registry.to_owned(),
     })?;
-    let request = Request::new(version, platform).arch(arch);
+    let request = Request::new(version).arch(arch);
     let mut resolved = resolver::plan(&request, &profile)?;
     wizard::request::discover_layout(&mut resolved)?;
 
@@ -236,7 +214,7 @@ fn run_build(args: &BuildArgs) -> Result<()> {
         files.push((artifact, file));
     }
 
-    let mut request = Request::new(&args.version, args.platform).arch(args.arch);
+    let mut request = Request::new(&args.version).arch(args.arch);
     for pair in &mut files {
         let writer: &mut (dyn std::io::Write + Send) = &mut pair.1;
         request = request.artifact(pair.0, writer)?;

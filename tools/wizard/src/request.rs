@@ -5,7 +5,6 @@ use std::io::Write;
 
 use koci::arch::Arch;
 use sbolt::keys::SigningPair;
-use serde::{Deserialize, Serialize};
 
 use crate::artifact::Artifact;
 use crate::domain::overlay;
@@ -21,7 +20,6 @@ use crate::resolver;
 /// A build request expressing what to build and where to write each artifact.
 pub struct Request<'a> {
     version: String,
-    platform: Platform,
     arch: Option<Arch>,
     signing: Option<&'a SigningPair<'a>>,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
@@ -31,7 +29,6 @@ impl fmt::Debug for Request<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Request")
             .field("version", &self.version)
-            .field("platform", &self.platform)
             .field("arch", &self.arch)
             .field("signing", &self.signing.is_some())
             .field(
@@ -43,12 +40,11 @@ impl fmt::Debug for Request<'_> {
 }
 
 impl<'a> Request<'a> {
-    /// Creates a new request for the given version and platform.
+    /// Creates a new request for the given version.
     #[must_use]
-    pub fn new<V: Into<String>>(version: V, platform: Platform) -> Self {
+    pub fn new<V: Into<String>>(version: V) -> Self {
         Self {
             version: version.into(),
-            platform,
             arch: None,
             signing: None,
             targets: Vec::new(),
@@ -83,12 +79,6 @@ impl<'a> Request<'a> {
     #[must_use]
     pub fn version(&self) -> &str {
         &self.version
-    }
-
-    /// Returns the target deployment platform.
-    #[must_use]
-    pub const fn platform(&self) -> Platform {
-        self.platform
     }
 
     /// Returns the target CPU architecture (`None` when host arch should be used).
@@ -136,36 +126,6 @@ impl<'a> Request<'a> {
         let graph = plan(&ctx, &artifacts)?;
 
         execute(graph, &ctx, &mut writers)
-    }
-}
-
-/// Deployment platform; determines boot and disk behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Platform {
-    /// Bare-metal installation.
-    Metal,
-    /// Amazon Web Services.
-    Aws,
-    /// Google Cloud Platform.
-    Gcp,
-}
-
-impl Platform {
-    /// Returns the lowercase path segment for this platform.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Metal => "metal",
-            Self::Aws => "aws",
-            Self::Gcp => "gcp",
-        }
-    }
-}
-
-impl fmt::Display for Platform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -221,15 +181,6 @@ mod tests {
         assert_eq!(format!("{}", Arch::Amd64), "amd64");
         assert_eq!(format!("{}", Arch::Arm64), "arm64");
         assert_eq!(format!("{}", Arch::Riscv64), "riscv64");
-        assert_eq!(format!("{}", Platform::Metal), "metal");
-    }
-
-    #[test]
-    fn platform_display() {
-        // ARRANGE & ACT & ASSERT
-        assert_eq!(Platform::Metal.as_str(), "metal");
-        assert_eq!(format!("{}", Platform::Aws), "aws");
-        assert_eq!(format!("{}", Platform::Gcp), "gcp");
     }
 
     #[test]
@@ -239,7 +190,7 @@ mod tests {
         let mut buf2 = Vec::new();
 
         // ACT
-        let result = Request::new("v1.0.0", Platform::Metal)
+        let result = Request::new("v1.0.0")
             .artifact(Artifact::Kernel, &mut buf1)
             .expect("first kernel")
             .artifact(Artifact::Kernel, &mut buf2);
@@ -255,7 +206,7 @@ mod tests {
         let mut iso_buf = Vec::new();
 
         // ACT
-        let request = Request::new("v1.0.0", Platform::Metal)
+        let request = Request::new("v1.0.0")
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel_buf)
             .expect("kernel")
@@ -265,7 +216,6 @@ mod tests {
         // ASSERT
         assert_eq!(request.targets().count(), 2);
         assert_eq!(request.version(), "v1.0.0");
-        assert_eq!(request.platform(), Platform::Metal);
         assert_eq!(request.target_arch(), Some(Arch::Amd64));
     }
 }

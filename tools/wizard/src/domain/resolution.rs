@@ -5,12 +5,10 @@ use koci::arch::Arch;
 
 use super::overlay::Asset;
 use crate::domain::identity::{ProfileId, ReleaseManifestId, ResolutionId};
-use crate::request::Platform;
 
 /// The resolved build inputs produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedBuild {
-    platform: Platform,
     version: String,
     arch: Arch,
     extensions: Vec<Extension>,
@@ -24,9 +22,8 @@ pub struct ResolvedBuild {
 
 impl ResolvedBuild {
     #[must_use]
-    pub(crate) fn new(platform: Platform, version: String, arch: Arch, kernel: Kernel) -> Self {
+    pub(crate) fn new(version: String, arch: Arch, kernel: Kernel) -> Self {
         Self {
-            platform,
             version,
             arch,
             extensions: Vec::new(),
@@ -54,12 +51,6 @@ impl ResolvedBuild {
         self.extensions = extensions;
 
         self
-    }
-
-    /// Returns the resolved platform for the build.
-    #[must_use]
-    pub const fn platform(&self) -> Platform {
-        self.platform
     }
 
     /// Returns the release manifest version.
@@ -316,7 +307,6 @@ mod tests {
         let profile = profile();
         let manifest = manifest();
         let build = ResolvedBuild::new(
-            Platform::Metal,
             manifest.version().to_owned(),
             Arch::Amd64,
             Kernel::new(
@@ -337,7 +327,6 @@ mod tests {
                 &profile.profile_id().expect("profile id"),
                 &manifest.id().expect("release id"),
                 "amd64",
-                "metal",
                 "default",
             ),
             build,
@@ -347,7 +336,6 @@ mod tests {
         assert_eq!(resolution.profile_id().to_string().len(), 64);
         assert_eq!(resolution.release_id().to_string().len(), 64);
         assert_eq!(resolution.resolution_id().to_string().len(), 64);
-        assert_eq!(resolution.build().platform(), Platform::Metal);
         assert_eq!(
             resolution.build().installer(),
             "ghcr.io/muak-os/installer:latest"

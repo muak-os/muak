@@ -13,7 +13,7 @@ mod tests {
     use sbolt::keys::cert::generate_pk;
     use wizard::artifact::Artifact;
     use wizard::domain::profile::{CustomizationSpec, KernelSpec, OverlaySpec, Profile};
-    use wizard::request::{Platform, Request};
+    use wizard::request::Request;
 
     use crate::common::Harness;
     use crate::common::fixtures::{FixtureImage, build_image, install_image, random_bytes};
@@ -267,7 +267,7 @@ mod tests {
         let mut cmdline_out = Vec::new();
 
         // ACT
-        let report = Request::new("latest", Platform::Metal)
+        let report = Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel_out)
             .expect("kernel target")
@@ -341,7 +341,7 @@ mod tests {
         let mut initramfs = Vec::new();
 
         // ACT
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut initramfs)
             .expect("initramfs target")
@@ -376,7 +376,7 @@ mod tests {
         let mut initramfs = Vec::new();
 
         // ACT
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut initramfs)
             .expect("initramfs target")
@@ -398,7 +398,7 @@ mod tests {
         let mut iso = Vec::new();
 
         // ACT
-        let report = Request::new("latest", Platform::Metal)
+        let report = Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -425,7 +425,7 @@ mod tests {
         // ARRANGE
         let _env = env();
         let mut alone = Vec::new();
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut alone)
             .expect("initramfs target")
@@ -435,7 +435,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest", Platform::Metal)
+        let report = Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut combined)
             .expect("initramfs target")
@@ -461,7 +461,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Raw, &mut raw)
             .expect("raw target")
@@ -496,7 +496,7 @@ mod tests {
         let mut tar_out = Vec::new();
 
         // ACT
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Iso, &mut iso)
             .expect("iso target")
@@ -551,7 +551,7 @@ mod tests {
             certificate: &certificate,
         };
         let mut unsigned_uki = Vec::new();
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut unsigned_uki)
             .expect("uki target")
@@ -560,7 +560,7 @@ mod tests {
         let mut signed_uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest", Platform::Metal)
+        let report = Request::new("latest")
             .arch(Arch::Amd64)
             .sign(&pair)
             .artifact(Artifact::Uki, &mut signed_uki)
@@ -591,7 +591,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest", Platform::Metal)
+        let report = Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -615,14 +615,14 @@ mod tests {
 
         // ACT
         let mut kernel = Vec::new();
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel)
             .expect("kernel target")
             .build(&base_profile())
             .expect("first build");
         let mut kernel = Vec::new();
-        Request::new("latest", Platform::Metal)
+        Request::new("latest")
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel)
             .expect("kernel target")

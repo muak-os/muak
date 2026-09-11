@@ -65,7 +65,6 @@ impl ResolutionId {
         profile: &ProfileId,
         release: &ReleaseManifestId,
         arch: &str,
-        platform: &str,
         policy: &str,
     ) -> Self {
         let mut context = Sha256::new();
@@ -74,7 +73,6 @@ impl ResolutionId {
         context.update(profile.as_bytes());
         context.update(release.as_bytes());
         context.update(arch.as_bytes());
-        context.update(platform.as_bytes());
         context.update(policy.as_bytes());
         let mut out = [0_u8; 32];
         out.copy_from_slice(context.finalize().as_ref());
@@ -105,7 +103,7 @@ mod tests {
         let data = b"payload";
         let profile = ProfileId::new(data);
         let release = ReleaseManifestId::new(data);
-        let resolution = ResolutionId::compute(&profile, &release, "amd64", "metal", "default");
+        let resolution = ResolutionId::compute(&profile, &release, "amd64", "default");
 
         // ACT
         let profile_again = ProfileId::new(data);
@@ -133,20 +131,18 @@ mod tests {
     }
 
     #[test]
-    fn resolution_id_varies_with_arch_platform_and_policy() {
+    fn resolution_id_varies_with_arch_and_policy() {
         // ARRANGE
         let profile = ProfileId::new(b"profile");
         let release = ReleaseManifestId::new(b"release");
 
         // ACT
-        let base = ResolutionId::compute(&profile, &release, "amd64", "metal", "default");
-        let other_arch = ResolutionId::compute(&profile, &release, "arm64", "metal", "default");
-        let other_platform = ResolutionId::compute(&profile, &release, "amd64", "aws", "default");
-        let other_policy = ResolutionId::compute(&profile, &release, "amd64", "metal", "locked");
+        let base = ResolutionId::compute(&profile, &release, "amd64", "default");
+        let other_arch = ResolutionId::compute(&profile, &release, "arm64", "default");
+        let other_policy = ResolutionId::compute(&profile, &release, "amd64", "locked");
 
         // ASSERT
         assert_ne!(base, other_arch);
-        assert_ne!(base, other_platform);
         assert_ne!(base, other_policy);
     }
 }

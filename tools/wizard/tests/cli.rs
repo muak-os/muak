@@ -89,8 +89,6 @@ mod tests {
                 "localhost:5000",
                 "--arch",
                 "amd64",
-                "--platform",
-                "metal",
             ])
             .output()
             .expect("failed to run muak-wizard resolve");

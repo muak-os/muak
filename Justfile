@@ -113,7 +113,6 @@ artifacts *types:
             --version {{ tag }} \
             --registry {{ registry }} \
             --arch {{ oci_arch }} \
-            --platform metal \
             -o /out
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -284,7 +283,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
 
 # Profile a Rust binary with perf and render a CPU flamegraph
-# (e.g., just flame wizard build --artifacts iso --version latest --arch amd64 --platform metal)
+# (e.g., just flame wizard build --artifacts iso --version latest --arch amd64)
 # Output always goes to {{ out }}; any user-supplied -o/--output-dir is ignored.
 [script]
 flame pkg *args: _ensure-out

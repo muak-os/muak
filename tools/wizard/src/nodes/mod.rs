@@ -145,8 +145,6 @@ mod tests {
     use super::*;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::ResolvedBuild;
-    use crate::request::Platform;
-
     fn sizes_annotation(value: &str) -> BTreeMap<String, String> {
         BTreeMap::from([(SIZES_ANNOTATION.to_owned(), value.to_owned())])
     }
@@ -206,7 +204,6 @@ mod tests {
 
     fn build_plan() -> ResolvedBuild {
         ResolvedBuild::new(
-            Platform::Metal,
             "v1.0.0".to_owned(),
             Arch::Amd64,
             Kernel::new(
