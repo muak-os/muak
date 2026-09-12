@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result};
 use config::{CONFIG_EXTENSION, CONFIG_PATH};
 
 use super::UPDATE_DIR;
-use crate::history::{self, ChangeKind};
+use crate::journal::{self, Entry};
 
 /// Generates a unique update ID and saves a copy of the current config to `UPDATE_DIR`.
 pub fn create(staging_dir: &Path) -> Result<String> {
@@ -58,22 +58,6 @@ pub fn path(update_id: &str) -> PathBuf {
     Path::new(UPDATE_DIR).join(format!("{update_id}.{CONFIG_EXTENSION}"))
 }
 
-pub fn find(dir: &Path, update_id: &str) -> Result<PathBuf> {
-    let path = std::fs::read_dir(dir)
-        .context("Failed to read dir")?
-        .filter_map(core::result::Result::ok)
-        .map(|entry| entry.path())
-        .find(|entry_path| {
-            entry_path.extension().and_then(|ext| ext.to_str()) == Some(CONFIG_EXTENSION)
-                && entry_path
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .is_some_and(|stem| stem.ends_with(update_id))
-        });
-
-    path.with_context(|| format!("No snapshot found for update_id '{update_id}'"))
-}
-
 /// Reads `host.image` from a snapshot file.
 pub fn read_image(snapshot_path: &Path) -> Result<String> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
@@ -83,13 +67,16 @@ pub fn read_image(snapshot_path: &Path) -> Result<String> {
 }
 
 /// Restores the system config from a snapshot file, overwriting the current, and records history.
-pub fn restore(update_id: &str, snapshot_path: &Path) -> Result<()> {
+pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
     config::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
         .context("Failed to restore config from snapshot")?;
 
-    if let Err(e) = history::record(update_id, "system", ChangeKind::Rollback, &contents) {
-        eprintln!("Failed to record rollback history: {e}");
+    let failed_image = config::host().image.clone();
+    let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
+        .rolled_back(&failed_image, reason);
+    if let Err(e) = journal::append(&entry, &contents) {
+        eprintln!("Failed to append rollback journal entry: {e}");
     }
 
     Ok(())
@@ -143,47 +130,5 @@ mod tests {
         // ASSERT
         let expected = format!("{UPDATE_DIR}/{update_id}.{CONFIG_EXTENSION}");
         assert_eq!(snapshot_path, std::path::Path::new(&expected));
-    }
-
-    #[test]
-    fn find_locates_file_by_update_id_suffix() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        let update_id = "update-9999";
-        let filename = format!("{update_id}.{CONFIG_EXTENSION}");
-        std::fs::write(dir.path().join(&filename), "content").unwrap();
-
-        // ACT
-        let found = find(dir.path(), update_id).expect("find should succeed");
-
-        // ASSERT
-        assert_eq!(found, dir.path().join(&filename));
-    }
-
-    #[test]
-    fn find_returns_error_when_no_matching_file() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-
-        // ACT
-        let result = find(dir.path(), "update-does-not-exist");
-
-        // ASSERT
-        result.unwrap_err();
-    }
-
-    #[test]
-    fn find_ignores_files_with_wrong_extension() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("update-1234.json"), "{}").unwrap();
-
-        // ACT
-        let result = find(dir.path(), "update-1234");
-
-        // ASSERT
-        if CONFIG_EXTENSION != "json" {
-            result.unwrap_err();
-        }
     }
 }

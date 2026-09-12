@@ -13,7 +13,7 @@ use sbolt::keys::storage::save_hierarchy;
 
 use super::pki::Server;
 use crate::disk;
-use crate::history::{self, ChangeKind};
+use crate::journal::{self, ChangeKind, Entry};
 
 /// Mount point for the STATE partition during provisioning.
 const MOUNT_POINT: &str = "/run/mnt/state";
@@ -70,8 +70,9 @@ pub fn init(
             .context("Failed to save Secure Boot keys")?;
     }
 
-    if let Err(e) = history::record("install", "system", ChangeKind::Install, &config_bytes) {
-        eprintln!("Failed to record install history: {e}");
+    let entry = Entry::new("install", "system", ChangeKind::Install);
+    if let Err(e) = journal::append(&entry, &config_bytes) {
+        eprintln!("Failed to append install journal entry: {e}");
     }
 
     sync();

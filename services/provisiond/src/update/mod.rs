@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use config::{CONFIG_PATH, SystemConfig};
-use rollback::{ROLLBACKS_DIR, RollbackInfo};
 use rustix::fs::sync;
 use sbolt::efi::{secure_boot, setup_mode};
 use sbolt::keys::hierarchy::Bundle;
@@ -22,8 +21,8 @@ use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
-use crate::history::{self, ChangeKind};
 use crate::ipc::proto::provision::PrepareUpdateProgress;
+use crate::journal::{self, ChangeKind, Entry};
 use crate::profile;
 use crate::streaming;
 
@@ -44,14 +43,10 @@ pub enum UpdateStatus {
 
 /// Returns the current status of a given update ID.
 pub fn status(update_id: &str) -> UpdateStatus {
-    let rollback_path = Path::new(ROLLBACKS_DIR).join(format!("{update_id}.json"));
-    if rollback_path.exists() {
-        if let Ok(contents) = std::fs::read_to_string(&rollback_path)
-            && let Ok(info) = serde_json::from_str::<RollbackInfo>(&contents)
-        {
-            return UpdateStatus::RolledBack(info.reason);
-        }
-        return UpdateStatus::RolledBack("Unknown error".to_owned());
+    if let Some(entry) = journal::find(update_id)
+        && entry.kind() == &ChangeKind::Rollback
+    {
+        return UpdateStatus::RolledBack(entry.reason().unwrap_or("Unknown error").to_owned());
     }
 
     if snapshot::path(update_id).exists() {
@@ -218,7 +213,8 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     };
 
     if !has_update_marker() {
-        if let Err(e) = snapshot::restore(&update_id, &snapshot_path) {
+        if let Err(e) = snapshot::restore(&update_id, &snapshot_path, "Uncommitted update reverted")
+        {
             kmsg::warn!("Failed to revert uncommitted update {}: {:#}", update_id, e);
         }
         cleanup_stale();
@@ -261,11 +257,12 @@ pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) ->
     image.clone_into(&mut config.host.image);
 
     let updated_config = config::serialize(&config).context("Failed to serialize config")?;
+    let entry = Entry::new(update_id, author, ChangeKind::Update);
     config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
         .context("Failed to write updated config")?;
 
-    if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
-        eprintln!("Failed to record config history: {e}");
+    if let Err(e) = journal::append(&entry, &updated_config) {
+        eprintln!("Failed to append config journal entry: {e}");
     }
 
     Ok(())
@@ -284,11 +281,12 @@ pub(super) fn update_config(
     merged.disk = config.disk.clone();
 
     let updated_config = config::serialize(&merged).context("Failed to serialize config")?;
+    let entry = Entry::new(update_id, author, ChangeKind::Update);
     config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
         .context("Failed to write updated config")?;
 
-    if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
-        eprintln!("Failed to record config history: {e}");
+    if let Err(e) = journal::append(&entry, &updated_config) {
+        eprintln!("Failed to append config journal entry: {e}");
     }
 
     Ok(())

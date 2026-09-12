@@ -13,13 +13,12 @@ use super::proto::provision::{
     PrepareUpdateRequest, RollbackHistoryEntry, UpdateRequest, UpdateResponse,
 };
 use crate::disk;
-use crate::history;
 use crate::install;
+use crate::journal;
 use crate::reboot;
 use crate::reset;
 use crate::streaming;
 use crate::update;
-use crate::update::rollback;
 
 /// Creates the `ProvisionService` gRPC server.
 pub fn service() -> ProvisionServiceServer<ServiceImpl> {
@@ -257,15 +256,15 @@ impl ProvisionService for ServiceImpl {
         let limit = usize::try_from(request.into_inner().limit).unwrap_or(0);
         let effective_limit = if limit == 0 { 100 } else { limit };
 
-        match task::spawn_blocking(move || history::list(effective_limit)).await {
+        match task::spawn_blocking(move || journal::list(effective_limit)).await {
             Ok(Ok(entries)) => {
                 let proto_entries = entries
                     .into_iter()
                     .map(|e| ConfigHistoryEntry {
-                        timestamp: e.timestamp,
-                        update_id: e.update_id,
-                        author: e.author,
-                        change_kind: e.change_kind.to_string(),
+                        timestamp: e.timestamp(),
+                        update_id: e.update_id().to_owned(),
+                        author: e.author().to_owned(),
+                        change_kind: e.kind().to_string(),
                     })
                     .collect();
                 Ok(Response::new(GetConfigHistoryResponse {
@@ -290,7 +289,7 @@ impl ProvisionService for ServiceImpl {
     ) -> Result<Response<GetConfigSnapshotResponse>, Status> {
         let update_id = request.into_inner().update_id;
 
-        match task::spawn_blocking(move || history::config(&update_id)).await {
+        match task::spawn_blocking(move || journal::snapshot(&update_id)).await {
             Ok(Ok(config)) => Ok(Response::new(GetConfigSnapshotResponse {
                 config: config.into_bytes(),
                 error: String::new(),
@@ -313,15 +312,16 @@ impl ProvisionService for ServiceImpl {
         let limit = usize::try_from(request.into_inner().limit).unwrap_or(0);
         let effective_limit = if limit == 0 { 100 } else { limit };
 
-        match task::spawn_blocking(move || rollback::list(effective_limit)).await {
-            Ok(entries) => {
+        match task::spawn_blocking(move || journal::list(effective_limit)).await {
+            Ok(Ok(entries)) => {
                 let proto_entries: Vec<RollbackHistoryEntry> = entries
                     .into_iter()
+                    .filter(|entry| entry.kind() == &journal::ChangeKind::Rollback)
                     .map(|e| RollbackHistoryEntry {
-                        update_id: e.update_id,
-                        failed_image: e.failed_image,
-                        reason: e.reason,
-                        rolled_back_at: e.rolled_back_at,
+                        update_id: e.update_id().to_owned(),
+                        failed_image: e.failed_image().unwrap_or_default().to_owned(),
+                        reason: e.reason().unwrap_or_default().to_owned(),
+                        rolled_back_at: e.timestamp(),
                     })
                     .collect();
                 Ok(Response::new(GetRollbackHistoryResponse {
@@ -329,6 +329,10 @@ impl ProvisionService for ServiceImpl {
                     error: String::new(),
                 }))
             }
+            Ok(Err(e)) => Ok(Response::new(GetRollbackHistoryResponse {
+                entries: Vec::new(),
+                error: format!("{e:#}"),
+            })),
             Err(e) => Ok(Response::new(GetRollbackHistoryResponse {
                 entries: Vec::new(),
                 error: format!("Task panicked: {e}"),

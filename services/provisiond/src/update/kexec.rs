@@ -29,25 +29,25 @@ pub fn run(update_id: &str) -> Result<()> {
     let initrd_path = update_dir.join("assets").join("initramfs");
 
     if let Err(error) = load(&kernel_path, &initrd_path, update_id) {
-        revert_config(update_id, &error.to_string());
+        let reason = format!("kexec load failed: {error}");
+        revert_config(update_id, &snapshot::path(update_id), &reason);
+
         return Err(error).context("Failed to load new kernel with kexec");
     }
 
     kmsg::info!("kexec booting into update {update_id}");
     if let Err(error) = reboot(RebootCommand::Kexec) {
-        revert_config(update_id, &error.to_string());
+        let reason = format!("kexec reboot failed: {error}");
+        revert_config(update_id, &snapshot::path(update_id), &reason);
         return Err(anyhow!("Failed to execute new kernel: {error}"));
     }
 
     Err(anyhow!("Kexec reboot returned unexpectedly"))
 }
 
-fn revert_config(update_id: &str, reason: &str) {
-    match snapshot::restore(update_id, &snapshot::path(update_id)) {
-        Ok(()) => kmsg::warn!("Reverted config after kexec failure: {reason}"),
-        Err(revert_error) => {
-            kmsg::error!("Failed to revert config after kexec failure: {revert_error:#}");
-        }
+fn revert_config(update_id: &str, snapshot_path: &Path, reason: &str) {
+    if let Err(revert_error) = snapshot::restore(update_id, snapshot_path, reason) {
+        kmsg::error!("Failed to revert config after kexec failure: {revert_error:#}");
     }
 }
 

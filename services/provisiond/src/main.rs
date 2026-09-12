@@ -2,9 +2,9 @@
 
 mod disk;
 mod efi;
-mod history;
 mod install;
 mod ipc;
+mod journal;
 mod profile;
 mod reboot;
 mod reset;
