@@ -150,7 +150,7 @@ fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Result<Vec<MetadataFi
 
     let doc = Document::from_plan(&ctx.build.layout().plan())?;
     files.push(MetadataFile {
-        name: "diskplan.toml",
+        name: "disk.toml",
         bytes: Cow::Owned(doc.to_toml()?.into_bytes()),
     });
 

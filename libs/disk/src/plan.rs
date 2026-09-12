@@ -16,8 +16,8 @@ pub const EFI_SIZE: u64 = 512 * 1024 * 1024;
 /// Frozen size of the STATE partition.
 pub const STATE_SIZE: u64 = 1024 * 1024 * 1024;
 
-/// Schema version of the plan document.
-pub const API_VERSION: &str = "muak.dev/diskplan/v1-beta";
+/// Schema version of the disk document.
+pub const API_VERSION: &str = "muak.dev/disk/v1-beta";
 
 /// Size of a planned partition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,7 +88,7 @@ pub struct Partition {
     pub size: Size,
 }
 
-/// The serialized plan document (`diskplan.toml`) authored at build time and
+/// The serialized disk document (`disk.toml`) authored at build time and
 /// applied by the installer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
@@ -305,7 +305,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            serialized.contains("api_version = \"muak.dev/diskplan/v1-beta\""),
+            serialized.contains("api_version = \"muak.dev/disk/v1-beta\""),
             "serialized document must carry the api version: {serialized}"
         );
     }
@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn from_toml_rejects_unknown_api_version() {
         // ARRANGE
-        let bytes = "api_version = \"muak.dev/diskplan/v999\"\nwipe = true\n[[partitions]]\nrole = \"esp\"\nname = \"EFI\"\ntype_guid = \"00000000-0000-0000-0000-000000000000\"\nsize = \"fill\"\n";
+        let bytes = "api_version = \"muak.dev/disk/v999\"\nwipe = true\n[[partitions]]\nrole = \"esp\"\nname = \"EFI\"\ntype_guid = \"00000000-0000-0000-0000-000000000000\"\nsize = \"fill\"\n";
 
         // ACT
         let result = Document::from_toml(bytes);
@@ -374,7 +374,7 @@ mod tests {
     fn write_and_read_round_trip_through_the_filesystem() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("diskplan.toml");
+        let path = dir.path().join("disk.toml");
         let doc = sample();
 
         // ACT

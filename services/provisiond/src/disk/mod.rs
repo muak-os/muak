@@ -25,11 +25,11 @@ pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
 pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
 pub(crate) use validate::install_target;
 
-/// Path of the disk plan on a booted, installed system.
-pub(crate) const PLAN_BOOT_PATH: &str = "/run/boot/diskplan.toml";
+/// Path of the disk document on a booted, installed system.
+pub(crate) const PLAN_BOOT_PATH: &str = "/run/boot/disk.toml";
 
-/// Loads the disk plan carried by the booted image.
+/// Loads the disk document carried by the booted image.
 pub(crate) fn load_document() -> Result<Document> {
     Document::read(Path::new(PLAN_BOOT_PATH))
-        .with_context(|| format!("failed to read the boot disk plan {PLAN_BOOT_PATH}"))
+        .with_context(|| format!("failed to read the boot disk document {PLAN_BOOT_PATH}"))
 }

@@ -333,7 +333,7 @@ mod tests {
                 len: profile_len,
             },
             ramune::Entry {
-                path: "metadata/diskplan.toml".to_owned(),
+                path: "metadata/disk.toml".to_owned(),
                 mode: 0o100_644,
                 len: disk_len,
             },
@@ -367,7 +367,7 @@ mod tests {
         );
         assert!(contains(&initramfs, b"modules.erofs"));
         assert!(contains(&initramfs, b"metadata/profile.toml"));
-        assert!(contains(&initramfs, b"metadata/diskplan.toml"));
+        assert!(contains(&initramfs, b"metadata/disk.toml"));
     }
 
     #[test]
