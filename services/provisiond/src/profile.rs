@@ -2,47 +2,29 @@
 
 use std::path::Path;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use wizard::domain::profile::Profile;
 
-/// Booted profile locations in precedence order.
-const PROFILE_SOURCES: [&str; 2] = ["/run/state/profile.toml", "/run/boot/profile.toml"];
+/// Path of the profile bridged from the boot image's initramfs metadata.
+const PROFILE_PATH: &str = "/run/boot/profile.toml";
 
 /// Loads the booted profile.
 ///
 /// # Errors
 ///
-/// Returns an error when no source carries a profile or parsing fails.
+/// Returns an error when the boot image carries no profile or parsing fails.
 pub(crate) fn load() -> Result<Profile> {
-    load_with_bytes().map(|(profile, _)| profile)
+    load_from(Path::new(PROFILE_PATH))
 }
 
-/// Loads the booted profile together with the exact TOML bytes backing it.
-///
-/// # Errors
-///
-/// Returns an error when no source carries a profile or parsing fails.
-pub(crate) fn load_with_bytes() -> Result<(Profile, Vec<u8>)> {
-    let paths: Vec<&Path> = PROFILE_SOURCES.iter().map(Path::new).collect();
+fn load_from(path: &Path) -> Result<Profile> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("failed to read the booted profile {}", path.display()))?;
+    let profile = Profile::from_toml(&bytes)
+        .with_context(|| format!("invalid booted profile {}", path.display()))?;
+    kmsg::info!("Loaded booted profile from {}", path.display());
 
-    load_with_bytes_from(&paths)
-}
-
-fn load_with_bytes_from(paths: &[&Path]) -> Result<(Profile, Vec<u8>)> {
-    for path in paths {
-        if let Ok(bytes) = std::fs::read(path) {
-            let profile = Profile::from_toml(&bytes)
-                .with_context(|| format!("invalid booted profile {}", path.display()))?;
-            kmsg::info!("Loaded booted profile from {}", path.display());
-
-            return Ok((profile, bytes));
-        }
-    }
-
-    bail!(
-        "no booted profile found. The boot image must embed \
-         a profile.toml or the system must have one recorded on STATE"
-    )
+    Ok(profile)
 }
 
 #[cfg(test)]
@@ -72,70 +54,51 @@ mod tests {
         let kernel = KernelSpec::new("muak-os/linux".to_owned()).expect("kernel");
 
         // ACT
-        let profile = Profile::new(None, customization, kernel);
-        let id = profile.profile_id().expect("id");
+        let doc = Profile::new(None, customization, kernel);
+        let id = doc.profile_id().expect("id");
 
         // ASSERT
         assert_eq!(id.to_string().len(), 64);
     }
 
     #[test]
-    fn first_existing_source_wins() {
+    fn loads_profile_from_the_boot_image_path() {
         // ARRANGE
         let dir = tempdir().expect("tempdir");
-        let first = dir.path().join("first.toml");
-        let second = dir.path().join("second.toml");
-        std::fs::write(&first, VALID).expect("write first");
-        std::fs::write(&second, VALID).expect("write second");
+        let path = dir.path().join("profile.toml");
+        std::fs::write(&path, VALID).expect("write profile");
 
         // ACT
-        let (profile, bytes) = load_with_bytes_from(&[&first, &second]).expect("load");
+        let profile = load_from(&path).expect("load");
 
         // ASSERT
-        assert_eq!(bytes, VALID);
         assert_eq!(profile.kernel().source(), "muak-os/linux");
     }
 
     #[test]
-    fn later_source_used_when_earlier_missing() {
+    fn missing_profile_is_a_hard_error() {
         // ARRANGE
         let dir = tempdir().expect("tempdir");
-        let missing = dir.path().join("missing.toml");
-        let second = dir.path().join("second.toml");
-        std::fs::write(&second, VALID).expect("write second");
+        let missing = dir.path().join("profile.toml");
 
         // ACT
-        let (profile, bytes) = load_with_bytes_from(&[&missing, &second]).expect("load");
+        let result = load_from(&missing);
 
         // ASSERT
-        assert_eq!(bytes, VALID);
-        assert_eq!(profile.kernel().source(), "muak-os/linux");
-    }
-
-    #[test]
-    fn missing_everywhere_is_a_hard_error() {
-        // ARRANGE
-        let dir = tempdir().expect("tempdir");
-        let missing = dir.path().join("missing.toml");
-
-        // ACT
-        let result = load_with_bytes_from(&[&missing]);
-
-        // ASSERT
-        let error = result.expect_err("missing profile must be a hard error");
+        let error = result.expect_err("missing profile must be an error");
         let message = error.to_string();
-        assert!(message.contains("no booted profile found"), "{message}");
+        assert!(message.contains("booted profile"), "{message}");
     }
 
     #[test]
     fn invalid_profile_content_is_an_error() {
         // ARRANGE
         let dir = tempdir().expect("tempdir");
-        let broken = dir.path().join("broken.toml");
+        let broken = dir.path().join("profile.toml");
         std::fs::write(&broken, b"not a profile").expect("write broken");
 
         // ACT
-        let result = load_with_bytes_from(&[&broken]);
+        let result = load_from(&broken);
 
         // ASSERT
         assert!(result.is_err(), "invalid profile content must be an error");

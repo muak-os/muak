@@ -49,8 +49,7 @@ pub async fn run(
     .await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
-    let (booted_profile, profile_bytes) =
-        profile::load_with_bytes().context("failed to load booted profile")?;
+    let booted_profile = profile::load().context("failed to load booted profile")?;
 
     let tpm_available = tpm2::device::is_available(None);
 
@@ -92,7 +91,6 @@ pub async fn run(
         config,
         &pki_result,
         sb_hierarchy.as_ref(),
-        &profile_bytes,
         &progress,
     )
     .await?;
@@ -412,7 +410,6 @@ async fn initialize_state(
     config: &SystemConfig,
     pki_result: &PkiResult,
     sb_hierarchy: Option<&Bundle>,
-    profile_bytes: &[u8],
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Initializing STATE partition").await;
@@ -422,7 +419,6 @@ async fn initialize_state(
         &pki_result.auth_config,
         &pki_result.server_pki,
         sb_hierarchy,
-        profile_bytes,
     )?;
 
     Ok(())

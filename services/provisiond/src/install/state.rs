@@ -25,7 +25,6 @@ pub fn init(
     auth_config: &AuthConfig,
     server_pki: &Server,
     sb_hierarchy: Option<&hierarchy::Bundle>,
-    profile_bytes: &[u8],
 ) -> Result<()> {
     std::fs::create_dir_all(MOUNT_POINT)
         .with_context(|| format!("Failed to create mount point {MOUNT_POINT}"))?;
@@ -44,9 +43,6 @@ pub fn init(
         config::serialize_auth(auth_config).context("Failed to serialize auth config")?;
     std::fs::write(format!("{MOUNT_POINT}/auth.{AUTH_EXTENSION}"), auth_bytes)
         .context("Failed to write auth config")?;
-
-    std::fs::write(format!("{MOUNT_POINT}/profile.toml"), profile_bytes)
-        .context("Failed to write booted profile")?;
 
     let secrets_dir = format!("{MOUNT_POINT}/secrets");
     std::fs::create_dir_all(&secrets_dir).context("Failed to create secrets directory")?;
