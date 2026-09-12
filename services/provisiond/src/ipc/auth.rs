@@ -188,7 +188,6 @@ impl AuthService for ServiceImpl {
         };
 
         add_user_to_auth(&cert_fingerprint, parsed_permissions)
-            .await
             .map_err(|e| Status::internal(format!("Failed to update auth config: {e}")))?;
 
         let _removed = fs::remove_file(&pending_path).await;
@@ -209,7 +208,6 @@ impl AuthService for ServiceImpl {
         let fingerprint = request.into_inner().fingerprint;
 
         revoke_user(&fingerprint)
-            .await
             .map_err(|e| Status::internal(format!("Failed to revoke certificate: {e}")))?;
 
         println!(
@@ -355,7 +353,7 @@ fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
 }
 
 /// Adds a user to the auth config and writes it to disk.
-async fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> Result<()> {
+fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> Result<()> {
     let mut auth = config::try_auth()
         .map(|auth| (*auth).clone())
         .unwrap_or_default();
@@ -366,13 +364,13 @@ async fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission
     });
 
     let auth_str = config::serialize_auth(&auth)?;
-    fs::write(config::AUTH_PATH, auth_str).await?;
+    config::write_atomic(Path::new(config::AUTH_PATH), auth_str.as_bytes())?;
 
     Ok(())
 }
 
 /// Revokes a user by adding their fingerprint to the revoked list.
-async fn revoke_user(fingerprint: &str) -> Result<()> {
+fn revoke_user(fingerprint: &str) -> Result<()> {
     let mut auth = config::try_auth()
         .map(|auth| config::AuthConfig::clone(&auth))
         .unwrap_or_default();
@@ -384,7 +382,7 @@ async fn revoke_user(fingerprint: &str) -> Result<()> {
     }
 
     let auth_str = config::serialize_auth(&auth)?;
-    fs::write(config::AUTH_PATH, auth_str).await?;
+    config::write_atomic(Path::new(config::AUTH_PATH), auth_str.as_bytes())?;
 
     Ok(())
 }

@@ -218,6 +218,9 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     };
 
     if !has_update_marker() {
+        if let Err(e) = snapshot::restore(&update_id, &snapshot_path) {
+            kmsg::warn!("Failed to revert uncommitted update {}: {:#}", update_id, e);
+        }
         cleanup_stale();
         return Ok(());
     }
@@ -258,7 +261,8 @@ pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) ->
     image.clone_into(&mut config.host.image);
 
     let updated_config = config::serialize(&config).context("Failed to serialize config")?;
-    std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
+    config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
+        .context("Failed to write updated config")?;
 
     if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
         eprintln!("Failed to record config history: {e}");
@@ -280,7 +284,8 @@ pub(super) fn update_config(
     merged.disk = config.disk.clone();
 
     let updated_config = config::serialize(&merged).context("Failed to serialize config")?;
-    std::fs::write(CONFIG_PATH, &updated_config).context("Failed to write updated config")?;
+    config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
+        .context("Failed to write updated config")?;
 
     if let Err(e) = history::record(update_id, author, ChangeKind::Update, &updated_config) {
         eprintln!("Failed to record config history: {e}");

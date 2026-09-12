@@ -11,7 +11,7 @@ use anyhow::{Context as _, Result, anyhow};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
-use super::UPDATE_DIR;
+use super::{UPDATE_DIR, snapshot};
 
 #[cfg(target_arch = "x86_64")]
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 320;
@@ -28,11 +28,27 @@ pub fn run(update_id: &str) -> Result<()> {
     let kernel_path = update_dir.join("assets").join("kernel");
     let initrd_path = update_dir.join("assets").join("initramfs");
 
-    load(&kernel_path, &initrd_path, update_id).context("Failed to load new kernel with kexec")?;
-    kmsg::info!("kexec booting into update {}", update_id);
-    reboot(RebootCommand::Kexec).map_err(|e| anyhow!("Failed to execute new kernel: {e}"))?;
+    if let Err(error) = load(&kernel_path, &initrd_path, update_id) {
+        revert_config(update_id, &error.to_string());
+        return Err(error).context("Failed to load new kernel with kexec");
+    }
+
+    kmsg::info!("kexec booting into update {update_id}");
+    if let Err(error) = reboot(RebootCommand::Kexec) {
+        revert_config(update_id, &error.to_string());
+        return Err(anyhow!("Failed to execute new kernel: {error}"));
+    }
 
     Err(anyhow!("Kexec reboot returned unexpectedly"))
+}
+
+fn revert_config(update_id: &str, reason: &str) {
+    match snapshot::restore(update_id, &snapshot::path(update_id)) {
+        Ok(()) => kmsg::warn!("Reverted config after kexec failure: {reason}"),
+        Err(revert_error) => {
+            kmsg::error!("Failed to revert config after kexec failure: {revert_error:#}");
+        }
+    }
 }
 
 fn load(kernel_path: &Path, initrd_path: &Path, update_id: &str) -> Result<()> {

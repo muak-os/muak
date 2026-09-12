@@ -33,9 +33,9 @@ pub fn init(
         .context("Failed to mount STATE partition")?;
 
     let config_bytes = config::serialize(config).context("Failed to serialize config")?;
-    std::fs::write(
-        format!("{MOUNT_POINT}/config.{CONFIG_EXTENSION}"),
-        &config_bytes,
+    config::write_atomic(
+        Path::new(&format!("{MOUNT_POINT}/config.{CONFIG_EXTENSION}")),
+        config_bytes.as_bytes(),
     )
     .context("Failed to write config")?;
 

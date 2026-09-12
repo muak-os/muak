@@ -85,7 +85,8 @@ pub fn read_image(snapshot_path: &Path) -> Result<String> {
 /// Restores the system config from a snapshot file, overwriting the current, and records history.
 pub fn restore(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    fs::write(CONFIG_PATH, &contents).context("Failed to restore config from snapshot")?;
+    config::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
+        .context("Failed to restore config from snapshot")?;
 
     if let Err(e) = history::record(update_id, "system", ChangeKind::Rollback, &contents) {
         eprintln!("Failed to record rollback history: {e}");
