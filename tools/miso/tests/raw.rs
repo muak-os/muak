@@ -8,7 +8,6 @@ mod tests {
     use esp::FileMeta;
     use esp::arch::Arch;
     use esp::layout::compute;
-    use miso::error::MisoError;
     use miso::raw;
     use parttable::gpt::io;
     use parttable::gpt::layout::ALIGN_1_MIB_SECTORS;
@@ -35,8 +34,7 @@ mod tests {
         let layout = compute(files).expect("compute layout");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        raw::build(&layout, &mut readers, &mut [], &mut out, None)
-            .expect("raw::build must succeed");
+        raw::build(&layout, &mut readers, &mut [], &mut out).expect("raw::build must succeed");
 
         out.into_inner()
     }
@@ -115,30 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn compressed_raw_round_trips_to_valid_gpt() {
-        // ARRANGE
-        let uki_data = fake_uki(1024);
-        let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
-        let mut cursor = Cursor::new(uki_data);
-
-        let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
-        let layout = compute(files).expect("compute layout");
-
-        // ACT
-        let mut out = Cursor::new(Vec::new());
-        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        raw::build(&layout, &mut readers, &mut [], &mut out, Some(3))
-            .expect("compressed raw::build must succeed");
-        let compressed = out.into_inner();
-        let raw = zstd::decode_all(&*compressed).expect("decode compressed raw");
-
-        // ASSERT
-        let mut cursor = Cursor::new(raw);
-        let gpt = io::read(&mut cursor).expect("valid GPT");
-        assert!(gpt.has_used_partitions());
-    }
-
-    #[test]
     fn large_esp_content_grows_the_disk_image() {
         // ARRANGE
         let uki_data = fake_uki(1024);
@@ -158,8 +132,7 @@ mod tests {
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        raw::build(&layout, &mut readers, &mut [], &mut out, None)
-            .expect("raw::build must succeed");
+        raw::build(&layout, &mut readers, &mut [], &mut out).expect("raw::build must succeed");
         let img = out.into_inner();
 
         // ASSERT
@@ -180,27 +153,5 @@ mod tests {
             img.len() > one_mib * 2,
             "large ESP content must force the raw disk beyond the 2 MiB minimum"
         );
-    }
-
-    #[test]
-    fn rejects_invalid_compression_level() {
-        // ARRANGE
-        let uki_data = fake_uki(1024);
-        let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
-        let mut cursor = Cursor::new(uki_data);
-
-        let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
-        let layout = compute(files).expect("compute layout");
-        let mut out = Cursor::new(Vec::new());
-        let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-
-        // ACT
-        let result = raw::build(&layout, &mut readers, &mut [], &mut out, Some(i32::MAX));
-
-        // ASSERT
-        assert!(matches!(
-            result,
-            Err(MisoError::InvalidCompressionLevel { .. })
-        ));
     }
 }

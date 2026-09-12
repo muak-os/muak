@@ -30,25 +30,6 @@ pub enum MisoError {
     /// Errors from GPT partition table operations.
     #[error("GPT error: {0}")]
     Gpt(String),
-
-    /// Errors during zstd compression encoder initialization.
-    #[error("Failed to initialize zstd encoder: {0}")]
-    ZstdInit(#[source] std::io::Error),
-
-    /// Errors when finalizing zstd compressed data.
-    #[error("Failed to finish zstd compression: {0}")]
-    Compression(#[source] std::io::Error),
-
-    /// Invalid compression level provided to zstd encoder.
-    #[error("Invalid compression level {level}; expected 0 or a value in [{min}, {max}]")]
-    InvalidCompressionLevel {
-        /// The invalid compression level that was provided.
-        level: i32,
-        /// Minimum allowed compression level.
-        min: i32,
-        /// Maximum allowed compression level.
-        max: i32,
-    },
 }
 
 impl From<ParttableError> for MisoError {

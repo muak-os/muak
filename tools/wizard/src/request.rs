@@ -7,6 +7,7 @@ use koci::arch::Arch;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
+use crate::codec::Codec;
 use crate::domain::overlay;
 use crate::domain::profile::Profile;
 use crate::domain::resolution::Resolution;
@@ -21,6 +22,7 @@ use crate::resolver;
 pub struct Request<'a> {
     version: String,
     arch: Option<Arch>,
+    codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
@@ -46,6 +48,7 @@ impl<'a> Request<'a> {
         Self {
             version: version.into(),
             arch: None,
+            codec: None,
             signing: None,
             targets: Vec::new(),
         }
@@ -59,6 +62,17 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Sets the transport codec for compressible artifacts.
+    ///
+    /// When unset, [`Codec::default`] (zstd) applies. An explicitly requested
+    /// compressing codec must apply to at least one requested artifact.
+    #[must_use]
+    pub fn codec(mut self, codec: Codec) -> Self {
+        self.codec = Some(codec);
+
+        self
+    }
+
     /// Sets the output writer for an artifact kind.
     ///
     /// # Errors
@@ -66,7 +80,7 @@ impl<'a> Request<'a> {
     /// Returns an error when a target for the same artifact kind was already set.
     pub fn artifact(mut self, kind: Artifact, writer: &'a mut (dyn Write + Send)) -> Result<Self> {
         if self.targets.iter().any(|item| item.0 == kind) {
-            return Err(WizardError::BuildError(format!(
+            return Err(WizardError::RequestValidation(format!(
                 "duplicate artifact target: {kind}"
             )));
         }
@@ -100,6 +114,26 @@ impl<'a> Request<'a> {
         self.targets.iter().map(|item| &item.0)
     }
 
+    /// Rejects explicit compressing codecs that apply to no requested artifact.
+    fn validate_codec(&self) -> Result<()> {
+        let Some(codec) = self.codec.filter(Codec::compresses) else {
+            return Ok(());
+        };
+
+        if self
+            .targets
+            .iter()
+            .any(|&(artifact, _)| artifact.supports_codec())
+        {
+            return Ok(());
+        }
+
+        Err(WizardError::RequestValidation(format!(
+            "codec {} applies to none of the requested artifacts",
+            codec.extension()
+        )))
+    }
+
     /// Resolves and builds all requested artifacts.
     ///
     /// # Errors
@@ -107,10 +141,12 @@ impl<'a> Request<'a> {
     /// Returns an error when resolution, pulling, building, or signing fails.
     pub fn build(self, profile: &Profile) -> Result<crate::Metadata> {
         if self.targets.is_empty() {
-            return Err(WizardError::BuildError(
+            return Err(WizardError::RequestValidation(
                 "at least one artifact must be requested".to_owned(),
             ));
         }
+
+        self.validate_codec()?;
 
         let mut resolution = resolver::plan(&self, profile)?;
         discover_assets(&mut resolution)?;
@@ -121,6 +157,7 @@ impl<'a> Request<'a> {
             build: resolution.build(),
             profile: &profile_bytes,
             signing: self.signing,
+            codec: self.codec.unwrap_or_default(),
         };
         let mut writers = TargetWriters::new(self.targets);
         let graph = plan(&ctx, &artifacts)?;
@@ -217,5 +254,52 @@ mod tests {
         assert_eq!(request.targets().count(), 2);
         assert_eq!(request.version(), "v1.0.0");
         assert_eq!(request.target_arch(), Some(Arch::Amd64));
+    }
+
+    #[test]
+    fn explicit_codec_without_compressible_artifact_is_rejected() {
+        // ARRANGE
+        let mut iso = Vec::new();
+        let request = Request::new("v1.0.0")
+            .codec(Codec::Gzip)
+            .artifact(Artifact::Iso, &mut iso)
+            .expect("iso target");
+
+        // ACT
+        let error = request.validate_codec().expect_err("must reject");
+
+        // ASSERT
+        assert!(error.to_string().contains("codec gz applies to none"));
+    }
+
+    #[test]
+    fn explicit_codec_with_raw_artifact_is_accepted() {
+        // ARRANGE
+        let mut raw = Vec::new();
+        let request = Request::new("v1.0.0")
+            .codec(Codec::Gzip)
+            .artifact(Artifact::Raw, &mut raw)
+            .expect("raw target");
+
+        // ACT & ASSERT
+        request.validate_codec().expect("raw accepts codecs");
+    }
+
+    #[test]
+    fn identity_codec_and_default_never_error() {
+        // ARRANGE
+        let mut iso_none = Vec::new();
+        let mut iso_default = Vec::new();
+        let none = Request::new("v1.0.0")
+            .codec(Codec::None)
+            .artifact(Artifact::Iso, &mut iso_none)
+            .expect("iso target");
+        let unset = Request::new("v1.0.0")
+            .artifact(Artifact::Iso, &mut iso_default)
+            .expect("iso target");
+
+        // ACT & ASSERT
+        none.validate_codec().expect("none is the identity");
+        unset.validate_codec().expect("unset uses the default");
     }
 }

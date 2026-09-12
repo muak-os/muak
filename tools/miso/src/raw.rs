@@ -19,9 +19,6 @@ pub const IMAGE_DISK_GUID: [u8; 16] = [0xff; 16];
 /// Fixed partition GUID baked into raw images so builds are reproducible.
 pub const IMAGE_PARTITION_GUID: [u8; 16] = [0xaa; 16];
 
-/// The default zstd compression level used when compression is requested.
-pub const DEFAULT_ZSTD_LEVEL: i32 = 6;
-
 /// A raw boot blob written at a fixed byte offset before the partition table.
 pub struct Blob<'a> {
     /// Byte offset on the boot device where the blob is written.
@@ -32,44 +29,27 @@ pub struct Blob<'a> {
     pub reader: &'a mut dyn Read,
 }
 
-/// Builds a raw GPT disk image containing the ESP into any `Write` sink.
-///
-/// The first partition starts at the smallest 1 MiB-aligned offset past the
-/// last blob (at least 1 MiB), so blobs never overlap the GPT or the ESP.
+/// Builds an uncompressed raw GPT disk image containing the ESP into any `Write` sink.
 ///
 /// # Errors
 ///
 /// Returns an error if blob placement overlaps the GPT or another blob, ESP
-/// construction fails, compression level validation fails, raw image creation
-/// fails, or output writing/compression fails.
+/// construction fails, raw image creation fails, or output writing fails.
 pub fn build<'data, 'ctx, W: Write>(
     layout: &'ctx Layout<'data>,
     esp: &mut [&'data mut (dyn Read + 'data)],
     blobs: &mut [Blob<'data>],
     out: &mut W,
-    compression_level: Option<i32>,
 ) -> Result<()> {
     let partition_start = partition_start(blobs);
     validate_blobs(blobs, partition_start)?;
     let esp_size = layout.total_size;
 
-    if let Some(level) = compression_level {
-        let level = validate_compression_level(level)?;
-        let mut encoder = zstd::Encoder::new(out, level).map_err(MisoError::ZstdInit)?;
-        write(&mut encoder, esp_size, partition_start, blobs, |w| {
-            image::build(layout, esp, w).map_err(MisoError::Esp)
-        })?;
-        encoder.finish().map_err(MisoError::Compression)?;
-    } else {
-        write(out, esp_size, partition_start, blobs, |w| {
-            image::build(layout, esp, w).map_err(MisoError::Esp)
-        })?;
-    }
-
-    Ok(())
+    write(out, esp_size, partition_start, blobs, |w| {
+        image::build(layout, esp, w).map_err(MisoError::Esp)
+    })
 }
 
-/// Returns the smallest 1 MiB-aligned partition start that sits past every blob.
 fn partition_start(blobs: &[Blob]) -> u64 {
     let end = blobs
         .iter()
@@ -176,20 +156,6 @@ fn write_zeros<W: Write>(writer: &mut W, count: u64) -> Result<()> {
     Ok(())
 }
 
-fn validate_compression_level(level: i32) -> Result<i32> {
-    let range = zstd::compression_level_range();
-
-    if level == 0 || range.contains(&level) {
-        Ok(level)
-    } else {
-        Err(MisoError::InvalidCompressionLevel {
-            level,
-            min: *range.start(),
-            max: *range.end(),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -260,7 +226,7 @@ mod tests {
         };
 
         // ACT
-        build(&layout, &mut readers, &mut [raw_blob], &mut out, None)
+        build(&layout, &mut readers, &mut [raw_blob], &mut out)
             .expect("raw::build must succeed with a blob");
         let img = out.into_inner();
 
@@ -303,7 +269,7 @@ mod tests {
         };
 
         // ACT
-        let result = build(&layout, &mut readers, &mut [raw_blob], &mut out, None);
+        let result = build(&layout, &mut readers, &mut [raw_blob], &mut out);
 
         // ASSERT
         assert!(matches!(result, Err(MisoError::Gpt(_))));

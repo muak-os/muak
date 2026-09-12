@@ -1297,7 +1297,6 @@ dependencies = [
  "esp",
  "parttable",
  "thiserror 2.0.20",
- "zstd",
 ]
 
 [[package]]

@@ -13,6 +13,10 @@ pub enum WizardError {
     #[error("profile validation: {0}")]
     ProfileValidation(String),
 
+    /// Request parameter validation failed.
+    #[error("request validation: {0}")]
+    RequestValidation(String),
+
     /// OCI source resolution failed.
     #[error("source resolution: {0}")]
     SourceResolution(String),

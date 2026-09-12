@@ -16,7 +16,9 @@ required-features = ["cli"]
 
 [dependencies]
 # Compression
+flate2 = { workspace = true }
 tar = { workspace = true }
+zstd = { workspace = true }
 
 # Cryptography
 sha2 = { workspace = true }
@@ -49,11 +51,9 @@ cli = ["anyhow", "clap"]
 
 [dev-dependencies]
 disk = { workspace = true }
-flate2 = { workspace = true }
 object = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
-zstd = { workspace = true }
 
 [lints]
 workspace = true

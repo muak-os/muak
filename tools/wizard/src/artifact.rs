@@ -18,7 +18,7 @@ pub enum Artifact {
     Uki,
     /// ISO 9660 bootable image.
     Iso,
-    /// Raw disk image (compressed via zstd).
+    /// Raw disk image.
     Raw,
     /// Board-specific overlay boot assets as a tar archive.
     Overlays,
@@ -40,7 +40,7 @@ impl Artifact {
             Self::Cmdline => "cmdline",
             Self::Uki => "uki.efi",
             Self::Iso => "muak.iso",
-            Self::Raw => "muak.raw.zst",
+            Self::Raw => "muak.raw",
             Self::Overlays => "overlays.tar",
         }
     }
@@ -58,6 +58,25 @@ impl Artifact {
 
     /// Number of artifact variants. Update when variants are added.
     pub(crate) const COUNT: usize = 7;
+
+    /// Returns true when this artifact carries a transport codec.
+    #[must_use]
+    pub const fn supports_codec(self) -> bool {
+        matches!(self, Self::Raw)
+    }
+
+    /// Returns the on-disk output name for this artifact under `codec`.
+    #[must_use]
+    pub fn output_name(self, codec: crate::codec::Codec) -> String {
+        if !self.supports_codec() {
+            return self.filename().to_owned();
+        }
+
+        match codec.extension() {
+            "" => self.filename().to_owned(),
+            extension => format!("{}.{}", self.filename(), extension),
+        }
+    }
 
     /// Returns a zero-based index for use as an array index.
     #[must_use]
@@ -77,6 +96,7 @@ impl Artifact {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::Codec;
 
     #[test]
     fn artifact_filename_and_media_type() {
@@ -88,14 +108,47 @@ mod tests {
 
     #[test]
     fn all_artifact_filenames() {
-        // ARRANGE / ACT / ASSERT
+        // ARRANGE & ACT & ASSERT
         assert_eq!(Artifact::Kernel.filename(), "kernel");
         assert_eq!(Artifact::Initramfs.filename(), "initramfs.img");
         assert_eq!(Artifact::Cmdline.filename(), "cmdline");
         assert_eq!(Artifact::Uki.filename(), "uki.efi");
         assert_eq!(Artifact::Iso.filename(), "muak.iso");
-        assert_eq!(Artifact::Raw.filename(), "muak.raw.zst");
+        assert_eq!(Artifact::Raw.filename(), "muak.raw");
         assert_eq!(Artifact::Overlays.filename(), "overlays.tar");
+    }
+
+    #[test]
+    fn only_raw_supports_a_codec() {
+        // ARRANGE
+        let artifacts = [
+            Artifact::Kernel,
+            Artifact::Initramfs,
+            Artifact::Cmdline,
+            Artifact::Uki,
+            Artifact::Iso,
+            Artifact::Raw,
+            Artifact::Overlays,
+        ];
+
+        // ACT & ASSERT
+        for artifact in artifacts {
+            assert_eq!(
+                artifact.supports_codec(),
+                artifact == Artifact::Raw,
+                "{artifact} codec support mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn output_name_applies_codec_to_raw_only() {
+        // ARRANGE & ACT & ASSERT
+        assert_eq!(Artifact::Raw.output_name(Codec::Zstd), "muak.raw.zst");
+        assert_eq!(Artifact::Raw.output_name(Codec::Gzip), "muak.raw.gz");
+        assert_eq!(Artifact::Raw.output_name(Codec::None), "muak.raw");
+        assert_eq!(Artifact::Iso.output_name(Codec::Gzip), "muak.iso");
+        assert_eq!(Artifact::Kernel.output_name(Codec::Zstd), "kernel");
     }
 
     #[test]

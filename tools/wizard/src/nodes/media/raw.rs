@@ -22,22 +22,23 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
-/// The zstd-compressed raw disk image.
+/// The raw disk image output stream, transport-encoded per the request codec.
 fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     vec![(MEDIA_OUTPUT, Artifact::Raw)]
 }
 
 /// The media output stream size is not needed so we set it to zero.
-fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_>) -> Result<()> {
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let output = graph.stream_mut(graph.node(id)?.output(MEDIA_OUTPUT)?)?;
     output.size = 0;
-    "disk.raw".clone_into(&mut output.name);
+    output.name = Artifact::Raw.output_name(ctx.codec);
 
     Ok(())
 }
 
-/// Builds the zstd-compressed raw disk image from the UKI stream, overlay ESP
-/// files, and any raw boot blobs written at their fixed offsets.
+/// Builds the raw disk image from the UKI stream, overlay ESP files, and any
+/// raw boot blobs written at their fixed offsets, transport-encoded with the
+/// request codec.
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
@@ -68,14 +69,15 @@ fn run(
     readers_with_uki.append(&mut esp_readers);
 
     let mut output = ports.output(MEDIA_OUTPUT)?;
-    raw::build(
-        &layout,
-        &mut readers_with_uki,
-        &mut raw_blobs,
-        &mut output.writer,
-        Some(raw::DEFAULT_ZSTD_LEVEL),
-    )
-    .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
+    let mut encoder = ctx
+        .codec
+        .encoder(&mut output.writer)
+        .map_err(|e| WizardError::BuildError(format!("wrap raw disk codec: {e}")))?;
+    raw::build(&layout, &mut readers_with_uki, &mut raw_blobs, &mut encoder)
+        .map_err(|e| WizardError::BuildError(format!("build raw disk image: {e}")))?;
+    encoder
+        .finish()
+        .map_err(|e| WizardError::BuildError(format!("finish raw disk codec: {e}")))?;
 
     Ok(None)
 }

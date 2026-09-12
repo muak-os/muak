@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use wizard::artifact::Artifact;
+use wizard::codec::Codec;
 use wizard::config;
 use wizard::domain::profile::Profile;
 use wizard::request::Request;
@@ -97,6 +98,9 @@ struct BuildArgs {
 
     #[arg(long, value_parser = wizard::arch::parse)]
     arch: Arch,
+
+    #[arg(long, value_parser = Codec::parse)]
+    compression: Option<Codec>,
 
     #[arg(short, long, default_value = ".")]
     output_dir: PathBuf,
@@ -206,15 +210,20 @@ fn run_build(args: &BuildArgs) -> Result<()> {
         certificate: &pair.1,
     });
 
+    let codec = args.compression.unwrap_or_default();
+
     let mut files: Vec<(Artifact, File)> = Vec::new();
     for &artifact in &args.artifacts {
-        let output_path = args.output_dir.join(artifact.filename());
+        let output_path = args.output_dir.join(artifact.output_name(codec));
         let file = File::create(&output_path)
             .with_context(|| format!("create output file {}", output_path.display()))?;
         files.push((artifact, file));
     }
 
     let mut request = Request::new(&args.version).arch(args.arch);
+    if let Some(compression) = args.compression {
+        request = request.codec(compression);
+    }
     for pair in &mut files {
         let writer: &mut (dyn std::io::Write + Send) = &mut pair.1;
         request = request.artifact(pair.0, writer)?;
@@ -228,7 +237,7 @@ fn run_build(args: &BuildArgs) -> Result<()> {
     let _meta = request.build(&profile).context("build artifacts")?;
 
     for &artifact in &args.artifacts {
-        let path = args.output_dir.join(artifact.filename());
+        let path = args.output_dir.join(artifact.output_name(codec));
         let size = fs::metadata(&path).map_or(0, |meta| meta.len());
         println!("Successfully built {} ({} B)", path.display(), size);
     }

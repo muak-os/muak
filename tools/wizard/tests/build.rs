@@ -12,6 +12,7 @@ mod tests {
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
     use wizard::artifact::Artifact;
+    use wizard::codec::Codec;
     use wizard::domain::profile::{CustomizationSpec, KernelSpec, OverlaySpec, Profile};
     use wizard::request::Request;
 
@@ -486,6 +487,62 @@ mod tests {
             "raw ESP must embed the UKI payload"
         );
         assert!(is_pe(&uki));
+    }
+
+    #[test]
+    fn raw_image_gzip_codec_yields_gzip_framed_gpt() {
+        // ARRANGE
+        let _env = env();
+        let mut raw = Vec::new();
+
+        // ACT
+        Request::new("latest")
+            .arch(Arch::Amd64)
+            .codec(Codec::Gzip)
+            .artifact(Artifact::Raw, &mut raw)
+            .expect("raw target")
+            .build(&base_profile())
+            .expect("build gzip raw");
+
+        // ASSERT
+        assert_eq!(raw.get(..2), Some(&[0x1f, 0x8b][..]), "gzip magic");
+        let mut decoder = flate2::read::GzDecoder::new(raw.as_slice());
+        let mut image = Vec::new();
+        decoder.read_to_end(&mut image).expect("decompress raw");
+        assert_eq!(
+            image.get(512..520),
+            Some(b"EFI PART".as_slice()),
+            "GPT header"
+        );
+    }
+
+    #[test]
+    fn raw_image_none_codec_yields_uncompressed_gpt() {
+        // ARRANGE
+        let _env = env();
+        let mut raw = Vec::new();
+
+        // ACT
+        Request::new("latest")
+            .arch(Arch::Amd64)
+            .codec(Codec::None)
+            .artifact(Artifact::Raw, &mut raw)
+            .expect("raw target")
+            .build(&base_profile())
+            .expect("build uncompressed raw");
+
+        // ASSERT
+        assert_eq!(raw.get(512..520), Some(b"EFI PART".as_slice()));
+        assert_ne!(
+            raw.get(..2),
+            Some(&[0x1f, 0x8b][..]),
+            "must not be gzip-framed"
+        );
+        assert_ne!(
+            raw.get(..4),
+            Some(&[0x28, 0xb5, 0x2f, 0xfd][..]),
+            "must not be zstd"
+        );
     }
 
     #[test]

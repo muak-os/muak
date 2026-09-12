@@ -6,6 +6,7 @@ extern crate alloc;
 
 pub mod arch;
 pub mod artifact;
+pub mod codec;
 pub mod config;
 pub mod domain;
 pub mod error;

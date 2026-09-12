@@ -25,7 +25,7 @@ pub fn parse(name: &str) -> Result<Arch> {
         "amd64" => Ok(Arch::Amd64),
         "arm64" => Ok(Arch::Arm64),
         "riscv64" => Ok(Arch::Riscv64),
-        other => Err(WizardError::ProfileValidation(format!(
+        other => Err(WizardError::RequestValidation(format!(
             "unknown architecture: {other}"
         ))),
     }

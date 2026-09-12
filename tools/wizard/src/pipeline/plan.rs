@@ -180,6 +180,7 @@ mod tests {
     use sbolt::keys::cert::generate_pk;
 
     use super::*;
+    use crate::codec::Codec;
     use crate::domain::resolution::Extension;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::Overlay;
@@ -235,6 +236,7 @@ mod tests {
             build,
             profile: b"",
             signing: None,
+            codec: Codec::Zstd,
         }
     }
 
@@ -377,6 +379,7 @@ mod tests {
             build: &build,
             profile: b"",
             signing: Some(&signing),
+            codec: Codec::Zstd,
         };
 
         // ACT

@@ -83,7 +83,7 @@ fn valid_version(version: &str) -> Result<()> {
             .chars()
             .any(|ch| ch.is_whitespace() || ch == ':' || ch == '/')
     {
-        return Err(WizardError::SourceResolution(format!(
+        return Err(WizardError::RequestValidation(format!(
             "invalid release version: '{version}'"
         )));
     }
@@ -115,10 +115,10 @@ impl Manifest {
     /// Returns an error when parsing or semantic validation fails.
     pub fn from_toml(bytes: &[u8]) -> Result<Self> {
         let manifest: Self = toml::from_str(core::str::from_utf8(bytes).map_err(|_error| {
-            WizardError::ProfileValidation("release manifest is not valid UTF-8".into())
+            WizardError::SourceResolution("release manifest is not valid UTF-8".into())
         })?)
         .map_err(|e| {
-            WizardError::ProfileValidation(format!("failed to parse release manifest TOML: {e}"))
+            WizardError::SourceResolution(format!("failed to parse release manifest TOML: {e}"))
         })?;
         manifest.validate()?;
 
@@ -223,14 +223,14 @@ impl Manifest {
     /// is missing its name.
     fn validate(&self) -> Result<()> {
         if self.api_version != RELEASE_API_VERSION {
-            return Err(WizardError::ProfileValidation(format!(
+            return Err(WizardError::SourceResolution(format!(
                 "unsupported release manifest API version: {}",
                 self.api_version
             )));
         }
         let mut named = self.extensions.iter().chain(&self.overlays);
         if named.any(|entry| entry.name().is_none()) {
-            return Err(WizardError::ProfileValidation(
+            return Err(WizardError::SourceResolution(
                 "named manifest entry must have a name".to_owned(),
             ));
         }
@@ -460,7 +460,7 @@ tag = "v1.0.0"
         let err = Manifest::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, WizardError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::SourceResolution(_)));
     }
 
     #[test]
@@ -472,7 +472,7 @@ tag = "v1.0.0"
         let err = Manifest::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, WizardError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::SourceResolution(_)));
     }
 
     #[test]
@@ -484,7 +484,7 @@ tag = "v1.0.0"
         let err = Manifest::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, WizardError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::SourceResolution(_)));
     }
 
     #[test]
@@ -496,7 +496,7 @@ tag = "v1.0.0"
         let err = Manifest::from_toml(raw).expect_err("should fail");
 
         // ASSERT
-        assert!(matches!(err, WizardError::ProfileValidation(_)));
+        assert!(matches!(err, WizardError::SourceResolution(_)));
     }
 
     #[test]
