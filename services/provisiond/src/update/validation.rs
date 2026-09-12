@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use tokio::sync::Notify;
 
+use super::UPDATE_DIR;
 use super::commit;
 use super::rollback;
 use super::snapshot;
@@ -76,6 +77,7 @@ async fn wait_for_cli_contact() -> Result<()> {
     }
 
     kmsg::info!("CLI contact received, proceeding with validation");
+
     Ok(())
 }
 
@@ -87,6 +89,7 @@ pub fn signal_cli_contact() {
 /// Returns true if the current cmdline lacks the update marker (kexec did not boot).
 fn is_old_kernel(update_id: &str) -> bool {
     let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
+
     !cmdline.contains(&format!("muak.update_id={update_id}"))
 }
 
@@ -94,14 +97,16 @@ fn is_old_kernel(update_id: &str) -> bool {
 fn health_checks() -> Result<()> {
     check_state_partition_writable()?;
     check_network_interfaces()?;
+
     Ok(())
 }
 
 /// Checks if the STATE partition is writable.
 fn check_state_partition_writable() -> Result<()> {
-    let test_path = "/run/state/.update_health_check";
-    std::fs::write(test_path, b"ok").context("STATE partition not writable")?;
-    std::fs::remove_file(test_path).context("Failed to clean up health check file")?;
+    let test_path = Path::new(UPDATE_DIR).join(".health_check");
+    std::fs::write(&test_path, b"ok").context("STATE partition not writable")?;
+    std::fs::remove_file(&test_path).context("Failed to clean up health check file")?;
+
     Ok(())
 }
 
