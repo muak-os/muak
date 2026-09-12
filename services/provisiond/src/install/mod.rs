@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
 use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
-use wizard::request::{Platform, Request};
+use wizard::request::Request;
 
 use crate::disk;
 use crate::efi;
@@ -226,8 +226,7 @@ async fn build_and_deploy_efi(
             certificate: &hierarchy.db.certificate,
         });
 
-        let mut request =
-            Request::new(version, Platform::Metal).artifact(Artifact::Uki, &mut uki_file)?;
+        let mut request = Request::new(version).artifact(Artifact::Uki, &mut uki_file)?;
         if let Some(writer) = overlay_w.as_mut() {
             request = request.artifact(Artifact::Overlays, writer)?;
         }

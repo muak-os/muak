@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
 use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
-use wizard::request::{Platform, Request};
+use wizard::request::Request;
 
 use crate::history::{self, ChangeKind};
 use crate::ipc::proto::provision::PrepareUpdateProgress;
@@ -135,7 +135,7 @@ pub async fn prepare(
                 certificate: &hierarchy.db.certificate,
             });
 
-        let request = Request::new(version, Platform::Metal)
+        let request = Request::new(version)
             .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
             .artifact(Artifact::Kernel, &mut kernel_file)
