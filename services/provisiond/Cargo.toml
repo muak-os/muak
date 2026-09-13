@@ -18,7 +18,6 @@ tokio-stream = { workspace = true }
 # Encoding
 base64ct = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 toml = { workspace = true }
 prost = { workspace = true }
 
@@ -51,6 +50,7 @@ pki = { workspace = true }
 config = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }
 tpm2 = { workspace = true }
+uki = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "system", "net"] }

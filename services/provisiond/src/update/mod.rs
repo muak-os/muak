@@ -125,7 +125,7 @@ pub async fn prepare(
     let mut initramfs_file = File::create(&initramfs_path)
         .with_context(|| format!("create initramfs file {}", initramfs_path.display()))?;
 
-    let sections = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let pair = sb_hierarchy
             .as_ref()
             .map(|hierarchy| sbolt::keys::SigningPair {
@@ -149,17 +149,9 @@ pub async fn prepare(
         request
             .build(&install_profile)
             .context("wizard update prepare")
-            .map(|metadata| metadata.sections)
     })
     .await
     .context("wizard update task")??;
-
-    let sections_path = assets_dir.join("sections.json");
-    std::fs::write(
-        &sections_path,
-        serde_json::to_string(&sections).context("Failed to serialize UKI sections")?,
-    )
-    .with_context(|| format!("Failed to write sections to {}", sections_path.display()))?;
 
     streaming::send_progress(
         &progress,

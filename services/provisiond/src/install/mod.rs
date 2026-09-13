@@ -186,7 +186,7 @@ async fn build_and_deploy_efi(
     tpm_available: bool,
     sb_hierarchy: Option<Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
-) -> Result<(Vec<wizard::SectionInfo>, Option<Bundle>)> {
+) -> Result<(Vec<uki::measure::MeasuredSection>, Option<Bundle>)> {
     send_progress(progress, "Building and deploying EFI").await;
 
     let install_profile = derive_install_profile(&booted_profile, &config.host.extensions)?;

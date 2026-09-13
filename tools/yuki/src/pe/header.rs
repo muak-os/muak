@@ -1,14 +1,16 @@
 //! In-place PE prefix patching.
 
-use object::pe::ImageSectionHeader;
+use core::mem::offset_of;
+
+use object::pe::{ImageFileHeader, ImageOptionalHeader64, ImageSectionHeader};
 use uki::align;
 use uki::metadata::Metadata;
 
 use super::section::{self, Table};
 use crate::error::{Result, YukiError};
 
-const COFF_NUMBER_OF_SECTIONS_OFFSET: usize = 2;
-const OPT_HEADER_SIZE_OF_IMAGE_OFFSET: usize = 56;
+const COFF_NUMBER_OF_SECTIONS_OFFSET: usize = offset_of!(ImageFileHeader, number_of_sections);
+const OPT_HEADER_SIZE_OF_IMAGE_OFFSET: usize = offset_of!(ImageOptionalHeader64, size_of_image);
 
 pub(crate) fn patch(
     prefix: &mut [u8],

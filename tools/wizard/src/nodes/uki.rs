@@ -3,12 +3,12 @@
 use std::io::Read as _;
 
 use koci::pull;
+use uki::measure::MeasuredSection;
 use yuki::pe::section::Section;
 use yuki::prepare;
 use yuki::probe;
 use yuki::write::{self, Input};
 
-use crate::SectionInfo;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::initramfs;
@@ -140,7 +140,7 @@ fn run(
         input(&mut initramfs),
         &mut output.writer,
     )
-    .map(|sections| Some(to_section_infos(sections)))
+    .map(|sections| Some(to_measured_sections(sections)))
     .map_err(|e| WizardError::BuildError(format!("uki stream: {e}")))
 }
 
@@ -151,13 +151,11 @@ fn input<'b>(stream: &'b mut InputStream<'_>) -> Input<'b> {
     }
 }
 
-fn to_section_infos(sections: Vec<Section>) -> Vec<SectionInfo> {
+fn to_measured_sections(sections: Vec<Section>) -> Vec<MeasuredSection> {
     sections
         .into_iter()
-        .map(|section| SectionInfo {
-            name: section.name.to_owned(),
-            file_offset: section.file_offset,
-            size: section.size,
+        .map(|section| MeasuredSection {
+            name: section.name,
             hash: section.checksum,
         })
         .collect()

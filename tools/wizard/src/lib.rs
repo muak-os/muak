@@ -16,24 +16,11 @@ pub mod request;
 pub mod resolver;
 mod stream;
 
-use serde::{Deserialize, Serialize};
+use uki::measure::MeasuredSection;
 
 /// Artifact build metadata.
 #[derive(Debug, Default)]
 pub struct Metadata {
-    /// PE section descriptors for the built UKI.
-    pub sections: Vec<SectionInfo>,
-}
-
-/// PE section metadata needed for TPM PCR#11 prediction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SectionInfo {
-    /// PE section name.
-    pub name: String,
-    /// File offset of the section data within the PE image.
-    pub file_offset: usize,
-    /// Size of the section data in bytes.
-    pub size: usize,
-    /// SHA-256 hash of the section data.
-    pub hash: [u8; 32],
+    /// PE section measurement records for the built UKI.
+    pub sections: Vec<MeasuredSection>,
 }

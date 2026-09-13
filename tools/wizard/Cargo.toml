@@ -43,6 +43,7 @@ koci = { workspace = true }
 miso = { workspace = true}
 ramune = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }
+uki = { workspace = true }
 yuki = { workspace = true }
 
 [features]

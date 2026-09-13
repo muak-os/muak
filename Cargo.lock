@@ -1810,7 +1810,6 @@ dependencies = [
  "rustix",
  "sbolt",
  "serde",
- "serde_json",
  "tar",
  "tempfile",
  "tokio",
@@ -1820,6 +1819,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tpm2",
+ "uki",
  "uuid",
  "wizard",
  "x509-cert",
@@ -2698,6 +2698,8 @@ name = "uki"
 version = "1.0.0-beta"
 dependencies = [
  "object",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.20",
 ]
 
@@ -2874,6 +2876,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "toml",
+ "uki",
  "yuki",
  "zstd",
 ]

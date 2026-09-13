@@ -2,16 +2,18 @@
 
 use std::thread;
 
+use uki::measure::MeasuredSection;
+
+use crate::Metadata;
 use crate::error::Result;
 use crate::nodes;
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::graph::Graph;
 use crate::pipeline::preflight;
 use crate::pipeline::prepare::{PreparedNode, bind_nodes};
-use crate::{Metadata, SectionInfo};
 
 /// What a node reports on success: PE sections when it produced any.
-pub(crate) type NodeReport = Option<Vec<SectionInfo>>;
+pub(crate) type NodeReport = Option<Vec<MeasuredSection>>;
 
 /// Preflights and executes the normalized graph.
 ///

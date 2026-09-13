@@ -5,7 +5,7 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read as _;
+    use std::io::{Read as _, Write as _};
     use std::sync::OnceLock;
 
     use koci::arch::Arch;
@@ -231,11 +231,11 @@ mod tests {
     }
 
     /// True when the report carries at least one fully-populated section.
-    fn sections_are_well_formed(sections: &[wizard::SectionInfo]) -> bool {
+    fn sections_are_well_formed(sections: &[uki::measure::MeasuredSection]) -> bool {
         !sections.is_empty()
-            && sections.iter().all(|section| {
-                !section.name.is_empty() && section.size > 0 && section.hash != [0_u8; 32]
-            })
+            && sections
+                .iter()
+                .all(|section| !section.name.is_empty() && section.hash != [0_u8; 32])
     }
 
     /// Reads every member of a tar archive as `(path, content)` pairs.
@@ -419,6 +419,28 @@ mod tests {
             "ISO must embed the UKI payload (cmdline bytes inside the ESP)"
         );
         assert!(iso.len() > uki.len());
+    }
+
+    #[test]
+    fn uki_sections_metadata_matches_the_built_image() {
+        // ARRANGE
+        let _env = env();
+        let mut uki = Vec::new();
+
+        // ACT
+        let report = Request::new("latest")
+            .arch(Arch::Amd64)
+            .artifact(Artifact::Uki, &mut uki)
+            .expect("uki target")
+            .build(&base_profile())
+            .expect("build uki");
+
+        let image = tempfile::NamedTempFile::new().expect("temp file");
+        image.as_file().write_all(&uki).expect("write uki");
+        let measured = uki::measure::from_file(image.path()).expect("measure uki");
+
+        // ASSERT
+        assert_eq!(measured, report.sections);
     }
 
     #[test]

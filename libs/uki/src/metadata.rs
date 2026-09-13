@@ -1,13 +1,17 @@
 //! Metadata extraction from PE files.
 
+use core::mem::{offset_of, size_of};
 use std::io::Read;
 
 use object::LittleEndian as LE;
-use object::pe::ImageFileHeader;
+use object::pe::{IMAGE_SIZEOF_FILE_HEADER, ImageFileHeader, ImageOptionalHeader64};
 use object::read::pe::PeFile64;
 
 use crate::align;
 use crate::error::{Result, UkiError};
+
+/// Offset of the PE header pointer within the DOS header.
+pub(crate) const DOS_PE_POINTER_OFFSET: usize = 0x3C;
 
 /// Metadata extracted from a PE file header.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,14 +46,14 @@ pub struct Metadata {
 /// `size_of_headers` field.
 pub fn peek_size_of_headers(data: &[u8]) -> Result<u32> {
     let e_lfanew = u32::from_le_bytes(
-        data.get(0x3C..0x40)
+        data.get(DOS_PE_POINTER_OFFSET..DOS_PE_POINTER_OFFSET + size_of::<u32>())
             .and_then(|slice| <[u8; 4]>::try_from(slice).ok())
             .ok_or(UkiError::InvalidPe("missing e_lfanew"))?,
     );
     let pe_offset = usize::try_from(e_lfanew).map_err(|_source| UkiError::Overflow("PE offset"))?;
     let soh_offset = pe_offset
-        .checked_add(24)
-        .and_then(|off| off.checked_add(60))
+        .checked_add(IMAGE_SIZEOF_FILE_HEADER + size_of::<u32>())
+        .and_then(|off| off.checked_add(offset_of!(ImageOptionalHeader64, size_of_headers)))
         .ok_or(UkiError::InvalidPe("size_of_headers offset overflow"))?;
     let soh_end = soh_offset
         .checked_add(4)

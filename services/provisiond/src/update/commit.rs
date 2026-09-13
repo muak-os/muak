@@ -1,12 +1,11 @@
 //! Commits a validated update to the EFI partition.
 
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use sbolt::efi::{enroll, pk};
 use sbolt::keys::storage::load_hierarchy;
-use wizard::SectionInfo;
+use uki::measure::{self, MeasuredSection};
 use zeroize::Zeroizing;
 
 use super::{SECRETS_DIR, UPDATE_DIR};
@@ -36,13 +35,8 @@ pub async fn apply() -> Result<()> {
     std::fs::copy(&signed_uki, &staged)
         .with_context(|| format!("copy {} to {}", signed_uki.display(), staged.display()))?;
 
-    let sections: Vec<SectionInfo> = {
-        let path = assets_dir.join("sections.json");
-        let data = fs::read_to_string(&path)
-            .with_context(|| format!("read sections from {}", path.display()))?;
-
-        serde_json::from_str(&data).context("Failed to deserialize UKI sections")?
-    };
+    let sections: Vec<MeasuredSection> =
+        measure::from_file(&staged).context("Failed to read UKI sections from the staged image")?;
 
     let luks_key = match secrets::resolve_luks_key(state_device.as_deref()) {
         Some(key) => reseal_luks_key(&key, state_device.as_deref(), &sections)?,
@@ -89,7 +83,7 @@ pub async fn apply() -> Result<()> {
 fn reseal_luks_key(
     key: &Zeroizing<Vec<u8>>,
     state_device: Option<&str>,
-    sections: &[SectionInfo],
+    sections: &[MeasuredSection],
 ) -> Result<Option<Vec<u8>>> {
     if !tpm2::device::is_available(None) {
         return Ok(Some(key.to_vec()));

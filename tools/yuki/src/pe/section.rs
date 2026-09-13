@@ -1,22 +1,24 @@
 //! PE section creation and embedding.
 
+use core::mem::offset_of;
+
 use object::LittleEndian as LE;
-use object::pe::ImageSectionHeader;
+use object::pe::{IMAGE_SIZEOF_SHORT_NAME, ImageSectionHeader};
 use uki::align;
 use uki::metadata::Metadata;
 use uki::section::KERNEL;
 
 use crate::error::{Result, YukiError};
 
-const SECTION_NAME_MAX_LEN: usize = 8;
-const SECTION_NAME_OFFSET: usize = 0;
-const SECTION_VIRTUAL_SIZE_OFFSET: usize = 8;
-const SECTION_VIRTUAL_ADDRESS_OFFSET: usize = 12;
-const SECTION_SIZE_OF_RAW_DATA_OFFSET: usize = 16;
-const SECTION_POINTER_TO_RAW_DATA_OFFSET: usize = 20;
-const SECTION_RESERVED_OFFSET: usize = 24;
-const SECTION_RESERVED_SIZE: usize = 12;
-const SECTION_CHARACTERISTICS_OFFSET: usize = 36;
+const SECTION_NAME_MAX_LEN: usize = IMAGE_SIZEOF_SHORT_NAME;
+const SECTION_NAME_OFFSET: usize = offset_of!(ImageSectionHeader, name);
+const SECTION_VIRTUAL_SIZE_OFFSET: usize = offset_of!(ImageSectionHeader, virtual_size);
+const SECTION_VIRTUAL_ADDRESS_OFFSET: usize = offset_of!(ImageSectionHeader, virtual_address);
+const SECTION_SIZE_OF_RAW_DATA_OFFSET: usize = offset_of!(ImageSectionHeader, size_of_raw_data);
+const SECTION_POINTER_TO_RAW_DATA_OFFSET: usize =
+    offset_of!(ImageSectionHeader, pointer_to_raw_data);
+const SECTION_RESERVED_OFFSET: usize = offset_of!(ImageSectionHeader, number_of_relocations);
+const SECTION_CHARACTERISTICS_OFFSET: usize = offset_of!(ImageSectionHeader, characteristics);
 
 const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
 const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x0000_0040;
@@ -230,7 +232,8 @@ pub(crate) fn header_to_bytes(
 ) -> [u8; core::mem::size_of::<ImageSectionHeader>()] {
     let mut bytes = [0_u8; core::mem::size_of::<ImageSectionHeader>()];
 
-    bytes[SECTION_NAME_OFFSET..SECTION_NAME_OFFSET + 8].copy_from_slice(&header.name);
+    bytes[SECTION_NAME_OFFSET..SECTION_NAME_OFFSET + SECTION_NAME_MAX_LEN]
+        .copy_from_slice(&header.name);
     bytes[SECTION_VIRTUAL_SIZE_OFFSET..SECTION_VIRTUAL_SIZE_OFFSET + 4]
         .copy_from_slice(&header.virtual_size.get(LE).to_le_bytes());
     bytes[SECTION_VIRTUAL_ADDRESS_OFFSET..SECTION_VIRTUAL_ADDRESS_OFFSET + 4]
@@ -239,7 +242,7 @@ pub(crate) fn header_to_bytes(
         .copy_from_slice(&header.size_of_raw_data.get(LE).to_le_bytes());
     bytes[SECTION_POINTER_TO_RAW_DATA_OFFSET..SECTION_POINTER_TO_RAW_DATA_OFFSET + 4]
         .copy_from_slice(&header.pointer_to_raw_data.get(LE).to_le_bytes());
-    bytes[SECTION_RESERVED_OFFSET..SECTION_RESERVED_OFFSET + SECTION_RESERVED_SIZE].fill(0);
+    bytes[SECTION_RESERVED_OFFSET..SECTION_CHARACTERISTICS_OFFSET].fill(0);
     bytes[SECTION_CHARACTERISTICS_OFFSET..SECTION_CHARACTERISTICS_OFFSET + 4]
         .copy_from_slice(&header.characteristics.get(LE).to_le_bytes());
 
