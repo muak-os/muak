@@ -16,18 +16,12 @@ tokio = { workspace = true, features = ["fs"] }
 tokio-stream = { workspace = true }
 
 # Encoding
-base64ct = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 prost = { workspace = true }
 
 # Compression
 tar = { workspace = true }
-
-# Cryptography
-getrandom = { workspace = true }
-x509-cert = { workspace = true }
-zeroize = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }

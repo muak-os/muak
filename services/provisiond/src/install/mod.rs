@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use config::SystemConfig;
 use layout::plans_from_doc;
+use luks2::key::Passphrase;
 use pki::InstallResult;
 use sbolt::efi::{enroll, setup_mode};
 use sbolt::keys::SigningPair;
@@ -159,9 +160,9 @@ struct PkiResult {
 async fn generate_keys(
     admin_csr_pem: &str,
     progress: &mpsc::Sender<InstallProgress>,
-) -> Result<(Vec<u8>, PkiResult)> {
+) -> Result<(Passphrase, PkiResult)> {
     send_progress(progress, "Generating encryption keys").await;
-    let luks_key = pki::generate_luks_key()?;
+    let luks_key = luks2::key::generate()?;
 
     send_progress(progress, "Generating PKI and signing CSR").await;
     let ca = pki::generate_ca()?;

@@ -15,12 +15,6 @@ name = "init"
 path = "src/main.rs"
 
 [dependencies]
-# Cryptography
-zeroize = { workspace = true }
-
-# Encoding
-base64ct = { workspace = true }
-
 # Error handling
 anyhow = { workspace = true }
 

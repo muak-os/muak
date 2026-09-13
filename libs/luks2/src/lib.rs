@@ -9,6 +9,7 @@ mod digest;
 mod dm;
 mod error;
 mod header;
+pub mod key;
 mod keyslot;
 mod metadata;
 mod xts;

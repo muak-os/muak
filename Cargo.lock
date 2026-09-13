@@ -1250,7 +1250,6 @@ name = "millefeuille"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
- "base64ct",
  "btrfs",
  "disk",
  "kmod",
@@ -1259,7 +1258,6 @@ dependencies = [
  "rustix",
  "tempfile",
  "tpm2",
- "zeroize",
 ]
 
 [[package]]
@@ -1792,13 +1790,11 @@ name = "provisiond"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
- "base64ct",
  "btrfs",
  "config",
  "disk",
  "esp",
  "fatfs",
- "getrandom 0.4.3",
  "granola",
  "kmsg",
  "libc",
@@ -1822,8 +1818,6 @@ dependencies = [
  "uki",
  "uuid",
  "wizard",
- "x509-cert",
- "zeroize",
 ]
 
 [[package]]

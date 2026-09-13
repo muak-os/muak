@@ -6,7 +6,6 @@ use anyhow::{Context as _, Result, bail};
 use sbolt::efi::{enroll, pk};
 use sbolt::keys::storage::load_hierarchy;
 use uki::measure::{self, MeasuredSection};
-use zeroize::Zeroizing;
 
 use super::{SECRETS_DIR, UPDATE_DIR};
 use crate::disk::{Role, find_partition_device};
@@ -81,7 +80,7 @@ pub async fn apply() -> Result<()> {
 }
 
 fn reseal_luks_key(
-    key: &Zeroizing<Vec<u8>>,
+    key: &[u8],
     state_device: Option<&str>,
     sections: &[MeasuredSection],
 ) -> Result<Option<Vec<u8>>> {

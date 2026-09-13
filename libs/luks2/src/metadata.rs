@@ -1,7 +1,4 @@
 //! LUKS2 JSON metadata types.
-//!
-//! Represents the JSON area that follows each binary header on disk.
-//! All numeric values stored as decimal strings per the LUKS2 specification.
 
 use std::collections::HashMap;
 
@@ -42,6 +39,30 @@ pub struct Tpm2Token {
     pub tpm2_blob: String,
     #[serde(rename = "tpm2-policy-hash")]
     pub tpm2_policy_hash: String,
+}
+
+impl Tpm2Token {
+    /// Builds a token bound to the given PCR indices from raw sealed blob and policy digest bytes.
+    #[must_use]
+    pub fn new(pcrs: &[u32], blob: &[u8], policy_digest: &[u8]) -> Self {
+        Self {
+            r#type: String::from("tpm2"),
+            keyslots: vec![String::from("0")],
+            tpm2_pcrs: pcrs.to_vec(),
+            tpm2_hash_alg: String::from("sha256"),
+            tpm2_blob: Base64::encode_string(blob),
+            tpm2_policy_hash: Base64::encode_string(policy_digest),
+        }
+    }
+
+    /// Decodes the sealed TPM2 blob bytes stored in the token.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stored blob is not valid Base64.
+    pub fn sealed_blob(&self) -> Result<Vec<u8>> {
+        Base64::decode_vec(&self.tpm2_blob).map_err(Luks2Error::from)
+    }
 }
 
 /// A LUKS2 keyslot entry.
@@ -246,6 +267,8 @@ impl Metadata {
 
 #[cfg(test)]
 mod tests {
+    use base64ct::Encoding;
+
     use super::*;
 
     #[test]
@@ -489,6 +512,26 @@ mod tests {
         // ASSERT
         result.unwrap_err();
         assert_eq!(serialized.len(), usize::try_from(large_size).unwrap());
+    }
+
+    #[test]
+    fn tpm2_token_new_encodes_bytes_and_sealed_blob_round_trips() {
+        // ARRANGE
+        let blob = [1_u8, 2, 3];
+        let policy_digest = [4_u8; 32];
+
+        // ACT
+        let token = Tpm2Token::new(&[11], &blob, &policy_digest);
+
+        // ASSERT
+        assert_eq!(token.tpm2_blob, <Base64 as Encoding>::encode_string(&blob));
+        assert_eq!(
+            token.tpm2_policy_hash,
+            <Base64 as Encoding>::encode_string(&policy_digest)
+        );
+        assert_eq!(token.tpm2_pcrs, vec![11]);
+        assert_eq!(token.keyslots, vec![String::from("0")]);
+        assert_eq!(token.sealed_blob().unwrap(), blob.to_vec());
     }
 
     #[test]

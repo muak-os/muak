@@ -1,9 +1,28 @@
 //! PEM and PKCS#8 conversion helpers.
 
-use der::pem::LineEnding;
+use der::{DecodePem as _, EncodePem as _, pem::LineEnding};
+use x509_cert::Certificate;
 
 use crate::error::{PkiError, Result};
 use crate::key::Signer;
+
+/// Encodes a certificate as PEM.
+///
+/// # Errors
+///
+/// Returns an error if the certificate cannot be DER-encoded for PEM wrapping.
+pub fn encode_cert(cert: &Certificate) -> Result<String> {
+    cert.to_pem(LineEnding::LF).map_err(PkiError::from)
+}
+
+/// Decodes a PEM-encoded certificate.
+///
+/// # Errors
+///
+/// Returns an error if the PEM document does not contain a valid certificate.
+pub fn decode_cert(pem: &str) -> Result<Certificate> {
+    Certificate::from_pem(pem).map_err(PkiError::from)
+}
 
 /// Encodes PKCS#8 DER as PEM.
 ///

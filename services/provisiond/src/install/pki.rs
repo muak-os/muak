@@ -6,12 +6,6 @@ use pki::cert;
 use pki::csr;
 use pki::key::Signer;
 use pki::pem;
-use x509_cert::Certificate;
-use x509_cert::der::EncodePem as _;
-use x509_cert::der::pem::LineEnding;
-
-/// Size of the LUKS key in bytes.
-const LUKS_KEY_SIZE: usize = 64;
 
 /// PKI materials returned to the client after install.
 pub struct InstallResult {
@@ -30,8 +24,7 @@ pub struct Server {
 /// Intermediate CA materials shared across generation steps.
 pub struct CaMaterials {
     pub signer: Signer,
-    pub cert: Certificate,
-    pub pem: String,
+    pub cert_pem: String,
     pub key_pem: String,
 }
 
@@ -40,34 +33,32 @@ pub fn generate_ca() -> Result<CaMaterials> {
     let (signer, cert) =
         cert::generate_ca("Muak CA").context("Failed to generate CA certificate")?;
 
-    let pem = cert
-        .to_pem(LineEnding::LF)
-        .context("Failed to encode CA certificate")?;
+    let cert_pem = pem::encode_cert(&cert).context("Failed to encode CA certificate")?;
 
     let key_pem = pem::encode_pkcs8(signer.pkcs8_der()).context("Failed to encode CA key")?;
 
     Ok(CaMaterials {
         signer,
-        cert,
-        pem,
+        cert_pem,
         key_pem,
     })
 }
 
 /// Generates the server certificate signed by the given CA.
 pub fn generate_server_cert(ca: &CaMaterials) -> Result<Server> {
-    let (server_key, server_cert) = cert::generate_server("muak-server", &ca.signer, &ca.cert)
+    let ca_cert = pem::decode_cert(&ca.cert_pem).context("Failed to decode CA certificate")?;
+
+    let (server_key, server_cert) = cert::generate_server("muak-server", &ca.signer, &ca_cert)
         .context("Failed to generate server certificate")?;
 
-    let server_cert_pem = server_cert
-        .to_pem(LineEnding::LF)
-        .context("Failed to encode server certificate")?;
+    let server_cert_pem =
+        pem::encode_cert(&server_cert).context("Failed to encode server certificate")?;
 
     let server_key_pem =
         pem::encode_pkcs8(server_key.pkcs8_der()).context("Failed to encode server key")?;
 
     Ok(Server {
-        ca: ca.pem.clone(),
+        ca: ca.cert_pem.clone(),
         ca_key: ca.key_pem.clone(),
         cert: server_cert_pem,
         key: server_key_pem,
@@ -76,12 +67,13 @@ pub fn generate_server_cert(ca: &CaMaterials) -> Result<Server> {
 
 /// Signs the admin CSR with the given CA, returning client materials and initial auth config.
 pub fn sign_admin_csr(csr_pem: &str, ca: &CaMaterials) -> Result<(InstallResult, AuthConfig)> {
-    let (admin_cert, admin_fingerprint) =
-        csr::sign(csr_pem, &ca.key_pem, &ca.cert).context("Failed to sign admin CSR")?;
+    let ca_cert = pem::decode_cert(&ca.cert_pem).context("Failed to decode CA certificate")?;
 
-    let admin_cert_pem = admin_cert
-        .to_pem(LineEnding::LF)
-        .context("Failed to encode admin certificate")?;
+    let (admin_cert, admin_fingerprint) =
+        csr::sign(csr_pem, &ca.key_pem, &ca_cert).context("Failed to sign admin CSR")?;
+
+    let admin_cert_pem =
+        pem::encode_cert(&admin_cert).context("Failed to encode admin certificate")?;
 
     let auth_config = AuthConfig {
         users: vec![AuthUser {
@@ -93,18 +85,9 @@ pub fn sign_admin_csr(csr_pem: &str, ca: &CaMaterials) -> Result<(InstallResult,
 
     Ok((
         InstallResult {
-            ca_pem: ca.pem.clone(),
+            ca_pem: ca.cert_pem.clone(),
             admin_cert_pem,
         },
         auth_config,
     ))
-}
-
-/// Generates a random LUKS key.
-pub fn generate_luks_key() -> Result<Vec<u8>> {
-    let mut key = vec![0_u8; LUKS_KEY_SIZE];
-    getrandom::fill(&mut key)
-        .map_err(|err| anyhow::anyhow!("Failed to generate random LUKS key: {err}"))?;
-
-    Ok(key)
 }

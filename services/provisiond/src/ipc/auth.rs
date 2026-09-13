@@ -4,10 +4,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use pki::csr;
+use pki::pem;
 use tokio::fs;
 use tonic::{Request, Response, Status};
-use x509_cert::Certificate;
-use x509_cert::der::{DecodePem as _, EncodePem as _, pem::LineEnding};
 
 use super::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
 use super::proto::auth::get_csr_status_response::Status as CsrStatus;
@@ -162,15 +161,11 @@ impl AuthService for ServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to read CSR: {e}")))?;
 
-        let (cert, cert_fingerprint) =
+        let (cert_pem, cert_fingerprint) =
             tokio::task::spawn_blocking(move || sign_pending_csr(&csr_pem))
                 .await
                 .map_err(|e| Status::internal(format!("Task failed: {e}")))?
                 .map_err(|e| Status::internal(format!("Failed to sign CSR: {e}")))?;
-
-        let cert_pem = cert
-            .to_pem(LineEnding::LF)
-            .map_err(|e| Status::internal(format!("Failed to encode certificate: {e}")))?;
 
         store_staging_cert(&fingerprint, &cert_pem)
             .await
@@ -311,16 +306,17 @@ async fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
     Ok(csrs)
 }
 
-/// Signs pending CSR with the CA.
-fn sign_pending_csr(csr_pem: &str) -> Result<(Certificate, String)> {
+fn sign_pending_csr(csr_pem: &str) -> Result<(String, String)> {
     let ca_key_pem = std::fs::read_to_string(ca_key_path())
         .map_err(|e| anyhow::anyhow!("CA key not found: {e}"))?;
     let ca_cert_pem = std::fs::read_to_string(ca_cert_path())
         .map_err(|e| anyhow::anyhow!("CA cert not found: {e}"))?;
-    let ca_cert = Certificate::from_pem(&ca_cert_pem)?;
+    let ca_cert = pem::decode_cert(&ca_cert_pem)?;
 
     let (cert, fingerprint) = csr::sign(csr_pem, &ca_key_pem, &ca_cert)?;
-    Ok((cert, fingerprint))
+    let cert_pem = pem::encode_cert(&cert)?;
+
+    Ok((cert_pem, fingerprint))
 }
 
 /// Checks if a fingerprint is already authorized.
