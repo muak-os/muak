@@ -1,19 +1,13 @@
 //! Factory reset functionality for removing STATE and DATA partitions.
 
 use ::disk::role::Role;
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result};
 
 use crate::disk;
 
 /// Performs a factory reset by deleting the STATE and DATA partitions.
 pub fn factory_reset() -> Result<()> {
     kmsg::info!("Starting factory reset...");
-
-    let disk_config = &config::config().disk;
-    let system_disk = disk_config.system.clone();
-    if system_disk.is_empty() {
-        bail!("System disk not configured");
-    }
 
     disk::unmount_partition("/run/data")?;
     disk::unmount_partition("/run/state")?;
@@ -25,15 +19,27 @@ pub fn factory_reset() -> Result<()> {
         kmsg::warn!("Failed to close LUKS DATA mapping (may not exist): {}", e);
     }
 
-    if disk_config.is_split() {
-        delete_role(&system_disk, Role::State)?;
-        delete_role(disk_config.data_disk(), Role::Data)?;
-    } else {
-        delete_role(&system_disk, Role::State)?;
-        delete_role(&system_disk, Role::Data)?;
+    let state_device = disk::find_partition_device(Role::State)
+        .context("STATE partition not found on any disk")?;
+    let state_disk = disk::parent_disk(&state_device)
+        .context("Failed to resolve the disk carrying the STATE partition")?;
+    delete_role(&state_disk, Role::State)?;
+
+    match disk::find_partition_device(Role::Data) {
+        Some(data_device) => {
+            let data_disk = disk::parent_disk(&data_device)
+                .context("Failed to resolve the disk carrying the DATA partition")?;
+            if data_disk == state_disk {
+                delete_role(&state_disk, Role::Data)?;
+            } else {
+                delete_role(&data_disk, Role::Data)?;
+            }
+        }
+        None => kmsg::info!("No DATA partition found, nothing to delete"),
     }
 
     kmsg::info!("Factory reset complete");
+
     Ok(())
 }
 

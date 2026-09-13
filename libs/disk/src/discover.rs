@@ -20,6 +20,21 @@ pub fn find_partition_device(role: Role) -> Option<String> {
     find_partition_device_in(Path::new(SYS_CLASS_BLOCK), Path::new(DEV_DIR), role)
 }
 
+/// Finds the parent disk name of a partition device (e.g. `/dev/nvme0n1p2` → `nvme0n1`).
+#[must_use]
+pub fn parent_disk(partition_device: &str) -> Option<String> {
+    parent_disk_in(Path::new(SYS_CLASS_BLOCK), partition_device)
+}
+
+fn parent_disk_in(sysfs_dir: &Path, partition_device: &str) -> Option<String> {
+    let name = partition_device
+        .strip_prefix("/dev/")
+        .unwrap_or(partition_device);
+    let resolved = fs::canonicalize(sysfs_dir.join(name)).ok()?;
+
+    resolved.parent()?.file_name()?.to_str().map(str::to_owned)
+}
+
 fn find_partition_device_in(sysfs_dir: &Path, dev_dir: &Path, role: Role) -> Option<String> {
     find_by_partname_in(sysfs_dir, dev_dir, role.gpt_name())
         .into_iter()
@@ -220,5 +235,37 @@ mod tests {
             Some(dev.join("nvme0n1p2").to_string_lossy().into_owned()),
             "roles must resolve through their canonical GPT name"
         );
+    }
+
+    #[test]
+    fn parent_disk_resolves_through_sysfs_symlinks() {
+        // ARRANGE
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let sysfs = temp.path().join("sys").join("class").join("block");
+        let devices = temp.path().join("sys").join("devices");
+        std::fs::create_dir_all(&sysfs).expect("create block");
+        std::fs::create_dir_all(devices.join("nvme0n1").join("nvme0n1p2")).expect("create dirs");
+        std::os::unix::fs::symlink(
+            devices.join("nvme0n1").join("nvme0n1p2"),
+            sysfs.join("nvme0n1p2"),
+        )
+        .expect("symlink");
+
+        // ACT
+        let disk = parent_disk_in(&sysfs, "nvme0n1p2");
+
+        // ASSERT
+        assert_eq!(disk.as_deref(), Some("nvme0n1"));
+    }
+
+    #[test]
+    fn parent_disk_returns_none_for_missing_partition() {
+        // ARRANGE
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let sysfs = temp.path().join("sys");
+        std::fs::create_dir_all(&sysfs).expect("create");
+
+        // ACT / ASSERT
+        assert_eq!(parent_disk_in(&sysfs, "does-not-exist"), None);
     }
 }

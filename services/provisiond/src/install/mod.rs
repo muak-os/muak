@@ -303,6 +303,11 @@ fn partition_disks_blocking(disk_config: &config::DiskConfig) -> Result<Partitio
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
 
+    disk::fits_plan(&disk_config.system, &system_plan)?;
+    if let Some(ref plan) = data_plan {
+        disk::fits_plan(disk_config.data_disk(), plan)?;
+    }
+
     let system = disk::apply_plan(&disk_config.system, &system_plan)?;
     let efi = system.role(disk::Role::Esp)?;
     let state = system.role(disk::Role::State)?;

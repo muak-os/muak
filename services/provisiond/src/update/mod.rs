@@ -21,6 +21,7 @@ use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
+use crate::disk;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::journal::{self, ChangeKind, Entry};
 use crate::profile;
@@ -69,6 +70,8 @@ pub async fn prepare(
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
+    verify_system_disk(&config::config().disk.system)?;
+
     streaming::send_progress(
         &progress,
         PrepareUpdateProgress {
@@ -178,6 +181,33 @@ pub async fn prepare(
     sync();
 
     Ok(update_id)
+}
+
+fn verify_system_disk(configured: &str) -> Result<()> {
+    if configured.is_empty() {
+        bail!("No system disk configured");
+    }
+
+    let state_device = disk::find_partition_device(disk::Role::State)
+        .context("STATE partition not found on any disk")?;
+    let actual = disk::parent_disk(&state_device)
+        .context("Failed to resolve the disk carrying the STATE partition")?;
+
+    let configured = std::fs::canonicalize(configured)
+        .with_context(|| format!("Configured system disk '{configured}' not found"))?;
+    let configured_name = configured
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("Invalid system disk path")?;
+
+    if configured_name != actual {
+        bail!(
+            "Configured system disk '{}' does not match the disk carrying STATE ('/dev/{actual}')",
+            configured.display()
+        );
+    }
+
+    Ok(())
 }
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
