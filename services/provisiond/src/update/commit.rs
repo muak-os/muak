@@ -7,7 +7,7 @@ use sbolt::efi::{enroll, pk};
 use sbolt::keys::storage::load_hierarchy;
 use uki::measure::{self, MeasuredSection};
 
-use super::{SECRETS_DIR, UPDATE_DIR};
+use super::{SECRETS_DIR, UPDATE_DIR, cache};
 use crate::disk::{Role, find_partition_device};
 use crate::efi;
 use crate::secrets;
@@ -71,6 +71,8 @@ pub async fn apply() -> Result<()> {
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", key)?;
     }
     efi::unmount();
+
+    cache::clean_stale();
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
         eprintln!("Failed to cleanup update work dir: {e}");

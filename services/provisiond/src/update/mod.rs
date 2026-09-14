@@ -1,5 +1,6 @@
 //! Update preparation, kexec execution, and post-boot validation.
 
+mod cache;
 mod commit;
 pub mod kexec;
 pub(crate) mod rollback;
@@ -105,7 +106,7 @@ pub async fn prepare(
 
     let (registry, version) = image_parts(image)?;
     configure(Config {
-        cache_dir: Some("/run/state/cache/koci".into()),
+        cache_dir: Some(cache::DIR.into()),
         registry,
     })
     .context("Failed to configure wizard")?;

@@ -18,17 +18,17 @@
   - Add manifest release OCI instead of hardcoded
   - Add extension catalog in resolver (using OCI image?)
   - Parallel preflights
+  - Allow for easier support of cloud providers like AWS, GCP etc with correct format & codec output.
   - Add SBOM precursor generation for each artifact
 
 - Enchance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
   - Condition HTTP only support behind flag only
+  - More feature gate to prevent internal koci from containing useless commands
 
 - Sign extensions and verify them for better supply chain security
-  - Allow for "community extensions" that are still usable with a warning about security risks
-
-- In `provisiond` save koci cache in /run/state and clean cache on updates if it's stale (more than 3 weeks old for example)
+- Allow for "community extensions" that are still usable with a warning about security risks
 
 - Target 80% coverage using unit & integration tests
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
