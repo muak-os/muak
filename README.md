@@ -10,15 +10,14 @@ It is the most lightweight Linux distribution you'll probably use while still be
 - **Declarative configuration by design** to prevent configuration drift
 - **API driven** using gRPC with mTLS authentication
 - **Atomic updates** for safe, predictable updates/rollbacks
-- **Minimal** with no external binaries except your hypervisor of choice
-- **Secure by default**
+- **Minimal** with **NOT A SINGLE** external binary except your hypervisor of choice by default
 
 ## Requirements
 
 There are three prerequisites to run Muak that most modern systems meet:
 
-- System architecture is either `x86_64` or `arm64` hardware with virtualization support enabled in firmware
-- UEFI firmware
+- System architecture is either `x86_64`, `arm64` or `riscv64` 
+- UEFI firmware (can be provided by Muak itself for SBCs) with virtualization support enabled
 - A full disk reserved for the installation
 
 Muak can be deployed anywhere you can run a modern Linux distribution.
@@ -29,7 +28,7 @@ Muak has a number of features that make it ideal for virtualization:
 
 ### API Managed
 
-Muak is managed by a gRPC API instead of a traditional shell, much like other distributions such as [Talos](https://talos.dev).
+Muak is managed by a gRPC API instead of a traditional shell.
 
 ### Immutable Filesystem
 
