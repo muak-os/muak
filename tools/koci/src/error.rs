@@ -34,6 +34,10 @@ pub enum KociError {
     #[error("OCI parsing error: {0}")]
     OciParseError(String),
 
+    /// Pure OCI model failure (manifest parsing, platform selection, digests).
+    #[error(transparent)]
+    Oci(#[from] oci::error::OciError),
+
     /// Failed to extract an OCI layer blob.
     #[error("Failed to extract layer: {0}")]
     LayerExtractionError(String),

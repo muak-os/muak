@@ -4,15 +4,14 @@ use core::mem;
 
 use base64ct::{Base64Url, Encoding as _};
 use hyper::body::Bytes;
+use oci::digest::sha256_hex;
 use p256::ecdsa::{Signature as EcdsaSignature, SigningKey, VerifyingKey};
 use p256::elliptic_curve::pkcs8::{DecodePrivateKey as _, DecodePublicKey as _};
 use serde_json::Value;
 use signature::{Signer as _, Verifier as _};
 
 use crate::annotations::Verification;
-use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
-use crate::image::manifest;
 
 /// Sign the canonical manifest payload and inject it as `annotation`.
 pub(crate) fn inject(
@@ -24,7 +23,9 @@ pub(crate) fn inject(
     let signature: EcdsaSignature = key.sign(digest.as_bytes());
     let sig_b64 = Base64Url::encode_string(signature.to_der().as_ref());
 
-    manifest::with_annotation(manifest_json, annotation, &sig_b64)
+    let (body, content_type) = oci::manifest::with_annotation(manifest_json, annotation, &sig_b64)?;
+
+    Ok((Bytes::from(body), content_type))
 }
 
 /// Check a manifest's signature annotation against the trusted public key.
@@ -159,13 +160,14 @@ fn parse_pem_public_key(pem: &str) -> Result<VerifyingKey> {
 mod tests {
     use base64ct::Base64;
     use getrandom::SysRng;
+    use oci::digest::sha256_hex;
+    use oci::error::OciError;
     use p256::ecdsa::SigningKey;
     use p256::elliptic_curve::Generate as _;
     use p256::elliptic_curve::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _, LineEnding};
     use p256::elliptic_curve::sec1::ToSec1Point as _;
 
     use super::*;
-    use crate::digest::sha256_hex;
 
     const SIG_ANNOTATION: &str = "dev.muak.sig";
 
@@ -352,7 +354,7 @@ mod tests {
         let error = inject(manifest_json, &key, SIG_ANNOTATION).expect_err("signing should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::Oci(OciError::InvalidFormat(_))));
     }
 
     #[tokio::test]

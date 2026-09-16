@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use koci::annotations::{self, Verification};
-use koci::arch;
-use koci::arch::Arch;
 use koci::error;
 use koci::merge;
 use koci::pull;
 use koci::push;
+use oci::arch;
+use oci::arch::Arch;
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -29,7 +29,7 @@ enum Command {
         #[arg(short, long)]
         image: String,
 
-        #[arg(long)]
+        #[arg(long, value_parser = parse_arch)]
         arch: Option<Arch>,
 
         #[arg(short, long)]
@@ -81,13 +81,17 @@ enum Command {
         tags: Vec<String>,
 
         /// Architecture recorded in the image config (default: host).
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = parse_arch)]
         arch: Option<Arch>,
 
         /// File(s) to pack into the image, `PATH[:ARCHIVE_PATH]`.
         #[arg(long = "file", value_name = "PATH[:NAME]", required = true)]
         files: Vec<String>,
     },
+}
+
+fn parse_arch(arch: &str) -> Result<Arch, String> {
+    arch.parse()
 }
 
 fn read_key_file(path: &Path) -> Result<String> {
@@ -246,7 +250,7 @@ mod tests {
     use std::path::Path;
 
     use clap::Parser as _;
-    use koci::arch::Arch;
+    use oci::arch::Arch;
     use tempfile::TempDir;
 
     use super::{Args, Command, read_key_file, run_from, run_with};

@@ -1,7 +1,7 @@
 //! Architecture resolution helpers.
 
 use esp::arch::Arch as EspArch;
-use koci::arch::Arch;
+use oci::arch::Arch;
 
 use crate::error::{Result, WizardError};
 

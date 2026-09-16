@@ -1,11 +1,12 @@
 //! Resolving an image reference to platform manifests and layer descriptors.
 
+use oci::arch::Arch;
+use oci::model::Descriptor;
+
 use crate::annotations::Verification;
 use crate::annotations::signature;
-use crate::arch::Arch;
 use crate::error::Result;
-use crate::image::OciDescriptor;
-use crate::image::manifest;
+use crate::registry::manifest;
 use crate::registry::session::Session;
 
 /// Resolve an image reference to the ordered list of layers for the target platform.
@@ -13,9 +14,9 @@ pub(crate) async fn layers(
     session: &Session,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-) -> Result<Vec<OciDescriptor>> {
+) -> Result<Vec<Descriptor>> {
     let manifest_json = platform_manifest_json(session, arch, verification).await?;
-    let manifest = manifest::parse(&manifest_json)?;
+    let manifest = oci::manifest::parse(&manifest_json)?;
 
     Ok(manifest.layers)
 }
@@ -27,14 +28,14 @@ pub(crate) async fn platform_manifest_json(
     verification: Option<&Verification<'_>>,
 ) -> Result<String> {
     let manifest_json = fetch_cached_manifest(session, &session.image.manifest_ref).await?;
-    let manifest = manifest::parse(&manifest_json)?;
+    let manifest = oci::manifest::parse(&manifest_json)?;
     signature::check_signature(&manifest_json, verification)?;
 
     if manifest.manifests.is_empty() {
         return Ok(manifest_json);
     }
 
-    let selected = manifest::select_platform(&manifest.manifests, arch.as_str())?;
+    let selected = oci::manifest::select_platform(&manifest.manifests, arch.as_str())?;
     let platform_json = fetch_cached_manifest(session, &selected.digest).await?;
     signature::check_signature(&platform_json, verification)?;
 

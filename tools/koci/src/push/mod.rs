@@ -3,14 +3,14 @@
 use std::path::PathBuf;
 
 use hyper::body::Bytes;
+use oci::arch::Arch;
+use oci::digest::sha256_hex;
+use oci::media::{OCI_CONFIG_MEDIA_TYPE, OCI_LAYER_MEDIA_TYPE, OCI_MANIFEST_MEDIA_TYPE};
 
-use crate::arch::Arch;
-use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
-use crate::image::manifest;
 use crate::registry::auth::Access;
+use crate::registry::manifest;
 use crate::registry::session::Session;
-use crate::registry::{OCI_CONFIG_MEDIA_TYPE, OCI_LAYER_MEDIA_TYPE, OCI_MANIFEST_MEDIA_TYPE};
 use crate::runtime;
 
 mod entry;
@@ -150,10 +150,10 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
 
+    use oci::arch::Arch;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::arch::Arch;
 
     struct TestServer {
         address: String,

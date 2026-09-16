@@ -26,18 +26,18 @@ flate2 = { workspace = true }
 tar = { workspace = true }
 
 # Cryptography
-getrandom = { workspace = true }
 p256 = { workspace = true }
 rustls = { workspace = true }
-sha2 = { workspace = true }
 signature = { workspace = true }
 webpki-roots = { workspace = true }
 
 # Encoding
 serde = { workspace = true }
 serde_json = { workspace = true }
-base16ct = { workspace = true }
 base64ct = { workspace = true }
+
+# Internal
+oci = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true, optional = true }
@@ -54,6 +54,7 @@ default = ["cli"]
 cli = ["clap", "anyhow"]
 
 [dev-dependencies]
+getrandom = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

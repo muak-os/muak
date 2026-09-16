@@ -175,7 +175,7 @@ impl<'a, 'data, 'sign> Planner<'a, 'data, 'sign> {
 
 #[cfg(test)]
 mod tests {
-    use koci::arch::Arch;
+    use oci::arch::Arch;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 

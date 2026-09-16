@@ -4,15 +4,15 @@ use alloc::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use oci::arch::Arch;
+use oci::model::Descriptor;
 use tar::Archive;
 use tokio::task::JoinSet;
 
 use super::entries::FileEntry;
 use super::{download, resolve, scan};
 use crate::annotations::Verification;
-use crate::arch::Arch;
 use crate::error::{KociError, Result};
-use crate::image::OciDescriptor;
 use crate::registry::auth::Access;
 use crate::registry::session::Session;
 
@@ -49,7 +49,7 @@ where
 /// Returns an error if a layer cannot be downloaded or decompressed.
 pub(crate) async fn entry_sizes(
     session: &Session,
-    layers: &[OciDescriptor],
+    layers: &[Descriptor],
     exclude: &[String],
 ) -> Result<BTreeMap<String, u64>> {
     let mut sizes = BTreeMap::new();
@@ -69,7 +69,7 @@ pub(crate) async fn entry_sizes(
 }
 
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
-async fn walk<F>(session: &Session, layers: &[OciDescriptor], mut on_entry: F) -> Result<()>
+async fn walk<F>(session: &Session, layers: &[Descriptor], mut on_entry: F) -> Result<()>
 where
     F: for<'a, 'b> FnMut(
         usize,
@@ -124,7 +124,7 @@ where
 /// Download every layer blob concurrently, then map whiteout targets to the first layer that must be hidden by them.
 async fn download_all(
     session: &Session,
-    layers: &[OciDescriptor],
+    layers: &[Descriptor],
 ) -> Result<(Vec<Vec<u8>>, HashMap<PathBuf, usize>)> {
     let n = layers.len();
 

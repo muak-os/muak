@@ -3,19 +3,19 @@
 use hyper::Response;
 use hyper::body::Bytes;
 use hyper::http::header::CONTENT_TYPE;
-
-use crate::arch::Arch;
-use crate::digest::sha256_hex;
-use crate::error::{KociError, Result};
-use crate::image::manifest;
-use crate::image::{OciDescriptor, Platform};
-use crate::registry::auth::Access;
-use crate::registry::http;
-use crate::registry::session::Session;
-use crate::registry::{
+use oci::arch::Arch;
+use oci::digest::sha256_hex;
+use oci::media::{
     DOCKER_MANIFEST_LIST_MEDIA_TYPE, DOCKER_MANIFEST_MEDIA_TYPE, OCI_IMAGE_INDEX_MEDIA_TYPE,
     OCI_MANIFEST_ACCEPT_HEADERS, OCI_MANIFEST_MEDIA_TYPE,
 };
+use oci::model::{Descriptor, Platform};
+
+use crate::error::{KociError, Result};
+use crate::registry::auth::Access;
+use crate::registry::http;
+use crate::registry::manifest;
+use crate::registry::session::Session;
 use crate::runtime;
 
 /// One per-platform source of a merged index.
@@ -110,7 +110,7 @@ fn validate_platforms(sources: &[Source]) -> Result<()> {
 }
 
 /// Fetch one source manifest and describe it for the index.
-async fn resolve_descriptor(session: &Session, source: &Source) -> Result<OciDescriptor> {
+async fn resolve_descriptor(session: &Session, source: &Source) -> Result<Descriptor> {
     let url = manifest::build_url(&session.image, &source.reference);
     let resp = http::get(
         &session.client,
@@ -123,7 +123,7 @@ async fn resolve_descriptor(session: &Session, source: &Source) -> Result<OciDes
     let body = http::collect_body(resp).await?;
     let digest = verify_digest(&source.reference, &body)?;
 
-    Ok(OciDescriptor {
+    Ok(Descriptor {
         media_type: Some(media_type),
         digest,
         size: manifest_size(body.len())?,
@@ -177,7 +177,7 @@ fn manifest_size(len: usize) -> Result<u64> {
 }
 
 /// Serialize the OCI index wrapping the given descriptors.
-fn build_index(descriptors: &[OciDescriptor]) -> Result<Bytes> {
+fn build_index(descriptors: &[Descriptor]) -> Result<Bytes> {
     let index = serde_json::json!({
         "schemaVersion": 2,
         "mediaType": OCI_IMAGE_INDEX_MEDIA_TYPE,
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn build_index_serializes_schema_version_and_descriptors() {
         // ARRANGE
-        let descriptors = vec![OciDescriptor {
+        let descriptors = vec![Descriptor {
             media_type: Some(OCI_MANIFEST_MEDIA_TYPE.to_owned()),
             digest: "sha256:abc".to_owned(),
             size: 123,

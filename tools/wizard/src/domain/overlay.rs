@@ -169,7 +169,7 @@ fn placement(overlay: &Overlay, path: &str) -> Result<Option<Placement>> {
 
 #[cfg(test)]
 mod tests {
-    use koci::arch::Arch;
+    use oci::arch::Arch;
 
     use super::*;
 

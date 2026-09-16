@@ -9,10 +9,10 @@ use hyper::{Method, Request, Response};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
+use oci::digest::Verifier;
 use rustls::{ClientConfig, RootCertStore};
 use tokio::time::timeout;
 
-use crate::digest::StreamingDigest;
 use crate::error::{KociError, Result};
 use crate::registry::USER_AGENT;
 use crate::registry::redirect;
@@ -217,7 +217,7 @@ pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
 /// Stream an HTTP response body into memory while computing a digest.
 pub(crate) async fn stream_body_to_vec(
     resp: Response<Incoming>,
-    digest: &mut StreamingDigest,
+    digest: &mut Verifier,
 ) -> Result<Vec<u8>> {
     let mut body = resp.into_body();
     let mut bytes = Vec::new();

@@ -12,8 +12,8 @@ pub(crate) mod sign;
 pub(crate) mod stub;
 pub(crate) mod uki;
 
-use koci::arch::Arch;
 use koci::pull;
+use oci::arch::Arch;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
@@ -138,7 +138,7 @@ fn parse_sizes(
 mod tests {
     use alloc::collections::BTreeMap;
 
-    use koci::arch::Arch;
+    use oci::arch::Arch;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 

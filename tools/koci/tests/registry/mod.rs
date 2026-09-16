@@ -10,8 +10,6 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::thread;
 
-use sha2::{Digest as _, Sha256};
-
 type RouteKey = (String, String);
 
 #[derive(Clone, Debug)]
@@ -484,5 +482,5 @@ fn path_manifest_digest(path: &str) -> Option<String> {
 
 /// Lowercase hex encoding of the SHA-256 of `bytes`.
 fn hex(bytes: &[u8]) -> String {
-    base16ct::lower::encode_string(Sha256::digest(bytes).as_ref())
+    oci::digest::sha256_hex(bytes)
 }

@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
-use crate::image::ImageReference;
+use oci::reference::Image;
 
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -50,11 +50,7 @@ impl Store {
     }
 
     /// Return a cached manifest.
-    pub(crate) fn get_manifest(
-        &self,
-        image: &ImageReference,
-        manifest_ref: &str,
-    ) -> Option<String> {
+    pub(crate) fn get_manifest(&self, image: &Image, manifest_ref: &str) -> Option<String> {
         if is_digest(manifest_ref) {
             let path = self.blob_path(manifest_ref)?;
             return std::fs::read_to_string(path).ok();
@@ -64,7 +60,7 @@ impl Store {
     }
 
     /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
-    pub(crate) fn put_manifest(&self, image: &ImageReference, manifest_ref: &str, manifest: &str) {
+    pub(crate) fn put_manifest(&self, image: &Image, manifest_ref: &str, manifest: &str) {
         if is_digest(manifest_ref) {
             self.put_blob(manifest_ref, manifest.as_bytes());
         } else {
@@ -305,7 +301,7 @@ mod tests {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let cache = new_cache(&tmp);
-        let image = ImageReference::parse("ghcr.io/org/image:v1");
+        let image = Image::parse("ghcr.io/org/image:v1");
 
         // ACT
         cache.put_manifest(&image, "sha256:abc", r#"{"kind":"digest"}"#);

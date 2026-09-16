@@ -40,6 +40,7 @@ thiserror = { workspace = true }
 mumi = { workspace = true }
 esp = { workspace = true }
 koci = { workspace = true }
+oci = { workspace = true }
 miso = { workspace = true}
 ramune = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }

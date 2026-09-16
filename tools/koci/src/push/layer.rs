@@ -3,10 +3,10 @@
 use std::fs::File;
 
 use hyper::body::Bytes;
+use oci::digest::sha256_hex;
 use tar::{Builder, Header};
 
 use super::{Blob, Entry};
-use crate::digest::sha256_hex;
 use crate::error::Result;
 
 /// Build the deterministic uncompressed tar layer holding all entries.

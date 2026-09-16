@@ -4,13 +4,12 @@ use std::io::Error as IoError;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use getrandom::SysRng;
-use koci::arch;
+use oci::arch;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::Generate as _;
 use p256::elliptic_curve::pkcs8::LineEnding;
 use p256::elliptic_curve::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _};
 use serde_json::{Map, Value, json};
-use sha2::{Digest as _, Sha256};
 use tar::{Builder, Header};
 
 pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
@@ -179,8 +178,5 @@ pub(crate) fn layer_archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dy
 
 #[must_use]
 pub(crate) fn sha256_digest(bytes: &[u8]) -> String {
-    format!(
-        "sha256:{}",
-        base16ct::lower::encode_string(Sha256::digest(bytes).as_ref())
-    )
+    format!("sha256:{}", oci::digest::sha256_hex(bytes))
 }

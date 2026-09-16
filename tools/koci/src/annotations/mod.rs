@@ -3,14 +3,14 @@
 pub(crate) mod signature;
 
 use hyper::body::Bytes;
+use oci::digest::sha256_hex;
+use oci::media::OCI_IMAGE_INDEX_MEDIA_TYPE;
 use p256::ecdsa::SigningKey;
 
-use crate::digest::sha256_hex;
 use crate::error::{KociError, Result};
-use crate::image::manifest;
 use crate::pull;
-use crate::registry::OCI_IMAGE_INDEX_MEDIA_TYPE;
 use crate::registry::auth::Access;
+use crate::registry::manifest;
 use crate::registry::session::Session;
 use crate::runtime;
 
@@ -63,7 +63,7 @@ pub fn sizes(reference: &str, annotation: &str, exclude: &[String]) -> Result<()
 async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) -> Result<()> {
     let session = Session::new(reference, Access::PullPush, None).await?;
     let root_json = fetch_manifest(&session, &session.image.manifest_ref).await?;
-    let parsed = manifest::parse(&root_json)?;
+    let parsed = oci::manifest::parse(&root_json)?;
 
     if parsed.manifests.is_empty() {
         let (body, content_type) = mutation.transform(&session, &root_json).await?;
@@ -128,18 +128,19 @@ impl Mutation<'_> {
                 annotation,
                 exclude,
             } => {
-                let parsed = manifest::parse(manifest_json)?;
+                let parsed = oci::manifest::parse(manifest_json)?;
                 let sizes = pull::layer::entry_sizes(session, &parsed.layers, exclude).await?;
                 eprintln!("Annotating {} file(s)", sizes.len());
                 let sizes_json = serde_json::to_string(&sizes)?;
+                let (body, content_type) =
+                    oci::manifest::with_annotation(manifest_json, annotation, &sizes_json)?;
 
-                manifest::with_annotation(manifest_json, annotation, &sizes_json)
+                Ok((Bytes::from(body), content_type))
             }
         }
     }
 }
 
-/// Fetch a manifest by tag or digest reference.
 async fn fetch_manifest(session: &Session, manifest_ref: &str) -> Result<String> {
     let url = manifest::build_url(&session.image, manifest_ref);
 

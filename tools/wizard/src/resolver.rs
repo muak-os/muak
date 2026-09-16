@@ -1,6 +1,6 @@
 //! Resolver: derives phase 3 (resolution) from the domain model.
 
-use koci::arch::{self, Arch};
+use oci::arch::{self, Arch};
 
 use crate::config;
 use crate::domain::identity::ResolutionId;

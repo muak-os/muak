@@ -15,11 +15,12 @@ mod tests {
     use std::time::{Duration, Instant, SystemTime};
 
     use koci::annotations;
-    use koci::arch::Arch;
     use koci::error::KociError;
     use koci::merge;
     use koci::pull;
     use koci::push;
+    use oci::arch::Arch;
+    use oci::error::OciError;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -236,7 +237,7 @@ mod tests {
         .expect_err("stream should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::Oci(OciError::InvalidFormat(_))));
     }
 
     #[test]
@@ -303,7 +304,10 @@ mod tests {
         let error = expect_stream_error(&registry.reference("repo", "test"));
 
         // ASSERT
-        assert!(matches!(error, KociError::DigestMismatch { .. }));
+        assert!(matches!(
+            error,
+            KociError::Oci(OciError::DigestMismatch { .. })
+        ));
     }
 
     #[test]
@@ -750,7 +754,7 @@ mod tests {
         let error = expect_sign_error(&registry.reference("repo", "test"), &keys.private_key_pem);
 
         // ASSERT
-        assert!(matches!(error, KociError::OciParseError(_)));
+        assert!(matches!(error, KociError::Oci(OciError::Parse(_))));
     }
 
     #[test]
@@ -1210,7 +1214,7 @@ mod tests {
         .expect_err("stream should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::OciParseError(_)));
+        assert!(matches!(error, KociError::Oci(OciError::Parse(_))));
     }
 
     #[test]

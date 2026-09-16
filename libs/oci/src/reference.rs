@@ -1,51 +1,19 @@
-//! OCI image structures and utilities.
+//! Parsed OCI image references.
 
-use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
-
-pub(crate) mod manifest;
-
-/// OCI manifest structure for a platform-specific image manifest.
-#[derive(Debug, Deserialize)]
-pub struct OciManifest {
-    #[serde(default)]
-    pub layers: Vec<OciDescriptor>,
-    #[serde(default)]
-    pub manifests: Vec<OciDescriptor>,
-    #[serde(default)]
-    pub annotations: Option<HashMap<String, String>>,
-}
-
-/// OCI descriptor used to reference a blob.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct OciDescriptor {
-    #[serde(rename = "mediaType")]
-    pub media_type: Option<String>,
-    pub digest: String,
-    #[serde(default)]
-    pub size: u64,
-    #[serde(default)]
-    pub platform: Option<Platform>,
-}
-
-/// Platform information for multi-architecture images.
-#[derive(Debug, Deserialize, Default, Serialize)]
-pub struct Platform {
-    pub architecture: Option<String>,
-    pub os: Option<String>,
-}
-
-/// Image reference parser and utilities.
+/// A parsed OCI image reference: registry, repository, and tag or digest.
 #[derive(Debug, Clone)]
-pub struct ImageReference {
+pub struct Image {
+    /// Registry host such as `ghcr.io`, normalized for Docker Hub.
     pub registry: String,
+    /// Repository path such as `org/image`.
     pub name: String,
+    /// Tag or `sha256:...` digest selecting the manifest.
     pub manifest_ref: String,
 }
 
-impl ImageReference {
-    /// Parse an image reference string into an `ImageReference`.
+impl Image {
+    /// Parse an image reference string into an [`Image`].
+    #[must_use]
     pub fn parse(reference: &str) -> Self {
         let digest_ref = reference
             .rsplit_once('@')
@@ -72,6 +40,7 @@ impl ImageReference {
     }
 
     /// Determine the URL scheme (`http` or `https`) for the registry.
+    #[must_use]
     pub fn scheme(&self) -> &'static str {
         if self.registry.starts_with("192.168.")
             || self.registry.starts_with("10.")
@@ -125,7 +94,7 @@ mod tests {
         let reference = "alpine:latest";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
@@ -139,7 +108,7 @@ mod tests {
         let reference = "ghcr.io/org/image:v1.0";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "ghcr.io");
@@ -153,7 +122,7 @@ mod tests {
         let reference = "192.168.1.100:5000/myimage:tag";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "192.168.1.100:5000");
@@ -168,7 +137,7 @@ mod tests {
         let reference = "alpine";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
@@ -182,7 +151,7 @@ mod tests {
         let reference = "library/alpine:3.14";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
@@ -196,7 +165,7 @@ mod tests {
         let reference = "";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.manifest_ref, "latest");
@@ -208,7 +177,7 @@ mod tests {
         let reference = "invalid@registry.com/image:tag";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.manifest_ref, "tag");
@@ -220,7 +189,7 @@ mod tests {
         let reference = "ghcr.io/org/image@sha256:0123456789abcdef";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "ghcr.io");
@@ -234,7 +203,7 @@ mod tests {
         let reference = "docker.io/library/alpine:3.20";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "registry-1.docker.io");
@@ -248,7 +217,7 @@ mod tests {
         let reference = "ghcr.io/org/image@sha256";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.registry, "ghcr.io");
@@ -262,7 +231,7 @@ mod tests {
         let reference = "ghcr.io/org/image@SHA256:abcdef";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.name, "org/image@SHA256");
@@ -275,7 +244,7 @@ mod tests {
         let reference = "ghcr.io/org/image@sha256:";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.name, "org/image@sha256");
@@ -288,7 +257,7 @@ mod tests {
         let reference = "alpine:latest";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.scheme(), "https");
@@ -300,7 +269,7 @@ mod tests {
         let reference = "192.168.1.1:5000/image:tag";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.scheme(), "http");
@@ -312,7 +281,7 @@ mod tests {
         let reference = "localhost:5000/repo:tag";
 
         // ACT
-        let img = ImageReference::parse(reference);
+        let img = Image::parse(reference);
 
         // ASSERT
         assert_eq!(img.scheme(), "http");

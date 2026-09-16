@@ -262,8 +262,9 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
 
+    use oci::reference::Image;
+
     use super::*;
-    use crate::image::ImageReference;
     use crate::registry::http::build_client;
 
     const BASIC_CHALLENGE: &str = "WWW-Authenticate: Basic realm=\"registry\"";
@@ -295,8 +296,8 @@ mod tests {
             }
         }
 
-        fn image(&self) -> ImageReference {
-            ImageReference::parse(&self.reference)
+        fn image(&self) -> Image {
+            Image::parse(&self.reference)
         }
     }
 

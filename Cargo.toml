@@ -36,6 +36,7 @@ members = [
     "libs/fatfs",
     "libs/granola-macros",
     "libs/netlib",
+    "libs/oci",
     "libs/uki",
 ]
 resolver = "3"
@@ -72,6 +73,7 @@ kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
+oci = { path = "libs/oci" }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }

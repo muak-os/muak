@@ -8,7 +8,7 @@ mod tests {
     use std::io::{Read as _, Write as _};
     use std::sync::OnceLock;
 
-    use koci::arch::Arch;
+    use oci::arch::Arch;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
     use wizard::artifact::Artifact;

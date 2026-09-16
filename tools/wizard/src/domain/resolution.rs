@@ -1,7 +1,7 @@
 //! The resolved build and its identity.
 
 use disk::layout::Layout;
-use koci::arch::Arch;
+use oci::arch::Arch;
 
 use super::overlay::Asset;
 use crate::domain::identity::{ProfileId, ReleaseManifestId, ResolutionId};

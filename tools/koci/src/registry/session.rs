@@ -1,7 +1,8 @@
 //! Authenticated registry session shared by all registry-touching operations.
 
+use oci::reference::Image;
+
 use crate::error::Result;
-use crate::image::ImageReference;
 use crate::pull::cache::Store;
 use crate::registry::auth::{Access, Credentials, authenticate};
 use crate::registry::http::{HttpClient, build_client};
@@ -17,7 +18,7 @@ pub(crate) struct Session {
     /// Shared HTTP/HTTPS client.
     pub(crate) client: HttpClient,
     /// Parsed image reference.
-    pub(crate) image: ImageReference,
+    pub(crate) image: Image,
     /// `Authorization` header value for registry requests, when authenticated.
     authorization: Option<String>,
 }
@@ -36,7 +37,7 @@ impl Session {
         access: Access,
         credentials: Option<Credentials>,
     ) -> Result<Self> {
-        let image = ImageReference::parse(reference);
+        let image = Image::parse(reference);
         let client = build_client();
         let credentials = credentials.or_else(Credentials::from_env);
         let authorization = authenticate(

@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 /// Target CPU architecture for an OCI image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum Arch {
     /// 64-bit x86 architecture.
@@ -99,7 +98,7 @@ mod tests {
 
     #[test]
     fn from_str_reports_unknown_architectures() {
-        // ARRANGE / ACT
+        // ARRANGE
         let error = "mips".parse::<Arch>().expect_err("parse should fail");
 
         // ASSERT

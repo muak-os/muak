@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use koci::arch::Arch;
+use oci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use wizard::artifact::Artifact;
 use wizard::codec::Codec;

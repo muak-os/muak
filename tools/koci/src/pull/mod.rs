@@ -2,10 +2,10 @@
 
 use alloc::collections::BTreeMap;
 
+use oci::arch::Arch;
+
 use crate::annotations::Verification;
-use crate::arch::Arch;
 use crate::error::Result;
-use crate::image::manifest;
 use crate::registry::auth::Access;
 use crate::registry::session::Session;
 use crate::runtime;
@@ -34,7 +34,7 @@ pub fn annotations(
     runtime::runtime()?.block_on(async {
         let session = Session::new(reference, Access::Pull, None).await?;
         let json = resolve::platform_manifest_json(&session, arch, verification).await?;
-        let parsed = manifest::parse(&json)?;
+        let parsed = oci::manifest::parse(&json)?;
 
         Ok(parsed.annotations.unwrap_or_default().into_iter().collect())
     })
