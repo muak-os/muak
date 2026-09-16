@@ -75,7 +75,7 @@ kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
 oci = { path = "libs/oci" }
-oci-client = { path = "libs/oci-client" }
+oci-client = { path = "libs/oci-client", default-features = false }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }

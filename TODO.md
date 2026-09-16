@@ -20,17 +20,18 @@
   - Parallel preflights
   - Allow for easier support of cloud providers like AWS, GCP etc with correct format & codec output.
   - Add SBOM precursor generation for each artifact
+  - Allow customizing kernel parameters?
+  - Bring your own secure boot keys?
+  - Parametize secure boot (for easier platform support)
 
 - Enchance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
-  - Condition HTTP only support behind flag only
-  - More feature gate to prevent internal koci from containing useless commands
+  - Condition HTTP only support behind insecure TLS flag and disable by default
 
 - Sign extensions and verify them for better supply chain security
 - Allow for "community extensions" that are still usable with a warning about security risks
 
-- Target 80% coverage using unit & integration tests
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
 - Deterministic simulation tests?
 
@@ -41,7 +42,6 @@
   - Support for containers like LXC and OCI
 
 - Support Apple M series processor chips using Asahi Linux kernel patches and m1n1 bootloader
-  - Correct partition formatting and new install workflow for Apple Silicon Macs
 
 - Linux Kernel abstraction layer to support different kernels
   - Feature gate `libc` usage

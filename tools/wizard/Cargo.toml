@@ -39,7 +39,7 @@ thiserror = { workspace = true }
 # Internal
 mumi = { workspace = true }
 esp = { workspace = true }
-koci = { workspace = true }
+koci = { workspace = true, features = ["pull"] }
 oci = { workspace = true }
 miso = { workspace = true}
 ramune = { workspace = true }

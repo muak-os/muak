@@ -1,5 +1,7 @@
 //! Integration tests for koci OCI pulling, pushing, and signing.
 
+#![cfg(feature = "cli")]
+
 extern crate alloc;
 
 #[cfg(test)]

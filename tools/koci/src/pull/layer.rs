@@ -7,14 +7,15 @@ use std::path::{Path, PathBuf};
 use oci::arch::Arch;
 use oci::model::Descriptor;
 use oci_client::auth::Access;
+use oci_client::client::Client;
 use tar::Archive;
 use tokio::task::JoinSet;
 
-use super::Session;
+use super::cache::Store;
 use super::entries::FileEntry;
 use super::{download, resolve, scan};
-use crate::annotations::Verification;
 use crate::error::{KociError, Result};
+use crate::signature::Verification;
 
 /// Stream every live file entry of the image's platform layers.
 ///
@@ -31,12 +32,13 @@ pub(crate) async fn files<F>(
 where
     F: FnMut(FileEntry<'_>) -> Result<()>,
 {
-    let session = Session::new(reference, Access::Pull).await?;
+    let client = Client::new(reference, Access::Pull, None).await?;
+    let cache = Store::new();
     eprintln!("Pulling {reference} for {}", arch.as_str());
-    let layers = resolve::layers(&session, arch, verification).await?;
+    let layers = resolve::layers(&client, &cache, arch, verification).await?;
     eprintln!("Resolved {} layer(s)", layers.len());
 
-    walk(&session, &layers, |_layer_idx, entry, info| {
+    walk(&client, &cache, &layers, |_layer_idx, entry, info| {
         scan::handle_file_entry(entry, info, &mut handler)
     })
     .await
@@ -48,13 +50,14 @@ where
 ///
 /// Returns an error if a layer cannot be downloaded or decompressed.
 pub(crate) async fn entry_sizes(
-    session: &Session,
+    client: &Client,
+    cache: &Store,
     layers: &[Descriptor],
     exclude: &[String],
 ) -> Result<BTreeMap<String, u64>> {
     let mut sizes = BTreeMap::new();
 
-    walk(session, layers, |_layer_idx, _entry, info| {
+    walk(client, cache, layers, |_layer_idx, _entry, info| {
         if let scan::EntryInfo::File(path, size, _) = info
             && !excluded(&path, exclude)
         {
@@ -69,7 +72,12 @@ pub(crate) async fn entry_sizes(
 }
 
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
-async fn walk<F>(session: &Session, layers: &[Descriptor], mut on_entry: F) -> Result<()>
+async fn walk<F>(
+    client: &Client,
+    cache: &Store,
+    layers: &[Descriptor],
+    mut on_entry: F,
+) -> Result<()>
 where
     F: for<'a, 'b> FnMut(
         usize,
@@ -77,7 +85,7 @@ where
         scan::EntryInfo,
     ) -> Result<()>,
 {
-    let (blobs, whiteouts) = download_all(session, layers).await?;
+    let (blobs, whiteouts) = download_all(client, cache, layers).await?;
     let n = layers.len();
 
     for (layer_idx, layer) in layers.iter().enumerate() {
@@ -123,17 +131,18 @@ where
 
 /// Download every layer blob concurrently, then map whiteout targets to the first layer that must be hidden by them.
 async fn download_all(
-    session: &Session,
+    client: &Client,
+    cache: &Store,
     layers: &[Descriptor],
 ) -> Result<(Vec<Vec<u8>>, HashMap<PathBuf, usize>)> {
     let n = layers.len();
 
     let mut downloads = JoinSet::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let cache = session.cache.clone();
-        let client = session.client.http().clone();
-        let image = session.client.image().clone();
-        let authorization = session.client.authorization().map(str::to_owned);
+        let cache = cache.clone();
+        let http = client.http().clone();
+        let image = client.image().clone();
+        let authorization = client.authorization().map(str::to_owned);
         let digest = layer.digest.clone();
         downloads.spawn(async move {
             let layer_number = layer_idx.saturating_add(1);
@@ -141,7 +150,7 @@ async fn download_all(
             eprintln!("Downloading layer {layer_number}/{n}: {short}");
             (
                 layer_idx,
-                download::cached(&cache, &client, &image, &digest, authorization.as_deref()).await,
+                download::cached(&cache, &http, &image, &digest, authorization.as_deref()).await,
             )
         });
     }

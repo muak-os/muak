@@ -3,17 +3,42 @@
 use core::mem;
 
 use base64ct::{Base64Url, Encoding as _};
+#[cfg(feature = "sign")]
 use bytes::Bytes;
 use oci::digest::sha256_hex;
-use p256::ecdsa::{Signature as EcdsaSignature, SigningKey, VerifyingKey};
-use p256::elliptic_curve::pkcs8::{DecodePrivateKey as _, DecodePublicKey as _};
+use p256::ecdsa::Signature as EcdsaSignature;
+#[cfg(feature = "sign")]
+use p256::ecdsa::SigningKey;
+#[cfg(feature = "pull")]
+use p256::ecdsa::VerifyingKey;
+#[cfg(feature = "sign")]
+use p256::elliptic_curve::pkcs8::DecodePrivateKey as _;
+#[cfg(feature = "pull")]
+use p256::elliptic_curve::pkcs8::DecodePublicKey as _;
 use serde_json::Value;
-use signature::{Signer as _, Verifier as _};
+#[cfg(feature = "sign")]
+use signature::Signer as _;
+#[cfg(feature = "pull")]
+use signature::Verifier as _;
 
-use crate::annotations::Verification;
 use crate::error::{KociError, Result};
 
+/// Signature verification requirements for pulls.
+#[cfg(feature = "pull")]
+pub struct Verification<'a> {
+    /// PEM-encoded ECDSA P-256 public key trusted to have signed the manifest.
+    pub pubkey_pem: &'a str,
+    /// Manifest annotation key carrying the base64url DER signature.
+    pub sig_annotation: &'a str,
+}
+
 /// Sign the canonical manifest payload and inject it as `annotation`.
+///
+/// # Errors
+///
+/// Returns an error when the payload cannot be signed or the manifest
+/// cannot be annotated.
+#[cfg(feature = "sign")]
 pub(crate) fn inject(
     manifest_json: &str,
     key: &SigningKey,
@@ -29,6 +54,12 @@ pub(crate) fn inject(
 }
 
 /// Check a manifest's signature annotation against the trusted public key.
+///
+/// # Errors
+///
+/// Returns an error when the manifest is not signed by the trusted key or
+/// the signature annotation cannot be decoded.
+#[cfg(feature = "pull")]
 pub(crate) fn check_signature(
     manifest_json: &str,
     verification: Option<&Verification<'_>>,
@@ -83,6 +114,11 @@ pub(crate) fn check_signature(
 }
 
 /// Parse a PKCS#8 PEM-encoded ECDSA P-256 private key.
+///
+/// # Errors
+///
+/// Returns an error when the PEM does not describe a P-256 private key.
+#[cfg(feature = "sign")]
 pub(crate) fn parse_pem_private_key(pem: &str) -> Result<SigningKey> {
     SigningKey::from_pkcs8_pem(pem).map_err(|error| {
         KociError::SignatureVerificationFailed(format!(
@@ -91,14 +127,12 @@ pub(crate) fn parse_pem_private_key(pem: &str) -> Result<SigningKey> {
     })
 }
 
-/// Compute the canonical `sha256:` digest of the manifest with `annotation` stripped.
 fn signing_payload(manifest_json: &str, annotation: &str) -> Result<String> {
     let canonical = canonicalize_manifest(manifest_json, annotation)?;
 
     Ok(format!("sha256:{}", sha256_hex(&canonical)))
 }
 
-/// Strip the signature annotation and produce canonical (sorted-key) JSON bytes.
 fn canonicalize_manifest(manifest_json: &str, sig_annotation: &str) -> Result<Vec<u8>> {
     let mut value: Value = match serde_json::from_str(manifest_json) {
         Ok(value) => value,
@@ -127,7 +161,6 @@ fn canonicalize_manifest(manifest_json: &str, sig_annotation: &str) -> Result<Ve
     serde_json::to_vec(&value).map_err(Into::into)
 }
 
-/// Recursively sort all JSON object keys in lexicographic order.
 fn sort_keys(value: &mut Value) {
     match *value {
         Value::Object(ref mut map) => {
@@ -147,7 +180,7 @@ fn sort_keys(value: &mut Value) {
     }
 }
 
-/// Parse a PEM-encoded ECDSA P-256 public key.
+#[cfg(feature = "pull")]
 fn parse_pem_public_key(pem: &str) -> Result<VerifyingKey> {
     VerifyingKey::from_public_key_pem(pem).map_err(|error| {
         KociError::SignatureVerificationFailed(format!(

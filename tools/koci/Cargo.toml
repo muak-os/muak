@@ -16,22 +16,23 @@ required-features = ["cli"]
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio = { workspace = true, features = ["fs", "io-util"], optional = true }
 
 # CLI
 clap = { workspace = true, optional = true }
 
 # Compression
-flate2 = { workspace = true }
-tar = { workspace = true }
+flate2 = { workspace = true, optional = true }
+tar = { workspace = true, optional = true }
 
 # Cryptography
-base64ct = { workspace = true }
-p256 = { workspace = true }
-signature = { workspace = true }
+base64ct = { workspace = true, optional = true }
+p256 = { workspace = true, optional = true }
+signature = { workspace = true, optional = true }
 
 # Encoding
-serde_json = { workspace = true }
+bytes = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 # Error handling
 anyhow = { workspace = true, optional = true }
@@ -41,12 +42,33 @@ thiserror = { workspace = true }
 oci = { workspace = true }
 oci-client = { workspace = true }
 
-# Utilities
-bytes = { workspace = true }
-
 [features]
 default = ["cli"]
-cli = ["clap", "anyhow"]
+cli = ["annotate", "anyhow", "clap", "merge", "pull", "push", "sign"]
+annotate = ["dep:bytes", "json", "pull"]
+merge = ["dep:bytes", "json"]
+pull = [
+    "dep:base64ct",
+    "dep:flate2",
+    "dep:p256",
+    "dep:signature",
+    "dep:tar",
+    "json",
+    "oci-client/https",
+    "runtime",
+]
+push = ["dep:bytes", "dep:tar", "json", "oci-client/https", "runtime"]
+sign = [
+    "dep:base64ct",
+    "dep:bytes",
+    "dep:p256",
+    "dep:signature",
+    "json",
+    "oci-client/https",
+    "runtime",
+]
+json = ["dep:serde_json"]
+runtime = ["dep:tokio"]
 
 [dev-dependencies]
 getrandom = { workspace = true }
