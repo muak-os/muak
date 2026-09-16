@@ -132,6 +132,7 @@ pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
     body: Vec<u8>,
+    headers: Vec<(&'static str, &'static str)>,
     delay: Duration,
 }
 
@@ -142,6 +143,7 @@ impl HttpResponse {
             status: 200,
             content_type: "application/vnd.oci.image.manifest.v1+json",
             body,
+            headers: Vec::new(),
             delay: Duration::ZERO,
         }
     }
@@ -152,6 +154,7 @@ impl HttpResponse {
             status: 200,
             content_type: "application/vnd.oci.image.index.v1+json",
             body,
+            headers: Vec::new(),
             delay: Duration::ZERO,
         }
     }
@@ -162,6 +165,7 @@ impl HttpResponse {
             status: 200,
             content_type: "application/octet-stream",
             body,
+            headers: Vec::new(),
             delay: Duration::ZERO,
         }
     }
@@ -172,6 +176,19 @@ impl HttpResponse {
             status: 200,
             content_type: "text/plain",
             body: Vec::new(),
+            headers: Vec::new(),
+            delay: Duration::ZERO,
+        }
+    }
+
+    /// `202 Accepted` upload-session response pointing at `location`.
+    #[must_use]
+    pub(crate) fn accepted(location: &'static str) -> Self {
+        Self {
+            status: 202,
+            content_type: "text/plain",
+            body: Vec::new(),
+            headers: vec![("Location", location)],
             delay: Duration::ZERO,
         }
     }
@@ -182,6 +199,7 @@ impl HttpResponse {
             status: 400,
             content_type: "application/json",
             body: Vec::new(),
+            headers: Vec::new(),
             delay: Duration::ZERO,
         }
     }
@@ -200,6 +218,14 @@ pub(crate) fn get<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey
 
 pub(crate) fn put<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
     (("PUT".to_owned(), path.into()), response)
+}
+
+pub(crate) fn head<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
+    (("HEAD".to_owned(), path.into()), response)
+}
+
+pub(crate) fn post<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
+    (("POST".to_owned(), path.into()), response)
 }
 
 fn run_registry_server(
@@ -402,17 +428,26 @@ fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> Result<(),
 
     let reason = match response.status {
         200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
         404 => "Not Found",
         _ => "Error",
     };
 
-    let headers = format!(
-        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n",
+    let mut headers = format!(
+        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\n",
         response.status,
         reason,
         response.body.len(),
         response.content_type,
     );
+    for &(name, value) in &response.headers {
+        headers.push_str(name);
+        headers.push_str(": ");
+        headers.push_str(value);
+        headers.push_str("\r\n");
+    }
+    headers.push_str("Connection: close\r\n\r\n");
 
     stream.write_all(headers.as_bytes())?;
     stream.write_all(&response.body)?;
@@ -424,6 +459,7 @@ fn not_found_response() -> HttpResponse {
         status: 404,
         content_type: "text/plain",
         body: b"not found".to_vec(),
+        headers: Vec::new(),
         delay: Duration::ZERO,
     }
 }

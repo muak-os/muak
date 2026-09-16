@@ -68,6 +68,28 @@ pub(crate) async fn get_any_status(
     send(client, url, request).await
 }
 
+/// Execute a HEAD and return the response whatever its status.
+pub(crate) async fn head_any_status(
+    client: &HttpClient,
+    url: &str,
+    authorization: Option<&str>,
+) -> Result<Response<Incoming>> {
+    let request = head_request(url, authorization)?;
+
+    send(client, url, request).await
+}
+
+/// Execute a POST with an empty body and return the response whatever its status.
+pub(crate) async fn post_any_status(
+    client: &HttpClient,
+    url: &str,
+    authorization: Option<&str>,
+) -> Result<Response<Incoming>> {
+    let request = post_request(url, authorization)?;
+
+    send(client, url, request).await
+}
+
 /// Execute an authorized PUT with a raw body, returning the response on 2xx.
 pub(crate) async fn put(
     client: &HttpClient,
@@ -94,6 +116,24 @@ fn get_request(
     }
 
     finish_request(builder, authorization, Full::new(Bytes::new()))
+}
+
+/// Build a HEAD request with optional authorization.
+fn head_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
+    finish_request(
+        base_request(Method::HEAD, url),
+        authorization,
+        Full::new(Bytes::new()),
+    )
+}
+
+/// Build a POST request with optional authorization and an empty body.
+fn post_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
+    finish_request(
+        base_request(Method::POST, url),
+        authorization,
+        Full::new(Bytes::new()),
+    )
 }
 
 /// Build a PUT request with optional authorization and a raw body.
@@ -233,6 +273,34 @@ mod tests {
         )
         .await
         .expect_err("request should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::NetworkError(_)));
+    }
+
+    #[tokio::test]
+    async fn head_rejects_invalid_url_before_request() {
+        // ARRANGE
+        let client = build_client();
+
+        // ACT
+        let error = head_any_status(&client, "http://127.0.0.1:5000/has space", None)
+            .await
+            .expect_err("request should fail");
+
+        // ASSERT
+        assert!(matches!(error, KociError::NetworkError(_)));
+    }
+
+    #[tokio::test]
+    async fn post_rejects_invalid_url_before_request() {
+        // ARRANGE
+        let client = build_client();
+
+        // ACT
+        let error = post_any_status(&client, "http://127.0.0.1:5000/has space", None)
+            .await
+            .expect_err("request should fail");
 
         // ASSERT
         assert!(matches!(error, KociError::NetworkError(_)));

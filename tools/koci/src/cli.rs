@@ -11,6 +11,7 @@ use koci::arch::Arch;
 use koci::error;
 use koci::merge;
 use koci::pull;
+use koci::push;
 
 /// Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -69,6 +70,23 @@ enum Command {
 
         #[arg(value_name = "ARCH=REF", required = true)]
         sources: Vec<String>,
+    },
+    Push {
+        /// Image reference to push (e.g. `ghcr.io/org/catalog-core:v1`).
+        #[arg(short, long)]
+        image: String,
+
+        /// Additional tag(s) for the pushed manifest.
+        #[arg(short, long = "tag")]
+        tags: Vec<String>,
+
+        /// Architecture recorded in the image config (default: host).
+        #[arg(short, long)]
+        arch: Option<Arch>,
+
+        /// File(s) to pack into the image, `PATH[:ARCHIVE_PATH]`.
+        #[arg(long = "file", value_name = "PATH[:NAME]", required = true)]
+        files: Vec<String>,
     },
 }
 
@@ -163,6 +181,25 @@ fn run_command(command: Command) -> Result<()> {
                 "Successfully merged {} source(s) into {image}",
                 sources.len()
             );
+
+            Ok(())
+        }
+        Command::Push {
+            image,
+            tags,
+            arch,
+            files,
+        } => {
+            let entries = files
+                .iter()
+                .map(|spec| push::parse_entry(spec))
+                .collect::<error::Result<Vec<_>>>()
+                .context("Failed to parse files")?;
+            let target_arch = arch.unwrap_or(arch::host());
+
+            let pushed = push::files(&image, &tags, &target_arch, &entries)
+                .context("Failed to push image")?;
+            println!("Successfully pushed {image} (manifest {})", pushed.digest);
 
             Ok(())
         }
@@ -380,6 +417,53 @@ mod tests {
                 && annotation == "dev.muak.sizes"
                 && exclude == vec!["lib/modules".to_owned(), "usr/share".to_owned()]
         ));
+    }
+
+    #[test]
+    fn push_subcommand_parses_image_tags_arch_and_files() {
+        // ARRANGE
+        let args = Args::try_parse_from([
+            "koci",
+            "push",
+            "--image",
+            "repo:test",
+            "--tag",
+            "v1",
+            "--arch",
+            "arm64",
+            "--file",
+            "catalog.toml",
+            "--file",
+            "extra.bin:data/extra.bin",
+        ])
+        .expect("parse push args");
+
+        // ACT
+        let command = args.command;
+
+        // ASSERT
+        assert!(matches!(
+            command,
+            Command::Push {
+                image,
+                tags,
+                arch,
+                files,
+            } if image == "repo:test"
+                && tags == vec!["v1".to_owned()]
+                && matches!(arch, Some(Arch::Arm64))
+                && files == vec!["catalog.toml".to_owned(), "extra.bin:data/extra.bin".to_owned()]
+        ));
+    }
+
+    #[test]
+    fn push_requires_at_least_one_file() {
+        // ARRANGE / ACT
+        let error = Args::try_parse_from(["koci", "push", "--image", "repo:test"])
+            .expect_err("push without files should not parse");
+
+        // ASSERT
+        assert!(error.to_string().contains("--file"));
     }
 
     #[test]

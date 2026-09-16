@@ -1,4 +1,4 @@
-//! Integration tests for koci OCI pulling and signing.
+//! Integration tests for koci OCI pulling, pushing, and signing.
 
 extern crate alloc;
 
@@ -19,11 +19,12 @@ mod tests {
     use koci::error::KociError;
     use koci::merge;
     use koci::pull;
+    use koci::push;
     use serde_json::Value;
     use tempfile::TempDir;
 
     use super::fixtures::*;
-    use super::registry::{HttpResponse, MockRegistry, RecordedRequest, get, put};
+    use super::registry::{HttpResponse, MockRegistry, RecordedRequest, get, head, post, put};
 
     fn required_request(registry: &MockRegistry, method: &str, path: &str) -> RecordedRequest {
         match registry
@@ -92,6 +93,39 @@ mod tests {
         for path in paths {
             assert_signed_manifest_has_signature(registry, path);
         }
+    }
+
+    fn assert_descriptor_matches_upload(descriptor: &Value, upload: &RecordedRequest) {
+        let digest = upload
+            .path
+            .split("?digest=")
+            .nth(1)
+            .expect("digest query parameter");
+        assert_eq!(
+            descriptor.get("digest").and_then(Value::as_str),
+            Some(digest)
+        );
+        assert_eq!(
+            descriptor.get("size").and_then(Value::as_u64),
+            Some(u64::try_from(upload.body.len()).expect("size fits u64"))
+        );
+    }
+
+    fn archived_paths(bytes: &[u8]) -> Vec<String> {
+        let mut archive = tar::Archive::new(bytes);
+        let mut names = Vec::new();
+        for entry in archive.entries().expect("iterate layer entries") {
+            names.push(
+                entry
+                    .expect("read layer entry")
+                    .path()
+                    .expect("entry path")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+
+        names
     }
 
     #[test]
@@ -415,6 +449,130 @@ mod tests {
                 .and_then(|annotations| annotations.get("dev.muak.sig"))
                 .and_then(Value::as_str)
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn push_uploads_scratch_image_with_blobs_and_manifest() {
+        // ARRANGE
+        let workspace = TempDir::new().expect("create temp dir");
+        let source = workspace.path().join("catalog.toml");
+        std::fs::write(&source, b"api_version = 1\n").expect("write test file");
+        let registry = MockRegistry::start(HashMap::from([
+            post(
+                "/v2/repo/blobs/uploads/",
+                HttpResponse::accepted("/v2/repo/blobs/uploads/u1"),
+            ),
+            put("/v2/repo/manifests/v1", HttpResponse::ok()),
+        ]))
+        .expect("start mock registry");
+        let entry = push::Entry {
+            path: "catalog.toml".to_owned(),
+            source,
+        };
+
+        // ACT
+        let pushed = push::files(
+            &registry.reference("repo", "v1"),
+            &[],
+            &Arch::Amd64,
+            std::slice::from_ref(&entry),
+        )
+        .expect("push should succeed");
+
+        // ASSERT
+        let puts = registry.puts().expect("read puts");
+        let blob_uploads: Vec<&RecordedRequest> = puts
+            .iter()
+            .filter(|request| {
+                request
+                    .path
+                    .starts_with("/v2/repo/blobs/uploads/u1?digest=")
+            })
+            .collect();
+        assert_eq!(blob_uploads.len(), 2);
+        let config_upload = blob_uploads.first().copied().expect("config blob upload");
+        let layer_upload = blob_uploads.get(1).copied().expect("layer blob upload");
+
+        let manifest = required_request(&registry, "PUT", "/v2/repo/manifests/v1");
+        assert_eq!(pushed.digest, sha256_digest(&manifest.body));
+
+        let parsed: Value = serde_json::from_slice(&manifest.body).expect("parse manifest");
+        assert_eq!(
+            parsed.get("mediaType").and_then(Value::as_str),
+            Some("application/vnd.oci.image.manifest.v1+json")
+        );
+
+        let config = parsed.get("config").expect("config descriptor");
+        assert_descriptor_matches_upload(config, config_upload);
+        let layer = parsed
+            .get("layers")
+            .and_then(Value::as_array)
+            .and_then(|layers| layers.first())
+            .expect("layer descriptor");
+        assert_descriptor_matches_upload(layer, layer_upload);
+
+        let layer_names = archived_paths(&layer_upload.body);
+        assert_eq!(layer_names, vec!["catalog.toml"]);
+    }
+
+    #[test]
+    fn push_skips_blobs_the_registry_already_has() {
+        // ARRANGE
+        let workspace = TempDir::new().expect("create temp dir");
+        let source = workspace.path().join("catalog.toml");
+        std::fs::write(&source, b"api_version = 1\n").expect("write test file");
+        let entry = push::Entry {
+            path: "catalog.toml".to_owned(),
+            source,
+        };
+        let first = MockRegistry::start(HashMap::from([
+            post(
+                "/v2/repo/blobs/uploads/",
+                HttpResponse::accepted("/v2/repo/blobs/uploads/u1"),
+            ),
+            put("/v2/repo/manifests/v1", HttpResponse::ok()),
+        ]))
+        .expect("start first mock registry");
+        push::files(
+            &first.reference("repo", "v1"),
+            &[],
+            &Arch::Amd64,
+            std::slice::from_ref(&entry),
+        )
+        .expect("first push should succeed");
+
+        let existing = first
+            .puts()
+            .expect("read puts")
+            .iter()
+            .filter_map(|request| request.path.split("?digest=").nth(1))
+            .map(|digest| head(format!("/v2/repo/blobs/{digest}"), HttpResponse::ok()))
+            .collect::<Vec<_>>();
+        let second =
+            MockRegistry::start(existing.into_iter().collect()).expect("start second registry");
+
+        // ACT
+        let pushed = push::files(
+            &second.reference("repo", "v1"),
+            &[],
+            &Arch::Amd64,
+            std::slice::from_ref(&entry),
+        )
+        .expect("re-push should succeed");
+
+        // ASSERT
+        assert!(
+            second
+                .request("POST", "/v2/repo/blobs/uploads/")
+                .expect("read requests")
+                .is_none()
+        );
+        let puts = second.puts().expect("read puts");
+        assert_eq!(puts.len(), 1);
+        assert_eq!(
+            sha256_digest(&puts.first().expect("manifest put").body),
+            pushed.digest
         );
     }
 

@@ -11,5 +11,6 @@ pub mod error;
 mod image;
 pub mod merge;
 pub mod pull;
+pub mod push;
 mod registry;
 mod runtime;
