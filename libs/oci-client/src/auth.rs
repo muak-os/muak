@@ -6,20 +6,17 @@ use hyper::body::Incoming;
 use hyper::http::StatusCode;
 use serde::Deserialize;
 
-use crate::error::{KociError, Result};
-use crate::registry::challenge::Challenge;
-use crate::registry::http::{self, HttpClient};
+use crate::challenge::Challenge;
+use crate::error::{ClientError, Result};
+use crate::http::{self, Transport};
 
-/// Environment variable carrying the registry username.
 const USERNAME_ENV: &str = "KOCI_REGISTRY_USERNAME";
-/// Environment variable carrying the registry password or token.
 const PASSWORD_ENV: &str = "KOCI_REGISTRY_PASSWORD";
-/// `WWW-Authenticate` response header name.
 const WWW_AUTHENTICATE: &str = "WWW-Authenticate";
 
 /// Registry access level to request from the token endpoint.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Access {
+pub enum Access {
     /// Read-only access to one repository.
     Pull,
     /// Read and write access to one repository.
@@ -38,14 +35,15 @@ impl Access {
 
 /// Registry credentials for the token endpoint's Basic authentication.
 #[derive(Clone, Debug)]
-pub(crate) struct Credentials {
+pub struct Credentials {
     username: String,
     password: String,
 }
 
 impl Credentials {
     /// Create credentials from a username and a password or token.
-    pub(crate) fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
+    #[must_use]
+    pub fn new<U: Into<String>, P: Into<String>>(username: U, password: P) -> Self {
         Self {
             username: username.into(),
             password: password.into(),
@@ -53,14 +51,14 @@ impl Credentials {
     }
 
     /// Read credentials from [`USERNAME_ENV`] and [`PASSWORD_ENV`].
-    pub(crate) fn from_env() -> Option<Self> {
+    #[must_use]
+    pub fn from_env() -> Option<Self> {
         Self::from_parts(
             std::env::var(USERNAME_ENV).ok().as_deref(),
             std::env::var(PASSWORD_ENV).ok().as_deref(),
         )
     }
 
-    /// Build credentials from optional raw values, ignoring empty ones.
     fn from_parts(username: Option<&str>, password: Option<&str>) -> Option<Self> {
         Some(Self::new(
             username.filter(|value| !value.is_empty())?,
@@ -68,7 +66,6 @@ impl Credentials {
         ))
     }
 
-    /// HTTP Basic authorization header value for these credentials.
     fn basic_header(&self) -> String {
         let encoded =
             Base64::encode_string(format!("{}:{}", self.username, self.password).as_bytes());
@@ -80,10 +77,10 @@ impl Credentials {
 ///
 /// # Errors
 ///
-/// Returns [`KociError::AuthError`] when the registry challenges requests and
-/// the challenge cannot be answered.
-pub(crate) async fn authenticate(
-    client: &HttpClient,
+/// Returns an [`ClientError::Auth`] error when the registry challenges requests
+/// and the challenge cannot be answered.
+pub async fn authenticate(
+    client: &Transport,
     scheme: &str,
     registry: &str,
     name: &str,
@@ -125,7 +122,6 @@ pub(crate) async fn authenticate(
     }
 }
 
-/// Pick the best parsable challenge from a `401` response, preferring Bearer.
 fn pick_challenge(response: &Response<Incoming>, registry: &str) -> Result<Challenge> {
     let challenges: Vec<Challenge> = response
         .headers()
@@ -148,9 +144,8 @@ fn pick_challenge(response: &Response<Incoming>, registry: &str) -> Result<Chall
         })
 }
 
-/// Fetch a scoped bearer token from the challenge's token realm.
 async fn bearer_token(
-    client: &HttpClient,
+    client: &Transport,
     challenge: &Challenge,
     name: &str,
     access: Access,
@@ -167,7 +162,6 @@ async fn bearer_token(
     parse_token_response(&body, registry)
 }
 
-/// Assemble the token endpoint URL with the repository scope and service.
 fn bearer_token_url(
     challenge: &Challenge,
     name: &str,
@@ -188,14 +182,12 @@ fn bearer_token_url(
     Ok(url)
 }
 
-/// Token endpoint response per the distribution spec.
 #[derive(Deserialize)]
 struct TokenResponse {
     token: Option<String>,
     access_token: Option<String>,
 }
 
-/// Extract the `Authorization` header value from a token endpoint response.
 fn parse_token_response(body: &[u8], registry: &str) -> Result<String> {
     let text = core::str::from_utf8(body).map_err(|error| {
         auth_error(
@@ -217,15 +209,13 @@ fn parse_token_response(body: &[u8], registry: &str) -> Result<String> {
         .ok_or_else(|| auth_error(registry, "token endpoint response carries no token"))
 }
 
-/// Build an [`KociError::AuthError`] for a registry.
-fn auth_error(registry: &str, details: impl core::fmt::Display) -> KociError {
-    KociError::AuthError {
+fn auth_error(registry: &str, details: impl core::fmt::Display) -> ClientError {
+    ClientError::Auth {
         registry: registry.to_owned(),
         details: details.to_string(),
     }
 }
 
-/// Percent-encode a query parameter value, leaving RFC 3986 unreserved bytes.
 fn percent_encode(value: &str) -> String {
     let mut encoded = String::with_capacity(value.len());
     for byte in value.bytes() {
@@ -235,7 +225,6 @@ fn percent_encode(value: &str) -> String {
     encoded
 }
 
-/// Append one byte to `encoded`, percent-encoded when not RFC 3986 unreserved.
 fn encode_byte(byte: u8, encoded: &mut String) {
     const HEX_DIGITS: &[char; 16] = &[
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
@@ -265,7 +254,7 @@ mod tests {
     use oci::reference::Image;
 
     use super::*;
-    use crate::registry::http::build_client;
+    use crate::http::build_client;
 
     const BASIC_CHALLENGE: &str = "WWW-Authenticate: Basic realm=\"registry\"";
 
@@ -416,7 +405,7 @@ mod tests {
         // ACT / ASSERT
         let error = bearer_token_url(&challenge, "repo", Access::Pull, "ghcr.io")
             .expect_err("missing realm should fail");
-        assert!(matches!(error, KociError::AuthError { .. }));
+        assert!(matches!(error, ClientError::Auth { .. }));
     }
 
     #[test]
@@ -437,15 +426,15 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         let error = parse_token_response(br#"{"expires_in":300}"#, "ghcr.io")
             .expect_err("missing token should fail");
-        assert!(matches!(error, KociError::AuthError { .. }));
+        assert!(matches!(error, ClientError::Auth { .. }));
 
         let error =
             parse_token_response(b"not json", "ghcr.io").expect_err("invalid json should fail");
-        assert!(matches!(error, KociError::AuthError { .. }));
+        assert!(matches!(error, ClientError::Auth { .. }));
 
         let error =
             parse_token_response(&[0xff, 0xfe], "ghcr.io").expect_err("non-utf8 body should fail");
-        assert!(matches!(error, KociError::AuthError { .. }));
+        assert!(matches!(error, ClientError::Auth { .. }));
     }
 
     #[tokio::test]
@@ -518,7 +507,7 @@ mod tests {
             .expect_err("missing credentials should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::AuthError { .. }));
+        assert!(matches!(error, ClientError::Auth { .. }));
     }
 
     #[tokio::test]
@@ -532,7 +521,7 @@ mod tests {
             .expect_err("missing challenge should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::AuthError { .. }));
+        assert!(matches!(error, ClientError::Auth { .. }));
     }
 
     #[tokio::test]
@@ -550,7 +539,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            matches!(error, KociError::AuthError { details, .. } if details.contains("failed to fetch bearer token"))
+            matches!(error, ClientError::Auth { details, .. } if details.contains("failed to fetch bearer token"))
         );
     }
 }

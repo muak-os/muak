@@ -2,7 +2,7 @@
 
 /// A single `WWW-Authenticate` challenge: an auth scheme plus parameters.
 #[derive(Clone)]
-pub(crate) struct Challenge {
+pub struct Challenge {
     /// Auth scheme, lowercased (`bearer`, `basic`, ...).
     pub(crate) scheme: String,
     /// Challenge parameters such as `realm`, `service`, and `scope`.
@@ -11,7 +11,8 @@ pub(crate) struct Challenge {
 
 impl Challenge {
     /// Parse one `WWW-Authenticate` header value into a [`Challenge`].
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
         let (scheme, params) = value.trim().split_once(char::is_whitespace)?;
         let scheme = scheme.trim().to_ascii_lowercase();
         if scheme.is_empty() {
@@ -24,7 +25,8 @@ impl Challenge {
     }
 
     /// Look up a challenge parameter by key.
-    pub(crate) fn param(&self, key: &str) -> Option<&str> {
+    #[must_use]
+    pub fn param(&self, key: &str) -> Option<&str> {
         self.params
             .iter()
             .find(|param| param.0 == key)
@@ -32,7 +34,6 @@ impl Challenge {
     }
 }
 
-/// Parse one `key="value"` challenge parameter.
 fn parse_param(pair: &str) -> Option<(String, String)> {
     let (key, value) = pair.split_once('=')?;
     let key = key.trim();

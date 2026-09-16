@@ -3,11 +3,12 @@
 use alloc::collections::BTreeMap;
 
 use oci::arch::Arch;
+use oci_client::auth::Access;
+use oci_client::client::Client;
 
 use crate::annotations::Verification;
 use crate::error::Result;
-use crate::registry::auth::Access;
-use crate::registry::session::Session;
+use crate::pull::cache::Store;
 use crate::runtime;
 
 pub mod cache;
@@ -18,9 +19,24 @@ pub(crate) mod paths;
 pub(crate) mod resolve;
 pub(crate) mod scan;
 
+/// Registry client plus local blob cache for one pull session.
+pub(crate) struct Session {
+    /// Local blob and tag-manifest cache.
+    pub(crate) cache: Store,
+    /// Authenticated registry client.
+    pub(crate) client: Client,
+}
+
+impl Session {
+    pub(crate) async fn new(reference: &str, access: Access) -> Result<Self> {
+        Ok(Self {
+            cache: Store::new(),
+            client: Client::new(reference, access, None).await?,
+        })
+    }
+}
+
 /// Fetch the manifest annotations of the platform manifest matching `arch`.
-///
-/// Index-aware, cache-aware, and signature-verified. No blobs are downloaded.
 ///
 /// # Errors
 ///
@@ -32,7 +48,7 @@ pub fn annotations(
     verification: Option<&Verification<'_>>,
 ) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
-        let session = Session::new(reference, Access::Pull, None).await?;
+        let session = Session::new(reference, Access::Pull).await?;
         let json = resolve::platform_manifest_json(&session, arch, verification).await?;
         let parsed = oci::manifest::parse(&json)?;
 

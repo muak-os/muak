@@ -10,27 +10,32 @@ use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use oci::digest::Verifier;
-use rustls::{ClientConfig, RootCertStore};
 use tokio::time::timeout;
 
-use crate::error::{KociError, Result};
-use crate::registry::USER_AGENT;
-use crate::registry::redirect;
+use crate::error::{ClientError, Result};
+use crate::redirect;
 
 const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
 
-/// HTTPS connector backed by rustls that also supports plain HTTP.
-type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3";
 
-/// Cloneable HTTP/HTTPS client for all registries.
-pub(crate) type HttpClient = Client<HttpsConnector, Full<Bytes>>;
+#[cfg(feature = "https")]
+type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
+
+#[cfg(not(feature = "https"))]
+type Connector = HttpConnector;
+
+/// Cloneable HTTP client for all registries.
+pub type Transport = Client<Connector, Full<Bytes>>;
 
 /// Build a reusable client supporting both HTTPS and plain HTTP.
-pub(crate) fn build_client() -> HttpClient {
-    let mut root_store = RootCertStore::empty();
+#[cfg(feature = "https")]
+#[must_use]
+pub fn build_client() -> Transport {
+    let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-    let tls_config = ClientConfig::builder()
+    let tls_config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
 
@@ -44,9 +49,20 @@ pub(crate) fn build_client() -> HttpClient {
     Client::builder(TokioExecutor::new()).build(connector)
 }
 
+/// Build a reusable plain-HTTP client.
+#[cfg(not(feature = "https"))]
+#[must_use]
+pub fn build_client() -> Transport {
+    Client::builder(TokioExecutor::new()).build(HttpConnector::new())
+}
+
 /// Execute an authorized GET, returning the response on 2xx.
-pub(crate) async fn get(
-    client: &HttpClient,
+///
+/// # Errors
+///
+/// Returns an error when the request fails or the registry answers non-2xx.
+pub async fn get(
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
@@ -57,8 +73,12 @@ pub(crate) async fn get(
 }
 
 /// Execute a GET and return the response whatever its status.
-pub(crate) async fn get_any_status(
-    client: &HttpClient,
+///
+/// # Errors
+///
+/// Returns an error when the request cannot be built or sent.
+pub async fn get_any_status(
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
@@ -69,8 +89,12 @@ pub(crate) async fn get_any_status(
 }
 
 /// Execute a HEAD and return the response whatever its status.
-pub(crate) async fn head_any_status(
-    client: &HttpClient,
+///
+/// # Errors
+///
+/// Returns an error when the request cannot be built or sent.
+pub async fn head_any_status(
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
 ) -> Result<Response<Incoming>> {
@@ -80,8 +104,12 @@ pub(crate) async fn head_any_status(
 }
 
 /// Execute a POST with an empty body and return the response whatever its status.
-pub(crate) async fn post_any_status(
-    client: &HttpClient,
+///
+/// # Errors
+///
+/// Returns an error when the request cannot be built or sent.
+pub async fn post_any_status(
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
 ) -> Result<Response<Incoming>> {
@@ -91,8 +119,12 @@ pub(crate) async fn post_any_status(
 }
 
 /// Execute an authorized PUT with a raw body, returning the response on 2xx.
-pub(crate) async fn put(
-    client: &HttpClient,
+///
+/// # Errors
+///
+/// Returns an error when the request fails or the registry answers non-2xx.
+pub async fn put(
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
     content_type: &str,
@@ -104,7 +136,53 @@ pub(crate) async fn put(
     ensure_success(url, response)
 }
 
-/// Build a GET request with optional authorization and Accept headers.
+/// Fully collect an HTTP response body into [`Bytes`].
+///
+/// # Errors
+///
+/// Returns an error when reading the body times out or fails.
+pub async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
+    timeout(HTTP_TIMEOUT, resp.into_body().collect())
+        .await
+        .map_err(|error| {
+            ClientError::Network(format!(
+                "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
+            ))
+        })?
+        .map(http_body_util::Collected::to_bytes)
+        .map_err(|error| ClientError::Network(format!("Failed to read response body: {error}")))
+}
+
+/// Stream an HTTP response body into memory while computing a digest.
+///
+/// # Errors
+///
+/// Returns an error when reading the body times out or fails.
+pub async fn stream_body_to_vec(
+    resp: Response<Incoming>,
+    digest: &mut Verifier,
+) -> Result<Vec<u8>> {
+    let mut body = resp.into_body();
+    let mut bytes = Vec::new();
+
+    while let Some(frame) = timeout(HTTP_TIMEOUT, body.frame()).await.map_err(|error| {
+        ClientError::Network(format!(
+            "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
+        ))
+    })? {
+        let frame = frame.map_err(|error| {
+            ClientError::Network(format!("Failed to read response body: {error}"))
+        })?;
+
+        if let Some(data) = frame.data_ref() {
+            bytes.extend_from_slice(data);
+            digest.update(data);
+        }
+    }
+
+    Ok(bytes)
+}
+
 fn get_request(
     url: &str,
     authorization: Option<&str>,
@@ -118,7 +196,6 @@ fn get_request(
     finish_request(builder, authorization, Full::new(Bytes::new()))
 }
 
-/// Build a HEAD request with optional authorization.
 fn head_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
     finish_request(
         base_request(Method::HEAD, url),
@@ -127,7 +204,6 @@ fn head_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<B
     )
 }
 
-/// Build a POST request with optional authorization and an empty body.
 fn post_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
     finish_request(
         base_request(Method::POST, url),
@@ -136,7 +212,6 @@ fn post_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<B
     )
 }
 
-/// Build a PUT request with optional authorization and a raw body.
 fn put_request(
     url: &str,
     authorization: Option<&str>,
@@ -148,7 +223,6 @@ fn put_request(
     finish_request(builder, authorization, Full::new(body))
 }
 
-/// Start a request builder with method, URL, and User-Agent set.
 fn base_request(method: Method, url: &str) -> Builder {
     Request::builder()
         .method(method)
@@ -156,7 +230,6 @@ fn base_request(method: Method, url: &str) -> Builder {
         .header("User-Agent", USER_AGENT)
 }
 
-/// Attach optional authorization and a body, then validate the request.
 fn finish_request(
     builder: Builder,
     authorization: Option<&str>,
@@ -169,75 +242,34 @@ fn finish_request(
 
     builder
         .body(body)
-        .map_err(|error| KociError::NetworkError(format!("Failed to build request: {error}")))
+        .map_err(|error| ClientError::Network(format!("Failed to build request: {error}")))
 }
 
-/// Dispatch a pre-built request, ignoring the response status.
 async fn send(
-    client: &HttpClient,
+    client: &Transport,
     url: &str,
     request: Request<Full<Bytes>>,
 ) -> Result<Response<Incoming>> {
     timeout(HTTP_TIMEOUT, client.request(request))
         .await
         .map_err(|error| {
-            KociError::NetworkError(format!(
+            ClientError::Network(format!(
                 "HTTP request timed out after {HTTP_TIMEOUT:?} for URL: {url}: {error}"
             ))
         })?
-        .map_err(|error| KociError::NetworkError(format!("HTTP request failed: {error}")))
+        .map_err(|error| ClientError::Network(format!("HTTP request failed: {error}")))
 }
 
-/// Map a non-2xx response to a download error.
 fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<Incoming>> {
     if response.status().is_success() {
         Ok(response)
     } else {
-        Err(KociError::DownloadError(format!(
+        Err(ClientError::Download(format!(
             "HTTP {} for URL: {}",
             response.status(),
             url
         )))
     }
-}
-
-/// Fully collect an HTTP response body into [`Bytes`].
-pub(crate) async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
-    timeout(HTTP_TIMEOUT, resp.into_body().collect())
-        .await
-        .map_err(|error| {
-            KociError::NetworkError(format!(
-                "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
-            ))
-        })?
-        .map(http_body_util::Collected::to_bytes)
-        .map_err(|error| KociError::NetworkError(format!("Failed to read response body: {error}")))
-}
-
-/// Stream an HTTP response body into memory while computing a digest.
-pub(crate) async fn stream_body_to_vec(
-    resp: Response<Incoming>,
-    digest: &mut Verifier,
-) -> Result<Vec<u8>> {
-    let mut body = resp.into_body();
-    let mut bytes = Vec::new();
-
-    while let Some(frame) = timeout(HTTP_TIMEOUT, body.frame()).await.map_err(|error| {
-        KociError::NetworkError(format!(
-            "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
-        ))
-    })? {
-        let frame = frame.map_err(|error| {
-            KociError::NetworkError(format!("Failed to read response body: {error}"))
-        })?;
-
-        if let Some(data) = frame.data_ref() {
-            bytes.extend_from_slice(data);
-            digest.update(data);
-        }
-    }
-
-    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -255,7 +287,7 @@ mod tests {
             .expect_err("request should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, ClientError::Network(_)));
     }
 
     #[tokio::test]
@@ -275,7 +307,7 @@ mod tests {
         .expect_err("request should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, ClientError::Network(_)));
     }
 
     #[tokio::test]
@@ -289,7 +321,7 @@ mod tests {
             .expect_err("request should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, ClientError::Network(_)));
     }
 
     #[tokio::test]
@@ -303,7 +335,7 @@ mod tests {
             .expect_err("request should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, ClientError::Network(_)));
     }
 
     #[tokio::test]
@@ -322,6 +354,6 @@ mod tests {
         .expect_err("request should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, ClientError::Network(_)));
     }
 }

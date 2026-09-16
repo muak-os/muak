@@ -21,6 +21,7 @@ mod tests {
     use koci::push;
     use oci::arch::Arch;
     use oci::error::OciError;
+    use oci_client::error::ClientError;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -1065,7 +1066,7 @@ mod tests {
         let error = expect_stream_error(&registry.reference("repo", "test"));
 
         // ASSERT
-        assert!(matches!(error, KociError::DownloadError(_)));
+        assert!(matches!(error, KociError::Client(ClientError::Download(_))));
     }
 
     #[test]
@@ -1192,7 +1193,7 @@ mod tests {
         .expect_err("stream should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::NetworkError(_)));
+        assert!(matches!(error, KociError::Client(ClientError::Network(_))));
     }
 
     #[test]

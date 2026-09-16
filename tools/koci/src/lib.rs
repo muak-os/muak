@@ -9,5 +9,4 @@ pub mod error;
 pub mod merge;
 pub mod pull;
 pub mod push;
-mod registry;
 mod runtime;

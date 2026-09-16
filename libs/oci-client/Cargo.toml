@@ -1,0 +1,41 @@
+[package]
+name = "oci-client"
+description = "OCI distribution-spec registry client"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["https"]
+https = ["dep:hyper-rustls", "dep:rustls", "dep:webpki-roots"]
+
+[dependencies]
+# Asynchronous
+tokio = { workspace = true, features = ["time"] }
+
+# Encoding
+base64ct = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# HTTP
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+hyper-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
+
+# Internal
+oci = { workspace = true }
+
+[lints]
+workspace = true

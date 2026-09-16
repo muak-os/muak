@@ -1064,24 +1064,19 @@ version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64ct",
+ "bytes",
  "clap",
  "flate2",
  "getrandom 0.4.3",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
  "oci",
+ "oci-client",
  "p256",
- "rustls",
- "serde",
  "serde_json",
  "signature",
  "tar",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
- "webpki-roots",
 ]
 
 [[package]]
@@ -1468,6 +1463,24 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "oci-client"
+version = "1.0.0-beta"
+dependencies = [
+ "base64ct",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "oci",
+ "rustls",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "webpki-roots",
 ]
 
 [[package]]

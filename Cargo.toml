@@ -37,6 +37,7 @@ members = [
     "libs/granola-macros",
     "libs/netlib",
     "libs/oci",
+    "libs/oci-client",
     "libs/uki",
 ]
 resolver = "3"
@@ -74,6 +75,7 @@ kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
 oci = { path = "libs/oci" }
+oci-client = { path = "libs/oci-client" }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
@@ -153,6 +155,7 @@ rustix = { version = "1.1", default-features = false, features = ["std", "fs", "
 uefi = "0.40"
 
 ## Utilities
+bytes = "1.12"
 object = { version = "0.39", default-features = false, features = ["read", "pe"] }
 uuid = { version = "1.26", default-features = false, features = ["v4", "v7"] }
 

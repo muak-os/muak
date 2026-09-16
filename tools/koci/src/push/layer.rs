@@ -2,7 +2,7 @@
 
 use std::fs::File;
 
-use hyper::body::Bytes;
+use bytes::Bytes;
 use oci::digest::sha256_hex;
 use tar::{Builder, Header};
 

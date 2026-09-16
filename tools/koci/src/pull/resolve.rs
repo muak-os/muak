@@ -2,12 +2,12 @@
 
 use oci::arch::Arch;
 use oci::model::Descriptor;
+use oci_client::manifest;
 
+use super::Session;
 use crate::annotations::Verification;
 use crate::annotations::signature;
 use crate::error::Result;
-use crate::registry::manifest;
-use crate::registry::session::Session;
 
 /// Resolve an image reference to the ordered list of layers for the target platform.
 pub(crate) async fn layers(
@@ -27,7 +27,8 @@ pub(crate) async fn platform_manifest_json(
     arch: &Arch,
     verification: Option<&Verification<'_>>,
 ) -> Result<String> {
-    let manifest_json = fetch_cached_manifest(session, &session.image.manifest_ref).await?;
+    let manifest_json =
+        fetch_cached_manifest(session, &session.client.image().manifest_ref).await?;
     let manifest = oci::manifest::parse(&manifest_json)?;
     signature::check_signature(&manifest_json, verification)?;
 
@@ -44,15 +45,17 @@ pub(crate) async fn platform_manifest_json(
 
 /// Fetch a manifest, checking the local cache before hitting the network.
 async fn fetch_cached_manifest(session: &Session, manifest_ref: &str) -> Result<String> {
-    if let Some(cached) = session.cache.get_manifest(&session.image, manifest_ref) {
+    if let Some(cached) = session
+        .cache
+        .get_manifest(session.client.image(), manifest_ref)
+    {
         return Ok(cached);
     }
 
-    let url = manifest::build_url(&session.image, manifest_ref);
-    let json = manifest::fetch(&session.client, &url, session.authorization()).await?;
+    let json = manifest::fetch(&session.client, manifest_ref).await?;
     session
         .cache
-        .put_manifest(&session.image, manifest_ref, &json);
+        .put_manifest(session.client.image(), manifest_ref, &json);
 
     Ok(json)
 }

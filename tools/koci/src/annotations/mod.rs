@@ -2,16 +2,16 @@
 
 pub(crate) mod signature;
 
-use hyper::body::Bytes;
+use bytes::Bytes;
 use oci::digest::sha256_hex;
 use oci::media::OCI_IMAGE_INDEX_MEDIA_TYPE;
+use oci_client::auth::Access;
+use oci_client::manifest;
 use p256::ecdsa::SigningKey;
 
 use crate::error::{KociError, Result};
 use crate::pull;
-use crate::registry::auth::Access;
-use crate::registry::manifest;
-use crate::registry::session::Session;
+use crate::pull::Session;
 use crate::runtime;
 
 /// Signature verification requirements for pulls.
@@ -61,14 +61,20 @@ pub fn sizes(reference: &str, annotation: &str, exclude: &[String]) -> Result<()
 /// changes bytes, so it is pushed under its NEW digest and the index
 /// descriptors are repointed before the index is pushed back under its tag.
 async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) -> Result<()> {
-    let session = Session::new(reference, Access::PullPush, None).await?;
-    let root_json = fetch_manifest(&session, &session.image.manifest_ref).await?;
+    let session = pull::Session::new(reference, Access::PullPush).await?;
+    let root_json = manifest::fetch(&session.client, &session.client.image().manifest_ref).await?;
     let parsed = oci::manifest::parse(&root_json)?;
 
     if parsed.manifests.is_empty() {
         let (body, content_type) = mutation.transform(&session, &root_json).await?;
 
-        return manifest::put(&session, &session.image.manifest_ref, &content_type, body).await;
+        return Ok(manifest::put(
+            &session.client,
+            &session.client.image().manifest_ref,
+            &content_type,
+            body,
+        )
+        .await?);
     }
 
     let mut index: serde_json::Value = serde_json::from_str(&root_json).map_err(|error| {
@@ -80,10 +86,10 @@ async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) ->
         .ok_or_else(|| KociError::InvalidOciFormat("Index manifests is not an array".to_owned()))?;
 
     for (entry, descriptor) in entries.iter_mut().zip(&parsed.manifests) {
-        let platform_json = fetch_manifest(&session, &descriptor.digest).await?;
+        let platform_json = manifest::fetch(&session.client, &descriptor.digest).await?;
         let (body, content_type) = mutation.transform(&session, &platform_json).await?;
         let digest = format!("sha256:{}", sha256_hex(&body));
-        manifest::put(&session, &digest, &content_type, body.clone()).await?;
+        manifest::put(&session.client, &digest, &content_type, body.clone()).await?;
         entry["digest"] = serde_json::Value::String(digest);
         entry["size"] = serde_json::Value::from(body.len());
     }
@@ -101,7 +107,15 @@ async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) ->
         (Bytes::from(serde_json::to_vec(&index)?), content_type)
     };
 
-    manifest::put(&session, &session.image.manifest_ref, &content_type, body).await
+    manifest::put(
+        &session.client,
+        &session.client.image().manifest_ref,
+        &content_type,
+        body,
+    )
+    .await?;
+
+    Ok(())
 }
 
 /// One manifest rewrite.
@@ -139,12 +153,6 @@ impl Mutation<'_> {
             }
         }
     }
-}
-
-async fn fetch_manifest(session: &Session, manifest_ref: &str) -> Result<String> {
-    let url = manifest::build_url(&session.image, manifest_ref);
-
-    manifest::fetch(&session.client, &url, session.authorization()).await
 }
 
 #[cfg(test)]

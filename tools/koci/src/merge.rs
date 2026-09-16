@@ -1,8 +1,6 @@
 //! Merging per-platform manifests into a multi-arch OCI image index.
 
-use hyper::Response;
-use hyper::body::Bytes;
-use hyper::http::header::CONTENT_TYPE;
+use bytes::Bytes;
 use oci::arch::Arch;
 use oci::digest::sha256_hex;
 use oci::media::{
@@ -10,12 +8,12 @@ use oci::media::{
     OCI_MANIFEST_ACCEPT_HEADERS, OCI_MANIFEST_MEDIA_TYPE,
 };
 use oci::model::{Descriptor, Platform};
+use oci_client::auth::Access;
+use oci_client::client::Client;
+use oci_client::http;
+use oci_client::manifest;
 
 use crate::error::{KociError, Result};
-use crate::registry::auth::Access;
-use crate::registry::http;
-use crate::registry::manifest;
-use crate::registry::session::Session;
 use crate::runtime;
 
 /// One per-platform source of a merged index.
@@ -74,15 +72,15 @@ async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result
     }
     validate_platforms(sources)?;
 
-    let session = Session::new(image, Access::PullPush, None).await?;
+    let client = Client::new(image, Access::PullPush, None).await?;
     let mut descriptors = Vec::with_capacity(sources.len());
     for source in sources {
-        descriptors.push(resolve_descriptor(&session, source).await?);
+        descriptors.push(resolve_descriptor(&client, source).await?);
     }
 
     let index = build_index(&descriptors)?;
     for tag in tags {
-        manifest::put(&session, tag, OCI_IMAGE_INDEX_MEDIA_TYPE, index.clone()).await?;
+        manifest::put(&client, tag, OCI_IMAGE_INDEX_MEDIA_TYPE, index.clone()).await?;
         eprintln!(
             "Merged {} manifest(s) into {image}:{tag}",
             descriptors.len()
@@ -110,16 +108,20 @@ fn validate_platforms(sources: &[Source]) -> Result<()> {
 }
 
 /// Fetch one source manifest and describe it for the index.
-async fn resolve_descriptor(session: &Session, source: &Source) -> Result<Descriptor> {
-    let url = manifest::build_url(&session.image, &source.reference);
+async fn resolve_descriptor(client: &Client, source: &Source) -> Result<Descriptor> {
+    let url = manifest::build_url(client.image(), &source.reference);
     let resp = http::get(
-        &session.client,
+        client.http(),
         &url,
-        session.authorization(),
+        client.authorization(),
         OCI_MANIFEST_ACCEPT_HEADERS,
     )
     .await?;
-    let media_type = response_media_type(&resp)?;
+    let media_type = validate_media_type(
+        resp.headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+    )?;
     let body = http::collect_body(resp).await?;
     let digest = verify_digest(&source.reference, &body)?;
 
@@ -134,13 +136,9 @@ async fn resolve_descriptor(session: &Session, source: &Source) -> Result<Descri
     })
 }
 
-/// Extract and validate the manifest media type of a response.
-fn response_media_type<B>(resp: &Response<B>) -> Result<String> {
-    let media_type = resp
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or(OCI_MANIFEST_MEDIA_TYPE);
+/// Validate the manifest media type of a source response, defaulting to OCI.
+fn validate_media_type(media_type: Option<&str>) -> Result<String> {
+    let media_type = media_type.unwrap_or(OCI_MANIFEST_MEDIA_TYPE);
 
     match media_type {
         OCI_MANIFEST_MEDIA_TYPE | DOCKER_MANIFEST_MEDIA_TYPE => Ok(media_type.to_owned()),
@@ -256,26 +254,19 @@ mod tests {
     }
 
     #[test]
-    fn response_media_type_accepts_image_manifests_only() {
-        // ARRANGE
-        let manifest = Response::builder()
-            .header(CONTENT_TYPE, OCI_MANIFEST_MEDIA_TYPE)
-            .body(())
-            .expect("build response");
-        let index = Response::builder()
-            .header(CONTENT_TYPE, OCI_IMAGE_INDEX_MEDIA_TYPE)
-            .body(())
-            .expect("build response");
-        let untyped = Response::builder().body(()).expect("build response");
-
-        // ACT / ASSERT
+    fn validate_media_type_accepts_image_manifests_only() {
+        // ARRANGE / ACT / ASSERT
         assert_eq!(
-            response_media_type(&manifest).expect("image manifests are accepted"),
+            validate_media_type(Some(OCI_MANIFEST_MEDIA_TYPE))
+                .expect("image manifests are accepted"),
             OCI_MANIFEST_MEDIA_TYPE
         );
-        assert!(response_media_type(&index).is_err(), "indexes are rejected");
+        assert!(
+            validate_media_type(Some(OCI_IMAGE_INDEX_MEDIA_TYPE)).is_err(),
+            "indexes are rejected"
+        );
         assert_eq!(
-            response_media_type(&untyped).expect("missing content type falls back to OCI"),
+            validate_media_type(None).expect("missing content type falls back to OCI"),
             OCI_MANIFEST_MEDIA_TYPE
         );
     }

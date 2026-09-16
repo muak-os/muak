@@ -1,57 +1,64 @@
-//! OCI blob upload per the distribution registry specification.
+//! Registry blob operations per the distribution specification.
 
 use hyper::body::Bytes;
 use hyper::http::StatusCode;
 use hyper::http::header::LOCATION;
+use oci::reference::Image;
 
-use crate::error::{KociError, Result};
-use crate::registry::http;
-use crate::registry::session::Session;
+use crate::client::Client;
+use crate::error::{ClientError, Result};
+use crate::http;
 
-/// Upload a blob unless the registry already holds it.
+/// Build the blob URL for a given image reference and digest.
+#[must_use]
+pub fn build_url(image: &Image, digest: &str) -> String {
+    format!(
+        "{}://{}/v2/{}/blobs/{}",
+        image.scheme(),
+        image.registry,
+        image.name,
+        digest
+    )
+}
+
+/// Check whether the registry already holds a blob.
 ///
 /// # Errors
 ///
-/// Returns an error when the existence check, the session start, or the final PUT fails.
-pub(crate) async fn blob(session: &Session, digest: &str, body: Bytes) -> Result<()> {
-    if exists(session, digest).await? {
-        eprintln!("Blob {digest} already in registry; skipping upload");
-
-        return Ok(());
-    }
-
-    let location = start(session).await?;
-    finish(session, &location, digest, body).await
-}
-
-async fn exists(session: &Session, digest: &str) -> Result<bool> {
-    let url = format!(
-        "{}://{}/v2/{}/blobs/{}",
-        session.image.scheme(),
-        session.image.registry,
-        session.image.name,
-        digest
-    );
-    let response = http::head_any_status(&session.client, &url, session.authorization()).await?;
+/// Returns an error when the HEAD request fails or answers an unexpected status.
+pub async fn exists(client: &Client, digest: &str) -> Result<bool> {
+    let url = build_url(client.image(), digest);
+    let response = http::head_any_status(client.http(), &url, client.authorization()).await?;
     match response.status() {
         StatusCode::OK => Ok(true),
         StatusCode::NOT_FOUND => Ok(false),
-        status => Err(push_error(format!(
+        status => Err(ClientError::Push(format!(
             "blob HEAD returned HTTP {status} for {url}"
         ))),
     }
 }
 
-async fn start(session: &Session) -> Result<String> {
+/// Upload a blob via the POST-then-PUT dance of the distribution spec.
+///
+/// # Errors
+///
+/// Returns an error when the upload session cannot start or the final PUT fails.
+pub async fn upload(client: &Client, digest: &str, body: Bytes) -> Result<()> {
+    let location = start(client).await?;
+    finish(client, &location, digest, body).await
+}
+
+async fn start(client: &Client) -> Result<String> {
+    let image = client.image();
     let url = format!(
         "{}://{}/v2/{}/blobs/uploads/",
-        session.image.scheme(),
-        session.image.registry,
-        session.image.name
+        image.scheme(),
+        image.registry,
+        image.name
     );
-    let response = http::post_any_status(&session.client, &url, session.authorization()).await?;
+    let response = http::post_any_status(client.http(), &url, client.authorization()).await?;
     if response.status() != StatusCode::ACCEPTED {
-        return Err(push_error(format!(
+        return Err(ClientError::Push(format!(
             "blob upload start returned HTTP {} for {url}",
             response.status()
         )));
@@ -61,21 +68,19 @@ async fn start(session: &Session) -> Result<String> {
         .headers()
         .get(LOCATION)
         .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| push_error(format!("blob upload start carried no Location for {url}")))?;
+        .ok_or_else(|| {
+            ClientError::Push(format!("blob upload start carried no Location for {url}"))
+        })?;
 
-    Ok(resolve_location(
-        session.image.scheme(),
-        &session.image.registry,
-        location,
-    ))
+    Ok(resolve_location(image.scheme(), &image.registry, location))
 }
 
-async fn finish(session: &Session, location: &str, digest: &str, body: Bytes) -> Result<()> {
+async fn finish(client: &Client, location: &str, digest: &str, body: Bytes) -> Result<()> {
     let url = digest_url(location, digest);
     http::put(
-        &session.client,
+        client.http(),
         &url,
-        session.authorization(),
+        client.authorization(),
         "application/octet-stream",
         body,
     )
@@ -98,13 +103,25 @@ fn resolve_location(scheme: &str, registry: &str, location: &str) -> String {
     format!("{scheme}://{registry}/{}", location.trim_start_matches('/'))
 }
 
-fn push_error(details: impl core::fmt::Display) -> KociError {
-    KociError::PushError(details.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_url_uses_registry_scheme_and_digest() {
+        // ARRANGE
+        let image = Image {
+            registry: "127.0.0.1:5000".to_owned(),
+            name: "repo/name".to_owned(),
+            manifest_ref: "test".to_owned(),
+        };
+
+        // ACT / ASSERT
+        assert_eq!(
+            build_url(&image, "sha256:abc"),
+            "http://127.0.0.1:5000/v2/repo/name/blobs/sha256:abc"
+        );
+    }
 
     #[test]
     fn resolve_location_keeps_absolute_urls() {

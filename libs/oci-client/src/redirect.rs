@@ -3,10 +3,9 @@
 use hyper::Response;
 use hyper::body::Incoming;
 
-use crate::error::{KociError, Result};
-use crate::registry::http::{HttpClient, get_any_status};
+use crate::error::{ClientError, Result};
+use crate::http::{Transport, get_any_status};
 
-/// Maximum number of redirects followed for a single request.
 const MAX_REDIRECTS: usize = 5;
 
 /// Execute an authorized GET, following up to [`MAX_REDIRECTS`] redirects.
@@ -16,7 +15,7 @@ const MAX_REDIRECTS: usize = 5;
 /// Returns an error when a request fails, a redirect cannot be resolved, or
 /// too many redirects are followed.
 pub(crate) async fn follow(
-    client: &HttpClient,
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
@@ -36,7 +35,7 @@ pub(crate) async fn follow(
         };
 
         let next = resolve(&current, location).ok_or_else(|| {
-            KociError::DownloadError(format!(
+            ClientError::Download(format!(
                 "Unresolvable redirect Location `{location}` for URL: {url}"
             ))
         })?;
@@ -47,17 +46,15 @@ pub(crate) async fn follow(
         current = next;
     }
 
-    Err(KociError::DownloadError(format!(
+    Err(ClientError::Download(format!(
         "Failed to follow redirects for URL: {url}"
     )))
 }
 
-/// Whether the status code is a redirect that should be followed.
 fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
 }
 
-/// Extracts the `Location` header value as UTF-8, if present.
 fn header_location(response: &Response<Incoming>) -> Option<&str> {
     response
         .headers()
@@ -65,7 +62,6 @@ fn header_location(response: &Response<Incoming>) -> Option<&str> {
         .and_then(|value| value.to_str().ok())
 }
 
-/// Resolves a `Location` value against the request URL.
 fn resolve(current: &str, location: &str) -> Option<String> {
     if location.starts_with("http://") || location.starts_with("https://") {
         return Some(location.to_owned());
@@ -81,7 +77,6 @@ fn resolve(current: &str, location: &str) -> Option<String> {
     None
 }
 
-/// Whether two URLs point at the same authority (host and port).
 fn same_host(left: &str, right: &str) -> bool {
     match (host_of(left), host_of(right)) {
         (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
@@ -89,7 +84,6 @@ fn same_host(left: &str, right: &str) -> bool {
     }
 }
 
-/// Returns the authority (host[:port]) of a URL.
 fn host_of(url: &str) -> Option<&str> {
     let rest = url.split_once("://")?.1;
 
@@ -154,7 +148,8 @@ mod tests {
 
     #[test]
     fn same_host_compares_authorities_case_insensitively() {
-        // ARRANGE / ACT / ASSERT
+        // ARRANGE
+        // ACT / ASSERT
         assert!(same_host("https://GHCR.io/v2/x", "https://ghcr.io/v2/y"));
         assert!(!same_host(
             "https://ghcr.io/v2/x",

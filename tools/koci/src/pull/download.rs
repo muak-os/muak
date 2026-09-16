@@ -5,10 +5,11 @@ use std::io::Read;
 use flate2::read::GzDecoder;
 use oci::digest::Verifier;
 use oci::reference::Image;
+use oci_client::blob::build_url;
+use oci_client::http::{Transport, get, stream_body_to_vec};
 
 use super::cache::Store;
 use crate::error::{KociError, Result};
-use crate::registry::http::{HttpClient, get, stream_body_to_vec};
 
 /// A streaming reader that decompresses buffered layer data on the fly.
 pub(crate) enum LayerReader<'a> {
@@ -27,12 +28,12 @@ impl Read for LayerReader<'_> {
 
 /// Download a blob from the registry into memory, verifying it's SHA-256 digest.
 pub(crate) async fn blob(
-    client: &HttpClient,
+    client: &Transport,
     image_ref: &Image,
     digest: &str,
     authorization: Option<&str>,
 ) -> Result<Vec<u8>> {
-    let url = blob_url(image_ref, digest);
+    let url = build_url(image_ref, digest);
 
     let resp = get(client, &url, authorization, &[]).await?;
     let mut digest_verifier = Verifier::new(digest)?;
@@ -46,7 +47,7 @@ pub(crate) async fn blob(
 /// Download a blob into memory, checking the local cache before the network.
 pub(crate) async fn cached(
     cache: &Store,
-    client: &HttpClient,
+    client: &Transport,
     image_ref: &Image,
     digest: &str,
     authorization: Option<&str>,
@@ -81,14 +82,4 @@ fn read_cached(cache: &Store, digest: &str) -> Option<Vec<u8>> {
     let path = cache.blob_path(digest)?;
 
     std::fs::read(path).ok()
-}
-
-fn blob_url(image_ref: &Image, digest: &str) -> String {
-    format!(
-        "{}://{}/v2/{}/blobs/{}",
-        image_ref.scheme(),
-        image_ref.registry,
-        image_ref.name,
-        digest
-    )
 }

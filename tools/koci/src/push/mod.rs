@@ -2,20 +2,20 @@
 
 use std::path::PathBuf;
 
-use hyper::body::Bytes;
+use bytes::Bytes;
 use oci::arch::Arch;
 use oci::digest::sha256_hex;
 use oci::media::{OCI_CONFIG_MEDIA_TYPE, OCI_LAYER_MEDIA_TYPE, OCI_MANIFEST_MEDIA_TYPE};
+use oci_client::auth::Access;
+use oci_client::blob;
+use oci_client::client::Client;
+use oci_client::manifest;
 
 use crate::error::{KociError, Result};
-use crate::registry::auth::Access;
-use crate::registry::manifest;
-use crate::registry::session::Session;
 use crate::runtime;
 
 mod entry;
 mod layer;
-pub(crate) mod upload;
 
 /// One file packed into a pushed image, created via [`parse_entry`].
 #[derive(Debug, Clone)]
@@ -68,18 +68,18 @@ async fn push_files(
     arch: &Arch,
     entries: &[Entry],
 ) -> Result<Pushed> {
-    let session = Session::new(image, Access::PullPush, None).await?;
-    let tags = effective_tags(&session, tags)?;
+    let client = Client::new(image, Access::PullPush, None).await?;
+    let tags = effective_tags(&client, tags)?;
     entry::validate(entries)?;
 
     let layer = layer::build(entries)?;
     let config = config_blob(*arch, &layer)?;
-    upload::blob(&session, &config.digest, config.bytes.clone()).await?;
-    upload::blob(&session, &layer.digest, layer.bytes.clone()).await?;
+    put_blob(&client, &config.digest, config.bytes.clone()).await?;
+    put_blob(&client, &layer.digest, layer.bytes.clone()).await?;
 
     let bytes = manifest_bytes(&config, &layer)?;
     for tag in &tags {
-        manifest::put(&session, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
+        manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
         eprintln!("Pushed manifest to {image}:{tag}");
     }
 
@@ -88,17 +88,29 @@ async fn push_files(
     })
 }
 
-fn effective_tags(session: &Session, tags: &[String]) -> Result<Vec<String>> {
+async fn put_blob(client: &Client, digest: &str, bytes: Bytes) -> Result<()> {
+    if blob::exists(client, digest).await? {
+        eprintln!("Blob {digest} already in registry; skipping upload");
+
+        return Ok(());
+    }
+
+    blob::upload(client, digest, bytes).await?;
+
+    Ok(())
+}
+
+fn effective_tags(client: &Client, tags: &[String]) -> Result<Vec<String>> {
     if !tags.is_empty() {
         return Ok(tags.to_vec());
     }
-    if session.image.manifest_ref.starts_with("sha256:") {
+    if client.image().manifest_ref.starts_with("sha256:") {
         return Err(KociError::InvalidOciFormat(
             "digest reference carries no tag to push; pass --tag".to_owned(),
         ));
     }
 
-    Ok(vec![session.image.manifest_ref.clone()])
+    Ok(vec![client.image().manifest_ref.clone()])
 }
 
 fn config_blob(arch: Arch, layer: &Blob) -> Result<Blob> {
@@ -363,6 +375,9 @@ mod tests {
             .expect_err("push should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::PushError(_)));
+        assert!(matches!(
+            error,
+            KociError::Client(oci_client::error::ClientError::Push(_))
+        ));
     }
 }

@@ -6,15 +6,15 @@ use std::path::{Path, PathBuf};
 
 use oci::arch::Arch;
 use oci::model::Descriptor;
+use oci_client::auth::Access;
 use tar::Archive;
 use tokio::task::JoinSet;
 
+use super::Session;
 use super::entries::FileEntry;
 use super::{download, resolve, scan};
 use crate::annotations::Verification;
 use crate::error::{KociError, Result};
-use crate::registry::auth::Access;
-use crate::registry::session::Session;
 
 /// Stream every live file entry of the image's platform layers.
 ///
@@ -31,7 +31,7 @@ pub(crate) async fn files<F>(
 where
     F: FnMut(FileEntry<'_>) -> Result<()>,
 {
-    let session = Session::new(reference, Access::Pull, None).await?;
+    let session = Session::new(reference, Access::Pull).await?;
     eprintln!("Pulling {reference} for {}", arch.as_str());
     let layers = resolve::layers(&session, arch, verification).await?;
     eprintln!("Resolved {} layer(s)", layers.len());
@@ -131,9 +131,9 @@ async fn download_all(
     let mut downloads = JoinSet::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
         let cache = session.cache.clone();
-        let client = session.client.clone();
-        let image = session.image.clone();
-        let authorization = session.authorization().map(str::to_owned);
+        let client = session.client.http().clone();
+        let image = session.client.image().clone();
+        let authorization = session.client.authorization().map(str::to_owned);
         let digest = layer.digest.clone();
         downloads.spawn(async move {
             let layer_number = layer_idx.saturating_add(1);

@@ -3,7 +3,7 @@
 use core::mem;
 
 use base64ct::{Base64Url, Encoding as _};
-use hyper::body::Bytes;
+use bytes::Bytes;
 use oci::digest::sha256_hex;
 use p256::ecdsa::{Signature as EcdsaSignature, SigningKey, VerifyingKey};
 use p256::elliptic_curve::pkcs8::{DecodePrivateKey as _, DecodePublicKey as _};

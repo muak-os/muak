@@ -1,5 +1,6 @@
 //! Error types for the koci library.
 
+use oci_client::error::ClientError;
 use thiserror::Error;
 
 /// Error type for OCI image pulling and signing operations.
@@ -17,14 +18,9 @@ pub enum KociError {
     #[error("Failed to push image: {0}")]
     PushError(String),
 
-    /// Registry rejected the authentication attempt.
-    #[error("Registry authentication failed for {registry}: {details}")]
-    AuthError {
-        /// Registry host the authentication failed against.
-        registry: String,
-        /// Failure details from the registry or the auth challenge.
-        details: String,
-    },
+    /// Registry transport or authentication failure.
+    #[error(transparent)]
+    Client(#[from] ClientError),
 
     /// OCI manifest or config is malformed.
     #[error("Invalid OCI format: {0}")]
