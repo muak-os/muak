@@ -51,6 +51,19 @@ pub struct PendingEnrollment {
     pub server_fingerprint: String,
 }
 
+impl PendingEnrollment {
+    /// Decodes the base64-encoded client key pair into its PEM form.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if base64 decoding or UTF-8 conversion fails.
+    pub fn key_pem(&self) -> Result<String> {
+        let key_bytes = Base64::decode_vec(&self.key).context("Failed to decode pending key")?;
+
+        String::from_utf8(key_bytes).context("Invalid key encoding")
+    }
+}
+
 fn config_dir() -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME environment variable not set")?;
     Ok(PathBuf::from(home).join(".config/muak"))
@@ -613,5 +626,35 @@ mod tests {
 
         // SAFETY: same as above
         unsafe { std::env::remove_var("MUAK_CONFIG") };
+    }
+
+    #[test]
+    fn pending_key_pem_decodes() {
+        // ARRANGE
+        let mut config = ClientConfig::default();
+        config.start_enrollment("srv:443", "key-pem", "fp", "sfp");
+        let pending = config.get_pending("srv:443").unwrap();
+
+        // ACT
+        let key_pem = pending.key_pem().unwrap();
+
+        // ASSERT
+        assert_eq!(key_pem, "key-pem");
+    }
+
+    #[test]
+    fn pending_key_pem_rejects_invalid_encoding() {
+        // ARRANGE
+        let pending = PendingEnrollment {
+            fingerprint: "fp".to_string(),
+            key: "not valid base64!!!".to_string(),
+            server_fingerprint: "sfp".to_string(),
+        };
+
+        // ACT
+        let result = pending.key_pem();
+
+        // ASSERT
+        assert!(result.is_err());
     }
 }

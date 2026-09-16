@@ -76,11 +76,16 @@ pub fn generate_server(
 /// Returns an error if DER encoding the certificate fails.
 pub fn compute_fingerprint(cert: &Certificate) -> Result<String> {
     cert.to_der()
-        .map(|cert_der| {
-            let digest = Sha256::digest(&cert_der);
-            encode_string(digest.as_ref())
-        })
+        .map(|cert_der| compute_fingerprint_der(&cert_der))
         .map_err(PkiError::from)
+}
+
+/// Computes SHA256 fingerprint of DER-encoded certificate bytes (lowercase hex).
+#[must_use]
+pub fn compute_fingerprint_der(cert_der: &[u8]) -> String {
+    let digest = Sha256::digest(cert_der);
+
+    encode_string(digest.as_ref())
 }
 
 fn certificate_validity() -> Result<Validity> {
@@ -133,4 +138,83 @@ fn server_certificate(
     CertificateBuilder::new(profile, serial, validity, spki)
         .and_then(|builder| builder.build::<_, Signature>(signer))
         .map_err(PkiError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_der_is_64_lowercase_hex() {
+        // ARRANGE
+        let cert_der = [0xAB_u8, 0xCD, 0xEF];
+
+        // ACT
+        let fingerprint = compute_fingerprint_der(&cert_der);
+
+        // ASSERT
+        assert_eq!(fingerprint.len(), 64);
+        assert!(
+            fingerprint
+                .chars()
+                .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+            "Fingerprint should be lowercase hex: {fingerprint}"
+        );
+    }
+
+    #[test]
+    fn fingerprint_der_is_deterministic() {
+        // ARRANGE
+        let cert_der = b"same certificate bytes";
+
+        // ACT
+        let first = compute_fingerprint_der(cert_der);
+        let second = compute_fingerprint_der(cert_der);
+
+        // ASSERT
+        assert_eq!(first, second, "Same input should produce same fingerprint");
+    }
+
+    #[test]
+    fn fingerprint_der_distinguishes_inputs() {
+        // ARRANGE
+        let first_der = b"first certificate";
+        let second_der = b"second certificate";
+
+        // ACT
+        let first = compute_fingerprint_der(first_der);
+        let second = compute_fingerprint_der(second_der);
+
+        // ASSERT
+        assert_ne!(
+            first, second,
+            "Different inputs should produce different fingerprints"
+        );
+    }
+
+    #[test]
+    fn fingerprint_der_empty_input() {
+        // ACT
+        let fingerprint = compute_fingerprint_der(&[]);
+
+        // ASSERT
+        assert_eq!(
+            fingerprint,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn fingerprint_der_matches_certificate_fingerprint() {
+        // ARRANGE
+        let (_, cert) = generate_ca("Test CA").expect("Failed to generate test CA");
+        let cert_der = cert.to_der().expect("Failed to encode certificate to DER");
+
+        // ACT
+        let from_der = compute_fingerprint_der(&cert_der);
+        let from_cert = compute_fingerprint(&cert).expect("Failed to compute fingerprint");
+
+        // ASSERT
+        assert_eq!(from_der, from_cert);
+    }
 }

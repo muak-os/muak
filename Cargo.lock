@@ -89,7 +89,6 @@ name = "apid"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
- "base16ct",
  "config",
  "granola",
  "http-body-util",
@@ -98,7 +97,6 @@ dependencies = [
  "kmsg",
  "pki",
  "rustls",
- "sha2",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -1306,8 +1304,6 @@ name = "muakctl"
 version = "1.0.0-beta"
 dependencies = [
  "anyhow",
- "base16ct",
- "base64ct",
  "clap",
  "config",
  "crossterm",
@@ -1318,7 +1314,6 @@ dependencies = [
  "protox",
  "rustls",
  "serde",
- "sha2",
  "tempfile",
  "tokio",
  "tokio-rustls",

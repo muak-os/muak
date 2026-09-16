@@ -10,13 +10,12 @@ use std::io::Error as IoError;
 use std::sync::Mutex;
 
 use anyhow::{Context as _, Result};
-use base16ct::lower::encode_string;
 use hyper::Uri;
 use hyper_util::rt::TokioIo;
+use pki::cert;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, IpAddr, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
-use sha2::{Digest as _, Sha256};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use tonic::codegen::Service;
@@ -186,7 +185,7 @@ impl ServerCertVerifier for TofuServerCertVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let fingerprint = encode_string(Sha256::digest(end_entity.as_ref()).as_ref());
+        let fingerprint = cert::compute_fingerprint_der(end_entity.as_ref());
 
         if let Some(pinned) = self.pinned_fingerprint.as_deref()
             && fingerprint != *pinned

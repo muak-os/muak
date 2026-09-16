@@ -3,7 +3,6 @@
 use core::time::Duration;
 
 use anyhow::{Context as _, Result};
-use base64ct::{Base64, Encoding as _};
 use clap::Subcommand;
 use config::ClientConfig;
 use pki::csr;
@@ -262,8 +261,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
                 "Resuming pending enrollment for {}",
                 ui::style::accent(endpoint)
             );
-            let key = Base64::decode_vec(&pending.key).context("Failed to decode pending key")?;
-            let key_pem = String::from_utf8(key).context("Invalid key encoding")?;
+            let key_pem = pending.key_pem()?;
             (
                 pending.fingerprint.clone(),
                 key_pem,

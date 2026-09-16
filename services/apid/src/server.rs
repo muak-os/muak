@@ -8,13 +8,13 @@ use core::net::SocketAddr;
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use pki::cert;
 use rustls::pki_types::CertificateDer;
 use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
 
 use crate::handler;
 use crate::proxy::BackendPool;
-use crate::tls;
 
 /// Serves a TLS-wrapped connection.
 pub async fn serve_tls_connection(
@@ -25,7 +25,8 @@ pub async fn serve_tls_connection(
     maintenance_mode: bool,
 ) {
     let io = TokioIo::new(tls_stream);
-    let client_fingerprint = client_cert.map(|cert| Arc::from(tls::extract_fingerprint(&cert)));
+    let client_fingerprint =
+        client_cert.map(|cert| Arc::from(cert::compute_fingerprint_der(&cert)));
 
     let service = service_fn(move |req| {
         let fingerprint = client_fingerprint.clone();

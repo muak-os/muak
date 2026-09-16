@@ -5,13 +5,11 @@ extern crate alloc;
 use alloc::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use base16ct::lower::encode_string;
 use pki::cert;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
-use sha2::{Digest as _, Sha256};
 use tokio_rustls::TlsAcceptor;
 use x509_cert::der::Encode as _;
 
@@ -122,12 +120,6 @@ pub fn generate_ephemeral_tls_config() -> Result<TlsAcceptor> {
     Ok(TlsAcceptor::from(Arc::new(server_config)))
 }
 
-/// Extracts SHA256 fingerprint from a DER-encoded certificate.
-#[must_use]
-pub fn extract_fingerprint(cert_der: &[u8]) -> String {
-    encode_string(Sha256::digest(cert_der).as_ref())
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
@@ -145,117 +137,6 @@ mod tests {
         let (signer, cert) = cert::generate_ca("Test CA").expect("Failed to generate test CA");
         let cert_der = cert.to_der().expect("Failed to encode certificate to DER");
         (signer, cert, cert_der)
-    }
-
-    #[test]
-    fn extract_fingerprint_returns_64_char_hex() {
-        // ARRANGE
-        let test_data = b"test certificate data";
-
-        // ACT
-        let fingerprint = extract_fingerprint(test_data);
-
-        // ASSERT
-        assert_eq!(
-            fingerprint.len(),
-            64,
-            "SHA256 fingerprint should be 64 hex characters"
-        );
-    }
-
-    #[test]
-    fn extract_fingerprint_is_lowercase_hex() {
-        // ARRANGE
-        let test_data = b"test certificate data";
-
-        // ACT
-        let fingerprint = extract_fingerprint(test_data);
-
-        // ASSERT
-        assert!(
-            fingerprint
-                .chars()
-                .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
-            "Fingerprint should be lowercase hex: {fingerprint}"
-        );
-    }
-
-    #[test]
-    fn extract_fingerprint_deterministic() {
-        // ARRANGE
-        let test_data = b"same input data";
-
-        // ACT
-        let fp1 = extract_fingerprint(test_data);
-        let fp2 = extract_fingerprint(test_data);
-
-        // ASSERT
-        assert_eq!(fp1, fp2, "Same input should produce same fingerprint");
-    }
-
-    #[test]
-    fn extract_fingerprint_different_inputs() {
-        // ARRANGE
-        let fp1 = extract_fingerprint(b"first certificate");
-        let fp2 = extract_fingerprint(b"second certificate");
-
-        // ASSERT
-        assert_ne!(
-            fp1, fp2,
-            "Different inputs should produce different fingerprints"
-        );
-    }
-
-    #[test]
-    fn extract_fingerprint_empty_input() {
-        // ACT
-        let fingerprint = extract_fingerprint(&[]);
-
-        // ASSERT
-        assert_eq!(fingerprint.len(), 64);
-        assert_eq!(
-            fingerprint,
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
-    }
-
-    #[test]
-    fn extract_fingerprint_with_real_cert() {
-        // ARRANGE
-        let (_, _, cert_der) = make_test_ca();
-
-        // ACT
-        let fingerprint = extract_fingerprint(&cert_der);
-
-        // ASSERT
-        assert_eq!(
-            fingerprint.len(),
-            64,
-            "Real cert fingerprint should be 64 chars"
-        );
-        assert!(
-            fingerprint
-                .chars()
-                .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
-            "Fingerprint should be lowercase hex"
-        );
-    }
-
-    #[test]
-    fn extract_fingerprint_matches_pki_compute() {
-        // ARRANGE
-        let (_, cert, cert_der) = make_test_ca();
-
-        // ACT
-        let our_fingerprint = extract_fingerprint(&cert_der);
-        let pki_fingerprint =
-            cert::compute_fingerprint(&cert).expect("Failed to compute pki fingerprint");
-
-        // ASSERT
-        assert_eq!(
-            our_fingerprint, pki_fingerprint,
-            "Our fingerprint should match pki crate's computation"
-        );
     }
 
     #[test]
