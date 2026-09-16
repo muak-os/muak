@@ -3,6 +3,7 @@
 use bytes::Bytes;
 use oci::arch::Arch;
 use oci::digest::sha256_hex;
+use oci::error::OciError;
 use oci::media::{
     DOCKER_MANIFEST_LIST_MEDIA_TYPE, DOCKER_MANIFEST_MEDIA_TYPE, OCI_IMAGE_INDEX_MEDIA_TYPE,
     OCI_MANIFEST_ACCEPT_HEADERS, OCI_MANIFEST_MEDIA_TYPE,
@@ -61,12 +62,12 @@ pub fn index(image: &str, tags: &[String], sources: &[Source]) -> Result<()> {
 
 async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result<()> {
     if tags.is_empty() {
-        return Err(KociError::InvalidOciFormat(
+        return Err(KociError::MergeError(
             "no tags provided for the merged index".to_owned(),
         ));
     }
     if sources.is_empty() {
-        return Err(KociError::InvalidOciFormat(
+        return Err(KociError::MergeError(
             "no sources provided for the merged index".to_owned(),
         ));
     }
@@ -98,7 +99,7 @@ fn validate_platforms(sources: &[Source]) -> Result<()> {
             .take(position)
             .any(|other| other.arch == source.arch)
         {
-            return Err(KociError::InvalidOciFormat(format!(
+            return Err(KociError::MergeError(format!(
                 "duplicate source for architecture {}",
                 source.arch
             )));
@@ -142,12 +143,10 @@ fn validate_media_type(media_type: Option<&str>) -> Result<String> {
 
     match media_type {
         OCI_MANIFEST_MEDIA_TYPE | DOCKER_MANIFEST_MEDIA_TYPE => Ok(media_type.to_owned()),
-        OCI_IMAGE_INDEX_MEDIA_TYPE | DOCKER_MANIFEST_LIST_MEDIA_TYPE => {
-            Err(KociError::InvalidOciFormat(
-                "source is already a multi-arch index; sources must be image manifests".to_owned(),
-            ))
-        }
-        other => Err(KociError::InvalidOciFormat(format!(
+        OCI_IMAGE_INDEX_MEDIA_TYPE | DOCKER_MANIFEST_LIST_MEDIA_TYPE => Err(KociError::MergeError(
+            "source is already a multi-arch index; sources must be image manifests".to_owned(),
+        )),
+        other => Err(KociError::MergeError(format!(
             "unsupported manifest media type '{other}'"
         ))),
     }
@@ -157,11 +156,12 @@ fn validate_media_type(media_type: Option<&str>) -> Result<String> {
 fn verify_digest(reference: &str, body: &[u8]) -> Result<String> {
     let digest = format!("sha256:{}", sha256_hex(body));
     if reference.starts_with("sha256:") && reference != digest {
-        return Err(KociError::DigestMismatch {
+        return Err(OciError::DigestMismatch {
             resource: format!("source manifest {reference}"),
             expected: reference.to_owned(),
             actual: digest,
-        });
+        }
+        .into());
     }
 
     Ok(digest)
@@ -169,9 +169,8 @@ fn verify_digest(reference: &str, body: &[u8]) -> Result<String> {
 
 /// Convert a manifest byte length into a descriptor size.
 fn manifest_size(len: usize) -> Result<u64> {
-    u64::try_from(len).map_err(|error| {
-        KociError::InvalidOciFormat(format!("manifest size out of range: {error}"))
-    })
+    u64::try_from(len)
+        .map_err(|error| KociError::MergeError(format!("manifest size out of range: {error}")))
 }
 
 /// Serialize the OCI index wrapping the given descriptors.
@@ -187,7 +186,7 @@ fn build_index(descriptors: &[Descriptor]) -> Result<Bytes> {
 
 /// Build an invalid-source error for a specification.
 fn invalid_source(spec: &str, details: &str) -> KociError {
-    KociError::InvalidOciFormat(format!("invalid source '{spec}': {details}"))
+    KociError::MergeError(format!("invalid source '{spec}': {details}"))
 }
 
 #[cfg(test)]
@@ -217,13 +216,13 @@ mod tests {
     fn parse_source_rejects_malformed_specifications() {
         // ARRANGE / ACT / ASSERT
         let error = parse_source("v1-amd64").expect_err("missing arch should fail");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::MergeError(_)));
 
         let error = parse_source("mips=v1").expect_err("unknown arch should fail");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::MergeError(_)));
 
         let error = parse_source("amd64=").expect_err("empty ref should fail");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::MergeError(_)));
     }
 
     #[test]
@@ -250,7 +249,10 @@ mod tests {
             verify_digest("sha256:deadbeef", body).expect_err("digest mismatch should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::DigestMismatch { .. }));
+        assert!(matches!(
+            error,
+            KociError::Oci(OciError::DigestMismatch { .. })
+        ));
     }
 
     #[test]

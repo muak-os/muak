@@ -105,7 +105,7 @@ fn effective_tags(client: &Client, tags: &[String]) -> Result<Vec<String>> {
         return Ok(tags.to_vec());
     }
     if client.image().manifest_ref.starts_with("sha256:") {
-        return Err(KociError::InvalidOciFormat(
+        return Err(KociError::PushError(
             "digest reference carries no tag to push; pass --tag".to_owned(),
         ));
     }
@@ -264,10 +264,10 @@ mod tests {
     fn parse_entry_rejects_empty_and_unnameable_sources() {
         // ARRANGE / ACT / ASSERT
         let error = parse_entry(":docs/catalog.toml").expect_err("empty source should fail");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::PushError(_)));
 
         let error = parse_entry("/").expect_err("unnameable source should fail");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::PushError(_)));
     }
 
     #[test]

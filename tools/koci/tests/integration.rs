@@ -691,7 +691,7 @@ mod tests {
             .expect_err("duplicate platforms should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::MergeError(_)));
     }
 
     #[test]

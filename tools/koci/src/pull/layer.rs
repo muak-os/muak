@@ -89,9 +89,9 @@ where
     let n = layers.len();
 
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let data = blobs.get(layer_idx).ok_or_else(|| {
-            KociError::DownloadError(format!("missing layer bytes for layer {layer_idx}"))
-        })?;
+        let data = blobs
+            .get(layer_idx)
+            .ok_or_else(|| KociError::Pull(format!("missing layer bytes for layer {layer_idx}")))?;
         eprintln!(
             "Extracting layer {}/{}: {}",
             layer_idx.saturating_add(1),
@@ -157,11 +157,10 @@ async fn download_all(
 
     let mut blobs: Vec<Option<Result<Vec<u8>>>> = std::iter::repeat_with(|| None).take(n).collect();
     while let Some(joined) = downloads.join_next().await {
-        let (layer_idx, blob) = joined.map_err(|error| {
-            KociError::NetworkError(format!("layer download task failed: {error}"))
-        })?;
+        let (layer_idx, blob) = joined
+            .map_err(|error| KociError::Pull(format!("layer download task failed: {error}")))?;
         *blobs.get_mut(layer_idx).ok_or_else(|| {
-            KociError::DownloadError(format!("missing download slot for layer {layer_idx}"))
+            KociError::Pull(format!("missing download slot for layer {layer_idx}"))
         })? = Some(blob);
     }
 
@@ -171,9 +170,7 @@ async fn download_all(
         let blob = blobs
             .get_mut(layer_idx)
             .and_then(Option::take)
-            .ok_or_else(|| {
-                KociError::DownloadError(format!("missing download for layer {layer_idx}"))
-            })??;
+            .ok_or_else(|| KociError::Pull(format!("missing download for layer {layer_idx}")))??;
         let reader = download::decompress(&blob, layer.media_type.as_deref())?;
         for whiteout in scan::scan_whiteouts(reader)? {
             whiteouts.entry(whiteout).or_insert(layer_idx);

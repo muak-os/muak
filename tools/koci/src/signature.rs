@@ -6,6 +6,7 @@ use base64ct::{Base64Url, Encoding as _};
 #[cfg(feature = "sign")]
 use bytes::Bytes;
 use oci::digest::sha256_hex;
+use oci::error::OciError;
 use p256::ecdsa::Signature as EcdsaSignature;
 #[cfg(feature = "sign")]
 use p256::ecdsa::SigningKey;
@@ -137,9 +138,7 @@ fn canonicalize_manifest(manifest_json: &str, sig_annotation: &str) -> Result<Ve
     let mut value: Value = match serde_json::from_str(manifest_json) {
         Ok(value) => value,
         Err(error) => {
-            return Err(KociError::OciParseError(format!(
-                "Failed to parse manifest JSON: {error}"
-            )));
+            return Err(OciError::Parse(format!("Failed to parse manifest JSON: {error}")).into());
         }
     };
 
@@ -362,7 +361,7 @@ mod tests {
         let error = signing_payload("not json", SIG_ANNOTATION).expect_err("payload should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::OciParseError(_)));
+        assert!(matches!(error, KociError::Oci(OciError::Parse(_))));
     }
 
     #[test]
@@ -374,7 +373,7 @@ mod tests {
         let error = inject("not json", &key, SIG_ANNOTATION).expect_err("signing should fail");
 
         // ASSERT
-        assert!(matches!(error, KociError::OciParseError(_)));
+        assert!(matches!(error, KociError::Oci(OciError::Parse(_))));
     }
 
     #[test]

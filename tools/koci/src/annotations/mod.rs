@@ -2,6 +2,7 @@
 
 use bytes::Bytes;
 use oci::digest::sha256_hex;
+use oci::error::OciError;
 use oci::media::OCI_IMAGE_INDEX_MEDIA_TYPE;
 use oci_client::auth::Access;
 use oci_client::client::Client;
@@ -70,12 +71,18 @@ async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) ->
     }
 
     let mut index: serde_json::Value = serde_json::from_str(&root_json).map_err(|error| {
-        KociError::OciParseError(format!("Failed to parse manifest JSON: {error}"))
+        KociError::Oci(OciError::Parse(format!(
+            "Failed to parse manifest JSON: {error}"
+        )))
     })?;
     let entries = index
         .get_mut("manifests")
         .and_then(serde_json::Value::as_array_mut)
-        .ok_or_else(|| KociError::InvalidOciFormat("Index manifests is not an array".to_owned()))?;
+        .ok_or_else(|| {
+            KociError::Oci(OciError::InvalidFormat(
+                "Index manifests is not an array".to_owned(),
+            ))
+        })?;
 
     for (entry, descriptor) in entries.iter_mut().zip(&parsed.manifests) {
         let platform_json = manifest::fetch(&client, &descriptor.digest).await?;

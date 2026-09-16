@@ -45,7 +45,7 @@ pub(crate) fn validate(entries: &[Entry]) -> Result<()> {
             .take(position)
             .any(|other| other.path == entry.path)
         {
-            return Err(KociError::InvalidOciFormat(format!(
+            return Err(KociError::PushError(format!(
                 "duplicate archive path '{}'",
                 entry.path
             )));
@@ -67,7 +67,7 @@ fn validate_path(path: &str) -> Result<()> {
         || path.starts_with('/')
         || path.split('/').any(|component| component == "..")
     {
-        return Err(KociError::InvalidOciFormat(format!(
+        return Err(KociError::PushError(format!(
             "archive path must be relative and traversal-free, got '{path}'"
         )));
     }
@@ -76,7 +76,7 @@ fn validate_path(path: &str) -> Result<()> {
 }
 
 fn spec_error(spec: &str, details: &str) -> KociError {
-    KociError::InvalidOciFormat(format!("invalid file spec '{spec}': {details}"))
+    KociError::PushError(format!("invalid file spec '{spec}': {details}"))
 }
 
 #[cfg(test)]
@@ -112,10 +112,10 @@ mod tests {
     fn parse_rejects_empty_and_unnameable_sources() {
         // ARRANGE / ACT / ASSERT
         let error = parse_entry_helper(":name.toml");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::PushError(_)));
 
         let error = parse_entry_helper("/");
-        assert!(matches!(error, KociError::InvalidOciFormat(_)));
+        assert!(matches!(error, KociError::PushError(_)));
     }
 
     #[test]
