@@ -1,6 +1,6 @@
 //! Streams UKI section measurement records from a PE image file.
 
-use core::mem::{offset_of, size_of};
+use core::mem::offset_of;
 use core::ops::Range;
 use std::fs::File;
 use std::io::{self, Read as _};
@@ -12,7 +12,7 @@ use object::pe::{
 use sha2::{Digest as _, Sha256};
 
 use crate::error::{Result, UkiError};
-use crate::metadata::DOS_PE_POINTER_OFFSET;
+use crate::metadata::DOS_PE_POINTER_RANGE;
 use crate::section::{KERNEL, canonical_name};
 
 const PE_SIGNATURE: [u8; 4] = *b"PE\0\0";
@@ -48,12 +48,9 @@ pub struct MeasuredSection {
 pub fn from_file(path: &Path) -> Result<Vec<MeasuredSection>> {
     let mut file = File::open(path)?;
 
-    let mut dos = [0; DOS_PE_POINTER_OFFSET + size_of::<u32>()];
+    let mut dos = [0; DOS_PE_POINTER_RANGE.end];
     file.read_exact(&mut dos)?;
-    let pe_offset = u64::from(word(
-        &dos,
-        DOS_PE_POINTER_OFFSET..DOS_PE_POINTER_OFFSET + size_of::<u32>(),
-    )?);
+    let pe_offset = u64::from(word(&dos, DOS_PE_POINTER_RANGE)?);
     let dos_len =
         u64::try_from(dos.len()).map_err(|_source| UkiError::Overflow("DOS header length"))?;
     let header_offset = pe_offset
