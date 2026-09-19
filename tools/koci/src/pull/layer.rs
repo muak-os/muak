@@ -50,6 +50,7 @@ where
 /// # Errors
 ///
 /// Returns an error if a layer cannot be downloaded or decompressed.
+#[cfg(feature = "annotate")]
 pub(crate) async fn entry_sizes(
     client: &Client,
     cache: &Store,
@@ -204,6 +205,7 @@ fn blocked_by_whiteout(
 }
 
 /// Whether a normalized entry path matches an exclusion prefix at a path segment boundary.
+#[cfg(feature = "annotate")]
 fn excluded(path: &Path, exclude: &[String]) -> bool {
     let text = path.to_string_lossy();
 
