@@ -119,8 +119,6 @@ fn canonical_extensions(names: &[String]) -> Result<Vec<String>> {
 pub struct OverlaySpec {
     #[serde(deserialize_with = "non_empty")]
     name: String,
-    #[serde(deserialize_with = "non_empty")]
-    source: String,
 }
 
 impl OverlaySpec {
@@ -128,24 +126,17 @@ impl OverlaySpec {
     ///
     /// # Errors
     ///
-    /// Returns an error when `name` or `source` is empty.
-    pub fn new(name: String, source: String) -> Result<Self> {
+    /// Returns an error when `name` is empty.
+    pub fn new(name: String) -> Result<Self> {
         reject_empty(&name, "overlay.name")?;
-        reject_empty(&source, "overlay.source")?;
 
-        Ok(Self { name, source })
+        Ok(Self { name })
     }
 
     /// Returns the overlay name.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    /// Returns the logical overlay source identity.
-    #[must_use]
-    pub fn source(&self) -> &str {
-        &self.source
     }
 }
 
@@ -235,7 +226,6 @@ extensions = ["muak-os/qemu"]
         r#"
 [overlay]
 name = "rpi_generic"
-source = "muak-os/sbc-raspberrypi"
 
 [kernel]
 source = "muak-os/linux"
@@ -264,7 +254,6 @@ extensions = ["muak-os/qemu"]
         // ASSERT
         let ov = doc.overlay().expect("overlay present");
         assert_eq!(ov.name(), "rpi_generic");
-        assert_eq!(ov.source(), "muak-os/sbc-raspberrypi");
         assert_eq!(doc.kernel().source(), "muak-os/linux");
     }
 
@@ -338,7 +327,7 @@ extensions = ["muak-os/qemu"]
         // ARRANGE
         let first = Profile::from_toml(overlay_toml().as_bytes()).expect("parse");
         let second = Profile::from_toml(
-            b"[overlay]\nname = \"rpi_generic\"\nsource = \"other/sbc\"\n[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []",
+            b"[overlay]\nname = \"rpi_5\"\n[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []",
         )
         .expect("parse");
 
@@ -448,16 +437,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn overlay_spec_new_rejects_empty_name() {
         // ARRANGE / ACT
-        let err = OverlaySpec::new(String::new(), "source".into()).expect_err("should fail");
-
-        // ASSERT
-        assert!(matches!(err, WizardError::ProfileValidation(_)));
-    }
-
-    #[test]
-    fn overlay_spec_new_rejects_empty_source() {
-        // ARRANGE / ACT
-        let err = OverlaySpec::new("name".into(), String::new()).expect_err("should fail");
+        let err = OverlaySpec::new(String::new()).expect_err("should fail");
 
         // ASSERT
         assert!(matches!(err, WizardError::ProfileValidation(_)));
@@ -475,7 +455,7 @@ extensions = ["muak-os/qemu"]
     #[test]
     fn document_new_accepts_valid_profile() {
         // ARRANGE
-        let overlay = OverlaySpec::new("name".into(), "source".into()).expect("valid overlay");
+        let overlay = OverlaySpec::new("name".into()).expect("valid overlay");
         let customization = CustomizationSpec::new(vec![]).expect("valid customization");
         let kernel = KernelSpec::new("muak-os/linux".to_owned()).expect("valid kernel");
         // ACT

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use oci::arch::Arch;
+use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use wizard::artifact::Artifact;
 use wizard::codec::Codec;
@@ -159,7 +159,6 @@ fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -
     wizard::request::discover_layout(&mut resolved)?;
 
     println!("profile id: {}", resolved.profile_id());
-    println!("release id: {}", resolved.release_id());
     println!("resolution id: {}", resolved.resolution_id());
     println!("disk layout: {}", resolved.build().layout().name());
     println!("resolved installer: {}", resolved.build().installer());

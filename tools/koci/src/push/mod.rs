@@ -12,6 +12,7 @@ use oci_client::client::Client;
 use oci_client::manifest;
 
 use crate::error::{KociError, Result};
+use crate::registry;
 use crate::runtime;
 
 mod entry;
@@ -68,7 +69,7 @@ async fn push_files(
     arch: &Arch,
     entries: &[Entry],
 ) -> Result<Pushed> {
-    let client = Client::new(image, Access::PullPush, None).await?;
+    let client = registry::connect(image, Access::PullPush).await?;
     let tags = effective_tags(&client, tags)?;
     entry::validate(entries)?;
 

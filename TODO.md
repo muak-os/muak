@@ -15,8 +15,6 @@
   - E2E encryption between CLI and the daemon?
 
 - Enhance `wizard`:
-  - Add manifest release OCI instead of hardcoded
-  - Add extension catalog in resolver (using OCI image?)
   - Parallel preflights
   - Allow for easier support of cloud providers like AWS, GCP etc with correct format & codec output.
   - Add SBOM precursor generation for each artifact
@@ -27,7 +25,6 @@
 - Enchance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
-  - Condition HTTP only support behind insecure TLS flag and disable by default
 
 - Sign extensions and verify them for better supply chain security
 - Allow for "community extensions" that are still usable with a warning about security risks
@@ -39,7 +36,7 @@
   - Allow ISO images for VMS
   - Rework commands to be pass through to the hypervisor
   - Make it an extension
-  - Support for containers like LXC and OCI
+  - Support for containers like LXC, OCI and Kubernetes node
 
 - Support Apple M series processor chips using Asahi Linux kernel patches and m1n1 bootloader
 

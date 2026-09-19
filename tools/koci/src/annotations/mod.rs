@@ -13,6 +13,7 @@ use p256::ecdsa::SigningKey;
 use crate::error::{KociError, Result};
 #[cfg(feature = "annotate")]
 use crate::pull;
+use crate::registry;
 use crate::runtime;
 #[cfg(feature = "sign")]
 use crate::signature;
@@ -58,7 +59,7 @@ pub fn sizes(reference: &str, annotation: &str, exclude: &[String]) -> Result<()
 /// changes bytes, so it is pushed under its NEW digest and the index
 /// descriptors are repointed before the index is pushed back under its tag.
 async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) -> Result<()> {
-    let client = Client::new(reference, Access::PullPush, None).await?;
+    let client = registry::connect(reference, Access::PullPush).await?;
     let root_json = manifest::fetch(&client, &client.image().manifest_ref).await?;
     let parsed = oci::manifest::parse(&root_json)?;
 

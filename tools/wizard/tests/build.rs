@@ -6,9 +6,10 @@ mod common;
 #[cfg(test)]
 mod tests {
     use std::io::{Read as _, Write as _};
+    use std::process::Command;
     use std::sync::OnceLock;
 
-    use oci::arch::Arch;
+    use koci::arch::Arch;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
     use wizard::artifact::Artifact;
@@ -17,7 +18,9 @@ mod tests {
     use wizard::request::Request;
 
     use crate::common::Harness;
-    use crate::common::fixtures::{FixtureImage, build_image, install_image, random_bytes};
+    use crate::common::fixtures::{
+        FixtureImage, build_image, install_image, random_bytes, sha256_digest,
+    };
     use crate::common::pe::generate_stub;
     use crate::common::server::Routes;
 
@@ -56,11 +59,7 @@ mod tests {
         ENV.get_or_init(|| {
             let images = build_images();
             let mut routes = Routes::new();
-            install_image(&mut routes, "installer", "latest", &images.installer);
-            install_image(&mut routes, "stub", "latest", &images.stub);
-            install_image(&mut routes, "linux", "latest", &images.kernel);
-            install_image(&mut routes, "pkgs/qemu", "latest", &images.extension);
-            install_image(&mut routes, "sbc/raspberrypi", "latest", &images.overlay);
+            install_routes(&mut routes, &images);
             let harness = Harness::start(routes).expect("start test harness");
             warm_cache(&harness);
             Env { harness, images }
@@ -94,6 +93,103 @@ mod tests {
             Ok(())
         })
         .expect("warm cache pull");
+    }
+
+    /// Release line the fixture catalogs publish.
+    const RELEASE: &str = "v1.2.3";
+
+    fn install_routes(routes: &mut Routes, images: &TestImages) {
+        install_image(routes, "installer", "latest", &images.installer);
+        install_image(routes, "stub", "latest", &images.stub);
+        install_image(routes, "linux", "latest", &images.kernel);
+        install_image(routes, "pkgs/qemu", "latest", &images.extension);
+        install_image(routes, "sbc/raspberrypi", "latest", &images.overlay);
+
+        for (repo, tag, image) in build_catalogs(images) {
+            install_image(routes, &repo, &tag, &image);
+        }
+        for (repo, image) in [
+            ("installer", &images.installer),
+            ("stub", &images.stub),
+            ("linux", &images.kernel),
+            ("pkgs/qemu", &images.extension),
+            ("sbc/raspberrypi", &images.overlay),
+        ] {
+            install_image(routes, repo, &sha256_digest(&image.manifest), image);
+        }
+    }
+
+    fn build_catalogs(images: &TestImages) -> Vec<(String, String, FixtureImage)> {
+        let core = format!(
+            r#"api_version = "muak.dev/catalog/core/v1"
+release = "{RELEASE}"
+
+[[kernels]]
+source = "muak-os/linux"
+repository = "linux"
+tag = "latest"
+digest = "{kernel}"
+
+[stub]
+source = "muak-os/stub"
+repository = "stub"
+tag = "latest"
+digest = "{stub}"
+
+[installer]
+source = "muak-os/installer"
+repository = "installer"
+tag = "latest"
+digest = "{installer}"
+"#,
+            kernel = sha256_digest(&images.kernel.manifest),
+            stub = sha256_digest(&images.stub.manifest),
+            installer = sha256_digest(&images.installer.manifest),
+        );
+        let extensions = format!(
+            r#"api_version = "muak.dev/catalog/extensions/v1"
+release = "{RELEASE}"
+
+[[extensions]]
+name = "muak-os/qemu"
+source = "muak-os/extensions"
+repository = "pkgs/qemu"
+tag = "latest"
+digest = "{qemu}"
+"#,
+            qemu = sha256_digest(&images.extension.manifest),
+        );
+        let overlays = format!(
+            r#"api_version = "muak.dev/catalog/overlays/v1"
+release = "{RELEASE}"
+
+[[overlays]]
+name = "rpi_generic"
+source = "muak-os/sbc-raspberrypi"
+repository = "sbc/raspberrypi"
+tag = "latest"
+digest = "{overlay}"
+"#,
+            overlay = sha256_digest(&images.overlay.manifest),
+        );
+
+        vec![
+            (
+                "core".to_owned(),
+                RELEASE.to_owned(),
+                build_image(&[("catalog.toml", core.as_bytes())]),
+            ),
+            (
+                "extensions".to_owned(),
+                RELEASE.to_owned(),
+                build_image(&[("catalog.toml", extensions.as_bytes())]),
+            ),
+            (
+                "overlays".to_owned(),
+                RELEASE.to_owned(),
+                build_image(&[("catalog.toml", overlays.as_bytes())]),
+            ),
+        ]
     }
 
     fn build_images() -> TestImages {
@@ -203,13 +299,7 @@ mod tests {
 
     fn overlay_profile() -> Profile {
         Profile::new(
-            Some(
-                OverlaySpec::new(
-                    "rpi_generic".to_owned(),
-                    "muak-os/sbc-raspberrypi".to_owned(),
-                )
-                .expect("overlay spec"),
-            ),
+            Some(OverlaySpec::new("rpi_generic".to_owned()).expect("overlay spec")),
             CustomizationSpec::new(Vec::new()).expect("empty customization"),
             KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
         )
@@ -260,6 +350,61 @@ mod tests {
     }
 
     #[test]
+    fn cli_resolve_prints_ids_and_digest_pinned_sources() {
+        // ARRANGE
+        let env = env();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let profile = dir.path().join("profile.toml");
+        std::fs::write(
+            &profile,
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []",
+        )
+        .expect("write profile");
+
+        // ACT
+        let process_output = Command::new(std::env!("CARGO_BIN_EXE_wizard"))
+            .args([
+                "resolve",
+                "--profile",
+                profile.to_str().expect("profile path"),
+                "--version",
+                RELEASE,
+                "--registry",
+                env.harness.registry.address(),
+                "--arch",
+                "amd64",
+            ])
+            .output()
+            .expect("failed to run muak-wizard resolve");
+
+        // ASSERT
+        assert!(
+            process_output.status.success(),
+            "muak-wizard resolve should exit successfully"
+        );
+        let stdout = String::from_utf8_lossy(&process_output.stdout);
+        assert!(
+            stdout.contains("profile id:") && stdout.contains("resolution id:"),
+            "resolve should print the identities: {stdout}"
+        );
+        let installer_pin = format!(
+            "resolved installer: {}/installer@{}",
+            env.harness.registry.address(),
+            sha256_digest(&env.images.installer.manifest)
+        );
+        assert!(
+            stdout.contains(&installer_pin),
+            "installer pin: {installer_pin} vs stdout: {stdout}"
+        );
+        let kernel_pin = format!(
+            "resolved kernel: muak-os/linux -> {}/linux@{}",
+            env.harness.registry.address(),
+            sha256_digest(&env.images.kernel.manifest)
+        );
+        assert!(stdout.contains(&kernel_pin), "kernel pin: {stdout}");
+    }
+
+    #[test]
     fn kernel_and_cmdline_artifacts_match_kernel_image_files() {
         // ARRANGE
         let env = env();
@@ -268,7 +413,7 @@ mod tests {
         let mut cmdline_out = Vec::new();
 
         // ACT
-        let report = Request::new("latest")
+        let report = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel_out)
             .expect("kernel target")
@@ -342,7 +487,7 @@ mod tests {
         let mut initramfs = Vec::new();
 
         // ACT
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut initramfs)
             .expect("initramfs target")
@@ -377,7 +522,7 @@ mod tests {
         let mut initramfs = Vec::new();
 
         // ACT
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut initramfs)
             .expect("initramfs target")
@@ -399,7 +544,7 @@ mod tests {
         let mut iso = Vec::new();
 
         // ACT
-        let report = Request::new("latest")
+        let report = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -428,7 +573,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest")
+        let report = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -448,7 +593,7 @@ mod tests {
         // ARRANGE
         let _env = env();
         let mut alone = Vec::new();
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut alone)
             .expect("initramfs target")
@@ -458,7 +603,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest")
+        let report = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut combined)
             .expect("initramfs target")
@@ -484,7 +629,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Raw, &mut raw)
             .expect("raw target")
@@ -518,7 +663,7 @@ mod tests {
         let mut raw = Vec::new();
 
         // ACT
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .codec(Codec::Gzip)
             .artifact(Artifact::Raw, &mut raw)
@@ -545,7 +690,7 @@ mod tests {
         let mut raw = Vec::new();
 
         // ACT
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .codec(Codec::None)
             .artifact(Artifact::Raw, &mut raw)
@@ -575,7 +720,7 @@ mod tests {
         let mut tar_out = Vec::new();
 
         // ACT
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Iso, &mut iso)
             .expect("iso target")
@@ -630,7 +775,7 @@ mod tests {
             certificate: &certificate,
         };
         let mut unsigned_uki = Vec::new();
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut unsigned_uki)
             .expect("uki target")
@@ -639,7 +784,7 @@ mod tests {
         let mut signed_uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest")
+        let report = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .sign(&pair)
             .artifact(Artifact::Uki, &mut signed_uki)
@@ -670,7 +815,7 @@ mod tests {
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new("latest")
+        let report = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -694,14 +839,14 @@ mod tests {
 
         // ACT
         let mut kernel = Vec::new();
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel)
             .expect("kernel target")
             .build(&base_profile())
             .expect("first build");
         let mut kernel = Vec::new();
-        Request::new("latest")
+        Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel)
             .expect("kernel target")

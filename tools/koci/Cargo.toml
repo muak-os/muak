@@ -46,7 +46,7 @@ oci-client = { workspace = true }
 default = ["cli"]
 cli = ["annotate", "anyhow", "clap", "merge", "pull", "push", "sign"]
 annotate = ["dep:bytes", "json", "pull"]
-merge = ["dep:bytes", "json"]
+merge = ["dep:bytes", "json", "registry"]
 pull = [
     "dep:base64ct",
     "dep:flate2",
@@ -54,18 +54,17 @@ pull = [
     "dep:signature",
     "dep:tar",
     "json",
-    "oci-client/https",
-    "runtime",
+    "registry",
 ]
-push = ["dep:bytes", "dep:tar", "json", "oci-client/https", "runtime"]
+push = ["dep:bytes", "dep:tar", "json", "registry"]
+registry = ["oci-client/https", "runtime"]
 sign = [
     "dep:base64ct",
     "dep:bytes",
     "dep:p256",
     "dep:signature",
     "json",
-    "oci-client/https",
-    "runtime",
+    "registry",
 ]
 json = ["dep:serde_json"]
 runtime = ["dep:tokio"]

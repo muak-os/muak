@@ -71,57 +71,6 @@ mod tests {
     }
 
     #[test]
-    fn cli_resolve_prints_ids_and_registry_sources() {
-        // ARRANGE
-        let dir = tempfile::TempDir::new().expect("tempdir");
-        let profile = dir.path().join("profile.toml");
-        std::fs::write(&profile, PROFILE_TOML).expect("write profile");
-
-        // ACT
-        let process_output = Command::new(wizard_bin())
-            .args([
-                "resolve",
-                "--profile",
-                profile.to_str().expect("profile path"),
-                "--version",
-                "latest",
-                "--registry",
-                "localhost:5000",
-                "--arch",
-                "amd64",
-            ])
-            .output()
-            .expect("failed to run muak-wizard resolve");
-
-        // ASSERT
-        assert!(
-            process_output.status.success(),
-            "muak-wizard resolve should exit successfully"
-        );
-        let stdout = String::from_utf8_lossy(&process_output.stdout);
-        assert!(
-            stdout.contains("profile id:"),
-            "resolve should print the profile id: {stdout}"
-        );
-        assert!(
-            stdout.contains("release id:"),
-            "resolve should print the release id: {stdout}"
-        );
-        assert!(
-            stdout.contains("resolution id:"),
-            "resolve should print the resolution id: {stdout}"
-        );
-        assert!(
-            stdout.contains("resolved installer: localhost:5000/installer:latest"),
-            "resolve should honor --registry for the installer: {stdout}"
-        );
-        assert!(
-            stdout.contains("resolved kernel: muak-os/linux -> localhost:5000/linux:latest"),
-            "resolve should resolve the kernel against --registry: {stdout}"
-        );
-    }
-
-    #[test]
     fn cli_without_subcommand_exits_with_error() {
         // ACT
         let process_output = Command::new(wizard_bin())

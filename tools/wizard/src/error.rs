@@ -21,6 +21,10 @@ pub enum WizardError {
     #[error("source resolution: {0}")]
     SourceResolution(String),
 
+    /// Catalog document schema failure.
+    #[error(transparent)]
+    Catalog(#[from] kata::error::DocumentError),
+
     /// I/O error during build.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

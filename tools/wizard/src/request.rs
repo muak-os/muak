@@ -3,7 +3,7 @@
 use core::fmt;
 use std::io::Write;
 
-use oci::arch::Arch;
+use koci::arch::Arch;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;

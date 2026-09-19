@@ -15,6 +15,7 @@ use super::cache::Store;
 use super::entries::FileEntry;
 use super::{download, resolve, scan};
 use crate::error::{KociError, Result};
+use crate::registry;
 use crate::signature::Verification;
 
 /// Stream every live file entry of the image's platform layers.
@@ -32,7 +33,7 @@ pub(crate) async fn files<F>(
 where
     F: FnMut(FileEntry<'_>) -> Result<()>,
 {
-    let client = Client::new(reference, Access::Pull, None).await?;
+    let client = registry::connect(reference, Access::Pull).await?;
     let cache = Store::new();
     eprintln!("Pulling {reference} for {}", arch.as_str());
     let layers = resolve::layers(&client, &cache, arch, verification).await?;

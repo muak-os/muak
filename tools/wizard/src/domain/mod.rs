@@ -1,9 +1,8 @@
-//! Profile, release and resolution as the 3 layers of the domain resolution.
+//! Profile and resolution as the layers of the domain resolution.
 
 pub mod identity;
 pub mod overlay;
 pub mod profile;
-pub mod release;
 pub mod resolution;
 
 use serde::de::Error;
@@ -30,16 +29,6 @@ pub(crate) fn non_empty<'de, D: Deserializer<'de>>(deserializer: D) -> Result<St
     }
 
     Ok(value)
-}
-
-/// Rejects empty optional strings during deserialization.
-pub(crate) fn non_empty_option<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    match Option::<String>::deserialize(deserializer)? {
-        Some(value) if !value.is_empty() => Ok(Some(value)),
-        _ => Err(Error::custom("must not be empty")),
-    }
 }
 
 /// Rejects vectors containing empty strings during deserialization.

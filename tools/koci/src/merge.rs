@@ -15,6 +15,7 @@ use oci_client::http;
 use oci_client::manifest;
 
 use crate::error::{KociError, Result};
+use crate::registry;
 use crate::runtime;
 
 /// One per-platform source of a merged index.
@@ -73,7 +74,7 @@ async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result
     }
     validate_platforms(sources)?;
 
-    let client = Client::new(image, Access::PullPush, None).await?;
+    let client = registry::connect(image, Access::PullPush).await?;
     let mut descriptors = Vec::with_capacity(sources.len());
     for source in sources {
         descriptors.push(resolve_descriptor(&client, source).await?);

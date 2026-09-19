@@ -1,9 +1,9 @@
 //! Layer payload nodes for the kernel modules and extension initramfs layers.
 
+use koci::arch::Arch;
 use koci::error::KociError;
 use koci::pull;
 use koci::pull::entries::FileEntry;
-use oci::arch::Arch;
 
 use crate::artifact::Artifact;
 use crate::domain::resolution::Extension;

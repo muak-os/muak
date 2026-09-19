@@ -1,11 +1,15 @@
 //! Resolver: derives phase 3 (resolution) from the domain model.
 
-use oci::arch::{self, Arch};
+use kata::schema::documents::{DOCUMENT_PATH, Document};
+use kata::schema::entries::NamedEntry;
+use kata::schema::kinds::Kind;
+use kata::schema::parse::{from_toml, validate_release};
+use kata::schema::view::{self, Role};
+use koci::arch::{self, Arch};
 
 use crate::config;
-use crate::domain::identity::ResolutionId;
-use crate::domain::profile::{Profile, normalize_extension_name};
-use crate::domain::release::{Manifest, manifest_for_version};
+use crate::domain::identity::{ResolutionId, ResolvedInput};
+use crate::domain::profile::{OverlaySpec, Profile, normalize_extension_name};
 use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild};
 use crate::error::{Result, WizardError};
 use crate::request::Request;
@@ -17,151 +21,212 @@ const RESOLUTION_POLICY: &str = "muak/default";
 ///
 /// # Errors
 ///
-/// Returns an error when the request version is invalid, the profile references
-/// an unknown source input, or the global configuration has not been set.
+/// Returns an error when the release version is invalid, a catalog cannot be fetched
+/// or does not contain a selected entry, or the global configuration has not been set.
 pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let config = config::config()?;
-    let host = arch::host();
-    let arch = request.target_arch().unwrap_or(host);
-    let manifest = manifest_for_version(request.version())?;
-
+    let arch = request.target_arch().unwrap_or_else(arch::host);
+    valid_release(request.version())?;
+    let release = request.version();
     let profile_id = profile.profile_id()?;
-    let release_id = manifest.id()?;
 
-    let registry = &config.registry;
-    let installer = manifest.installer().reference(registry);
-    let stub = manifest.stub().reference(registry);
-    let kernel = match_kernel(profile, &manifest, registry)?;
-    let extensions = match_extensions(profile, &manifest, registry)?;
-    let overlay = match_overlay(profile, &manifest, registry, arch)?;
+    let core = fetch(Kind::Core, release, &config.registry)?;
+    let kernel_entry = core.kernel(profile.kernel().source())?;
+    let stub_entry = core.stub()?;
+    let installer_entry = core.installer()?;
 
-    let build = ResolvedBuild::new(manifest.version().to_owned(), arch, kernel)
-        .with_sources(stub, installer, overlay, extensions);
+    let mut inputs: Vec<ResolvedInput> = vec![
+        view::sourced(Role::Kernel, kernel_entry).into(),
+        view::sourced(Role::Stub, stub_entry).into(),
+        view::sourced(Role::Installer, installer_entry).into(),
+    ];
+
+    let kernel = Kernel::new(
+        profile.kernel().source().to_owned(),
+        pinned_reference(
+            &config.registry,
+            &kernel_entry.repository,
+            &kernel_entry.digest,
+        ),
+    );
+    let stub_reference =
+        pinned_reference(&config.registry, &stub_entry.repository, &stub_entry.digest);
+    let installer_reference = pinned_reference(
+        &config.registry,
+        &installer_entry.repository,
+        &installer_entry.digest,
+    );
+
+    let extensions = if profile.customization().extensions().is_empty() {
+        Vec::new()
+    } else {
+        let document = fetch(Kind::Extensions, release, &config.registry)?;
+        match_extensions(&document, profile, &config.registry, &mut inputs)?
+    };
+    let overlay = match profile.overlay() {
+        Some(spec) => {
+            let document = fetch(Kind::Overlays, release, &config.registry)?;
+            match_overlay(&document, spec, arch, &config.registry, &mut inputs)?
+        }
+        None => None,
+    };
+
+    let build = ResolvedBuild::new(release.to_owned(), arch, kernel).with_sources(
+        stub_reference,
+        installer_reference,
+        overlay,
+        extensions,
+    );
     let resolution_id =
-        ResolutionId::compute(&profile_id, &release_id, arch.as_str(), RESOLUTION_POLICY);
+        ResolutionId::compute(&profile_id, &inputs, arch.as_str(), RESOLUTION_POLICY);
 
-    Ok(Resolution::new(
-        profile_id,
-        release_id,
-        resolution_id,
-        build,
-    ))
+    Ok(Resolution::new(profile_id, resolution_id, build))
 }
 
-/// Matches the profile kernel identity against the manifest.
-///
-/// # Errors
-///
-/// Returns an error when the profile kernel source is missing from the manifest.
-fn match_kernel(profile: &Profile, manifest: &Manifest, registry: &str) -> Result<Kernel> {
-    let source = profile.kernel().source();
-    if source != manifest.kernel().source() {
-        return Err(WizardError::SourceResolution(format!(
-            "manifest '{}' does not contain kernel source '{source}'",
-            manifest.name()
-        )));
-    }
-
-    Ok(Kernel::new(
-        source.to_owned(),
-        manifest.kernel().reference(registry),
-    ))
-}
-
-/// Matches the normalized profile extensions against manifest entries.
-///
-/// # Errors
-///
-/// Returns an error when any extension is missing from the manifest.
 fn match_extensions(
+    document: &Document,
     profile: &Profile,
-    manifest: &Manifest,
     registry: &str,
+    inputs: &mut Vec<ResolvedInput>,
 ) -> Result<Vec<Extension>> {
     profile
         .customization()
         .extensions()
         .iter()
-        .map(|name| normalize_extension_name(name))
-        .map(|source| {
-            let entry = manifest
-                .extensions()
-                .iter()
-                .find(|entry| entry.source() == source)
-                .ok_or_else(|| {
-                    WizardError::SourceResolution(format!(
-                        "manifest '{}' does not contain extension '{source}'",
-                        manifest.name()
-                    ))
-                })?;
-            Ok(Extension::new(source.to_owned(), entry.reference(registry)))
+        .map(|name| {
+            let name = normalize_extension_name(name);
+            let entry = document.named(name).ok_or_else(|| {
+                WizardError::SourceResolution(format!(
+                    "catalog does not contain extension '{name}'"
+                ))
+            })?;
+            inputs.push(view::named(Role::Extension, entry).into());
+
+            Ok(Extension::new(
+                name.to_owned(),
+                pinned_reference(registry, &entry.repository, &entry.digest),
+            ))
         })
-        .collect::<Result<Vec<_>>>()
+        .collect()
 }
 
-/// Matches the profile overlay identity against the manifest.
-///
-/// # Errors
-///
-/// Returns an error when the profile overlay source or name is missing from
-/// the manifest.
 fn match_overlay(
-    profile: &Profile,
-    manifest: &Manifest,
-    registry: &str,
+    document: &Document,
+    spec: &OverlaySpec,
     arch: Arch,
+    registry: &str,
+    inputs: &mut Vec<ResolvedInput>,
 ) -> Result<Option<Overlay>> {
-    let Some(spec) = profile.overlay() else {
-        return Ok(None);
-    };
-
-    let entry = manifest
-        .overlays()
-        .iter()
-        .find(|entry| entry.source() == spec.source() && entry.name() == Some(spec.name()))
-        .ok_or_else(|| {
-            WizardError::SourceResolution(format!(
-                "manifest '{}' does not contain overlay '{}/{}'",
-                manifest.name(),
-                spec.name(),
-                spec.source()
-            ))
-        })?;
+    let entry: &NamedEntry = document.named(spec.name()).ok_or_else(|| {
+        WizardError::SourceResolution(format!(
+            "catalog does not contain overlay '{}'",
+            spec.name()
+        ))
+    })?;
+    inputs.push(view::named(Role::Overlay, entry).into());
 
     Ok(Some(Overlay::new(
         spec.name().to_owned(),
-        spec.source().to_owned(),
-        entry.reference(registry),
+        entry.source.clone(),
+        pinned_reference(registry, &entry.repository, &entry.digest),
         arch,
     )))
 }
 
+fn fetch(kind: Kind, release: &str, registry: &str) -> Result<Document> {
+    let reference = format!("{registry}/{}:{release}", kind.repository());
+    let mut document: Option<Vec<u8>> = None;
+    koci::pull::files(&reference, &Arch::Amd64, None, |entry| {
+        if entry.path == DOCUMENT_PATH {
+            let mut buffer = Vec::new();
+            entry.reader.read_to_end(&mut buffer)?;
+            document = Some(buffer);
+        }
+
+        Ok(())
+    })
+    .map_err(|error| {
+        WizardError::SourceResolution(format!("fetch catalog image {reference}: {error}"))
+    })?;
+    let bytes = document.ok_or_else(|| {
+        WizardError::SourceResolution(format!(
+            "catalog image {reference} does not contain {DOCUMENT_PATH}",
+        ))
+    })?;
+
+    Ok(from_toml(kind, &bytes, release)?)
+}
+
+fn pinned_reference(registry: &str, repository: &str, digest: &str) -> String {
+    format!("{registry}/{repository}@{digest}")
+}
+
+fn valid_release(version: &str) -> Result<()> {
+    validate_release(version).map_err(WizardError::from)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
-
     use super::*;
-    use crate::config;
-    use crate::domain::profile::{CustomizationSpec, KernelSpec, OverlaySpec, Profile};
+    use crate::domain::profile::{CustomizationSpec, KernelSpec, Profile};
 
-    static CONFIGURE: Once = Once::new();
+    const RELEASE: &str = "v1.2.3";
 
-    fn configure() {
-        CONFIGURE.call_once(|| {
-            config::configure(config::Config {
-                cache_dir: None,
-                registry: "ghcr.io/muak-os".to_owned(),
-            })
-            .expect("configure");
-        });
+    const CORE: &str = r#"api_version = "muak.dev/catalog/core/v1"
+release = "v1.2.3"
+
+[[kernels]]
+source = "muak-os/linux"
+repository = "linux"
+tag = "v6.12.4-muak1"
+digest = "sha256:1111"
+
+[stub]
+source = "muak-os/stub"
+repository = "stub"
+tag = "v0.3.1"
+digest = "sha256:2222"
+
+[installer]
+source = "muak-os/installer"
+repository = "installer"
+tag = "v1.2.3"
+digest = "sha256:3333"
+"#;
+
+    const EXTENSIONS: &str = r#"api_version = "muak.dev/catalog/extensions/v1"
+release = "v1.2.3"
+
+[[extensions]]
+name = "muak-os/qemu"
+source = "muak-os/extensions"
+repository = "extensions/qemu"
+tag = "v0.2.1"
+digest = "sha256:4444"
+"#;
+
+    const OVERLAYS: &str = r#"api_version = "muak.dev/catalog/overlays/v1"
+release = "v1.2.3"
+
+[[overlays]]
+name = "rpi_generic"
+source = "muak-os/sbc-raspberrypi"
+repository = "sbc/raspberrypi"
+tag = "v0.4.0"
+digest = "sha256:5555"
+"#;
+
+    /// Parses a fixture document of the given kind.
+    fn document(kind: Kind, body: &str) -> Document {
+        from_toml(kind, body.as_bytes(), RELEASE).expect("parse fixture document")
     }
 
-    /// Resolves via the public entry point against the single configure registry.
-    fn resolve(profile: &Profile, version: &str, arch: Arch) -> Result<Resolution> {
-        configure();
-        let request = Request::new(version).arch(arch);
+    fn extensions_document() -> Document {
+        document(Kind::Extensions, EXTENSIONS)
+    }
 
-        plan(&request, profile)
+    fn overlays_document() -> Document {
+        document(Kind::Overlays, OVERLAYS)
     }
 
     fn profile(overlay: Option<OverlaySpec>, extensions: &[&str]) -> Profile {
@@ -173,163 +238,151 @@ mod tests {
         Profile::new(overlay, customization, kernel)
     }
 
-    fn base_profile() -> Profile {
-        profile(None, &[])
-    }
-
-    fn overlay_profile() -> Profile {
-        let overlay = OverlaySpec::new("rpi_generic".into(), "muak-os/sbc-raspberrypi".into())
-            .expect("overlay");
-
-        profile(Some(overlay), &[])
-    }
-
     #[test]
-    fn resolves_references_from_manifest() {
-        // ARRANGE / ACT
-        let resolution = resolve(&base_profile(), "latest", Arch::Amd64).expect("resolve");
+    fn core_lookups_resolve_entries_by_source() {
+        // ARRANGE
+        let core = document(Kind::Core, CORE);
 
-        // ASSERT
-        let build = resolution.build();
-        assert_eq!(build.installer(), "ghcr.io/muak-os/installer:latest");
-        assert_eq!(build.stub(), "ghcr.io/muak-os/stub:latest");
-        assert_eq!(build.kernel().source(), "ghcr.io/muak-os/linux:latest");
-        assert_eq!(build.kernel().image(), "muak-os/linux");
-        assert_eq!(build.version(), "latest");
-        assert_eq!(build.arch(), Arch::Amd64);
-    }
-
-    #[test]
-    fn resolution_ids_are_computed() {
-        // ARRANGE / ACT
-        let resolution = resolve(&base_profile(), "latest", Arch::Amd64).expect("resolve");
-
-        // ASSERT
-        assert_eq!(resolution.profile_id().to_string().len(), 64);
-        assert_eq!(resolution.release_id().to_string().len(), 64);
-        assert_eq!(resolution.resolution_id().to_string().len(), 64);
-    }
-
-    #[test]
-    fn arch_change_affects_resolution_id_only() {
-        // ARRANGE / ACT
-        let amd64 = resolve(&base_profile(), "latest", Arch::Amd64).expect("resolve amd64");
-        let arm64 = resolve(&base_profile(), "latest", Arch::Arm64).expect("resolve arm64");
-
-        // ASSERT
-        assert_eq!(amd64.profile_id(), arm64.profile_id());
-        assert_eq!(amd64.release_id(), arm64.release_id());
-        assert_ne!(amd64.resolution_id(), arm64.resolution_id());
-    }
-
-    #[test]
-    fn resolves_extensions_from_manifest() {
-        // ARRANGE / ACT
-        let resolution =
-            resolve(&profile(None, &["muak-os/qemu"]), "latest", Arch::Amd64).expect("resolve");
-
-        // ASSERT
-        assert_eq!(resolution.build().extensions().len(), 1);
-        let ext = resolution.build().extensions().first().expect("ext");
-        assert_eq!(ext.name(), "muak-os/qemu");
-        assert_eq!(ext.source(), "ghcr.io/muak-os/pkgs/qemu:latest");
-    }
-
-    #[test]
-    fn aliases_extension_name() {
-        // ARRANGE / ACT
-        let resolution =
-            resolve(&profile(None, &["qemu"]), "latest", Arch::Amd64).expect("resolve");
-
-        // ASSERT
-        assert_eq!(resolution.build().extensions().len(), 1);
+        // ACT / ASSERT
         assert_eq!(
-            resolution.build().extensions().first().expect("ext").name(),
+            core.kernel("muak-os/linux").expect("kernel").digest,
+            "sha256:1111"
+        );
+        assert_eq!(core.stub().expect("stub").digest, "sha256:2222");
+        assert_eq!(core.installer().expect("installer").digest, "sha256:3333");
+        core.kernel("other/kernel").unwrap_err();
+    }
+
+    #[test]
+    fn core_lookups_reject_missing_frozen_entries() {
+        // ARRANGE
+        let core_without_stub = r#"api_version = "muak.dev/catalog/core/v1"
+release = "v1.2.3"
+
+[[kernels]]
+source = "muak-os/linux"
+repository = "linux"
+tag = "v6.12.4-muak1"
+digest = "sha256:1111"
+"#;
+        let core = document(Kind::Core, core_without_stub);
+
+        // ACT / ASSERT
+        let error = core.stub().expect_err("missing stub should fail");
+        assert!(error.to_string().contains("missing the stub entry"));
+    }
+
+    #[test]
+    fn match_extensions_resolves_by_canonical_name() {
+        // ARRANGE
+        let document = extensions_document();
+        let profile = profile(None, &["muak-os/qemu"]);
+        let mut inputs = Vec::new();
+
+        // ACT
+        let extensions = match_extensions(&document, &profile, "ghcr.io/muak-os", &mut inputs)
+            .expect("match extensions");
+
+        // ASSERT
+        let ext = extensions.first().expect("extension");
+        assert_eq!(ext.name(), "muak-os/qemu");
+        assert_eq!(ext.source(), "ghcr.io/muak-os/extensions/qemu@sha256:4444");
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs.first().expect("input").digest, "sha256:4444");
+    }
+
+    #[test]
+    fn match_extensions_aliases_bare_names() {
+        // ARRANGE
+        let document = extensions_document();
+        let profile = profile(None, &["qemu"]);
+
+        // ACT
+        let extensions = match_extensions(&document, &profile, "ghcr.io/muak-os", &mut Vec::new())
+            .expect("match extensions");
+
+        // ASSERT
+        assert_eq!(
+            extensions.first().expect("extension").name(),
             "muak-os/qemu"
         );
     }
 
     #[test]
-    fn rejects_unknown_extension() {
-        // ARRANGE / ACT
-        let result = resolve(&profile(None, &["custom/thing"]), "latest", Arch::Amd64);
+    fn match_extensions_rejects_unknown_names() {
+        // ARRANGE
+        let document = extensions_document();
+        let profile = profile(None, &["custom/thing"]);
 
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("does not contain extension"))
-        );
+        // ACT / ASSERT
+        let error = match_extensions(&document, &profile, "ghcr.io/muak-os", &mut Vec::new())
+            .expect_err("unknown extension should fail");
+        assert!(error.to_string().contains("does not contain extension"));
     }
 
     #[test]
-    fn resolves_overlay_from_manifest() {
-        // ARRANGE / ACT
-        let resolution = resolve(&overlay_profile(), "latest", Arch::Amd64).expect("resolve");
+    fn match_overlay_resolves_by_name() {
+        // ARRANGE
+        let document = overlays_document();
+        let spec = OverlaySpec::new("rpi_generic".into()).expect("overlay spec");
+        let mut inputs = Vec::new();
+
+        // ACT
+        let overlay = match_overlay(
+            &document,
+            &spec,
+            Arch::Amd64,
+            "ghcr.io/muak-os",
+            &mut inputs,
+        )
+        .expect("match overlay")
+        .expect("overlay present");
 
         // ASSERT
-        let overlay = resolution.build().overlay().expect("overlay");
         assert_eq!(overlay.name(), "rpi_generic");
         assert_eq!(overlay.image(), "muak-os/sbc-raspberrypi");
         assert_eq!(
             overlay.source_ref(),
-            "ghcr.io/muak-os/sbc/raspberrypi:latest"
+            "ghcr.io/muak-os/sbc/raspberrypi@sha256:5555"
         );
+        assert_eq!(inputs.first().expect("input").digest, "sha256:5555");
     }
 
     #[test]
-    fn rejects_mismatched_overlay_source() {
+    fn match_overlay_rejects_unknown_names() {
         // ARRANGE
-        let overlay = OverlaySpec::new("rpi_generic".into(), "other/sbc".into()).expect("overlay");
-        let profile = profile(Some(overlay), &[]);
+        let document = overlays_document();
+        let spec = OverlaySpec::new("board_x".into()).expect("overlay spec");
 
-        // ACT
-        let result = resolve(&profile, "latest", Arch::Amd64);
-
-        // ASSERT
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|e| e.to_string().contains("does not contain overlay"))
-        );
+        // ACT / ASSERT
+        let error = match_overlay(
+            &document,
+            &spec,
+            Arch::Amd64,
+            "ghcr.io/muak-os",
+            &mut Vec::new(),
+        )
+        .expect_err("unknown overlay should fail");
+        assert!(error.to_string().contains("does not contain overlay"));
     }
 
     #[test]
-    fn arbitrary_version_resolves() {
-        // ARRANGE / ACT
-        let resolution = resolve(&base_profile(), "v2.0.0", Arch::Amd64).expect("resolve");
-
-        // ASSERT
-        assert_eq!(resolution.build().version(), "v2.0.0");
-        assert_eq!(
-            resolution.build().installer(),
-            "ghcr.io/muak-os/installer:v2.0.0"
-        );
-        assert_eq!(resolution.build().stub(), "ghcr.io/muak-os/stub:v2.0.0");
-        assert_eq!(
-            resolution.build().kernel().source(),
-            "ghcr.io/muak-os/linux:v2.0.0"
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_version() {
-        // ARRANGE / ACT
-        for (label, version) in [
-            ("empty", ""),
-            ("colon", "v1:latest"),
-            ("slash", "v1/latest"),
-            ("whitespace", "v1 latest"),
-        ] {
-            let result = resolve(&base_profile(), version, Arch::Amd64);
-
-            // ASSERT
-            assert!(
-                result
-                    .as_ref()
-                    .is_err_and(|e| e.to_string().contains("invalid release version")),
-                "{label}: expected an invalid version error"
-            );
+    fn valid_release_accepts_tags_and_rejects_reference_delimiters() {
+        // ARRANGE / ACT / ASSERT
+        valid_release("v1.2.3").expect("tag release accepted");
+        valid_release("latest").expect("latest accepted");
+        for version in ["", "v1:latest", "v1/latest", "v1 latest"] {
+            let error = valid_release(version).expect_err("should fail");
+            assert!(error.to_string().contains("invalid release version"));
         }
+    }
+
+    #[test]
+    fn pinned_reference_is_registry_scoped_and_digest_addressed() {
+        // ARRANGE / ACT / ASSERT
+        assert_eq!(
+            pinned_reference("localhost:5000", "linux", "sha256:1111"),
+            "localhost:5000/linux@sha256:1111"
+        );
     }
 }

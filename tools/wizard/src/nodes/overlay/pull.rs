@@ -2,9 +2,9 @@
 
 use std::thread::ScopedJoinHandle;
 
+use koci::arch::Arch;
 use koci::error::KociError;
 use koci::pull;
-use oci::arch::Arch;
 
 use crate::artifact::Artifact;
 use crate::domain::overlay::entry_name;

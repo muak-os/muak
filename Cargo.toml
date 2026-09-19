@@ -15,6 +15,7 @@ members = [
     "services/workloadd",
 
     "tools/wizard",
+    "tools/kata",
     "tools/koci",
     "tools/miso",
     "tools/mumi",
@@ -55,6 +56,8 @@ categories = ["os"]
 [workspace.dependencies]
 # Internal crates
 
+## Tools
+kata = { path = "tools/kata", default-features = false }
 wizard = { path = "tools/wizard", default-features = false }
 koci = { path = "tools/koci", default-features = false }
 miso = { path = "tools/miso", default-features = false }
@@ -63,6 +66,7 @@ ramune = { path = "tools/ramune", default-features = false }
 sbolt = { path = "tools/sbolt", default-features = false }
 yuki = { path = "tools/yuki", default-features = false }
 
+## Libraries
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }

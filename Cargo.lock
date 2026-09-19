@@ -1039,6 +1039,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "kata"
+version = "1.0.0-beta"
+dependencies = [
+ "anyhow",
+ "clap",
+ "koci",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.20",
+ "toml",
+]
+
+[[package]]
 name = "kmod"
 version = "1.0.0-beta"
 dependencies = [
@@ -2875,11 +2888,11 @@ dependencies = [
  "disk",
  "esp",
  "flate2",
+ "kata",
  "koci",
  "miso",
  "mumi",
  "object",
- "oci",
  "ramune",
  "sbolt",
  "serde",

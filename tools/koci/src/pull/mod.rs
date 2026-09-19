@@ -4,9 +4,9 @@ use alloc::collections::BTreeMap;
 
 use oci::arch::Arch;
 use oci_client::auth::Access;
-use oci_client::client::Client;
 
 use crate::error::Result;
+use crate::registry;
 use crate::runtime;
 use crate::signature::Verification;
 
@@ -30,7 +30,7 @@ pub fn annotations(
     verification: Option<&Verification<'_>>,
 ) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
-        let client = Client::new(reference, Access::Pull, None).await?;
+        let client = registry::connect(reference, Access::Pull).await?;
         let cache = cache::Store::new();
         let json = resolve::platform_manifest_json(&client, &cache, arch, verification).await?;
         let parsed = oci::manifest::parse(&json)?;

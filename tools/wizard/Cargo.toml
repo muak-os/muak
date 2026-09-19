@@ -37,10 +37,10 @@ anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
+kata = { workspace = true, default-features = false }
 mumi = { workspace = true }
 esp = { workspace = true }
 koci = { workspace = true, features = ["pull"] }
-oci = { workspace = true }
 miso = { workspace = true}
 ramune = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }

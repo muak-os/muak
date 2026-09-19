@@ -1,10 +1,10 @@
 //! The resolved build and its identity.
 
 use disk::layout::Layout;
-use oci::arch::Arch;
+use koci::arch::Arch;
 
 use super::overlay::Asset;
-use crate::domain::identity::{ProfileId, ReleaseManifestId, ResolutionId};
+use crate::domain::identity::{ProfileId, ResolutionId};
 
 /// The resolved build inputs produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,7 +129,6 @@ impl ResolvedBuild {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolution {
     profile_id: ProfileId,
-    release_id: ReleaseManifestId,
     id: ResolutionId,
     build: ResolvedBuild,
 }
@@ -138,13 +137,11 @@ impl Resolution {
     #[must_use]
     pub(crate) fn new(
         profile_id: ProfileId,
-        release_id: ReleaseManifestId,
         resolution_id: ResolutionId,
         build: ResolvedBuild,
     ) -> Self {
         Self {
             profile_id,
-            release_id,
             id: resolution_id,
             build,
         }
@@ -154,12 +151,6 @@ impl Resolution {
     #[must_use]
     pub const fn profile_id(&self) -> &ProfileId {
         &self.profile_id
-    }
-
-    /// Returns the release manifest identity.
-    #[must_use]
-    pub const fn release_id(&self) -> &ReleaseManifestId {
-        &self.release_id
     }
 
     /// Returns the exact resolution identity.
@@ -289,7 +280,6 @@ mod tests {
     use super::*;
     use crate::domain::identity::ResolutionId;
     use crate::domain::profile::{CustomizationSpec, KernelSpec, Profile};
-    use crate::domain::release;
 
     fn profile() -> Profile {
         let customization = CustomizationSpec::new(vec![]).expect("customization");
@@ -297,17 +287,12 @@ mod tests {
         Profile::new(None, customization, kernel)
     }
 
-    fn manifest() -> release::Manifest {
-        release::manifest().expect("manifest")
-    }
-
     #[test]
     fn resolved_build_accessors() {
         // ARRANGE
         let profile = profile();
-        let manifest = manifest();
         let build = ResolvedBuild::new(
-            manifest.version().to_owned(),
+            "v1.0.0".to_owned(),
             Arch::Amd64,
             Kernel::new(
                 "muak-os/linux".into(),
@@ -322,10 +307,9 @@ mod tests {
         );
         let resolution = Resolution::new(
             profile.profile_id().expect("profile id"),
-            manifest.id().expect("release id"),
             ResolutionId::compute(
                 &profile.profile_id().expect("profile id"),
-                &manifest.id().expect("release id"),
+                &[],
                 "amd64",
                 "default",
             ),
@@ -334,7 +318,6 @@ mod tests {
 
         // ACT / ASSERT
         assert_eq!(resolution.profile_id().to_string().len(), 64);
-        assert_eq!(resolution.release_id().to_string().len(), 64);
         assert_eq!(resolution.resolution_id().to_string().len(), 64);
         assert_eq!(
             resolution.build().installer(),

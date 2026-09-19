@@ -1,0 +1,44 @@
+[package]
+name = "kata"
+description = "Release catalog publisher"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "kata"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[dependencies]
+# CLI
+clap = { workspace = true, optional = true }
+
+# Encoding
+serde = { workspace = true }
+toml = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+# Internal
+koci = { workspace = true, features = ["push"], optional = true }
+
+[features]
+default = ["cli"]
+cli = ["dep:anyhow", "dep:clap", "dep:koci", "koci/push"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
