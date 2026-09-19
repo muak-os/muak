@@ -1,8 +1,11 @@
 //! OCI layer downloading, decompression, and tar entry iteration.
 
+#[cfg(feature = "annotate")]
 use alloc::collections::BTreeMap;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "annotate")]
+use std::path::Path;
+use std::path::PathBuf;
 
 use oci::arch::Arch;
 use oci::model::Descriptor;
