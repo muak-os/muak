@@ -4,7 +4,6 @@ on:
   push:
     branches: [master]
     paths:
-      - "pkgs/**"
       - "init/**"
       - "services/**"
       - "tools/**"
@@ -17,7 +16,6 @@ on:
       - ".dockerignore"
   pull_request:
     paths:
-      - "pkgs/**"
       - "init/**"
       - "services/**"
       - "tools/**"
