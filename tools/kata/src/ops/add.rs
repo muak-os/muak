@@ -64,42 +64,39 @@ pub fn run(root: &Path, input: &Input) -> Result<PathBuf> {
     } else {
         fresh_document(kind, &input.release)
     };
-    apply(&mut document, input, &digest)?;
 
-    repository::write(&document, root, &input.release)
-}
-
-fn apply(document: &mut Document, input: &Input, digest: &str) -> Result<()> {
     let sourced = SourcedEntry {
         source: input.source.clone(),
         repository: input.repository.clone(),
         tag: input.tag.clone(),
-        digest: digest.to_owned(),
+        digest: digest.clone(),
     };
 
     match input.role {
-        Role::Kernel => repository::edit::set_kernel(document, sourced),
-        Role::Stub => repository::edit::set_stub(document, sourced),
-        Role::Installer => repository::edit::set_installer(document, sourced),
+        Role::Kernel => repository::edit::set_kernel(&mut document, sourced)?,
+        Role::Stub => repository::edit::set_stub(&mut document, sourced)?,
+        Role::Installer => repository::edit::set_installer(&mut document, sourced)?,
         Role::Overlay | Role::Extension => {
-            let Some(name) = input.name.clone() else {
+            let Some(name) = input.name.as_deref() else {
                 return Err(KataError::Document(
                     "--name is required for overlays and extensions".to_owned(),
                 ));
             };
 
             repository::edit::set_named(
-                document,
+                &mut document,
                 NamedEntry {
-                    name,
+                    name: name.to_owned(),
                     source: input.source.clone(),
                     repository: input.repository.clone(),
                     tag: input.tag.clone(),
-                    digest: digest.to_owned(),
+                    digest: digest.clone(),
                 },
-            )
+            )?;
         }
     }
+
+    repository::write(&document, root, &input.release)
 }
 
 fn fresh_document(kind: Kind, release: &str) -> Document {
