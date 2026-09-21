@@ -7,6 +7,8 @@ extern crate alloc;
 #[cfg(any(feature = "sign", feature = "annotate"))]
 pub mod annotations;
 pub mod arch;
+#[cfg(feature = "copy")]
+pub mod copy;
 pub mod error;
 #[cfg(feature = "merge")]
 pub mod merge;

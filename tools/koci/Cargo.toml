@@ -44,8 +44,9 @@ oci-client = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["annotate", "anyhow", "clap", "merge", "pull", "push", "sign"]
+cli = ["annotate", "copy", "anyhow", "clap", "merge", "pull", "push", "sign"]
 annotate = ["dep:bytes", "json", "pull"]
+copy = ["dep:bytes", "json", "registry"]
 merge = ["dep:bytes", "json", "registry"]
 pull = [
     "dep:base64ct",

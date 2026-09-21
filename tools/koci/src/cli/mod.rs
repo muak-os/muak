@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use oci::arch::Arch;
 
 mod annotate;
+mod copy;
 mod merge;
 mod pull;
 mod push;
@@ -30,6 +31,7 @@ enum Command {
     Annotate(annotate::Args),
     Merge(merge::Args),
     Push(push::Args),
+    Copy(copy::Args),
 }
 
 /// Run the CLI from a caller-provided argument iterator.
@@ -74,6 +76,7 @@ fn run_command(command: Command) -> Result<()> {
         Command::Annotate(args) => annotate::run(args),
         Command::Merge(args) => merge::run(args),
         Command::Push(args) => push::run(args),
+        Command::Copy(args) => copy::run(args),
     }
 }
 

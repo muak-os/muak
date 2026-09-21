@@ -165,6 +165,17 @@ merge image *sources:
             ${tags} \
             {{ sources }}
 
+# Copy an image from the upstream registry, preserving every digest.
+[script]
+mirror image tag upstream="ghcr.io/muak-os":
+    printf "{{ cyan }}Mirroring {{ upstream }}/{{ image }}:{{ tag }} to {{ registry }}/{{ image }}:{{ tag }}{{ reset }}\n"
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        {{ tools }} \
+        /koci copy \
+            --source "{{ upstream }}/{{ image }}:{{ tag }}" \
+            --destination "{{ registry }}/{{ image }}:{{ tag }}"
+
 # Annotate an OCI image in the registry with per-entry sizes.
 [arg("image", long="image")]
 annotate image=(registry + "/installer:" + tag):

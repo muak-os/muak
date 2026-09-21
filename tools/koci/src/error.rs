@@ -31,6 +31,10 @@ pub enum KociError {
     #[error("Failed to merge index: {0}")]
     MergeError(String),
 
+    /// Copy orchestration failure.
+    #[error("Failed to copy image: {0}")]
+    CopyError(String),
+
     /// Failed to extract a layer blob.
     #[error("Failed to extract layer: {0}")]
     LayerExtractionError(String),
