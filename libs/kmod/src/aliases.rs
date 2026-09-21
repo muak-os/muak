@@ -1,13 +1,23 @@
 //! Module alias database support.
 
-use std::fs::File;
-use std::io::{BufRead as _, BufReader};
+use std::fs;
 use std::path::Path;
+
+use crate::text::{self, Span};
+
+const ALIAS_PREFIX: &str = "alias ";
 
 /// Parsed `modules.alias` database.
 #[derive(Debug)]
 pub struct AliasDb {
-    entries: Vec<(String, String)>, // (pattern, module)
+    text: String,
+    entries: Vec<Alias>,
+}
+
+#[derive(Debug)]
+struct Alias {
+    pattern: Span,
+    module: Span,
 }
 
 impl AliasDb {
@@ -15,27 +25,25 @@ impl AliasDb {
     ///
     /// # Errors
     ///
-    /// Returns an error when `path` cannot be opened.
+    /// Returns an error when `path` cannot be opened or read.
     pub fn load(path: &Path) -> std::io::Result<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let entries: Vec<_> = reader
-            .lines()
-            .map_while(Result::ok)
-            .filter_map(|line| parse_alias_line(&line))
-            .collect();
+        let text = fs::read_to_string(path)?;
 
-        Ok(Self { entries })
+        Ok(Self {
+            entries: parse_text(&text),
+            text,
+        })
     }
 
     /// Finds the first module whose alias pattern matches `modalias`.
     #[must_use]
     pub fn find_module(&self, modalias: &str) -> Option<&str> {
-        let modalias_lower = modalias.to_ascii_lowercase();
-        self.entries.iter().find_map(|entry| {
-            let pattern_lower = entry.0.to_ascii_lowercase();
-            glob_match_bytes(pattern_lower.as_bytes(), modalias_lower.as_bytes())
-                .then_some(entry.1.as_str())
+        self.entries.iter().find_map(|alias| {
+            glob_match_bytes(
+                text::slice(&self.text, alias.pattern).as_bytes(),
+                modalias.as_bytes(),
+            )
+            .then_some(text::slice(&self.text, alias.module))
         })
     }
 
@@ -50,6 +58,36 @@ impl AliasDb {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+}
+
+fn parse_text(text: &str) -> Vec<Alias> {
+    let mut entries = Vec::new();
+    text::for_each_line(text, |line, offset| {
+        if let Some(alias) = parse_alias(line, offset) {
+            entries.push(alias);
+        }
+    });
+
+    entries
+}
+
+fn parse_alias(line: &str, offset: usize) -> Option<Alias> {
+    let lead = line.len().saturating_sub(line.trim_start().len());
+    let line = line.trim();
+    let rest = line.strip_prefix(ALIAS_PREFIX)?;
+    let (pattern, module) = rest.rsplit_once(' ')?;
+
+    let pattern_base = offset
+        .saturating_add(lead)
+        .saturating_add(ALIAS_PREFIX.len());
+
+    Some(Alias {
+        pattern: text::span_at(pattern_base, pattern),
+        module: text::span_at(
+            pattern_base.saturating_add(pattern.len()).saturating_add(1),
+            module,
+        ),
+    })
 }
 
 fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
@@ -71,7 +109,9 @@ fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
                 text_index = text_index.saturating_add(1);
                 true
             }
-            Some(pattern_byte) if pattern_byte == text_byte => {
+            Some(pattern_byte)
+                if pattern_byte.to_ascii_lowercase() == text_byte.to_ascii_lowercase() =>
+            {
                 pattern_index = pattern_index.saturating_add(1);
                 text_index = text_index.saturating_add(1);
                 true
@@ -102,17 +142,6 @@ fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
     pattern_index == pattern.len()
 }
 
-/// Parses a line from `modules.alias` and returns the (pattern, module) if it's a valid alias line.
-fn parse_alias_line(line: &str) -> Option<(String, String)> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
-        return None;
-    }
-    let rest = line.strip_prefix("alias ")?;
-    let (pattern, module) = rest.rsplit_once(' ')?;
-    Some((pattern.trim().to_owned(), module.trim().to_owned()))
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
@@ -125,31 +154,26 @@ mod tests {
         glob_match_bytes(pattern.as_bytes(), text.as_bytes())
     }
 
-    fn glob_match_icase(pattern: &str, text: &str) -> bool {
-        let pattern_lower = pattern.to_ascii_lowercase();
-        let text_lower = text.to_ascii_lowercase();
-        glob_match_bytes(pattern_lower.as_bytes(), text_lower.as_bytes())
-    }
-
     #[test]
     fn glob_exact() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("foo", "foo", true),
+            ("foo", "FOO", true),
             ("foo", "bar", false),
             ("foo", "foobar", false),
         ];
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_star() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("*", "anything", true),
             ("foo*", "foobar", true),
             ("*bar", "foobar", true),
@@ -160,30 +184,31 @@ mod tests {
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_question() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("fo?", "foo", true),
             ("f??", "foo", true),
             ("fo?", "fo", false),
             ("fo?", "fooo", false),
+            ("f??", "FOO", true),
         ];
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_empty_strings() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("", "", true),
             ("", "foo", false),
             ("foo", "", false),
@@ -192,14 +217,14 @@ mod tests {
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_multiple_stars() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("*foo*bar*", "XXXfooYYYbarZZZ", true),
             ("*foo*bar*", "foobar", true),
             ("**", "anything", true),
@@ -209,14 +234,14 @@ mod tests {
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_star_and_question_combined() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("a?c*", "abcdef", true),
             ("*?c", "abc", true),
             ("a*?", "ab", true),
@@ -226,44 +251,25 @@ mod tests {
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
-        }
-    }
-
-    #[test]
-    fn glob_consecutive_questions() {
-        // ARRANGE
-        let test_cases = vec![
-            ("???", "abc", true),
-            ("???", "ab", false),
-            ("???", "abcd", false),
-        ];
-
-        // ACT & ASSERT
-        for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_trailing_star() {
         // ARRANGE
-        let test_cases = vec![
-            ("foo*", "foo", true),
-            ("foo*", "foobar", true),
-            ("foo*", "foo123456789", true),
-        ];
+        let test_cases = [("foo*", "foo", true), ("foo*", "foobar", true)];
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_leading_star() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("*foo", "foo", true),
             ("*foo", "barfoo", true),
             ("*foo", "foobar", false),
@@ -271,14 +277,14 @@ mod tests {
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
     #[test]
     fn glob_backtracking() {
         // ARRANGE
-        let test_cases = vec![
+        let test_cases = [
             ("a*a", "aa", true),
             ("a*a", "aXa", true),
             ("a*a", "aXXXa", true),
@@ -288,7 +294,7 @@ mod tests {
 
         // ACT & ASSERT
         for (pattern, text, expected) in test_cases {
-            assert_eq!(glob_match(pattern, text), expected);
+            assert_eq!(glob_match(pattern, text), expected, "{pattern} vs {text}");
         }
     }
 
@@ -296,7 +302,7 @@ mod tests {
     fn pci_modalias() {
         // ARRANGE
         let pattern = "pci:v00008086d00001521sv*sd*bc*sc*i*";
-        let test_cases = vec![
+        let test_cases = [
             (
                 "pci:v00008086d00001521sv00001028sd00000001bc02sc00i00",
                 true,
@@ -314,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn intel_i226v_modalias() {
+    fn intel_i226v_modalias_is_case_insensitive() {
         // ARRANGE
         let pattern = "pci:v00008086d0000125Csv*sd*bc*sc*i*";
         let modalias = "pci:v00008086d0000125Csv00001043sd000087D2bc02sc00i00";
@@ -322,13 +328,7 @@ mod tests {
 
         // ACT & ASSERT
         assert!(glob_match(pattern, modalias));
-
-        assert!(!glob_match(pattern, modalias_lower));
-
-        assert!(glob_match_icase(
-            pattern,
-            &modalias_lower.to_ascii_lowercase()
-        ));
+        assert!(glob_match(pattern, modalias_lower));
     }
 
     #[test]
@@ -337,7 +337,7 @@ mod tests {
         let pattern = "usb:v*p*d*dc*dsc*dp*ic03isc01ip01*";
         let modalias = "usb:v046DpC52Bd2111dc00dsc00dp00ic03isc01ip01in00";
 
-        // ACT & ASSERT
+        // ACT / ASSERT
         assert!(glob_match(pattern, modalias));
     }
 
@@ -345,7 +345,7 @@ mod tests {
     fn acpi_modalias() {
         // ARRANGE
         let pattern = "acpi:ACPI0003:";
-        let test_cases = vec![("acpi:ACPI0003:", true), ("acpi:ACPI0004:", false)];
+        let test_cases = [("acpi:ACPI0003:", true), ("acpi:ACPI0004:", false)];
 
         // ACT & ASSERT
         for (modalias, expected) in test_cases {
@@ -354,72 +354,45 @@ mod tests {
     }
 
     #[test]
-    fn parse_alias_line_valid() {
-        // ACT & ASSERT
-        let result = parse_alias_line("alias pci:v00008086d* igb");
-        assert_eq!(
-            result,
-            Some(("pci:v00008086d*".to_owned(), "igb".to_owned()))
-        );
+    fn parse_alias_spans_reference_trimmed_fields() {
+        // ARRANGE
+        let text = "alias pci:v00008086d* igb\n# comment\n\n  alias   usb:v*p*   usbhid  ";
+
+        // ACT
+        let db_entries = parse_text(text);
+
+        // ASSERT
+        assert_eq!(db_entries.len(), 2);
+        let first = db_entries.first().expect("first alias");
+        let second = db_entries.get(1).expect("second alias");
+        assert_eq!(text::slice(text, first.pattern), "pci:v00008086d*");
+        assert_eq!(text::slice(text, first.module), "igb");
+        assert_eq!(text::slice(text, second.pattern), "usb:v*p*");
+        assert_eq!(text::slice(text, second.module), "usbhid");
     }
 
     #[test]
-    fn parse_alias_line_with_extra_spaces() {
-        // ACT & ASSERT
-        let result = parse_alias_line("  alias   pci:pattern   module_name  ");
-        assert_eq!(
-            result,
-            Some(("pci:pattern".to_owned(), "module_name".to_owned()))
-        );
+    fn parse_alias_rejects_non_alias_lines() {
+        // ARRANGE
+        let text = "\n# comment\nnot an alias\nalias pattern_without_module\n";
+
+        // ACT
+        let db_entries = parse_text(text);
+
+        // ASSERT
+        assert!(db_entries.is_empty());
     }
 
-    #[test]
-    fn parse_alias_line_empty() {
-        // ACT & ASSERT
-        assert_eq!(parse_alias_line(""), None);
-        assert_eq!(parse_alias_line("   "), None);
-    }
-
-    #[test]
-    fn parse_alias_line_comment() {
-        // ACT & ASSERT
-        assert_eq!(parse_alias_line("# this is a comment"), None);
-        assert_eq!(parse_alias_line("  # indented comment"), None);
-    }
-
-    #[test]
-    fn parse_alias_line_no_alias_prefix() {
-        // ACT & ASSERT
-        assert_eq!(parse_alias_line("not an alias line"), None);
-        assert_eq!(parse_alias_line("alias_not_right pattern module"), None);
-    }
-
-    #[test]
-    fn parse_alias_line_missing_module() {
-        // ACT & ASSERT
-        assert_eq!(parse_alias_line("alias pattern_only"), None);
-    }
-
-    #[test]
-    fn parse_alias_line_complex_pattern() {
-        // ACT & ASSERT
-        let result = parse_alias_line("alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc");
-        assert_eq!(
-            result,
-            Some((
-                "pci:v00008086d0000125Csv*sd*bc*sc*i*".to_owned(),
-                "igc".to_owned()
-            ))
-        );
+    fn load_from(contents: &str) -> AliasDb {
+        let mut file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(file, "{contents}").expect("write failed");
+        AliasDb::load(file.path()).expect("load failed")
     }
 
     #[test]
     fn alias_db_case_insensitive() {
         // ARRANGE
-        let mut file = NamedTempFile::new().expect("Failed to create temp file");
-        writeln!(file, "alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc").expect("write failed");
-
-        let db = AliasDb::load(file.path()).expect("load failed");
+        let db = load_from("alias pci:v00008086d0000125Csv*sd*bc*sc*i* igc");
         let modalias = "pci:v00008086d0000125csv00001043sd000087d2bc02sc00i00";
 
         // ACT
@@ -446,17 +419,11 @@ mod tests {
     #[test]
     fn alias_db_with_comments_and_blanks() {
         // ARRANGE
-        let mut file = NamedTempFile::new().expect("Failed to create temp file");
-        writeln!(file, "# Comment line").expect("write failed");
-        writeln!(file).expect("write failed");
-        writeln!(file, "alias pattern1 module1").expect("write failed");
-        writeln!(file, "  # Another comment").expect("write failed");
-        writeln!(file, "alias pattern2 module2").expect("write failed");
+        let db = load_from(
+            "# Comment line\n\nalias pattern1 module1\n  # Another comment\nalias pattern2 module2\n",
+        );
 
-        // ACT
-        let db = AliasDb::load(file.path()).expect("load failed");
-
-        // ASSERT
+        // ACT / ASSERT
         assert_eq!(db.len(), 2);
         assert_eq!(db.find_module("pattern1"), Some("module1"));
         assert_eq!(db.find_module("pattern2"), Some("module2"));
@@ -465,14 +432,11 @@ mod tests {
     #[test]
     fn alias_db_multiple_entries() {
         // ARRANGE
-        let mut file = NamedTempFile::new().expect("Failed to create temp file");
-        writeln!(file, "alias pci:v00008086d00001521* igb").expect("write failed");
-        writeln!(file, "alias pci:v00008086d0000125C* igc").expect("write failed");
-        writeln!(file, "alias pci:v000010DE* nvidia").expect("write failed");
+        let db = load_from(
+            "alias pci:v00008086d00001521* igb\nalias pci:v00008086d0000125C* igc\nalias pci:v000010DE* nvidia\n",
+        );
 
-        let db = AliasDb::load(file.path()).expect("load failed");
-
-        // ACT & ASSERT
+        // ACT / ASSERT
         assert_eq!(db.len(), 3);
         assert!(!db.is_empty());
 
@@ -485,11 +449,7 @@ mod tests {
     #[test]
     fn alias_db_first_match_wins() {
         // ARRANGE
-        let mut file = NamedTempFile::new().expect("Failed to create temp file");
-        writeln!(file, "alias pci:* first_module").expect("write failed");
-        writeln!(file, "alias pci:v00008086* second_module").expect("write failed");
-
-        let db = AliasDb::load(file.path()).expect("load failed");
+        let db = load_from("alias pci:* first_module\nalias pci:v00008086* second_module");
 
         // ACT
         let result = db.find_module("pci:v00008086d1234");
@@ -500,7 +460,7 @@ mod tests {
 
     #[test]
     fn alias_db_load_nonexistent_file() {
-        // ACT & ASSERT
+        // ACT / ASSERT
         let result = AliasDb::load(Path::new("/nonexistent/path/modules.alias"));
         result.expect_err("load should fail for nonexistent file");
     }
@@ -508,14 +468,11 @@ mod tests {
     #[test]
     fn alias_db_real_world_patterns() {
         // ARRANGE
-        let mut file = NamedTempFile::new().expect("Failed to create temp file");
-        writeln!(file, "alias usb:v*p*d*dc*dsc*dp*ic03isc01ip01* usbhid").expect("write failed");
-        writeln!(file, "alias acpi*:ACPI0003:* ac").expect("write failed");
-        writeln!(file, "alias platform:efi-framebuffer efifb").expect("write failed");
+        let db = load_from(
+            "alias usb:v*p*d*dc*dsc*dp*ic03isc01ip01* usbhid\nalias acpi*:ACPI0003:* ac\nalias platform:efi-framebuffer efifb\n",
+        );
 
-        let db = AliasDb::load(file.path()).expect("load failed");
-
-        // ACT & ASSERT
+        // ACT / ASSERT
         assert_eq!(
             db.find_module("usb:v046dpC52bd2111dc00dsc00dp00ic03isc01ip01in00"),
             Some("usbhid")

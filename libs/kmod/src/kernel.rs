@@ -1,11 +1,11 @@
 //! Kernel module loading.
 
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use rustix::io::Errno;
-use rustix::system::init_module as rustix_init_module;
+use rustix::system::{finit_module, init_module};
 use thiserror::Error;
 
 use crate::deps;
@@ -57,18 +57,18 @@ impl ModuleLoader {
     /// Returns an error when the path is invalid, the module file cannot be
     /// read, decompression fails, or the kernel rejects the module.
     pub fn load_by_path(&mut self, relative_path: &str) -> Result<bool, LoadError> {
-        self.load_by_path_with(relative_path, init_module)
+        self.load_by_path_with(relative_path, init_module_image)
     }
 
     fn load_by_path_with(
         &mut self,
         relative_path: &str,
-        init_module_fn: fn(&[u8]) -> Result<(), LoadError>,
+        init_fn: fn(&Path) -> Result<(), LoadError>,
     ) -> Result<bool, LoadError> {
         let module_name = deps::get_module_name(relative_path)
             .ok_or_else(|| LoadError::InvalidPath(relative_path.to_owned()))?;
 
-        if self.loaded.contains(&module_name) {
+        if self.loaded.contains(module_name.as_ref()) {
             return Ok(false);
         }
 
@@ -77,10 +77,10 @@ impl ModuleLoader {
             return Err(LoadError::NotFound(full_path));
         }
 
-        let module_data = read_module(&full_path)?;
-        init_module_fn(&module_data)?;
+        init_fn(&full_path)?;
 
-        self.loaded.insert(module_name);
+        self.loaded.insert(module_name.into_owned());
+
         Ok(true)
     }
 
@@ -99,15 +99,6 @@ impl ModuleLoader {
     }
 }
 
-fn read_module(path: &Path) -> Result<Vec<u8>, LoadError> {
-    if path.extension().is_some_and(|ext| ext == "zst") {
-        let mut file = File::open(path)?;
-        zstd::decode_all(&mut file).map_err(|error| LoadError::Decompress(format!("zstd: {error}")))
-    } else {
-        Ok(fs::read(path)?)
-    }
-}
-
 /// Loads `module_name` and its dependencies.
 ///
 /// # Errors
@@ -119,14 +110,14 @@ pub fn load_module(
     dep_db: &deps::DepDb,
     loader: &mut ModuleLoader,
 ) -> Result<usize, LoadError> {
-    load_module_with(module_name, dep_db, loader, init_module)
+    load_module_with(module_name, dep_db, loader, init_module_image)
 }
 
 fn load_module_with(
     module_name: &str,
     dep_db: &deps::DepDb,
     loader: &mut ModuleLoader,
-    init_module_fn: fn(&[u8]) -> Result<(), LoadError>,
+    init_fn: fn(&Path) -> Result<(), LoadError>,
 ) -> Result<usize, LoadError> {
     let load_order = dep_db
         .resolve_load_order(module_name)
@@ -134,7 +125,7 @@ fn load_module_with(
 
     let mut loaded_count = 0_usize;
     for module_path in &load_order {
-        if loader.load_by_path_with(module_path, init_module_fn)? {
+        if loader.load_by_path_with(module_path, init_fn)? {
             loaded_count = loaded_count.saturating_add(1);
         }
     }
@@ -142,8 +133,15 @@ fn load_module_with(
     Ok(loaded_count)
 }
 
-fn init_module(module_data: &[u8]) -> Result<(), LoadError> {
-    map_init_module_result(rustix_init_module(module_data, c""))
+fn init_module_image(path: &Path) -> Result<(), LoadError> {
+    let mut file = File::open(path)?;
+
+    if path.extension().is_some_and(|ext| ext == "zst") {
+        let image = decompress(&mut file)?;
+        map_init_module_result(init_module(&image, c""))
+    } else {
+        map_init_module_result(finit_module(&file, c"", 0))
+    }
 }
 
 fn map_init_module_result(result: Result<(), Errno>) -> Result<(), LoadError> {
@@ -151,6 +149,10 @@ fn map_init_module_result(result: Result<(), Errno>) -> Result<(), LoadError> {
         Ok(()) | Err(Errno::EXIST) => Ok(()),
         Err(error) => Err(LoadError::Syscall(error)),
     }
+}
+
+fn decompress(file: &mut File) -> Result<Vec<u8>, LoadError> {
+    zstd::decode_all(file).map_err(|error| LoadError::Decompress(format!("zstd: {error}")))
 }
 
 #[cfg(test)]
@@ -282,77 +284,35 @@ mod tests {
     }
 
     #[test]
-    fn read_module_plain_ko() {
-        // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let module_path = dir.path().join("test.ko");
-
-        let expected_data = b"ELF module data here";
-        std::fs::write(&module_path, expected_data).expect("write failed");
-
-        // ACT
-        let result = read_module(&module_path);
-
-        // ASSERT
-        assert!(result.is_ok());
-        assert_eq!(result.expect("read failed"), expected_data);
-    }
-
-    #[test]
-    fn read_module_zstd_compressed() {
+    fn decompress_zstd_compressed() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("test.ko.zst");
-
         let original_data = b"This is the original module data";
         let compressed = zstd::encode_all(&original_data[..], 3).expect("compression failed");
         std::fs::write(&module_path, &compressed).expect("write failed");
+        let mut file = File::open(&module_path).expect("open failed");
 
         // ACT
-        let result = read_module(&module_path);
+        let result = decompress(&mut file);
 
         // ASSERT
-        assert!(result.is_ok());
         assert_eq!(result.expect("read failed"), original_data);
     }
 
     #[test]
-    fn read_module_invalid_zstd() {
+    fn decompress_invalid_zstd() {
         // ARRANGE
         let dir = TempDir::new().expect("Failed to create temp dir");
         let module_path = dir.path().join("bad.ko.zst");
-
         std::fs::write(&module_path, b"not valid zstd data").expect("write failed");
+        let mut file = File::open(&module_path).expect("open failed");
 
         // ACT
-        let result = read_module(&module_path);
+        let result = decompress(&mut file);
 
         // ASSERT
         assert!(matches!(result, Err(LoadError::Decompress(_))));
-    }
-
-    #[test]
-    fn read_module_not_found() {
-        // ACT
-        let result = read_module(Path::new("/nonexistent/module.ko"));
-
-        // ASSERT
-        assert!(matches!(result, Err(LoadError::Io(_))));
-    }
-
-    #[test]
-    fn read_module_empty_file() {
-        // ARRANGE
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let module_path = dir.path().join("empty.ko");
-        std::fs::write(&module_path, b"").expect("write failed");
-
-        // ACT
-        let result = read_module(&module_path);
-
-        // ASSERT
-        assert!(result.is_ok());
-        assert!(result.expect("read failed").is_empty());
     }
 
     #[test]

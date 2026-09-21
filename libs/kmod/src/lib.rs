@@ -5,6 +5,8 @@
 
 #![warn(missing_docs)]
 
+mod text;
+
 pub mod aliases;
 pub mod deps;
 pub mod kernel;

@@ -40,7 +40,7 @@ fn main(notifier: NotifyClient) -> Result<()> {
         dep_db.len()
     );
 
-    let listener = UeventListener::new()?;
+    let mut listener = UeventListener::new()?;
     println!("Listening for kernel uevents");
 
     notifier.ready()?;
@@ -62,11 +62,11 @@ fn main(notifier: NotifyClient) -> Result<()> {
             continue;
         };
 
-        let Some(module_name) = alias_db.find_module(&modalias) else {
+        let Some(module_name) = alias_db.find_module(modalias) else {
             continue;
         };
 
-        let subsystem = event.subsystem.as_deref().unwrap_or("unknown");
+        let subsystem = event.subsystem.unwrap_or("unknown");
         match load_module(module_name, &dep_db, &mut loader) {
             Ok(count) if count > 0 => {
                 println!("Loaded {count} modules for {module_name} ({subsystem})");
