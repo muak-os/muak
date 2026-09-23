@@ -10,9 +10,13 @@ use tokio::sync::mpsc;
 
 const KMSG_PATH: &str = "/dev/kmsg";
 
+const KMSG_CHANNEL_LINES: usize = 256;
+
+const READ_BUFFER: usize = 16 * 1024;
+
 /// Spawns a task that reads all historical and future kernel log entries.
-pub fn spawn() -> Result<mpsc::UnboundedReceiver<String>> {
-    let (tx, rx) = mpsc::unbounded_channel();
+pub fn spawn() -> Result<mpsc::Receiver<String>> {
+    let (tx, rx) = mpsc::channel(KMSG_CHANNEL_LINES);
 
     let fd = open(
         KMSG_PATH,
@@ -30,48 +34,50 @@ pub fn spawn() -> Result<mpsc::UnboundedReceiver<String>> {
     Ok(rx)
 }
 
-async fn run(mut file: File, tx: mpsc::UnboundedSender<String>) -> io::Result<()> {
+async fn run(file: File, tx: mpsc::Sender<String>) -> Result<()> {
+    let mut file = file;
     file.seek(SeekFrom::Start(0))?;
 
-    drain_reader(BufReader::new(&file), &tx)?;
+    {
+        let mut reader = BufReader::with_capacity(READ_BUFFER, &file);
+        drain(&mut reader, &tx).await?;
+    }
 
     let async_fd = AsyncFd::new(file)?;
+    let mut reader = BufReader::with_capacity(READ_BUFFER, async_fd.get_ref());
 
     loop {
         let mut guard = async_fd.readable().await?;
         guard.clear_ready();
 
-        drain_reader(BufReader::new(async_fd.get_ref()), &tx)?;
+        drain(&mut reader, &tx).await?;
     }
 }
 
-/// Reads lines from `reader` until `WouldBlock` or EOF, forwarding each parsed entry.
-fn drain_reader(
-    mut reader: BufReader<&File>,
-    tx: &mpsc::UnboundedSender<String>,
-) -> io::Result<()> {
+async fn drain(reader: &mut BufReader<&File>, tx: &mpsc::Sender<String>) -> Result<()> {
     let mut line_buf = String::new();
 
     loop {
         line_buf.clear();
         match reader.read_line(&mut line_buf) {
             Ok(0) => return Ok(()),
-            Ok(_) => send_entry(line_buf.trim_end_matches('\n'), tx)?,
+            Ok(_) => send_entry(&line_buf, tx).await?,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         }
     }
 }
 
-fn send_entry(line: &str, tx: &mpsc::UnboundedSender<String>) -> io::Result<()> {
+async fn send_entry(line: &str, tx: &mpsc::Sender<String>) -> Result<()> {
     let Some(text) = parse_entry(line) else {
         return Ok(());
     };
-    tx.send(text)
-        .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))
+
+    tx.send(text).await?;
+
+    Ok(())
 }
 
-/// Formats a raw `/dev/kmsg` record as `[secs.frac] message`.
 fn parse_entry(line: &str) -> Option<String> {
     let (prefix, text) = line.split_once(';')?;
     let text = text.trim_end_matches('\n');
@@ -80,6 +86,7 @@ fn parse_entry(line: &str) -> Option<String> {
         .split(',')
         .nth(2)
         .and_then(|part| part.parse::<u64>().ok());
+
     Some(match timestamp {
         Some(usec) => {
             let secs = usec.div_euclid(1_000_000);

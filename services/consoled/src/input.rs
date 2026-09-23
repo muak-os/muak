@@ -6,6 +6,7 @@ use alloc::sync::Arc;
 use std::fs::File;
 use std::io::{self, Read as _};
 
+use anyhow::Result;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
@@ -20,8 +21,10 @@ pub enum InputEvent {
     Escape,
 }
 
-pub fn spawn(file: Arc<File>) -> anyhow::Result<mpsc::UnboundedReceiver<InputEvent>> {
-    let (tx, rx) = mpsc::unbounded_channel();
+const INPUT_EVENT_CAPACITY: usize = 64;
+
+pub fn spawn(file: Arc<File>) -> anyhow::Result<mpsc::Receiver<InputEvent>> {
+    let (tx, rx) = mpsc::channel(INPUT_EVENT_CAPACITY);
     let async_fd = AsyncFd::new(file)?;
 
     tokio::spawn(async move {
@@ -31,10 +34,7 @@ pub fn spawn(file: Arc<File>) -> anyhow::Result<mpsc::UnboundedReceiver<InputEve
     Ok(rx)
 }
 
-async fn run(
-    async_fd: AsyncFd<Arc<File>>,
-    tx: mpsc::UnboundedSender<InputEvent>,
-) -> io::Result<()> {
+async fn run(async_fd: AsyncFd<Arc<File>>, tx: mpsc::Sender<InputEvent>) -> Result<()> {
     let mut buf = [0_u8; 16];
 
     loop {
@@ -47,20 +47,19 @@ async fn run(
                 guard.clear_ready();
                 continue;
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
 
         guard.clear_ready();
-        send_events(decode_events(buf.get(..n).unwrap_or_default()), &tx)?;
+        send_events(decode_events(buf.get(..n).unwrap_or_default()), &tx).await?;
     }
 
     Ok(())
 }
 
-fn send_events(events: Vec<InputEvent>, tx: &mpsc::UnboundedSender<InputEvent>) -> io::Result<()> {
+async fn send_events(events: Vec<InputEvent>, tx: &mpsc::Sender<InputEvent>) -> Result<()> {
     for event in events {
-        tx.send(event)
-            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))?;
+        tx.send(event).await?;
     }
     Ok(())
 }

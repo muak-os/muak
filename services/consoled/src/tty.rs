@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::sync::Arc;
 use std::fs::File;
-use std::io;
+use std::io::{self, BufWriter};
 use std::os::fd::AsFd as _;
 
 use anyhow::{Context as _, Result};
@@ -20,6 +20,7 @@ const TTY_PATH: &str = "/dev/tty0";
 /// A raw TTY handle with terminal mode management.
 pub struct Tty {
     file: Arc<File>,
+    out: BufWriter<File>,
     original_termios: Termios,
 }
 
@@ -41,6 +42,11 @@ impl Tty {
 
         let file: Arc<File> = Arc::new(fd.into());
 
+        let out = BufWriter::new(
+            file.try_clone()
+                .context("failed to duplicate tty descriptor for buffered output")?,
+        );
+
         let original_termios = tcgetattr(file.as_fd())
             .with_context(|| format!("failed to get terminal attributes for {TTY_PATH}"))?;
 
@@ -52,6 +58,7 @@ impl Tty {
 
         Ok(Some(Self {
             file,
+            out,
             original_termios,
         }))
     }
@@ -79,11 +86,11 @@ impl Drop for Tty {
 
 impl io::Write for Tty {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        (&*self.file).write(buf)
+        self.out.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        (&*self.file).flush()
+        self.out.flush()
     }
 }
 
