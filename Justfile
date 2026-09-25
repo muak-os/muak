@@ -18,7 +18,7 @@ rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tag := env_var_or_default("TAG", "latest")
-tools := env_var_or_default("TOOLS", registry + "/tools:latest")
+tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:latest")
 push := env_var_or_default("PUSH", "true")
 latest := env_var_or_default("LATEST", "false")
 signature := env_var_or_default("SIGNATURE", "signature.key")
@@ -55,6 +55,7 @@ reset := '\e[0m'
 
 # Full local development build (build → installer → sign → catalog → uki + iso)
 dev: (build "--release" "") installer annotate sign catalog (artifacts "iso")
+  @printf "{{ green }}Development build complete. Tools used: {{ bold }}{{ tools }}{{ reset }}\n"
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [arg("release", long="release", value="--release")]
