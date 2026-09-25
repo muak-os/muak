@@ -3,6 +3,7 @@
 use oci::digest::sha256_hex;
 use oci_client::auth::Access;
 use oci_client::client::Client;
+use oci_client::http;
 use oci_client::manifest;
 
 use crate::error::Result;
@@ -30,5 +31,20 @@ pub fn manifest_digest(reference: &str) -> Result<String> {
         let body = manifest::fetch(&client, client.image().manifest_ref.as_str()).await?;
 
         Ok(format!("sha256:{}", sha256_hex(body.as_bytes())))
+    })
+}
+
+/// Check whether a manifest reference exists in its registry.
+///
+/// # Errors
+///
+/// Returns an error when the reference cannot be parsed or the registry handshake fails.
+pub fn manifest_exists(reference: &str) -> Result<bool> {
+    runtime::runtime()?.block_on(async {
+        let client = connect(reference, Access::Pull).await?;
+        let url = manifest::build_url(client.image(), client.image().manifest_ref.as_str());
+        let response = http::head_any_status(client.http(), &url, client.authorization()).await?;
+
+        Ok(response.status().as_u16() == 200)
     })
 }

@@ -45,6 +45,14 @@ pub enum KataError {
     #[error("Frozen catalog entry: {0}")]
     Frozen(String),
 
+    /// An append-only publication gate prevented the operation.
+    #[error("Append-only gate: {0}")]
+    Gate(String),
+
+    /// A lineage rule prevented composing from the requested line.
+    #[error("Lineage check failed: {0}")]
+    Lineage(String),
+
     /// A catalog schema operation failed.
     #[error(transparent)]
     Schema(#[from] DocumentError),

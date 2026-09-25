@@ -6,8 +6,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod add;
-mod init;
+mod compose;
 mod publish;
+mod remove;
 mod verify;
 
 const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
@@ -22,10 +23,11 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    Init(init::Args),
     Add(add::Args),
     Verify(verify::Args),
     Publish(publish::Args),
+    Compose(compose::Args),
+    Remove(remove::Args),
 }
 
 /// Run the CLI from a caller-provided argument iterator.
@@ -66,10 +68,11 @@ pub fn run() -> i32 {
 
 fn run_command(command: Command) -> Result<()> {
     match command {
-        Command::Init(args) => init::run(args),
         Command::Add(args) => add::run(args),
         Command::Verify(args) => verify::run(args),
         Command::Publish(args) => publish::run(args),
+        Command::Compose(args) => compose::run(args),
+        Command::Remove(args) => remove::run(args),
     }
 }
 
@@ -106,16 +109,16 @@ mod tests {
         // ACT
         let error = run_from([
             "kata",
-            "init",
+            "publish",
             "--release",
             "v1.2.3",
             "--dir",
             missing.to_str().expect("path must be valid utf-8"),
         ])
-        .expect_err("init should fail for a missing root");
+        .expect_err("publish should fail for a missing root");
 
         // ASSERT
-        assert!(error.to_string().contains("Failed to seed release"));
+        assert!(error.to_string().contains("Failed to publish"));
     }
 
     #[test]
@@ -126,7 +129,7 @@ mod tests {
         let dir = missing.to_str().expect("path must be valid utf-8");
 
         // ACT
-        let exit_code = run_with(["kata", "init", "--release", "v1.2.3", "--dir", dir]);
+        let exit_code = run_with(["kata", "publish", "--release", "v1.2.3", "--dir", dir]);
 
         // ASSERT
         assert_eq!(exit_code, 1);

@@ -28,6 +28,10 @@ pub struct Args {
     #[arg(long)]
     registry: Option<String>,
 
+    /// Replace an already-published line (dev scratch registries only).
+    #[arg(long, default_value_t = false)]
+    force: bool,
+
     /// Architecture recorded in the image config.
     #[arg(long, default_value = "amd64", value_parser = parse_arch)]
     arch: Arch,
@@ -41,6 +45,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
         dir,
         registry,
         arch,
+        force,
     } = args;
 
     let kind = kind
@@ -53,6 +58,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
         kind,
         &registry_prefix(registry.as_deref()),
         arch,
+        force,
     )
     .context("Failed to publish catalog")?;
     for digest in published {

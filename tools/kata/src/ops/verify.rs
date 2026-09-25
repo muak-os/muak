@@ -12,15 +12,16 @@ use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
 
 /// One document entry to recheck against the registry.
-struct EntryCheck {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EntryCheck {
     /// Human identity in messages (`source` or `name`).
-    identity: String,
+    pub(crate) identity: String,
     /// Repository path relative to the registry prefix.
-    repository: String,
+    pub(crate) repository: String,
     /// Tag the digest was resolved from.
-    tag: String,
+    pub(crate) tag: String,
     /// Digest the document pins.
-    digest: String,
+    pub(crate) digest: String,
 }
 
 /// Verify one release line, or every existing line when `release` is [`None`].
@@ -96,8 +97,21 @@ fn verify_line(root: &Path, kind: Kind, release: &str, registry: &str) -> Result
         ));
     }
 
+    let verified = verify_document(&document, registry)?;
+    eprintln!("{}/{release}: verified", kind.dir());
+
+    Ok(verified.len())
+}
+
+/// HEAD-check every entry of an in-memory document against the registry.
+///
+/// # Errors
+///
+/// Returns an error when a registry resolution fails or a pin does not match
+/// what the registry serves.
+pub(crate) fn verify_document(document: &Document, registry: &str) -> Result<Vec<String>> {
     let mut verified: Vec<String> = Vec::new();
-    for check in checks(&document) {
+    for check in checks(document) {
         let reference = super::reference(registry, &check.repository, &check.tag);
         let actual = registry::manifest_digest(&reference)
             .map_err(|error| KataError::Registry(error.to_string()))?;
@@ -109,12 +123,13 @@ fn verify_line(root: &Path, kind: Kind, release: &str, registry: &str) -> Result
         }
         verified.push(check.identity);
     }
-    eprintln!("{}/{release}: verified", kind.dir());
 
-    Ok(verified.len())
+    Ok(verified)
 }
 
-fn checks(document: &Document) -> Vec<EntryCheck> {
+/// Entries of a document as registry checks.
+#[must_use]
+pub(crate) fn checks(document: &Document) -> Vec<EntryCheck> {
     match *document {
         Document::Core(ref core) => core
             .kernels

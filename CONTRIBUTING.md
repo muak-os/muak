@@ -38,6 +38,8 @@ EOF
 ```
 
 ```sh
+REGISTRY="localhost:5000" just mirror linux latest
+REGISTRY="localhost:5000" just mirror stub latest
 REGISTRY="localhost:5000" just dev
 just start
 
