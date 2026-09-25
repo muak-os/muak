@@ -53,8 +53,8 @@ reset := '\e[0m'
 # Main Recipes
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (build → installer → sign → uki + iso)
-dev: (build "--release" "") installer annotate sign (artifacts "iso")
+# Full local development build (build → installer → sign → catalog → uki + iso)
+dev: (build "--release" "") installer annotate sign catalog (artifacts "iso")
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [arg("release", long="release", value="--release")]
@@ -114,6 +114,29 @@ artifacts *types:
             --registry {{ registry }} \
             --arch {{ oci_arch }} \
             -o /out
+
+# Compose and publish the local development catalog.
+[script]
+catalog *args:
+    mkdir -p "{{ absolute_path(out) }}/catalog"
+    just _kata compose --force --dir /data --release "{{ tag }}" \
+        --registry {{ registry }} "$@" --set installer={{ tag }}
+    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data
+    printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
+
+# Seed a fresh scratch catalog line from the local registry (first run only)
+[script]
+catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
+    mkdir -p "{{ absolute_path(out) }}/catalog"
+    printf "{{ cyan }}Seeding scratch catalog line {{ tag }}{{ reset }}\n"
+    just _kata add --kind kernel --source muak-os/linux --repository linux \
+        --tag "{{ kernel_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
+    just _kata add --kind stub --source muak-os/stub --repository stub \
+        --tag "{{ stub_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
+    just _kata add --kind installer --source muak-os/muak --repository installer \
+        --tag "{{ installer_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
+    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data
+    printf "{{ green }}Scratch line seeded: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OCI Images
@@ -349,6 +372,15 @@ clean:
 # ─────────────────────────────────────────────────────────────────────────────
 # Private Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+[private]
+[script]
+_kata *args:
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        -v "{{ absolute_path(out) }}/catalog:/data" \
+        {{ tools }} \
+        /kata "${@}"
 
 [private]
 [script]
