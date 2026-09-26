@@ -3,9 +3,9 @@
 # Prerequisites: rustup, docker/podman, git
 # Run `just --list` for available recipes
 
-set positional-arguments := true
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set script-interpreter := ["bash", "-euo", "pipefail"]
+set positional-arguments
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
@@ -50,14 +50,16 @@ red := '\e[31m'
 reset := '\e[0m'
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main Recipes
+# Build
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Full local development build (build → installer → sign → catalog → uki + iso)
+[group('build')]
 dev: (build "--release" "") installer annotate sign catalog (artifacts "iso")
   @printf "{{ green }}Development build complete. Tools used: {{ bold }}{{ tools }}{{ reset }}\n"
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
+[group('build')]
 [arg("release", long="release", value="--release")]
 [script]
 build release="" *pkgs:
@@ -71,6 +73,7 @@ build release="" *pkgs:
     fi
 
 # Build installer image (default uses local binaries, --prod pulls from registry)
+[group('build')]
 [arg("prod", long="prod", value="true")]
 [script]
 installer prod="false":
@@ -91,6 +94,7 @@ installer prod="false":
     printf "{{ green }}Installer image built: {{ registry }}/installer:{{ tag }}{{ reset }}\n"
 
 # Build boot artifacts (e.g., just artifact uki iso, just artifact raw)
+[group('build')]
 [script]
 artifacts *types:
     if [ -z "{{ types }}" ]; then
@@ -117,6 +121,7 @@ artifacts *types:
             -o /out
 
 # Compose and publish the local development catalog.
+[group('build')]
 [script]
 catalog *args:
     mkdir -p "{{ absolute_path(out) }}/catalog"
@@ -126,6 +131,7 @@ catalog *args:
     printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # Seed a fresh scratch catalog line from the local registry (first run only)
+[group('build')]
 [script]
 catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
     mkdir -p "{{ absolute_path(out) }}/catalog"
@@ -144,6 +150,7 @@ catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Build OCI images (e.g., just oci granola installer cli tools)
+[group('oci')]
 [script]
 oci *pkgs:
     pkgs="{{ pkgs }}"
@@ -174,6 +181,7 @@ oci *pkgs:
     done
 
 # Merge per-platform images into a multi-arch OCI index
+[group('oci')]
 [script]
 merge image *sources:
     tags=""
@@ -190,6 +198,7 @@ merge image *sources:
             {{ sources }}
 
 # Copy an image from the upstream registry, preserving every digest.
+[group('oci')]
 [script]
 mirror image tag upstream="ghcr.io/muak-os":
     printf "{{ cyan }}Mirroring {{ upstream }}/{{ image }}:{{ tag }} to {{ registry }}/{{ image }}:{{ tag }}{{ reset }}\n"
@@ -201,6 +210,7 @@ mirror image tag upstream="ghcr.io/muak-os":
             --destination "{{ registry }}/{{ image }}:{{ tag }}"
 
 # Annotate an OCI image in the registry with per-entry sizes.
+[group('oci')]
 [arg("image", long="image")]
 annotate image=(registry + "/installer:" + tag):
     @printf "{{ cyan }}Annotating OCI image {{ image }}{{ reset }}\n"
@@ -212,6 +222,7 @@ annotate image=(registry + "/installer:" + tag):
             --annotation dev.muak.sizes
 
 # Sign an OCI image in the registry (default to installer image)
+[group('oci')]
 [arg("image", long="image")]
 sign image=(registry + "/installer:" + tag):
     @printf "{{ cyan }}Signing OCI image {{ image }}{{ reset }}\n"
@@ -224,6 +235,7 @@ sign image=(registry + "/installer:" + tag):
             --annotation dev.muak.sig
 
 # Extract an OCI image's files with koci
+[group('oci')]
 [script]
 extract image arch=oci_arch output=(out + "/extract"):
     mkdir -p "{{ output }}"
@@ -242,11 +254,13 @@ extract image arch=oci_arch output=(out + "/extract"):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Run rustfmt
+[group('test')]
 format:
     @printf "{{ cyan }}Running formatting{{ reset }}\n"
     cargo fmt
 
 # Run clippy and rustfmt (e.g., just lint or just lint yuki koci)
+[group('test')]
 [script]
 lint *pkgs: format
     printf "{{ cyan }}Running lints{{ reset }}\n"
@@ -259,11 +273,13 @@ lint *pkgs: format
     fi
 
 # Run tests (e.g., just test or just test yuki koci)
+[group('test')]
 [script]
 test *pkgs:
     just _test-run "cargo nextest run" "Running tests for" {{ pkgs }}
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
+[group('test')]
 [arg("missing", long="missing", value="--show-missing-lines")]
 [script]
 coverage missing="" *pkgs:
@@ -271,12 +287,14 @@ coverage missing="" *pkgs:
     just _test-run "cargo llvm-cov nextest {{ missing }}" "Running tests with coverage for" {{ pkgs }}
 
 # Run E2E tests suite (requires: qemu, built artifacts)
+[group('test')]
 [script]
 e2e: (build "--release" "muakctl") _ensure-fw
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
     MUAK_ARTIFACTS={{ out }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
 
 # Boot the ISO in QEMU using user-mode networking and a persistent NVMe disk
+[group('test')]
 [arg("clean", long="reset", value="true")]
 [script]
 start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
@@ -318,8 +336,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
         -device nvme,serial=deadbeef,drive=nvme0,bootindex=1
 
 # Profile a Rust binary with perf and render a CPU flamegraph
-# (e.g., just flame wizard build --artifacts iso --version latest --arch amd64)
-# Output always goes to {{ out }}; any user-supplied -o/--output-dir is ignored.
+[group('test')]
 [script]
 flame pkg *args: _ensure-out
     flame=$(command -v cargo-flamegraph || echo "$HOME/.cargo/bin/cargo-flamegraph")
@@ -346,10 +363,11 @@ flame pkg *args: _ensure-out
     printf "{{ green }}Flamegraph written to {{ out }}/flamegraph.svg{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Utilities
+# Miscellaneous
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Validate SELinux CIL policy
+[group('misc')]
 [script]
 policy:
     printf "{{ cyan }}Checking SELinux policy{{ reset }}\n"
@@ -364,6 +382,7 @@ policy:
     printf "{{ green }}SELinux policy is valid{{ reset }}\n"
 
 # Remove all build artifacts
+[group('misc')]
 clean:
     @printf "{{ cyan }}Cleaning build artifacts{{ reset }}\n"
     cargo clean
