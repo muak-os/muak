@@ -1,7 +1,7 @@
 //! Prints client and server version with compatibility status.
 
 use anyhow::Result;
-use config::{CompatibilityStatus, parse_pkg_version};
+use config::CompatibilityStatus;
 use tonic::transport::Channel;
 
 use crate::client::version_service::{
@@ -46,11 +46,7 @@ pub fn print_compat_warning(client_ver: &str, server_ver: &str) {
         return;
     }
 
-    let (Ok(cli), Ok(srv)) = (parse_pkg_version(client_ver), parse_pkg_version(server_ver)) else {
-        return;
-    };
-
-    let msg = match config::check_compatibility(&cli, &srv) {
+    let msg = match config::check_compatibility(client_ver, server_ver) {
         CompatibilityStatus::Compatible => return,
         CompatibilityStatus::MinorDrift { cli_newer: true } => {
             format!(

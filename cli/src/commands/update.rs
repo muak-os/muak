@@ -20,11 +20,11 @@ use crate::ui;
 /// Handles the update command.
 pub async fn handle(
     ctx: &ServerContext,
-    image: Option<String>,
+    version: Option<String>,
     config_path: Option<PathBuf>,
 ) -> Result<()> {
-    if image.is_some() && config_path.is_some() {
-        bail!("--image and --config are mutually exclusive!");
+    if version.is_some() && config_path.is_some() {
+        bail!("--version and --config are mutually exclusive!");
     }
 
     let channel = connect(ctx, 600).await?;
@@ -32,7 +32,7 @@ pub async fn handle(
 
     let installed = fetch_installed_config(&mut client).await?;
 
-    let (image_str, config_bytes) = if let Some(ref path) = config_path {
+    let (version_str, config_bytes) = if let Some(ref path) = config_path {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read '{}'", path.display()))?;
 
@@ -42,24 +42,26 @@ pub async fn handle(
         cfg.validate_for_update(&installed)
             .with_context(|| format!("config rejected: '{}'", path.display()))?;
 
-        config::check_no_downgrade(&cfg.host.image, &installed.host.image)
+        config::check_no_downgrade(&cfg.host.version, &installed.host.version)
             .with_context(|| format!("version check failed for '{}'", path.display()))?;
 
         (String::new(), raw.into_bytes())
-    } else if let Some(ref img) = image {
-        config::check_no_downgrade(img, &installed.host.image)
-            .with_context(|| format!("version check failed for image '{img}'"))?;
-
-        (img.clone(), Vec::new())
     } else {
-        bail!("Either --image or --config must be provided for update!");
+        let target = version.clone().unwrap_or_default();
+        if !target.is_empty() {
+            config::check_no_downgrade(&target, &installed.host.version)
+                .with_context(|| format!("version check failed for '{target}'"))?;
+        }
+
+        // An empty version makes the server follow the machine's channel.
+        (target, Vec::new())
     };
 
     let steps = ui::steps::Steps::new();
 
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
-            image: image_str,
+            version: version_str,
             config: config_bytes,
         }))
         .await

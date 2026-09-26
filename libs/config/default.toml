@@ -8,7 +8,9 @@ api_version = "muak.dev/config/v1-beta"
 
 [host]
 name = "muak"
-image = "ghcr.io/muak-os/installer:latest"
+registry = "ghcr.io/muak-os"
+channel = "stable"
+version = ""
 extensions = []
 secureboot = true
 port = 50051

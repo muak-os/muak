@@ -45,7 +45,7 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
             table.row(&[
                 &format_timestamp(entry.rolled_back_at, Separator::Display),
                 &entry.update_id,
-                &entry.failed_image,
+                &entry.failed_version,
                 &entry.reason,
             ])
         },

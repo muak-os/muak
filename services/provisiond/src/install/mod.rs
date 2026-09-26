@@ -193,7 +193,8 @@ async fn build_and_deploy_efi(
     let install_profile = derive_install_profile(&booted_profile, &config.host.extensions)?;
     let has_overlay = install_profile.overlay().is_some();
 
-    let (registry, version) = image_parts(&config.host.image)?;
+    let registry = config.host.registry.clone();
+    let version = config.host.version.clone();
     configure(Config {
         cache_dir: None,
         registry,
@@ -266,20 +267,6 @@ fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Pro
         customization,
         booted.kernel().clone(),
     ))
-}
-
-fn image_parts(image: &str) -> Result<(String, String)> {
-    let colon = image
-        .rfind(':')
-        .context("invalid installer image: missing tag")?;
-    let version = image.get(colon.saturating_add(1)..).unwrap_or_default();
-    let path = image.get(..colon).unwrap_or_default();
-    let slash = path
-        .find('/')
-        .context("invalid installer image: missing registry")?;
-    let registry = path.get(..slash).unwrap_or_default();
-
-    Ok((registry.to_owned(), version.to_owned()))
 }
 
 struct PartitionInfo {

@@ -16,6 +16,10 @@ pub struct Args {
     #[arg(long)]
     release: String,
 
+    /// Channel tags to move to this release (e.g. `stable`, `stable,beta`).
+    #[arg(long = "channel", value_name = "CHANNEL", value_delimiter = ',')]
+    channel: Vec<String>,
+
     /// Catalog kind.
     #[arg(long)]
     kind: Option<String>,
@@ -41,6 +45,7 @@ pub struct Args {
 pub(crate) fn run(args: Args) -> Result<()> {
     let Args {
         release,
+        channel,
         kind,
         dir,
         registry,
@@ -57,6 +62,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
         &release,
         kind,
         &registry_prefix(registry.as_deref()),
+        &channel,
         arch,
         force,
     )

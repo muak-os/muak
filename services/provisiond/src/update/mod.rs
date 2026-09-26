@@ -21,6 +21,7 @@ use wizard::artifact::Artifact;
 use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
+use wizard::resolver;
 
 use crate::disk;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
@@ -65,7 +66,8 @@ pub fn status(update_id: &str) -> UpdateStatus {
 
 /// Prepares an update by staging the UKI components via the wizard.
 pub async fn prepare(
-    image: &str,
+    registry: &str,
+    version: &str,
     extensions: &[String],
     new_config: Option<SystemConfig>,
     author: &str,
@@ -76,7 +78,7 @@ pub async fn prepare(
     streaming::send_progress(
         &progress,
         PrepareUpdateProgress {
-            message: format!("Pulling update image: {image}"),
+            message: format!("Pulling update for release: {version}"),
             ..Default::default()
         },
     )
@@ -104,10 +106,9 @@ pub async fn prepare(
         None
     };
 
-    let (registry, version) = image_parts(image)?;
     configure(Config {
         cache_dir: Some(cache::DIR.into()),
-        registry,
+        registry: registry.to_owned(),
     })
     .context("Failed to configure wizard")?;
 
@@ -126,6 +127,8 @@ pub async fn prepare(
     let mut initramfs_file = File::create(&initramfs_path)
         .with_context(|| format!("create initramfs file {}", initramfs_path.display()))?;
 
+    let request_version = version.to_owned();
+
     tokio::task::spawn_blocking(move || {
         let pair = sb_hierarchy
             .as_ref()
@@ -134,7 +137,7 @@ pub async fn prepare(
                 certificate: &hierarchy.db.certificate,
             });
 
-        let request = Request::new(version)
+        let request = Request::new(request_version)
             .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
             .artifact(Artifact::Kernel, &mut kernel_file)
@@ -168,7 +171,7 @@ pub async fn prepare(
     if let Some(cfg) = new_config {
         update_config(&update_id, &cfg, author)?;
     } else {
-        update_config_image(&update_id, image, author)?;
+        update_config_version(&update_id, version, author)?;
     }
 
     sync();
@@ -215,20 +218,6 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     ))
 }
 
-fn image_parts(image: &str) -> Result<(String, String)> {
-    let colon = image
-        .rfind(':')
-        .context("invalid installer image: missing tag")?;
-    let version = image.get(colon.saturating_add(1)..).unwrap_or_default();
-    let path = image.get(..colon).unwrap_or_default();
-    let slash = path
-        .find('/')
-        .context("invalid installer image: missing registry")?;
-    let registry = path.get(..slash).unwrap_or_default();
-
-    Ok((registry.to_owned(), version.to_owned()))
-}
-
 /// Checks for a pending update snapshot and spawns validation in the background.
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let Some((update_id, snapshot_path)) = snapshot::find_pending()? else {
@@ -253,6 +242,38 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     Ok(())
 }
 
+/// Resolves the target release of an update: `requested` when explicit,
+/// otherwise the newest release of `channel`.
+///
+/// # Errors
+///
+/// Returns an error when channel resolution fails or the target release is a
+/// downgrade of `current`.
+pub async fn resolve_target(
+    registry: &str,
+    channel: &str,
+    current: &str,
+    requested: &str,
+) -> Result<String> {
+    if !requested.is_empty() {
+        config::check_no_downgrade(requested, current)?;
+        return Ok(requested.to_owned());
+    }
+
+    let registry = registry.to_owned();
+    let channel = channel.to_owned();
+    let candidate = tokio::task::spawn_blocking(move || {
+        resolver::release_of(&registry, &channel).context("Failed to resolve channel")
+    })
+    .await
+    .context("Channel resolution task failed")??;
+    if !current.is_empty() {
+        config::check_no_downgrade(&candidate, current).context("Channel release rejected")?;
+    }
+
+    Ok(candidate)
+}
+
 fn has_update_marker() -> bool {
     std::fs::read_to_string("/proc/cmdline")
         .unwrap_or_default()
@@ -272,12 +293,12 @@ fn create_staging_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-pub(super) fn update_config_image(update_id: &str, image: &str, author: &str) -> Result<()> {
+pub(super) fn update_config_version(update_id: &str, version: &str, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
     let mut config: SystemConfig =
         config::parse_from_str(&contents).context("Failed to parse config")?;
 
-    image.clone_into(&mut config.host.image);
+    version.clone_into(&mut config.host.version);
 
     let updated_config = config::serialize(&config).context("Failed to serialize config")?;
     let entry = Entry::new(update_id, author, ChangeKind::Update);
@@ -329,4 +350,34 @@ pub(super) fn resolve_sb_hierarchy() -> Result<Bundle> {
 
 pub fn signal_cli_contact() {
     validation::signal_cli_contact();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_target;
+
+    #[tokio::test]
+    async fn explicit_version_is_guarded_and_returned() {
+        // ARRANGE
+        let registry = "ghcr.io/muak-os";
+        let channel = "stable";
+        let current = "v1.2.0";
+
+        // ACT / ASSERT
+        resolve_target(registry, channel, current, "v1.3.0")
+            .await
+            .expect("target");
+        assert_eq!(
+            resolve_target(registry, channel, current, "v1.2.0")
+                .await
+                .expect("same release"),
+            "v1.2.0"
+        );
+        resolve_target(registry, channel, current, "v1.1.0")
+            .await
+            .expect_err("downgrade must fail");
+        resolve_target(registry, channel, current, "garbage")
+            .await
+            .expect_err("invalid version must fail");
+    }
 }

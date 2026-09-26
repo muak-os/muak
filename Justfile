@@ -127,7 +127,7 @@ catalog *args:
     mkdir -p "{{ absolute_path(out) }}/catalog"
     just _kata compose --force --dir /data --release "{{ tag }}" \
         --registry {{ registry }} "$@" --set installer={{ tag }}
-    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data
+    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data --channel stable
     printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # Seed a fresh scratch catalog line from the local registry (first run only)
@@ -142,7 +142,7 @@ catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
         --tag "{{ stub_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
     just _kata add --kind installer --source muak-os/muak --repository installer \
         --tag "{{ installer_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
-    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data
+    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data --channel stable
     printf "{{ green }}Scratch line seeded: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────

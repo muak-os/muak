@@ -15,14 +15,14 @@ static CLI_CONTACT: Notify = Notify::const_new();
 const CLI_CONTACT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
-    let old_image = snapshot::read_image(snapshot_path)?;
-    let target_image = config::host().image.clone();
+    let old_version = snapshot::read_version(snapshot_path)?;
+    let target_version = config::host().version.clone();
 
     kmsg::info!(
         "Validating update {}: {} -> {}",
         update_id,
-        old_image,
-        target_image
+        old_version,
+        target_version
     );
 
     if is_old_kernel(update_id) {

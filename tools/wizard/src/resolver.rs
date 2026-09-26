@@ -3,7 +3,7 @@
 use kata::schema::documents::{DOCUMENT_PATH, Document};
 use kata::schema::entries::NamedEntry;
 use kata::schema::kinds::Kind;
-use kata::schema::parse::{from_toml, validate_release};
+use kata::schema::parse::{from_toml_tag, validate_release};
 use kata::schema::view::{self, Role};
 use koci::arch::{self, Arch};
 
@@ -83,6 +83,15 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     Ok(Resolution::new(profile_id, resolution_id, build))
 }
 
+/// Resolves a catalog tag to the concrete release line it pins.
+///
+/// # Errors
+///
+/// Returns an error when the catalog image cannot be fetched or parsed.
+pub fn release_of(registry: &str, tag: &str) -> Result<String> {
+    Ok(fetch_tag(Kind::Core, tag, registry)?.release().to_owned())
+}
+
 fn match_extensions(
     document: &Document,
     profile: &Profile,
@@ -134,7 +143,19 @@ fn match_overlay(
 }
 
 fn fetch(kind: Kind, release: &str, registry: &str) -> Result<Document> {
-    let reference = format!("{registry}/{}:{release}", kind.repository());
+    let document = fetch_tag(kind, release, registry)?;
+    if document.release() != release {
+        return Err(WizardError::SourceResolution(format!(
+            "catalog release '{}' does not match '{release}'",
+            document.release()
+        )));
+    }
+
+    Ok(document)
+}
+
+fn fetch_tag(kind: Kind, tag: &str, registry: &str) -> Result<Document> {
+    let reference = format!("{registry}/{}:{tag}", kind.repository());
     let mut document: Option<Vec<u8>> = None;
     koci::pull::files(&reference, &Arch::Amd64, None, |entry| {
         if entry.path == DOCUMENT_PATH {
@@ -154,7 +175,7 @@ fn fetch(kind: Kind, release: &str, registry: &str) -> Result<Document> {
         ))
     })?;
 
-    Ok(from_toml(kind, &bytes, release)?)
+    from_toml_tag(kind, &bytes, tag).map_err(WizardError::from)
 }
 
 fn pinned_reference(registry: &str, repository: &str, digest: &str) -> String {
@@ -167,6 +188,8 @@ fn valid_release(version: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use kata::schema::parse::from_toml;
+
     use super::*;
     use crate::domain::profile::{CustomizationSpec, KernelSpec, Profile};
 

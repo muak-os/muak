@@ -12,28 +12,32 @@ use crate::ops::verify;
 use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
-use crate::schema::parse::{from_toml, validate_release};
+use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
 
 const DOCUMENT_PATH: &str = "catalog.toml";
 
 /// Publish one kind's catalog image, or every kind with a document for the
-/// release when `kind` is [`None`].
+/// release when `kind` is [`None`], moving each `channels` tag to it.
 ///
 /// # Errors
 ///
 /// Returns an error when the root is unusable, no document exists, a document
 /// is not canonical, an entry fails verification, a published line would be
-/// mutated, or the registry push fails.
+/// mutated, a channel would move backwards, or the registry push fails.
 pub fn run(
     root: &Path,
     release: &str,
     kind: Option<Kind>,
     registry: &str,
+    channels: &[String],
     arch: Arch,
     force: bool,
 ) -> Result<Vec<String>> {
     repository::require_root(root)?;
     validate_release(release)?;
+    for channel in channels {
+        validate_release(channel)?;
+    }
     let kinds = match kind {
         Some(kind) => vec![kind],
         None => Kind::all()
@@ -49,15 +53,17 @@ pub fn run(
 
     let mut published = Vec::new();
     for kind in kinds {
-        published.push(publish_one(root, release, kind, registry, arch, force)?);
+        published.push(publish_one(
+            root, release, kind, registry, channels, arch, force,
+        )?);
     }
 
     Ok(published)
 }
 
-fn served_document(line_reference: &str, kind: Kind, release: &str) -> Result<Option<Document>> {
+fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
     let mut bytes: Option<Vec<u8>> = None;
-    pull::files(line_reference, &Arch::Amd64, None, |entry| {
+    pull::files(reference, &Arch::Amd64, None, |entry| {
         if entry.path == DOCUMENT_PATH {
             let mut buffer = Vec::new();
             entry.reader.read_to_end(&mut buffer)?;
@@ -68,10 +74,42 @@ fn served_document(line_reference: &str, kind: Kind, release: &str) -> Result<Op
     })
     .map_err(|error| KataError::Registry(error.to_string()))?;
 
-    match bytes {
+    Ok(bytes)
+}
+
+fn served_document(line_reference: &str, kind: Kind, release: &str) -> Result<Option<Document>> {
+    match fetch_document_bytes(line_reference)? {
         Some(bytes) => Ok(Some(from_toml(kind, &bytes, release)?)),
         None => Ok(None),
     }
+}
+
+fn ensure_channel_forward(channel: &str, served: &str, release: &str) -> Result<()> {
+    let (Ok(served_version), Ok(new_version)) = (release_version(served), release_version(release))
+    else {
+        return Err(KataError::Gate(format!(
+            "channel '{channel}' serves '{served}', which is not comparable to '{release}'"
+        )));
+    };
+
+    if new_version < served_version {
+        return Err(KataError::Gate(format!(
+            "channel '{channel}' would move backwards: '{served}' → '{release}'"
+        )));
+    }
+
+    Ok(())
+}
+
+fn check_channel_forward(kind: Kind, registry: &str, release: &str, channel: &str) -> Result<()> {
+    let reference = format!("{registry}/{}:{channel}", kind.repository());
+    let Some(bytes) = fetch_document_bytes(&reference)? else {
+        return Ok(());
+    };
+    let served = from_toml_tag(kind, &bytes, channel)
+        .map_err(|error| KataError::Registry(error.to_string()))?;
+
+    ensure_channel_forward(channel, served.release(), release)
 }
 
 fn check_monotonic(kind: Kind, document: &Document, served: &Document) -> Result<()> {
@@ -110,6 +148,7 @@ fn publish_one(
     release: &str,
     kind: Kind,
     registry: &str,
+    channels: &[String],
     arch: Arch,
     force: bool,
 ) -> Result<String> {
@@ -135,10 +174,18 @@ fn publish_one(
         check_monotonic(kind, &document, &served)?;
     }
 
+    if !force {
+        for channel in channels {
+            check_channel_forward(kind, registry, release, channel)?;
+        }
+    }
+
     let image = format!("{registry}/{}", kind.repository());
+    let mut tags = vec![release.to_owned()];
+    tags.extend(channels.iter().cloned());
     let pushed = push::files(
         &image,
-        &[release.to_owned()],
+        &tags,
         &arch,
         &[push::Entry {
             path: "catalog.toml".to_owned(),
@@ -147,6 +194,38 @@ fn publish_one(
     )
     .map_err(|error| KataError::Registry(error.to_string()))?;
     eprintln!("Published {image}:{release}");
+    for channel in channels {
+        eprintln!("Moved channel {image}:{channel} → {release}");
+    }
 
     Ok(pushed.digest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_channel_forward;
+
+    #[test]
+    fn channel_moves_forward_and_stays_put() {
+        // ACT / ASSERT
+        ensure_channel_forward("stable", "v1.1.0", "v1.2.0").expect("forward move");
+        ensure_channel_forward("stable", "v1.2.0", "v1.2.0").expect("same release");
+        ensure_channel_forward("stable", "v1.1.0", "v1.2.0-beta").expect("newer prerelease");
+    }
+
+    #[test]
+    fn channel_refuses_backwards_moves() {
+        // ACT / ASSERT
+        assert!(ensure_channel_forward("stable", "v1.2.0", "v1.1.0").is_err());
+        assert!(ensure_channel_forward("stable", "v1.2.0", "v1.1.0-beta").is_err());
+        // A pre-release below its own already-served release is a backwards move.
+        assert!(ensure_channel_forward("beta", "v1.2.0", "v1.2.0-beta").is_err());
+    }
+
+    #[test]
+    fn channel_refuses_incomparable_served_releases() {
+        // ACT / ASSERT
+        assert!(ensure_channel_forward("stable", "latest", "v1.1.0").is_err());
+        assert!(ensure_channel_forward("stable", "v1.1.0", "garbage").is_err());
+    }
 }

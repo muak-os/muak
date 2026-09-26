@@ -3,6 +3,7 @@
 use koci::registry;
 
 use crate::error::{KataError, Result};
+use crate::schema::parse::release_version;
 
 /// Newest version tag of `repository`, for entries without an explicit selection.
 ///
@@ -25,10 +26,7 @@ pub(crate) fn newest_tag(registry: &str, repository: &str) -> Result<String> {
 /// Returns an error when no tag carries a version.
 pub(crate) fn newest(tags: &[String]) -> Result<String> {
     tags.iter()
-        .filter_map(|tag| {
-            let version = semver::Version::parse(tag.strip_prefix('v')?).ok()?;
-            Some((version, tag))
-        })
+        .filter_map(|tag| release_version(tag).ok().map(|version| (version, tag)))
         .max()
         .map(|(_, tag)| tag.clone())
         .ok_or_else(|| KataError::Registry("no version tag found to select".to_owned()))

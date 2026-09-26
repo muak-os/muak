@@ -2,6 +2,8 @@
 
 use core::str;
 
+use semver::Version;
+
 use crate::error;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
@@ -13,13 +15,33 @@ use crate::schema::kinds::Kind;
 /// Returns an error when the bytes are not UTF-8, fail to parse, or the
 /// document carries an unexpected `api_version` or `release`.
 pub fn from_toml(kind: Kind, bytes: &[u8], release: &str) -> error::DocumentResult<Document> {
+    let document = decode(kind, bytes, release)?;
+    validate(&document, kind, Some(release))?;
+
+    Ok(document)
+}
+
+/// Parses and validates the document of `kind` fetched at an arbitrary tag.
+///
+/// # Errors
+///
+/// Returns an error when the bytes are not UTF-8, fail to parse, or the
+/// document carries an unexpected `api_version`.
+pub fn from_toml_tag(kind: Kind, bytes: &[u8], tag: &str) -> error::DocumentResult<Document> {
+    let document = decode(kind, bytes, tag)?;
+    validate(&document, kind, None)?;
+
+    Ok(document)
+}
+
+fn decode(kind: Kind, bytes: &[u8], context: &str) -> error::DocumentResult<Document> {
     let text = str::from_utf8(bytes).map_err(|_error| {
         error::DocumentError::Document(format!(
-            "{} catalog for '{release}' is not valid UTF-8",
+            "{} catalog for '{context}' is not valid UTF-8",
             kind.dir()
         ))
     })?;
-    let document = match kind {
+    Ok(match kind {
         Kind::Core => Document::Core(toml::from_str(text).map_err(error::DocumentError::from)?),
         Kind::Overlays => {
             Document::Overlays(toml::from_str(text).map_err(error::DocumentError::from)?)
@@ -27,10 +49,7 @@ pub fn from_toml(kind: Kind, bytes: &[u8], release: &str) -> error::DocumentResu
         Kind::Extensions => {
             Document::Extensions(toml::from_str(text).map_err(error::DocumentError::from)?)
         }
-    };
-    validate(&document, kind, release)?;
-
-    Ok(document)
+    })
 }
 
 /// Rejects releases that cannot name a catalog tag or document path.
@@ -53,7 +72,20 @@ pub fn validate_release(release: &str) -> error::DocumentResult<()> {
     Ok(())
 }
 
-fn validate(document: &Document, kind: Kind, release: &str) -> error::DocumentResult<()> {
+/// Parses a release line into a semantic version (`v` prefix optional).
+///
+/// # Errors
+///
+/// Returns an error when `release` is not a valid semantic version.
+pub fn release_version(release: &str) -> error::DocumentResult<Version> {
+    let core = release.strip_prefix('v').unwrap_or(release);
+
+    Version::parse(core).map_err(|error| {
+        error::DocumentError::Document(format!("invalid release '{release}': {error}"))
+    })
+}
+
+fn validate(document: &Document, kind: Kind, release: Option<&str>) -> error::DocumentResult<()> {
     if document.api_version() != kind.api_version() {
         return Err(error::DocumentError::Document(format!(
             "unsupported api_version '{}' (expected '{}')",
@@ -61,7 +93,9 @@ fn validate(document: &Document, kind: Kind, release: &str) -> error::DocumentRe
             kind.api_version()
         )));
     }
-    if document.release() != release {
+    if let Some(release) = release
+        && document.release() != release
+    {
         return Err(error::DocumentError::Document(format!(
             "document release '{}' does not match '{release}'",
             document.release()
@@ -133,6 +167,32 @@ repository = "installer"
 tag = "v1.2.3"
 digest = "sha256:3333"
 "#;
+
+    #[test]
+    fn from_toml_tag_accepts_a_tag_different_from_the_release() {
+        // ARRANGE / ACT
+        let document = from_toml_tag(Kind::Core, CORE.as_bytes(), "stable").expect("parse core");
+
+        // ASSERT
+        assert_eq!(document.release(), "v1.2.3");
+    }
+
+    #[test]
+    fn from_toml_tag_still_validates_api_version_and_duplicates() {
+        // ARRANGE
+        let wrong_api = CORE.replace("muak.dev/catalog/core/v1", "muak.dev/catalog/core/v0");
+        let duplicate = CORE.replace(
+            "[installer]",
+            "[[kernels]]\nsource = \"muak-os/linux\"\nrepository = \"linux\"\ntag = \"v6\"\ndigest = \"sha256:4444\"\n\n[installer]",
+        );
+
+        // ACT / ASSERT
+        let error = from_toml_tag(Kind::Core, wrong_api.as_bytes(), "stable")
+            .expect_err("wrong api_version must fail");
+        assert!(error.to_string().contains("unsupported api_version"));
+        from_toml_tag(Kind::Core, duplicate.as_bytes(), "stable")
+            .expect_err("duplicate kernel must fail");
+    }
 
     #[test]
     fn from_toml_parses_and_resolves_core_lookups() {

@@ -74,7 +74,7 @@ pub enum Commands {
     },
     Update {
         #[arg(long)]
-        image: Option<String>,
+        version: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
     },

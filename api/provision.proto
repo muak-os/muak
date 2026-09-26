@@ -65,7 +65,7 @@ message InstallProgress {
 }
 
 message PrepareUpdateRequest {
-    string image = 1;
+    string version = 1;
     bytes config = 2;
 }
 
@@ -144,7 +144,7 @@ message GetConfigSnapshotResponse {
 
 message RollbackHistoryEntry {
     string update_id = 1;
-    string failed_image = 2;
+    string failed_version = 2;
     string reason = 3;
     int64 rolled_back_at = 4;
 }

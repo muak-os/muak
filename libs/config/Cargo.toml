@@ -20,5 +20,8 @@ toml = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# Utilities
+semver = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -3,7 +3,7 @@ mod common;
 use core::time::Duration;
 
 use anyhow::{Result, ensure};
-use common::{boot_and_install, install_image};
+use common::{boot_and_install, install_registry, install_version};
 use e2e::artifacts::Artifacts;
 use e2e::assert_success;
 use tokio::time::timeout;
@@ -23,9 +23,38 @@ mod tests {
         let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
 
         // ACT
+        let stdout = timeout(Duration::from_mins(1), assert_success!(cli, ["update"]))
+            .await
+            .map_err(|_elapsed| {
+                let serial = fixture.vm.read_serial().unwrap_or_default();
+                let stderr = fixture.vm.read_stderr().unwrap_or_default();
+                anyhow::anyhow!(
+                    "update timed out\
+                 \n\n--- serial log ---\n{serial}\
+                 \n\n--- stderr ---\n{stderr}"
+                )
+            })?
+            .map_err(|e| anyhow::anyhow!("muakctl update failed: {e}"))?;
+
+        // ASSERT
+        ensure!(
+            stdout.contains("committed successfully"),
+            "expected 'committed successfully' in update output, got: {stdout}"
+        );
+        fixture.vm.assert_serial_contains("muak.update_id=")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_explicit_version() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
+
+        // ACT
         let stdout = timeout(
             Duration::from_mins(1),
-            assert_success!(cli, ["update", "--image", &install_image()]),
+            assert_success!(cli, ["update", "--version", &install_version()]),
         )
         .await
         .map_err(|_elapsed| {
@@ -54,11 +83,12 @@ mod tests {
         let artifacts = Artifacts::from_env()?;
         let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
 
-        let image = install_image();
+        let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
                 "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
-                cfg.host.image = image;
+                cfg.host.registry = registry;
+                cfg.host.version = version;
             })
             .await?;
 
@@ -93,9 +123,9 @@ mod tests {
         );
         let config_out = assert_success!(cli, ["config", "get"]).await?;
         ensure!(
-            config_out.contains(&install_image()),
-            "expected updated image '{}' in config get output, got: {config_out}",
-            install_image()
+            config_out.contains(&install_version()),
+            "expected updated version '{}' in config get output, got: {config_out}",
+            install_version()
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
         Ok(())
@@ -110,11 +140,12 @@ mod tests {
         })
         .await?;
 
-        let image = install_image();
+        let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
                 "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
-                cfg.host.image = image;
+                cfg.host.registry = registry;
+                cfg.host.version = version;
                 cfg.host.secureboot = true;
             })
             .await?;
@@ -150,9 +181,9 @@ mod tests {
         );
         let config_out = assert_success!(cli, ["config", "get"]).await?;
         ensure!(
-            config_out.contains(&install_image()),
-            "expected updated image '{}' in config get output, got: {config_out}",
-            install_image()
+            config_out.contains(&install_version()),
+            "expected updated version '{}' in config get output, got: {config_out}",
+            install_version()
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
 

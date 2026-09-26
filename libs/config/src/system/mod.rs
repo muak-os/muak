@@ -43,7 +43,7 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 pub struct SystemConfig {
     /// Schema version of this document.
     pub api_version: String,
-    /// Host-level configuration (name, image, networking ports, etc.).
+    /// Host-level configuration (name, registry, channel, version, ports, etc.).
     #[serde(default)]
     pub host: HostConfig,
     /// Disk partition layout configuration.
@@ -680,7 +680,7 @@ ntp = "pool.ntp.org"
     fn host_config_fields() {
         // ARRANGE
         let mut config = SystemConfig::default();
-        config.host.image = "myimage".to_string();
+        config.host.version = "v1.0.0".to_string();
         config.host.extensions = vec!["ext1".to_string()];
         config.host.ntp = "pool.ntp.org".to_string();
         config.host.secureboot = true;
@@ -690,7 +690,7 @@ ntp = "pool.ntp.org"
         let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
 
         // ASSERT
-        assert_eq!(restored.host.image, "myimage");
+        assert_eq!(restored.host.version, "v1.0.0");
         assert_eq!(restored.host.extensions, vec!["ext1"]);
         assert_eq!(restored.host.ntp, "pool.ntp.org");
         assert!(restored.host.secureboot);

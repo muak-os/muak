@@ -3,7 +3,7 @@ mod common;
 use core::time::Duration;
 
 use anyhow::{Result, ensure};
-use common::{boot_and_install, install_image};
+use common::{boot_and_install, install_registry, install_version};
 use e2e::artifacts::Artifacts;
 use e2e::assert_success;
 
@@ -29,7 +29,8 @@ mod tests {
         let update_cfg = cli
             .generate_config(|cfg| {
                 "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
-                cfg.host.image = install_image();
+                cfg.host.registry = install_registry();
+                cfg.host.version = install_version();
             })
             .await?;
 
@@ -70,9 +71,9 @@ mod tests {
 
         let config_out = assert_success!(cli, ["config", "get"]).await?;
         ensure!(
-            config_out.contains(&install_image()),
-            "expected original image '{}' in config after rollback, got: {config_out}",
-            install_image()
+            config_out.contains(&install_version()),
+            "expected original version '{}' in config after rollback, got: {config_out}",
+            install_version()
         );
 
         fixture.vm.assert_serial_contains("muak.update_id=")?;

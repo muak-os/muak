@@ -15,9 +15,7 @@ pub use error::{ConfigError, Result};
 pub use permission::Permission;
 pub use system::*;
 pub use user::{ClientConfig, Credentials, PendingEnrollment, ServerContext};
-pub use version::{
-    CompatibilityStatus, Version, check_compatibility, check_no_downgrade, parse_pkg_version,
-};
+pub use version::{CompatibilityStatus, check_compatibility, check_no_downgrade, parse_release};
 
 /// Initializes the system config and auth cache.
 pub fn init() -> Result<()> {

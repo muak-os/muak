@@ -10,11 +10,14 @@ use tokio::time::timeout;
 pub const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
 pub const DEFAULT_TAG: &str = "latest";
 
-/// The image used for the initial install.
-pub fn install_image() -> String {
-    let registry = std::env::var("REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_owned());
-    let tag = std::env::var("TAG").unwrap_or_else(|_| DEFAULT_TAG.to_owned());
-    format!("{registry}/installer:{tag}")
+/// Registry serving the catalog for the initial install.
+pub fn install_registry() -> String {
+    std::env::var("REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_owned())
+}
+
+/// Catalog release installed on the machine.
+pub fn install_version() -> String {
+    std::env::var("TAG").unwrap_or_else(|_| DEFAULT_TAG.to_owned())
 }
 
 /// Boots a VM, runs install with the given extra config patch, waits for the
@@ -34,11 +37,12 @@ pub async fn boot_and_install<F: FnOnce(&mut config::SystemConfig)>(
 
     let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
 
-    let image = install_image();
+    let (registry, version) = (install_registry(), install_version());
     let config_file = cli
         .generate_config(|cfg| {
             "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
-            cfg.host.image = image;
+            cfg.host.registry = registry;
+            cfg.host.version = version;
             extra_config(cfg);
         })
         .await?;

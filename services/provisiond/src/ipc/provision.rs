@@ -90,16 +90,18 @@ impl ProvisionService for ServiceImpl {
         let req = request.into_inner();
         let installed = config::config();
 
-        let (image, extensions, new_config) = if req.config.is_empty() {
-            let image = if req.image.is_empty() {
-                installed.host.image.clone()
-            } else {
-                config::check_no_downgrade(&req.image, &installed.host.image)
-                    .map_err(|e| Status::invalid_argument(format!("{e}")))?;
-                req.image.clone()
-            };
+        let (registry, version, extensions, new_config) = if req.config.is_empty() {
+            let version = update::resolve_target(
+                &installed.host.registry,
+                &installed.host.channel,
+                &installed.host.version,
+                &req.version,
+            )
+            .await
+            .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
             let extensions = installed.host.extensions.clone();
-            (image, extensions, None)
+
+            (installed.host.registry.clone(), version, extensions, None)
         } else {
             let raw = String::from_utf8(req.config)
                 .map_err(|e| Status::invalid_argument(format!("Config is not valid UTF-8: {e}")))?;
@@ -110,17 +112,27 @@ impl ProvisionService for ServiceImpl {
             cfg.validate_for_update(installed)
                 .map_err(|e| Status::invalid_argument(format!("Config rejected: {e}")))?;
 
-            config::check_no_downgrade(&cfg.host.image, &installed.host.image)
+            config::check_no_downgrade(&cfg.host.version, &installed.host.version)
                 .map_err(|e| Status::invalid_argument(format!("{e}")))?;
 
-            let image = cfg.host.image.clone();
+            let registry = cfg.host.registry.clone();
+            let version = cfg.host.version.clone();
             let extensions = cfg.host.extensions.clone();
-            (image, extensions, Some(cfg))
+
+            (registry, version, extensions, Some(cfg))
         };
 
         let stream = streaming::run(
             move |progress_tx| async move {
-                update::prepare(&image, &extensions, new_config, &author, progress_tx).await
+                update::prepare(
+                    &registry,
+                    &version,
+                    &extensions,
+                    new_config,
+                    &author,
+                    progress_tx,
+                )
+                .await
             },
             |result, out_tx| {
                 let msg = match result {
@@ -319,7 +331,7 @@ impl ProvisionService for ServiceImpl {
                     .filter(|entry| entry.kind() == &journal::ChangeKind::Rollback)
                     .map(|e| RollbackHistoryEntry {
                         update_id: e.update_id().to_owned(),
-                        failed_image: e.failed_image().unwrap_or_default().to_owned(),
+                        failed_version: e.failed_version().unwrap_or_default().to_owned(),
                         reason: e.reason().unwrap_or_default().to_owned(),
                         rolled_back_at: e.timestamp(),
                     })

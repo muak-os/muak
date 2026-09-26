@@ -48,9 +48,9 @@ pub struct Entry {
     author: String,
     /// The kind of operation.
     kind: ChangeKind,
-    /// The image that failed to boot.
+    /// The catalog release that failed to boot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    failed_image: Option<String>,
+    failed_version: Option<String>,
     /// Why the update was rolled back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
@@ -66,15 +66,15 @@ impl Entry {
             update_id: update_id.to_owned(),
             author: author.to_owned(),
             kind,
-            failed_image: None,
+            failed_version: None,
             reason: None,
         }
     }
 
     /// Attaches rollback outcome fields to the entry.
     #[must_use]
-    pub fn rolled_back(mut self, failed_image: &str, reason: &str) -> Self {
-        self.failed_image = Some(failed_image.to_owned());
+    pub fn rolled_back(mut self, failed_version: &str, reason: &str) -> Self {
+        self.failed_version = Some(failed_version.to_owned());
         self.reason = Some(reason.to_owned());
 
         self
@@ -123,10 +123,10 @@ impl Entry {
         &self.kind
     }
 
-    /// Returns the image that failed to boot, for rollback entries.
+    /// Returns the catalog release that failed to boot, for rollback entries.
     #[must_use]
-    pub fn failed_image(&self) -> Option<&str> {
-        self.failed_image.as_deref()
+    pub fn failed_version(&self) -> Option<&str> {
+        self.failed_version.as_deref()
     }
 
     /// Returns the rollback reason, for rollback entries.
@@ -377,13 +377,13 @@ mod tests {
     fn rollback_entry_round_trips_outcome_fields() {
         // ARRANGE / ACT
         let mut entry = Entry::new("update-1734", "system", ChangeKind::Rollback)
-            .rolled_back("ghcr.io/muak-os/installer:v2", "health check failed");
+            .rolled_back("v2", "health check failed");
         entry.timestamp = 1;
         let parsed = Entry::from_toml(&entry.to_toml().expect("serialize")).expect("deserialize");
 
         // ASSERT
         assert_eq!(parsed.kind(), &ChangeKind::Rollback);
-        assert_eq!(parsed.failed_image(), Some("ghcr.io/muak-os/installer:v2"));
+        assert_eq!(parsed.failed_version(), Some("v2"));
         assert_eq!(parsed.reason(), Some("health check failed"));
     }
 
@@ -395,7 +395,7 @@ mod tests {
         let serialized = entry.to_toml().expect("serialize");
 
         // ASSERT
-        assert!(!serialized.contains("failed_image"));
+        assert!(!serialized.contains("failed_version"));
         assert!(!serialized.contains("reason"));
     }
 

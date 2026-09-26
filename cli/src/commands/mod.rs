@@ -154,12 +154,9 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
             auth::enroll(endpoint).await?;
             Ok(true)
         }
-        Commands::Update { image, config } => {
-            if image.is_some() && config.is_some() {
-                bail!("--image and --config are mutually exclusive!");
-            }
-            if image.is_none() && config.is_none() {
-                bail!("Either --image or --config must be provided for update!");
+        Commands::Update { version, config } => {
+            if version.is_some() && config.is_some() {
+                bail!("--version and --config are mutually exclusive!");
             }
             Ok(false)
         }
@@ -232,7 +229,7 @@ async fn handle_cmd(
             install::handle(&mut client, force, config, &endpoint).await
         }
         Commands::Update {
-            image,
+            version,
             config: config_path,
         } => {
             let ctx_name = context.as_ref().ok_or_else(|| {
@@ -244,7 +241,7 @@ async fn handle_cmd(
             let ctx = config
                 .get_context(ctx_name)
                 .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?;
-            update::handle(ctx, image, config_path).await
+            update::handle(ctx, version, config_path).await
         }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);

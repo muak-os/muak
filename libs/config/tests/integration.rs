@@ -13,7 +13,9 @@ api_version = "muak.dev/config/v1-beta"
 
 [host]
 name = "muak"
-image = "test_image"
+registry = "ghcr.io/muak-os"
+channel = "stable"
+version = "v1.0.0"
 extensions = ["ext1", "ext2"]
 port = 8080
 ntp = "pool.ntp.org"

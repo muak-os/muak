@@ -58,12 +58,13 @@ pub fn path(update_id: &str) -> PathBuf {
     Path::new(UPDATE_DIR).join(format!("{update_id}.{CONFIG_EXTENSION}"))
 }
 
-/// Reads `host.image` from a snapshot file.
-pub fn read_image(snapshot_path: &Path) -> Result<String> {
+/// Reads `host.version` from a snapshot file.
+pub fn read_version(snapshot_path: &Path) -> Result<String> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
     let cfg: config::SystemConfig =
         config::parse_from_str(&contents).context("Failed to parse config snapshot")?;
-    Ok(cfg.host.image)
+
+    Ok(cfg.host.version)
 }
 
 /// Restores the system config from a snapshot file, overwriting the current, and records history.
@@ -72,9 +73,9 @@ pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()
     config::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
         .context("Failed to restore config from snapshot")?;
 
-    let failed_image = config::host().image.clone();
+    let failed_version = config::host().version.clone();
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
-        .rolled_back(&failed_image, reason);
+        .rolled_back(&failed_version, reason);
     if let Err(e) = journal::append(&entry, &contents) {
         eprintln!("Failed to append rollback journal entry: {e}");
     }
