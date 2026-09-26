@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result};
 use clap::Parser;
 use kata::ops::compose::plan::Selections;
-use kata::ops::compose::{self, Mode};
+use kata::ops::compose::{self, Mode, Policy};
 
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]
@@ -27,6 +27,10 @@ pub struct Args {
     /// Retag planned entries: KEY=TAG where KEY is a role shorthand.
     #[arg(long = "set", value_name = "KEY=TAG")]
     sets: Vec<String>,
+
+    /// Bump entries without an explicit selection to their newest version tag.
+    #[arg(long, default_value_t = false)]
+    auto: bool,
 
     /// Print the resolved plan as JSON and exit without writing.
     #[arg(long, default_value_t = false)]
@@ -64,6 +68,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
         from,
         from_line,
         sets,
+        auto,
         print_plan,
         registry,
         flags:
@@ -85,6 +90,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
         from_line,
         release,
         selections,
+        policy: if auto { Policy::Auto } else { Policy::Carried },
         fresh,
         force,
         allow_outdated_from,
@@ -137,6 +143,7 @@ mod tests {
             "installer=v1.1.0",
             "--set",
             "overlays/rpi_generic=v0.4.1",
+            "--auto",
         ])
         .expect("parse compose args");
 
@@ -148,6 +155,7 @@ mod tests {
         // ASSERT
         assert_eq!(composed.release, "v1.1.0");
         assert_eq!(composed.from_line.as_deref(), Some("v1.0.0-beta"));
+        assert!(composed.auto);
         assert_eq!(
             composed.sets,
             vec![

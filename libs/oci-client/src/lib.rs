@@ -10,3 +10,4 @@ pub mod error;
 pub mod http;
 pub mod manifest;
 pub mod redirect;
+pub mod tags;

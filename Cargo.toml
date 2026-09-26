@@ -161,6 +161,7 @@ uefi = "0.40"
 ## Utilities
 bytes = "1.12"
 object = { version = "0.39", default-features = false, features = ["read", "pe"] }
+semver = { version = "1.0", default-features = false, features = ["std", "serde"] }
 uuid = { version = "1.26", default-features = false, features = ["v4", "v7"] }
 
 ## Procedural macros

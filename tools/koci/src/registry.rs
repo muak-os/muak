@@ -5,6 +5,7 @@ use oci_client::auth::Access;
 use oci_client::client::Client;
 use oci_client::http;
 use oci_client::manifest;
+use oci_client::tags;
 
 use crate::error::Result;
 use crate::runtime;
@@ -46,5 +47,18 @@ pub fn manifest_exists(reference: &str) -> Result<bool> {
         let response = http::head_any_status(client.http(), &url, client.authorization()).await?;
 
         Ok(response.status().as_u16() == 200)
+    })
+}
+
+/// List every tag of the repository in `reference`, following pagination.
+///
+/// # Errors
+///
+/// Returns an error when the reference cannot be parsed or the listing fails.
+pub fn tags(reference: &str) -> Result<Vec<String>> {
+    runtime::runtime()?.block_on(async {
+        let client = connect(reference, Access::Pull).await?;
+
+        Ok(tags::list(&client).await?)
     })
 }

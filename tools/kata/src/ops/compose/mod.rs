@@ -13,12 +13,13 @@ use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
 
+pub(crate) mod auto;
 pub(crate) mod lines;
 pub(crate) mod merge;
 pub mod plan;
 
 use merge::Bases;
-use plan::Selections;
+use plan::{Auto, Selections};
 
 /// How the composition result is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +28,15 @@ pub enum Mode {
     Print,
     /// Write the composed documents to the output root.
     Write,
+}
+
+/// Tag policy for entries without an explicit selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Policy {
+    /// Carry unselected entries verbatim.
+    Carried,
+    /// Bump unselected entries to their newest version tag.
+    Auto,
 }
 
 /// One `kata compose` request.
@@ -47,6 +57,8 @@ pub struct Input {
     pub force: bool,
     /// Compose from a line that is not the newest one.
     pub allow_outdated_from: bool,
+    /// Tag policy for entries without an explicit selection.
+    pub policy: Policy,
     /// Print the plan instead of writing.
     pub mode: Mode,
     /// Registry prefix for resolution and publication checks.
@@ -78,12 +90,15 @@ pub fn run(input: &Input) -> Result<Vec<String>> {
         koci::registry::manifest_digest(&line_reference)
             .map_err(|error| KataError::Registry(error.to_string()))
     };
+    let policy = (input.policy == Policy::Auto)
+        .then_some(|repository: &str| auto::newest_tag(&input.registry, repository));
     let plan = plan::build(
         &mut bases,
         &origins,
         &input.selections,
         &input.release,
         &resolve,
+        policy.as_ref().map(coerce),
     )?;
 
     if input.mode == Mode::Print {
@@ -114,6 +129,10 @@ pub fn run(input: &Input) -> Result<Vec<String>> {
 struct Carried {
     root: PathBuf,
     line: String,
+}
+
+fn coerce<F: Fn(&str) -> Result<String>>(policy: &F) -> &Auto<'_> {
+    policy
 }
 
 fn carried_documents(

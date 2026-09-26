@@ -17,11 +17,16 @@ pub struct Selections {
     pub sets: Vec<(String, String)>,
 }
 
+/// Auto-selection policy: newest-tag discovery for one repository.
+pub(crate) type Auto<'a> = dyn Fn(&str) -> Result<String> + 'a;
+
 impl Selections {
-    /// The selected tag for `identity`, if any selection addresses it.
+    /// The selected tag for `identity`, if any selection addresses it. The
+    /// last selection for a key wins.
     pub(crate) fn tag_of(&self, identity: &str) -> Option<&String> {
         self.sets
             .iter()
+            .rev()
             .find(|pair| selection_matches(&pair.0, identity))
             .map(|pair| &pair.1)
     }
@@ -81,18 +86,19 @@ pub(crate) struct Plan {
 ///
 /// # Errors
 ///
-/// Returns an error when a selection references an unknown entry or a
-/// registry resolution fails.
+/// Returns an error when a selection references an unknown entry, auto
+/// discovery fails, or a registry resolution fails.
 pub(crate) fn build(
     bases: &mut Bases,
     origins: &BTreeMap<String, Action>,
     selections: &Selections,
     release: &str,
     resolve: &dyn Fn(&str, &str) -> Result<String>,
+    auto: Option<&Auto<'_>>,
 ) -> Result<Plan> {
     let mut entries = enumerate(bases, origins);
     validate_selections(selections, &entries)?;
-    let pins = resolve_pins(selections, &entries, resolve)?;
+    let pins = resolve_pins(selections, &entries, resolve, auto)?;
     apply_pins(bases, &pins)?;
     apply_entries(&mut entries, &pins);
     let documents = take_documents(bases);
@@ -270,14 +276,19 @@ fn resolve_pins(
     selections: &Selections,
     entries: &[PlannedEntry],
     resolve: &dyn Fn(&str, &str) -> Result<String>,
+    auto: Option<&Auto<'_>>,
 ) -> Result<Vec<Pinned>> {
     let mut pins = Vec::new();
 
     for entry in entries {
-        let Some(tag) = selections.tag_of(&entry.identity) else {
-            continue;
+        let tag = match selections.tag_of(&entry.identity) {
+            Some(tag) => tag.clone(),
+            None => match auto {
+                Some(auto) => auto(&entry.repository)?,
+                None => continue,
+            },
         };
-        let digest = resolve(&entry.repository, tag)?;
+        let digest = resolve(&entry.repository, &tag)?;
         pins.push(Pinned {
             identity: entry.identity.clone(),
             tag: tag.clone(),
@@ -504,6 +515,7 @@ mod tests {
             &selections,
             "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
+            None,
         )
         .expect("build plan");
 
@@ -558,6 +570,7 @@ mod tests {
             &selections,
             "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
+            None,
         )
         .expect_err("unknown overlay must fail");
 
@@ -566,6 +579,112 @@ mod tests {
             error
                 .to_string()
                 .contains("'rpi4b' (introduce it with `kata add`)")
+        );
+    }
+
+    #[test]
+    fn auto_bumps_entries_without_a_selection() {
+        // ARRANGE
+        let mut bases = bases();
+        let origins = BTreeMap::from([
+            ("kernels/muak-os/linux".to_owned(), Action::Carry),
+            ("stub".to_owned(), Action::Carry),
+            ("installer".to_owned(), Action::Carry),
+            ("overlays/rpi_generic".to_owned(), Action::Carry),
+        ]);
+        let selections = Selections::default();
+
+        // ACT
+        let plan = build(
+            &mut bases,
+            &origins,
+            &selections,
+            "v1.1.0",
+            &|repository, tag| Ok(fake_resolve(repository, tag)),
+            Some(&|repository: &str| Ok(format!("v9-{repository}"))),
+        )
+        .expect("build plan");
+
+        // ASSERT
+        let Document::Core(ref core) = *plan.documents.first().expect("core document") else {
+            panic!("expected core document");
+        };
+        assert_eq!(core.kernels.first().expect("kernel").tag, "v9-linux");
+        assert_eq!(
+            core.kernels.first().expect("kernel").digest,
+            "sha256:linux@v9-linux"
+        );
+        let kernel_entry = plan
+            .entries
+            .iter()
+            .find(|entry| entry.identity == "kernels/muak-os/linux")
+            .expect("kernel entry");
+        assert_eq!(kernel_entry.action, Action::Pin);
+    }
+
+    #[test]
+    fn explicit_selections_beat_auto_discovery() {
+        // ARRANGE
+        let mut bases = bases();
+        let origins = BTreeMap::new();
+        let selections = Selections {
+            sets: vec![("installer".to_owned(), "v2".to_owned())],
+        };
+
+        // ACT
+        let plan = build(
+            &mut bases,
+            &origins,
+            &selections,
+            "v1.1.0",
+            &|repository, tag| Ok(fake_resolve(repository, tag)),
+            Some(&|_| Ok("v9".to_owned())),
+        )
+        .expect("build plan");
+
+        // ASSERT
+        let Document::Core(ref core) = *plan.documents.first().expect("core document") else {
+            panic!("expected core document");
+        };
+        assert_eq!(core.installer.as_ref().expect("installer").tag, "v2");
+        assert_eq!(
+            core.stub.as_ref().expect("stub").tag,
+            "v9",
+            "auto fills unselected entries"
+        );
+    }
+
+    #[test]
+    fn duplicate_selections_pick_the_last_tag() {
+        // ARRANGE
+        let mut bases = bases();
+        let origins = BTreeMap::new();
+        let selections = Selections {
+            sets: vec![
+                ("installer".to_owned(), "v2".to_owned()),
+                ("installer".to_owned(), "v3".to_owned()),
+            ],
+        };
+
+        // ACT
+        let plan = build(
+            &mut bases,
+            &origins,
+            &selections,
+            "v1.1.0",
+            &|repository, tag| Ok(fake_resolve(repository, tag)),
+            None,
+        )
+        .expect("build plan");
+
+        // ASSERT
+        let Document::Core(ref core) = *plan.documents.first().expect("core document") else {
+            panic!("expected core document");
+        };
+        assert_eq!(core.installer.as_ref().expect("installer").tag, "v3");
+        assert_eq!(
+            core.installer.as_ref().expect("installer").digest,
+            "sha256:installer@v3"
         );
     }
 }

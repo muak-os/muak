@@ -34,6 +34,9 @@ thiserror = { workspace = true }
 # Internal
 koci = { workspace = true, features = ["push"], optional = true }
 
+# Utilities
+semver = { workspace = true }
+
 [features]
 default = ["cli"]
 cli = ["dep:anyhow", "dep:clap", "dep:koci", "dep:serde_json", "koci/pull", "koci/push"]
