@@ -20,6 +20,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   tools:
     uses: ./.github/workflows/build-tools.yaml
