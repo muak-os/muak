@@ -373,7 +373,7 @@ policy:
     printf "{{ cyan }}Checking SELinux policy{{ reset }}\n"
     cil_files=$(find {{ justfile_directory() }}/policy \
         {{ justfile_directory() }}/services \
-        {{ justfile_directory() }}/core \
+        {{ justfile_directory() }}/init \
         -name "*.cil" | LC_ALL=c sort | sed 's|{{ justfile_directory() }}|/src|g')
     {{ container_runtime }} run --rm \
         -v {{ justfile_directory() }}:/src:ro \
