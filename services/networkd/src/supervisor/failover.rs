@@ -4,6 +4,7 @@ use netlib::interface::Name;
 use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
+use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
@@ -30,7 +31,7 @@ pub(super) fn handle_primary_recovery<N: Ops>(supervisor: &mut NetworkSupervisor
     }
 }
 
-/// Restores a recovered backup as primary if it was previously the primary.
+/// Restores a recovered backup as primary, unless the current primary is healthy.
 pub(super) fn handle_backup_recovery<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     recovered: &Name,
@@ -39,6 +40,14 @@ pub(super) fn handle_backup_recovery<N: Ops>(
         return;
     };
 
+    if is_interface_configured(supervisor, &current_primary) {
+        kmsg::info!(
+            "Backup {} recovered; keeping configured primary {}",
+            recovered,
+            current_primary
+        );
+        return;
+    }
     kmsg::info!(
         "Recovered interface {} restoring as primary (demoting {})",
         recovered,
@@ -56,7 +65,10 @@ pub(super) fn handle_backup_recovery<N: Ops>(
     }
 }
 
-pub(super) fn handle_primary_failure<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: &Name) {
+pub(super) async fn handle_primary_failure<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    name: &Name,
+) {
     kmsg::warn!("Primary interface {} failed", name);
     if let Err(e) = supervisor.state.transition(NetworkState::Degraded) {
         kmsg::warn!("Unexpected state during primary failure: {}", e);
@@ -64,7 +76,7 @@ pub(super) fn handle_primary_failure<N: Ops>(supervisor: &mut NetworkSupervisor<
         supervisor.publish_state();
     }
 
-    try_failover_to_backup(supervisor, name);
+    try_failover_to_backup(supervisor, name).await;
 }
 
 pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: &Name) {
@@ -83,16 +95,17 @@ pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<
     }
 }
 
-/// Promotes the first backup that is in `Configured` state to primary.
-fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed: &Name) {
-    let Some(new_primary) = supervisor
+/// Promotes the highest-priority backup to primary and provisions it with DHCP.
+async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed: &Name) {
+    let configured_backup = supervisor
         .state
         .backups
         .iter()
         .find(|backup| is_interface_configured(supervisor, backup))
-        .cloned()
+        .cloned();
+    let Some(new_primary) = configured_backup.or_else(|| supervisor.state.backups.first().cloned())
     else {
-        kmsg::info!("No configured backup available for failover");
+        kmsg::info!("No backup available for failover");
         return;
     };
 
@@ -100,6 +113,18 @@ fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed:
     supervisor.state.backups.retain(|n| n != &new_primary);
     supervisor.state.backups.push(failed.clone());
     supervisor.state.primary = Some(new_primary.clone());
+
+    if !is_interface_configured(supervisor, &new_primary) {
+        supervisor
+            .send_to_interface(
+                &new_primary,
+                Command::ConfigureDhcp {
+                    mode: ApplyMode::Provision,
+                },
+            )
+            .await;
+    }
+
     if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
         kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
     } else {

@@ -40,7 +40,7 @@ async fn on_link_down<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name,
     kmsg::info!("Event: Link down {} (index {})", name, index);
     supervisor.send_to_interface(&name, Command::LinkDown).await;
     if failover::is_primary_interface(supervisor, &name) {
-        failover::handle_primary_failure(supervisor, &name);
+        failover::handle_primary_failure(supervisor, &name).await;
     }
 }
 
