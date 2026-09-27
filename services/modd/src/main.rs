@@ -3,15 +3,13 @@
 //! Listens for kernel uevents and automatically loads appropriate kernel modules
 //! based on modalias matching.
 
+mod modules;
 mod uevent;
 
 use std::path::Path;
 
-use anyhow::Context as _;
 use granola::runtime::notify::Health;
-use kmod::aliases::AliasDb;
-use kmod::deps::DepDb;
-use kmod::kernel::{ModuleLoader, load_module};
+use modules::Loader;
 use rustix::system::uname;
 use uevent::{UeventAction, UeventListener};
 
@@ -25,22 +23,12 @@ fn main(notifier: NotifyClient) -> Result<()> {
 
     println!("Module directory: {}", mod_dir.display());
 
-    let alias_path = mod_dir.join("modules.alias");
-    let dep_path = mod_dir.join("modules.dep");
-
-    let alias_db = AliasDb::load(&alias_path)
-        .with_context(|| format!("Failed to load {}", alias_path.display()))?;
-    let dep_db =
-        DepDb::load(&dep_path).with_context(|| format!("Failed to load {}", dep_path.display()))?;
-    let mut loader = ModuleLoader::new(mod_dir);
-
-    println!(
-        "Loaded {} aliases, {} modules in dependency database",
-        alias_db.len(),
-        dep_db.len()
-    );
-
+    let mut loader = Loader::new(&mod_dir)?;
     let mut listener = UeventListener::new()?;
+
+    let loaded = loader.sweep();
+    println!("Initial sweep loaded {loaded} module(s) for devices already present");
+
     println!("Listening for kernel uevents");
 
     notifier.ready()?;
@@ -62,22 +50,8 @@ fn main(notifier: NotifyClient) -> Result<()> {
             continue;
         };
 
-        let Some(module_name) = alias_db.find_module(modalias) else {
-            continue;
-        };
-
         let subsystem = event.subsystem.unwrap_or("unknown");
-        match load_module(module_name, &dep_db, &mut loader) {
-            Ok(count) if count > 0 => {
-                println!("Loaded {count} modules for {module_name} ({subsystem})");
-            }
-            Ok(_) => {
-                println!("Loaded module for {module_name} ({subsystem})");
-            }
-            Err(e) => {
-                eprintln!("Failed to load module {module_name}: {e}");
-            }
-        }
+        loader.load(modalias, subsystem);
     }
 
     Ok(())
