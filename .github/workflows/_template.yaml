@@ -157,6 +157,8 @@ jobs:
           CONTAINER_RUNTIME: docker
           TAG: ${{ steps.tag.outputs.tag }}
           SIGNATURE: cosign.key
+          KOCI_REGISTRY_USERNAME: ${{ github.actor }}
+          KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: just sign
 
       - name: Cleanup cosign key

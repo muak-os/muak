@@ -227,6 +227,7 @@ annotate image=(registry + "/installer:" + tag):
 sign image=(registry + "/installer:" + tag):
     @printf "{{ cyan }}Signing OCI image {{ image }}{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         -v "{{ absolute_path(signature) }}:/key:ro" \
         {{ tools }} \
         /koci sign \
