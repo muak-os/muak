@@ -109,9 +109,7 @@ fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
                 text_index = text_index.saturating_add(1);
                 true
             }
-            Some(pattern_byte)
-                if pattern_byte.to_ascii_lowercase() == text_byte.to_ascii_lowercase() =>
-            {
+            Some(pattern_byte) if pattern_byte.eq_ignore_ascii_case(&text_byte) => {
                 pattern_index = pattern_index.saturating_add(1);
                 text_index = text_index.saturating_add(1);
                 true
