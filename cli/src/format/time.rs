@@ -3,17 +3,8 @@
 use core::time::Duration;
 use std::time::UNIX_EPOCH;
 
-/// Separator style for timestamp formatting.
-#[derive(Clone, Copy)]
-pub enum Separator {
-    /// Display format: "2024-01-15 14:30:00".
-    Display,
-    /// Filename format: "2024-01-15_14-30-00".
-    Filename,
-}
-
-/// Formats a Unix timestamp into a human-readable string.
-pub fn format_timestamp(timestamp: i64, separator: Separator) -> String {
+/// Formats a Unix timestamp into a human-readable "2024-01-15 14:30:00" string.
+pub fn format_timestamp(timestamp: i64) -> String {
     let duration = Duration::from_secs(u64::try_from(timestamp).unwrap_or(0));
     let system_time = UNIX_EPOCH.checked_add(duration).unwrap_or(UNIX_EPOCH);
 
@@ -59,14 +50,7 @@ pub fn format_timestamp(timestamp: i64, separator: Separator) -> String {
     let minute = seconds_today.rem_euclid(3600).div_euclid(60);
     let second = seconds_today.rem_euclid(60);
 
-    match separator {
-        Separator::Display => {
-            format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
-        }
-        Separator::Filename => {
-            format!("{year:04}-{month:02}-{day:02}_{hour:02}-{minute:02}-{second:02}")
-        }
-    }
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
 }
 
 /// Determines if a year is a leap year.
@@ -80,34 +64,22 @@ mod tests {
 
     #[test]
     fn unix_epoch() {
-        assert_eq!(
-            format_timestamp(0, Separator::Display),
-            "1970-01-01 00:00:00"
-        );
+        assert_eq!(format_timestamp(0), "1970-01-01 00:00:00");
     }
 
     #[test]
     fn known_date_display() {
         // ARRANGE & ACT
-        let result = format_timestamp(1_705_329_000, Separator::Display);
+        let result = format_timestamp(1_705_329_000);
 
         // ASSERT
         assert_eq!(result, "2024-01-15 14:30:00");
     }
 
     #[test]
-    fn known_date_filename() {
-        // ARRANGE & ACT
-        let result = format_timestamp(1_705_329_000, Separator::Filename);
-
-        // ASSERT
-        assert_eq!(result, "2024-01-15_14-30-00");
-    }
-
-    #[test]
     fn leap_year_feb_29() {
         // ARRANGE & ACT
-        let result = format_timestamp(951_782_400, Separator::Display);
+        let result = format_timestamp(951_782_400);
 
         // ASSERT
         assert_eq!(result, "2000-02-29 00:00:00");
@@ -115,16 +87,13 @@ mod tests {
 
     #[test]
     fn non_leap_century_year() {
-        assert_eq!(
-            format_timestamp(1_709_251_200, Separator::Display),
-            "2024-03-01 00:00:00"
-        );
+        assert_eq!(format_timestamp(1_709_251_200), "2024-03-01 00:00:00");
     }
 
     #[test]
     fn year_boundary_new_years_eve() {
         // ARRANGE & ACT
-        let result = format_timestamp(1_704_067_199, Separator::Display);
+        let result = format_timestamp(1_704_067_199);
 
         // ASSERT
         assert_eq!(result, "2023-12-31 23:59:59");
@@ -133,7 +102,7 @@ mod tests {
     #[test]
     fn year_boundary_new_years_day() {
         // ARRANGE & ACT
-        let result = format_timestamp(1_704_067_200, Separator::Display);
+        let result = format_timestamp(1_704_067_200);
 
         // ASSERT
         assert_eq!(result, "2024-01-01 00:00:00");
@@ -142,7 +111,7 @@ mod tests {
     #[test]
     fn midnight_fields() {
         // ARRANGE & ACT
-        let result = format_timestamp(0, Separator::Display);
+        let result = format_timestamp(0);
 
         // ASSERT
         assert!(result.ends_with("00:00:00"));
@@ -151,7 +120,7 @@ mod tests {
     #[test]
     fn end_of_day_fields() {
         // ARRANGE & ACT
-        let result = format_timestamp(86399, Separator::Display);
+        let result = format_timestamp(86399);
 
         // ASSERT
         assert_eq!(result, "1970-01-01 23:59:59");

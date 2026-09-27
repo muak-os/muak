@@ -5,7 +5,7 @@ use tonic::transport::Channel;
 use crate::client::provision_service::{
     GetRollbackHistoryRequest, provision_service_client::ProvisionServiceClient,
 };
-use crate::format::time::{Separator, format_timestamp};
+use crate::format::time::format_timestamp;
 use crate::ui;
 
 #[derive(Subcommand, Clone)]
@@ -43,7 +43,7 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
         ui::table::Table::new().header(&["ROLLED BACK AT", "UPDATE ID", "FAILED IMAGE", "REASON"]),
         |table, entry| {
             table.row(&[
-                &format_timestamp(entry.rolled_back_at, Separator::Display),
+                &format_timestamp(entry.rolled_back_at),
                 &entry.update_id,
                 &entry.failed_version,
                 &entry.reason,

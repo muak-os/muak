@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Context as _, Result, bail};
 use clap::Subcommand;
 use tonic::transport::Channel;
@@ -6,16 +8,17 @@ use crate::client::provision_service::{
     ConfigHistoryEntry, GetConfigHistoryRequest, GetConfigRequest, GetConfigSnapshotRequest,
     provision_service_client::ProvisionServiceClient,
 };
-use crate::format::time::{Separator, format_timestamp};
+use crate::format::time::format_timestamp;
 use crate::ui;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
     Generate,
-    Get,
-    Export {
+    Get {
         #[arg(long)]
         from: Option<String>,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
     History {
         #[arg(long, short, default_value = "10")]
@@ -35,68 +38,43 @@ pub async fn handle(channel: Channel, action: Action) -> Result<()> {
         Action::Generate => {
             bail!("Generate is handled in main before connecting")
         }
-        Action::Get => get(channel).await,
-        Action::Export { from } => export(channel, from).await,
+        Action::Get { from, output } => get(channel, from, output).await,
         Action::History { limit } => history(channel, limit).await,
         Action::Diff { from, to } => diff(channel, from, to).await,
     }
 }
 
-async fn get(channel: Channel) -> Result<()> {
+async fn get(channel: Channel, from: Option<String>, output: Option<PathBuf>) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
+    let config = match from.as_deref() {
+        Some(update_id) => fetch_snapshot(&mut client, update_id).await?,
+        None => fetch_current(&mut client).await?,
+    };
+
+    match output {
+        Some(path) => {
+            std::fs::write(&path, &config)
+                .with_context(|| format!("Failed to write config to {}", path.display()))?;
+            println!(
+                "{}",
+                ui::style::success(&format!("Config written to {}", path.display()))
+            );
+        }
+        None => print!("{config}"),
+    }
+
+    Ok(())
+}
+
+async fn fetch_current(client: &mut ProvisionServiceClient<Channel>) -> Result<String> {
     let resp = client
         .get_config(tonic::Request::new(GetConfigRequest {}))
         .await?
         .into_inner();
-
     if !resp.error.is_empty() {
         return Err(anyhow::anyhow!("{}", resp.error));
     }
-
-    let config = String::from_utf8(resp.config).context("Invalid UTF-8 in config")?;
-    print!("{config}");
-    Ok(())
-}
-
-async fn export(channel: Channel, from: Option<String>) -> Result<()> {
-    let mut client = ProvisionServiceClient::new(channel);
-
-    let config = if let Some(update_id) = from {
-        fetch_snapshot(&mut client, &update_id).await?
-    } else {
-        let response = client
-            .get_config(tonic::Request::new(GetConfigRequest {}))
-            .await?;
-        let resp = response.into_inner();
-
-        if !resp.error.is_empty() {
-            eprintln!(
-                "{} {}",
-                ui::style::error("Error:"),
-                ui::style::error_text(&resp.error)
-            );
-            return Err(anyhow::anyhow!("{}", resp.error));
-        }
-
-        String::from_utf8(resp.config).context("Invalid UTF-8 in config")?
-    };
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let timestamp = format_timestamp(
-        i64::try_from(now.as_secs()).unwrap_or(i64::MAX),
-        Separator::Filename,
-    );
-    let filename = format!("config-{}.{}", timestamp, config::CONFIG_EXTENSION);
-
-    std::fs::write(&filename, &config)?;
-    println!(
-        "{}",
-        ui::style::success(&format!("Exported config to {filename}"))
-    );
-
-    Ok(())
+    String::from_utf8(resp.config).context("Invalid UTF-8 in config")
 }
 
 async fn history(channel: Channel, limit: u32) -> Result<()> {
@@ -119,7 +97,7 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
         ui::table::Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR"]),
         |table, entry| {
             table.row(&[
-                &format_timestamp(entry.timestamp, Separator::Display),
+                &format_timestamp(entry.timestamp),
                 &entry.update_id,
                 &entry.change_kind,
                 &entry.author,

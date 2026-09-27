@@ -5,7 +5,7 @@ use crate::client::vm_service::{ListVmsRequest, VmInfo, vm_service_client::VmSer
 use crate::format::{
     bytes::format_size,
     display::{hypervisor_to_string, vm_state_to_string},
-    time::{Separator, format_timestamp},
+    time::format_timestamp,
 };
 use crate::ui;
 
@@ -44,7 +44,7 @@ pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
 
 /// Appends a row describing a single VM to the table.
 fn vm_rows(table: ui::table::Table, vm: &VmInfo) -> ui::table::Table {
-    let created = format_timestamp(vm.created_at, Separator::Display);
+    let created = format_timestamp(vm.created_at);
 
     let pid_str = if vm.pid == -1 {
         "-".to_owned()

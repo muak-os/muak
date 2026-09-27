@@ -5,7 +5,7 @@ use tonic::transport::Channel;
 use crate::client::process_service::{
     ListProcessesRequest, process_service_client::ProcessServiceClient,
 };
-use crate::format::time::{Separator, format_timestamp};
+use crate::format::time::format_timestamp;
 use crate::ui;
 
 #[derive(Subcommand, Clone)]
@@ -35,7 +35,7 @@ async fn list(client: &mut ProcessServiceClient<Channel>) -> Result<()> {
     let mut table = ui::table::Table::new().header(&["PID", "COMMAND", "STATUS", "STARTED"]);
 
     for process in resp.processes {
-        let started = format_timestamp(process.started_at, Separator::Display);
+        let started = format_timestamp(process.started_at);
         let pid_str = process.pid.to_string();
         table = table.row(&[&pid_str, &process.command, &process.status, &started]);
     }
