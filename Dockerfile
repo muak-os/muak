@@ -42,7 +42,7 @@ COPY --link --from=pkg-workloadd        /workloadd                           /ro
 COPY --link --from=pkg-timed      /timed                         /rootfs/sbin/timed
 COPY --link --from=pkg-consoled   /consoled                      /rootfs/sbin/consoled
 
-COPY --link --from=services       **/*.service /rootfs/etc/services/
+COPY --link --from=services       */*.service /rootfs/etc/services/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Compile SELinux policy
@@ -53,7 +53,7 @@ COPY --link --from=tools /secilc /usr/local/bin/secilc
 
 WORKDIR /policy
 
-COPY --link **/*.cil ./
+COPY --link policy/*.cil services/*/*.cil init/*/*.cil ./
 
 RUN secilc -f file_contexts \
   $(find . -name '*.cil' | LC_ALL=c sort)
