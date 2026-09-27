@@ -93,6 +93,11 @@ impl SystemConfig {
     /// Validates that the config is complete enough for installation.
     pub fn validate_for_install(&self) -> Result<()> {
         self.validate()?;
+        if self.host.version.is_empty() {
+            return Err(ConfigError::ValidationError(
+                "host.version must be set".to_string(),
+            ));
+        }
         self.disk.validate_for_install()
     }
 
@@ -248,11 +253,23 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
+        config.host.version = "v1.0.0".to_string();
         config.disk.system = "/dev/sda".to_string();
 
         // ACT & ASSERT
         assert!(config.validate().is_ok());
         assert!(config.validate_for_install().is_ok());
+    }
+
+    #[test]
+    fn validation_failure_empty_version_install() {
+        // ARRANGE
+        let mut config = SystemConfig::default();
+        config.host.port = 8080;
+        config.disk.system = "/dev/sda".to_string();
+
+        // ACT & ASSERT
+        assert!(config.validate_for_install().is_err());
     }
 
     #[test]
@@ -270,6 +287,7 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
+        config.host.version = "v1.0.0".to_string();
         config.disk.system = String::new();
 
         // ACT & ASSERT
