@@ -8,7 +8,8 @@
 
 (allow module_t self (netlink_kobject_uevent_socket (create bind read write)))
 
-(allow module_t kernel_t (system (module_load)))
+(allow module_t self (system (module_load)))
+(allow module_t modules_t (system (module_load)))
 
 (allow module_t sysfs_t (dir  (read write search create add_name)))
 (allow module_t sysfs_t (file (read write open getattr)))
