@@ -21,7 +21,7 @@
 ; /dev full management (device nodes during early boot).
 (allow kernel_t devtmpfs_t (dir      (read write search create add_name remove_name getattr)))
 (allow kernel_t devtmpfs_t (blk_file (read write open getattr setattr ioctl create unlink)))
-(allow kernel_t devtmpfs_t (chr_file (read write open getattr ioctl create setattr)))
+(allow kernel_t devtmpfs_t (chr_file (read write open getattr ioctl create setattr unlink)))
 
 ; tmpfs management (early /run before granola takes over).
 (allow kernel_t tmpfs_t (dir       (read write search create add_name remove_name mounton)))
