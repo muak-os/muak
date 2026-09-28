@@ -24,7 +24,7 @@ use wizard::request::Request;
 use crate::disk;
 use crate::efi;
 use crate::ipc::proto::provision::InstallProgress;
-use crate::profile;
+use crate::medium;
 use crate::secrets;
 use crate::streaming;
 
@@ -50,7 +50,7 @@ pub async fn run(
     .await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
-    let booted_profile = profile::load().context("failed to load booted profile")?;
+    let booted_profile = medium::profile().context("failed to load booted profile")?;
 
     let tpm_available = tpm2::device::is_available(None);
 

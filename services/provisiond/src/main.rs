@@ -5,11 +5,12 @@ mod efi;
 mod install;
 mod ipc;
 mod journal;
-mod profile;
+mod medium;
 mod reboot;
 mod reset;
 mod secrets;
 mod streaming;
+mod template;
 mod update;
 
 use std::path::Path;

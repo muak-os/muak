@@ -475,6 +475,7 @@ digest = "{overlay}"
         let profile = base_profile();
         let profile_bytes = profile.canonical_bytes().expect("canonical profile");
         let profile_len = u64::try_from(profile_bytes.len()).expect("profile length");
+        let version_len = u64::try_from(RELEASE.len()).expect("version length");
         let system_plan = disk::layout::Layout::Uefi.plan();
         let disk_plan = disk::plan::Document::from_plan(&system_plan)
             .expect("doc from plan")
@@ -496,6 +497,11 @@ digest = "{overlay}"
                 path: "metadata/profile.toml".to_owned(),
                 mode: 0o100_644,
                 len: profile_len,
+            },
+            ramune::Entry {
+                path: "metadata/version".to_owned(),
+                mode: 0o100_644,
+                len: version_len,
             },
             ramune::Entry {
                 path: "metadata/disk.toml".to_owned(),
@@ -532,6 +538,7 @@ digest = "{overlay}"
         );
         assert!(contains(&initramfs, b"modules.erofs"));
         assert!(contains(&initramfs, b"metadata/profile.toml"));
+        assert!(contains(&initramfs, b"metadata/version"));
         assert!(contains(&initramfs, b"metadata/disk.toml"));
     }
 

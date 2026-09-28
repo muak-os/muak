@@ -21,6 +21,9 @@ service ProvisionService {
     // @rbac: system:read
     rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 
+    // @rbac: maintenance|system:read
+    rpc GetDefaultConfig(GetDefaultConfigRequest) returns (GetDefaultConfigResponse);
+
     // @rbac: system:read
     rpc GetConfigHistory(GetConfigHistoryRequest) returns (GetConfigHistoryResponse);
 
@@ -113,6 +116,13 @@ message ListDisksResponse {
 message GetConfigRequest {}
 
 message GetConfigResponse {
+    bytes config = 1;
+    string error = 2;
+}
+
+message GetDefaultConfigRequest {}
+
+message GetDefaultConfigResponse {
     bytes config = 1;
     string error = 2;
 }

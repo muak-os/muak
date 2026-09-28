@@ -132,7 +132,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
     match cli.command.clone() {
         Commands::Config {
             action: config::Action::Generate,
-        } => {
+        } if cli.endpoint.is_none() => {
             print!("{}", ::config::serialize_default());
             Ok(true)
         }

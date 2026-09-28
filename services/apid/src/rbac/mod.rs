@@ -156,9 +156,12 @@ mod tests {
         // ASSERT
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Install"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/ListDisks"));
+        assert!(
+            MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/GetDefaultConfig")
+        );
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
-        assert_eq!(MAINTENANCE_METHODS.len(), 4);
+        assert_eq!(MAINTENANCE_METHODS.len(), 5);
     }
 
     #[test]

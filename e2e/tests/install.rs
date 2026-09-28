@@ -1,9 +1,15 @@
 mod common;
 
-use anyhow::{Result, ensure};
+use core::time::Duration;
+
+use anyhow::{Context as _, Result, ensure};
 use common::boot_and_install;
 use e2e::artifacts::Artifacts;
-use e2e::assert_success;
+use e2e::cli::Cli;
+use e2e::vm::TestFixture;
+use e2e::{assert_success, assert_success_insecure};
+use tempfile::NamedTempFile;
+use tokio::time::timeout;
 
 #[cfg(test)]
 #[expect(
@@ -50,6 +56,60 @@ mod tests {
             security.contains("Secure Boot: Enabled"),
             "expected Secure Boot to be enabled, got: {security}"
         );
+        fixture
+            .vm
+            .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn install_with_online_generated_config() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let fixture = TestFixture::boot_install(&artifacts)?;
+        fixture.vm.wait_ready(Duration::from_mins(1)).await?;
+        let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
+
+        // ACT
+        let raw = cli
+            .assert_success_impl(["config", "generate"], true)
+            .await?;
+        let mut cfg: config::SystemConfig =
+            config::parse_from_str(&raw).context("online generate must emit a valid config")?;
+
+        // ASSERT
+        ensure!(
+            cfg.host.version == common::install_version(),
+            "expected version {} prefilled, got: {}",
+            common::install_version(),
+            cfg.host.version
+        );
+        ensure!(
+            cfg.host.extensions.is_empty(),
+            "expected no extensions prefilled, got: {:?}",
+            cfg.host.extensions
+        );
+
+        "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+        cfg.host.registry = common::install_registry();
+        let patched = config::serialize(&cfg).context("serialise generated config")?;
+        let config_file = NamedTempFile::new().context("create config tempfile")?;
+        std::fs::write(config_file.path(), patched).context("write config tempfile")?;
+
+        timeout(
+            Duration::from_mins(1),
+            assert_success_insecure!(
+                cli,
+                [
+                    "install",
+                    "--config",
+                    &config_file.path().display().to_string(),
+                ]
+            ),
+        )
+        .await
+        .map_err(|_elapsed| anyhow::anyhow!("install timed out after 1 minute"))??;
+
         fixture
             .vm
             .assert_serial_contains("[granola] Running from INSTALLED DISK")?;

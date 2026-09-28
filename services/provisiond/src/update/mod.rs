@@ -26,7 +26,7 @@ use wizard::resolver;
 use crate::disk;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::journal::{self, ChangeKind, Entry};
-use crate::profile;
+use crate::medium;
 use crate::streaming;
 
 /// Staging directory for update operations.
@@ -207,7 +207,7 @@ fn verify_system_disk(configured: &str) -> Result<()> {
 }
 
 fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
-    let booted = profile::load().context("failed to load booted profile")?;
+    let booted = medium::profile().context("failed to load booted profile")?;
     let customization =
         CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
 

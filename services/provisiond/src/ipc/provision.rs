@@ -7,9 +7,10 @@ use super::proto::provision::provision_service_server::{ProvisionService, Provis
 use super::proto::provision::{
     ConfigHistoryEntry, DiskInfo, FactoryResetRequest, FactoryResetResponse,
     GetConfigHistoryRequest, GetConfigHistoryResponse, GetConfigRequest, GetConfigResponse,
-    GetConfigSnapshotRequest, GetConfigSnapshotResponse, GetRollbackHistoryRequest,
-    GetRollbackHistoryResponse, GetUpdateStatusRequest, GetUpdateStatusResponse, InstallProgress,
-    InstallRequest, ListDisksRequest, ListDisksResponse, PartitionInfo, PrepareUpdateProgress,
+    GetConfigSnapshotRequest, GetConfigSnapshotResponse, GetDefaultConfigRequest,
+    GetDefaultConfigResponse, GetRollbackHistoryRequest, GetRollbackHistoryResponse,
+    GetUpdateStatusRequest, GetUpdateStatusResponse, InstallProgress, InstallRequest,
+    ListDisksRequest, ListDisksResponse, PartitionInfo, PrepareUpdateProgress,
     PrepareUpdateRequest, RollbackHistoryEntry, UpdateRequest, UpdateResponse,
 };
 use crate::disk;
@@ -18,6 +19,7 @@ use crate::journal;
 use crate::reboot;
 use crate::reset;
 use crate::streaming;
+use crate::template;
 use crate::update;
 
 /// Creates the `ProvisionService` gRPC server.
@@ -258,6 +260,22 @@ impl ProvisionService for ServiceImpl {
                 config: Vec::new(),
                 error: "Config not initialized: system has not been installed yet".to_owned(),
             }))
+        }
+    }
+
+    async fn get_default_config(
+        &self,
+        _request: Request<GetDefaultConfigRequest>,
+    ) -> Result<Response<GetDefaultConfigResponse>, Status> {
+        match template::generate().await {
+            Ok(config) => Ok(Response::new(GetDefaultConfigResponse {
+                config: config.into_bytes(),
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(GetDefaultConfigResponse {
+                config: Vec::new(),
+                error: format!("{e:#}"),
+            })),
         }
     }
 

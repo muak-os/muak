@@ -148,6 +148,11 @@ fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Result<Vec<MetadataFi
         });
     }
 
+    files.push(MetadataFile {
+        name: "version",
+        bytes: Cow::Borrowed(ctx.build.version().as_bytes()),
+    });
+
     let doc = Document::from_plan(&ctx.build.layout().plan())?;
     files.push(MetadataFile {
         name: "disk.toml",

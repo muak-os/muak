@@ -1,8 +1,9 @@
 # Muak System Configuration
 #
 # This is the default configuration template.
-# Generate a copy with: muakctl config generate > config.toml
-# Install with:         muakctl install --endpoint <ip>:50051 --config <path> --insecure
+# Generate a copy offline with:   muakctl config generate > config.toml
+# Prefill from a booted medium:   muakctl config generate --endpoint <ip>:50051 --insecure > config.toml
+# Install with:                   muakctl install --endpoint <ip>:50051 --config <path> --insecure
 
 api_version = "muak.dev/config/v1-beta"
 
