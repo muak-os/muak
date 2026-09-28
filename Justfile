@@ -53,7 +53,7 @@ reset := '\e[0m'
 # Build
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Full local development build (build → installer → sign → catalog → uki + iso)
+# Full local development build (build → installer → sign → catalog → iso)
 [group('build')]
 dev: (build "--release" "") installer annotate sign catalog (artifacts "iso")
   @printf "{{ green }}Development build complete. Tools used: {{ bold }}{{ tools }}{{ reset }}\n"
