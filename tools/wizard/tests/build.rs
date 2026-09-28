@@ -586,6 +586,12 @@ digest = "{overlay}"
 
         // ASSERT
         assert_eq!(measured, report.sections);
+        let names: Vec<&str> = measured.iter().map(|section| section.name).collect();
+        assert_eq!(
+            names,
+            uki::section::CANONICAL_ORDER.to_vec(),
+            "UKI section table must follow canonical measurement order"
+        );
     }
 
     #[test]

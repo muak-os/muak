@@ -4,6 +4,7 @@ use anyhow::{Context as _, Result};
 use luks2::Tpm2Token;
 use luks2::key::Passphrase;
 use uki::measure::MeasuredSection;
+use uki::section::canonical_rank;
 
 /// Base directory for secrets.
 pub(crate) const SECRETS_DIR: &str = "/run/state/secrets";
@@ -76,10 +77,11 @@ pub fn read_luks_key_from_cmdline() -> Option<Passphrase> {
 
 /// Seals a LUKS key to TPM2 PCR#11 predicted from the UKI and returns a LUKS2 token.
 fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2Token> {
-    let sections: Vec<(&str, &[u8; 32])> = sections
+    let mut sections: Vec<(&str, &[u8; 32])> = sections
         .iter()
         .map(|section| (section.name, &section.hash))
         .collect();
+    sections.sort_by_key(|&(name, _hash)| canonical_rank(name));
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
     let sealed = tpm2::operations::seal(luks_key, &expected_pcr)
         .context("Failed to seal LUKS key to TPM2")?;

@@ -14,6 +14,8 @@ pub const KERNEL: &str = ".kernel";
 pub const INITRD: &str = ".initrd";
 /// PE section name for the kernel command line.
 pub const CMDLINE: &str = ".cmdline";
+/// UKI sections in canonical order.
+pub const CANONICAL_ORDER: [&str; 3] = [CMDLINE, INITRD, KERNEL];
 
 /// Parsed UKI sections from a PE image.
 #[derive(Debug)]
@@ -61,16 +63,28 @@ impl<'a> Sections<'a> {
         })
     }
 
-    /// Returns an iterator over sections to measure, in spec canonical order.
+    /// Returns an iterator over sections to measure, in [`CANONICAL_ORDER`] order.
     pub fn iter_sections(&self) -> impl Iterator<Item = (&'static str, &'a [u8])> {
-        [
+        let mut sections = [
             (KERNEL, Some(self.kernel)),
             (CMDLINE, self.cmdline),
             (INITRD, self.initrd),
-        ]
-        .into_iter()
-        .filter_map(|(name, data)| data.map(|section_data| (name, section_data)))
+        ];
+        sections.sort_by_key(|&(name, _data)| canonical_rank(name));
+
+        sections
+            .into_iter()
+            .filter_map(|(name, data)| data.map(|section_data| (name, section_data)))
     }
+}
+
+/// Returns the canonical position of a UKI section name in [`CANONICAL_ORDER`]; unknown names sort last.
+#[must_use]
+pub fn canonical_rank(name: &str) -> usize {
+    CANONICAL_ORDER
+        .iter()
+        .position(|canonical| *canonical == name)
+        .unwrap_or(CANONICAL_ORDER.len())
 }
 
 /// Maps a raw PE section name to its canonical UKI section name.
@@ -82,12 +96,11 @@ pub(crate) fn canonical_name(raw: [u8; 8]) -> Result<Option<&'static str>> {
     let text =
         str::from_utf8(&raw).map_err(|_source| UkiError::InvalidPe("invalid section name"))?;
 
-    Ok(match text.trim_end_matches('\0') {
-        KERNEL => Some(KERNEL),
-        INITRD => Some(INITRD),
-        CMDLINE => Some(CMDLINE),
-        _ => None,
-    })
+    let name = text.trim_end_matches('\0');
+
+    Ok(CANONICAL_ORDER
+        .into_iter()
+        .find(|canonical| *canonical == name))
 }
 
 fn set_uki_section<'a>(

@@ -5,7 +5,7 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use uki::section::{CMDLINE, INITRD, KERNEL, Sections};
+    use uki::section::{CANONICAL_ORDER, CMDLINE, INITRD, KERNEL, Sections};
 
     use crate::common::{add_section, build_test_pe};
 
@@ -124,9 +124,9 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                (KERNEL, &b"kern"[..]),
                 (CMDLINE, &b"quiet"[..]),
                 (INITRD, &b"initrd"[..]),
+                (KERNEL, &b"kern"[..]),
             ]
         );
     }
@@ -144,6 +144,18 @@ mod tests {
         let names: Vec<&str> = sections.iter_sections().map(|(name, _)| name).collect();
 
         // ASSERT
-        assert_eq!(names, vec![KERNEL, CMDLINE, INITRD]);
+        assert_eq!(names, CANONICAL_ORDER.to_vec());
+    }
+
+    #[test]
+    fn canonical_order_is_alphabetical() {
+        // ARRANGE
+        let mut sorted = CANONICAL_ORDER;
+
+        // ACT
+        sorted.sort_unstable();
+
+        // ASSERT
+        assert_eq!(CANONICAL_ORDER, sorted);
     }
 }

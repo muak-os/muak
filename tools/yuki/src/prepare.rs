@@ -1,6 +1,6 @@
 //! Prepares a UKI manifest from a probed stub and component sizes.
 
-use uki::section::{CMDLINE, INITRD, KERNEL};
+use uki::section::{CMDLINE, INITRD, KERNEL, canonical_rank};
 
 use crate::error::{Result, YukiError};
 use crate::layout::{self, Layout};
@@ -66,11 +66,12 @@ pub fn prepare(
         )));
     }
 
-    let sizes = [
+    let mut sizes = [
         (CMDLINE, Some(cmdline_size)),
         (KERNEL, Some(kernel_size)),
         (INITRD, Some(initramfs_size)),
     ];
+    sizes.sort_by_key(|&(name, _size)| canonical_rank(name));
 
     let table = section::build_table(&probe.metadata, stub_size, &sizes)?;
 
@@ -151,9 +152,9 @@ mod tests {
 
         // ASSERT
         let layout = manifest.layout();
-        assert!(layout.cmdline_offset < layout.kernel_offset);
-        assert!(layout.kernel_offset < layout.initramfs_offset);
-        assert!(layout.initramfs_offset < layout.total_size);
+        assert!(layout.cmdline_offset < layout.initramfs_offset);
+        assert!(layout.initramfs_offset < layout.kernel_offset);
+        assert!(layout.kernel_offset < layout.total_size);
     }
 
     #[test]
