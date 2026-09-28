@@ -58,13 +58,11 @@ pub fn path(update_id: &str) -> PathBuf {
     Path::new(UPDATE_DIR).join(format!("{update_id}.{CONFIG_EXTENSION}"))
 }
 
-/// Reads `host.version` from a snapshot file.
-pub fn read_version(snapshot_path: &Path) -> Result<String> {
+/// Reads and parses the config snapshot file.
+pub fn read_config(snapshot_path: &Path) -> Result<config::SystemConfig> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    let cfg: config::SystemConfig =
-        config::parse_from_str(&contents).context("Failed to parse config snapshot")?;
 
-    Ok(cfg.host.version)
+    config::parse_from_str(&contents).context("Failed to parse config snapshot")
 }
 
 /// Restores the system config from a snapshot file, overwriting the current, and records history.
@@ -131,5 +129,22 @@ mod tests {
         // ASSERT
         let expected = format!("{UPDATE_DIR}/{update_id}.{CONFIG_EXTENSION}");
         assert_eq!(snapshot_path, std::path::Path::new(&expected));
+    }
+
+    #[test]
+    fn read_config_parses_snapshot() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir");
+        let snapshot_path = dir.path().join("update-1.toml");
+        let mut config = config::SystemConfig::default();
+        config.host.version = "v1.2.3".to_owned();
+        let contents = config::serialize(&config).expect("serialize config");
+        fs::write(&snapshot_path, contents).expect("write snapshot");
+
+        // ACT
+        let parsed = read_config(&snapshot_path).expect("read config snapshot");
+
+        // ASSERT
+        assert_eq!(parsed.host.version, "v1.2.3");
     }
 }

@@ -15,7 +15,8 @@ static CLI_CONTACT: Notify = Notify::const_new();
 const CLI_CONTACT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
-    let old_version = snapshot::read_version(snapshot_path)?;
+    let previous = snapshot::read_config(snapshot_path)?;
+    let old_version = previous.host.version.clone();
     let target_version = config::host().version.clone();
 
     kmsg::info!(
@@ -35,14 +36,20 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    if let Err(e) = wait_for_cli_contact().await {
-        kmsg::warn!("CLI contact check failed for {}: {}", update_id, e);
-        rollback::apply(
-            update_id,
-            snapshot_path,
-            &format!("CLI contact check failed: {e}"),
-        )?;
-        return Ok(());
+    if config::isolates(&previous, config::config()) {
+        kmsg::info!(
+            "Update {} changed reachability config, waiting for CLI confirmation",
+            update_id
+        );
+        if let Err(e) = wait_for_cli_contact().await {
+            kmsg::warn!("CLI contact check failed for {}: {}", update_id, e);
+            rollback::apply(
+                update_id,
+                snapshot_path,
+                &format!("CLI contact check failed: {e}"),
+            )?;
+            return Ok(());
+        }
     }
 
     if let Err(e) = health_checks() {

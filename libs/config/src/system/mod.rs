@@ -116,6 +116,13 @@ impl SystemConfig {
     }
 }
 
+/// Returns `true` when moving from `previous` to `next` could cut the
+/// operator's access to the machine.
+#[must_use]
+pub fn isolates(previous: &SystemConfig, next: &SystemConfig) -> bool {
+    previous.network != next.network || previous.host.port != next.host.port
+}
+
 /// Initializes the host config.
 pub fn init() -> Result<()> {
     let config = load_from_path(Path::new(CONFIG_PATH))?;
@@ -741,5 +748,62 @@ ntp = "pool.ntp.org"
         // ASSERT
         let error = result.expect_err("missing api_version must be rejected");
         assert!(error.to_string().contains("api_version"), "{error}");
+    }
+
+    #[test]
+    fn network_change_isolates() {
+        // ARRANGE
+        let previous = SystemConfig::default();
+        let mut next = previous.clone();
+        next.network.dns = vec!["1.1.1.1".parse().expect("valid ip")];
+
+        // ACT
+        let isolates = isolates(&previous, &next);
+
+        // ASSERT
+        assert!(isolates, "network changes must require confirmation");
+    }
+
+    #[test]
+    fn api_port_change_isolates() {
+        // ARRANGE
+        let previous = SystemConfig::default();
+        let mut next = previous.clone();
+        next.host.port = 8080;
+
+        // ACT
+        let isolates = isolates(&previous, &next);
+
+        // ASSERT
+        assert!(isolates, "API port changes must require confirmation");
+    }
+
+    #[test]
+    fn other_changes_do_not_isolate() {
+        // ARRANGE
+        let previous = SystemConfig::default();
+        let mut next = previous.clone();
+        next.host.version = "v2.0.0".to_string();
+        next.host.secureboot = true;
+        next.vm.auto_restart = false;
+
+        // ACT
+        let isolates = isolates(&previous, &next);
+
+        // ASSERT
+        assert!(
+            !isolates,
+            "non-reachability changes must not require confirmation"
+        );
+    }
+
+    #[test]
+    fn unchanged_configs_do_not_isolate() {
+        // ARRANGE
+        let previous = SystemConfig::default();
+        let next = SystemConfig::default();
+
+        // ACT & ASSERT
+        assert!(!isolates(&previous, &next));
     }
 }
