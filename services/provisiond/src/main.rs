@@ -25,14 +25,15 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     config::init().context("Failed to initialize system configuration")?;
 
     let is_installed = Path::new(config::CONFIG_PATH).exists();
-    if is_installed {
-        let _result = update::check_and_handle_pending_validation()
-            .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
-    }
 
     let stream = tokio_stream::wrappers::UnixListenerStream::new(socket()?);
 
     notifier.ready()?;
+
+    if is_installed {
+        let _result = update::check_and_handle_pending_validation()
+            .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
+    }
 
     Server::builder()
         .add_service(ipc::auth::service())

@@ -12,7 +12,7 @@ use super::rollback;
 use super::snapshot;
 
 static CLI_CONTACT: Notify = Notify::const_new();
-const CLI_CONTACT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONFIRMATION_WINDOW: Duration = Duration::from_mins(5);
 
 pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let previous = snapshot::read_config(snapshot_path)?;
@@ -41,12 +41,12 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
             "Update {} changed reachability config, waiting for CLI confirmation",
             update_id
         );
-        if let Err(e) = wait_for_cli_contact().await {
-            kmsg::warn!("CLI contact check failed for {}: {}", update_id, e);
+        if let Err(e) = wait_for_confirmation().await {
+            kmsg::warn!("Operator confirmation failed for {}: {}", update_id, e);
             rollback::apply(
                 update_id,
                 snapshot_path,
-                &format!("CLI contact check failed: {e}"),
+                &format!("Operator confirmation failed: {e}"),
             )?;
             return Ok(());
         }
@@ -70,20 +70,23 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_cli_contact() -> Result<()> {
+async fn wait_for_confirmation() -> Result<()> {
     kmsg::info!(
-        "Waiting up to {}s for CLI contact",
-        CLI_CONTACT_TIMEOUT.as_secs()
+        "Waiting up to {}s for operator confirmation",
+        CONFIRMATION_WINDOW.as_secs()
     );
 
-    if tokio::time::timeout(CLI_CONTACT_TIMEOUT, CLI_CONTACT.notified())
+    if tokio::time::timeout(CONFIRMATION_WINDOW, CLI_CONTACT.notified())
         .await
         .is_err()
     {
-        bail!("no CLI contact within {}s", CLI_CONTACT_TIMEOUT.as_secs());
+        bail!(
+            "no operator contact within {}s",
+            CONFIRMATION_WINDOW.as_secs()
+        );
     }
 
-    kmsg::info!("CLI contact received, proceeding with validation");
+    kmsg::info!("Operator confirmed, proceeding with validation");
 
     Ok(())
 }
