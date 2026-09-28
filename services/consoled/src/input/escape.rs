@@ -1,4 +1,4 @@
-//! Incremental decoder for VT escape sequences arriving in arbitrary chunks.
+//! Incremental decoder for VT escape sequences and plain keys arriving in arbitrary chunks.
 
 use super::InputEvent;
 
@@ -33,6 +33,7 @@ impl Decoder {
     }
 
     fn next_sequence(&mut self, events: &mut Vec<InputEvent>) -> bool {
+        self.take_plain(events);
         let Some(start) = self.pending.iter().position(|&byte| byte == b'\x1b') else {
             return false;
         };
@@ -66,6 +67,25 @@ impl Decoder {
         if !keep {
             self.pending.clear();
         }
+    }
+
+    fn take_plain(&mut self, events: &mut Vec<InputEvent>) {
+        let plain_end = self
+            .pending
+            .iter()
+            .position(|&byte| byte == b'\x1b')
+            .unwrap_or(self.pending.len());
+        if plain_end > 0 {
+            events.extend(self.pending.drain(..plain_end).filter_map(key_event));
+        }
+    }
+}
+
+fn key_event(byte: u8) -> Option<InputEvent> {
+    match byte {
+        b'k' => Some(InputEvent::Up),
+        b'j' => Some(InputEvent::Down),
+        _ => None,
     }
 }
 
@@ -177,9 +197,53 @@ mod tests {
     }
 
     #[test]
+    fn decode_k_as_up() {
+        // ARRANGE / ACT
+        let events = decode_all(&[b"k"]);
+
+        // ASSERT
+        assert_eq!(events, vec![InputEvent::Up]);
+    }
+
+    #[test]
+    fn decode_j_as_down() {
+        // ARRANGE / ACT
+        let events = decode_all(&[b"j"]);
+
+        // ASSERT
+        assert_eq!(events, vec![InputEvent::Down]);
+    }
+
+    #[test]
+    fn decode_plain_keys_beside_sequences() {
+        // ARRANGE / ACT
+        let events = decode_all(&[b"kj\x1b[Aj"]);
+
+        // ASSERT
+        assert_eq!(
+            events,
+            vec![
+                InputEvent::Up,
+                InputEvent::Down,
+                InputEvent::Up,
+                InputEvent::Down
+            ]
+        );
+    }
+
+    #[test]
     fn decode_non_escape_bytes_ignored() {
         // ARRANGE / ACT
         let events = decode_all(&[b"hello"]);
+
+        // ASSERT
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn decode_uppercase_plain_keys_ignored() {
+        // ARRANGE / ACT
+        let events = decode_all(&[b"JKx "]);
 
         // ASSERT
         assert!(events.is_empty());

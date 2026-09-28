@@ -1,50 +1,17 @@
-//! Panel drawing of header, status body, and footer rows.
+//! Body drawing of the two-column system status.
 
-use std::io::{self, Write};
+use std::io::Write;
 
 use anyhow::Result;
-use crossterm::cursor::MoveTo;
-use crossterm::queue;
-use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
-use crossterm::terminal::{Clear, ClearType};
+use crossterm::style::Color;
 
+use super::PANEL_BODY_ROWS;
+use super::clear_line;
 use super::span::{Line, Span};
-use super::{PANEL_BODY_ROWS, ScrollMode};
 use crate::state::{SystemState, SystemStatus};
 
-/// Draws the summary header line and returns the next row.
-pub(super) fn draw_header(w: &mut impl Write, state: &SystemState, row: u16) -> Result<u16> {
-    let uptime = &state.uptime;
-    let total_gib = format_gib(state.memory.total_kb);
-
-    let summary = format!(
-        "up {}d {}h {}m, {total_gib} GiB RAM, CPU {:.1}%, RAM {:.1}%",
-        uptime.days,
-        uptime.hours,
-        uptime.minutes,
-        state.cpu.percent,
-        state.memory.percent(),
-    );
-
-    clear_line(w, row)?;
-    queue!(
-        w,
-        MoveTo(0, row),
-        SetForegroundColor(Color::Cyan),
-        SetAttribute(Attribute::Bold),
-        Print(format!("  {}", state.hostname)),
-        SetAttribute(Attribute::Reset),
-        ResetColor,
-        Print(format!(" (v{})", state.version)),
-        Print(": "),
-        Print(summary),
-    )?;
-
-    Ok(row.saturating_add(1))
-}
-
 /// Draws the two-column status body between the separators.
-pub(super) fn draw_panel_body(
+pub(super) fn draw(
     w: &mut impl Write,
     state: &SystemState,
     cols: u16,
@@ -65,48 +32,6 @@ pub(super) fn draw_panel_body(
     }
 
     Ok(())
-}
-
-/// Draws the bottom footer with the scroll-mode indicator.
-pub(super) fn draw_footer(
-    w: &mut impl Write,
-    scroll_mode: ScrollMode,
-    cols: u16,
-    rows: u16,
-) -> Result<()> {
-    let info_row = rows.saturating_sub(1);
-
-    let hint = "  \u{2191}/\u{2193} scroll";
-    let (mode_label, esc_hint) = match scroll_mode {
-        ScrollMode::Live => ("[LIVE]", ""),
-        ScrollMode::Scrollback => ("[SCROLLBACK]", "  ESC live"),
-    };
-
-    let right = format!("{esc_hint}  {mode_label}  ");
-    let hint_len = hint.chars().count();
-    let right_len = right.chars().count();
-    let padding = usize::from(cols).saturating_sub(hint_len.saturating_add(right_len));
-
-    clear_line(w, info_row)?;
-    queue!(
-        w,
-        MoveTo(0, info_row),
-        ResetColor,
-        Print(hint),
-        Print(" ".repeat(padding)),
-        SetForegroundColor(match scroll_mode {
-            ScrollMode::Live => Color::Green,
-            ScrollMode::Scrollback => Color::Yellow,
-        }),
-        Print(right),
-        ResetColor,
-    )?;
-
-    Ok(())
-}
-
-fn clear_line(w: &mut impl Write, row: u16) -> io::Result<()> {
-    queue!(w, MoveTo(0, row), Clear(ClearType::CurrentLine))
 }
 
 fn build_left(state: &SystemState, col: u16) -> Vec<Line> {
@@ -190,27 +115,10 @@ fn net_kv_line(col: u16, key: &str, val: &str) -> Line {
     line
 }
 
-fn format_gib(total_kb: u64) -> String {
-    const GIB_IN_KB: u64 = 1024 * 1024;
-    let mut whole = total_kb.div_euclid(GIB_IN_KB);
-    let mut fraction = total_kb
-        .rem_euclid(GIB_IN_KB)
-        .wrapping_mul(10)
-        .wrapping_mul(2)
-        .wrapping_add(GIB_IN_KB)
-        .div_euclid(GIB_IN_KB.wrapping_mul(2));
-    if fraction >= 10 {
-        fraction = fraction.rem_euclid(10);
-        whole = whole.saturating_add(1);
-    }
-
-    format!("{whole}.{fraction}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{CpuUsage, MemoryInfo, NetInterface, SystemStatus, Uptime};
+    use crate::state::{CpuUsage, MemoryInfo, NetInterface, Uptime};
 
     fn test_state() -> SystemState {
         SystemState {
@@ -287,16 +195,5 @@ mod tests {
                 .first()
                 .is_some_and(|line| line.spans.iter().any(|span| span.text.contains("none")))
         );
-    }
-
-    #[test]
-    fn format_gib_rounds_to_one_decimal() {
-        // ARRANGE
-        let kib = 1024 * 1024;
-
-        // ACT / ASSERT
-        assert_eq!(format_gib(kib), "1.0");
-        assert_eq!(format_gib(kib * 2), "2.0");
-        assert_eq!(format_gib(0), "0.0");
     }
 }

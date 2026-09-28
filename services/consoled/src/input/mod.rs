@@ -1,4 +1,4 @@
-//! Raw TTY input reader for decoding VT escape sequences.
+//! Raw TTY input reader for decoding VT escape sequences and plain keys.
 
 extern crate alloc;
 

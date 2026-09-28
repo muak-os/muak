@@ -1,6 +1,8 @@
 //! Terminal rendering.
 
-mod panel;
+mod body;
+mod footer;
+mod header;
 mod span;
 
 use std::io::{self, Write};
@@ -49,12 +51,12 @@ pub fn draw<W: Write>(
     queue!(w, Print(format!("\x1b[{scroll_top};{scroll_bot}r")))?;
 
     let mut row = 0_u16;
-    row = panel::draw_header(w, state, row)?;
+    row = header::draw(w, state, row)?;
     row = draw_separator(w, row, separator)?;
-    panel::draw_panel_body(w, state, cols, row)?;
+    body::draw(w, state, cols, row)?;
     draw_separator(w, row.saturating_add(PANEL_BODY_ROWS), separator)?;
     draw_separator(w, rows.saturating_sub(FOOTER_ROWS), separator)?;
-    panel::draw_footer(w, scroll_mode, cols, rows)?;
+    footer::draw(w, scroll_mode, cols, rows)?;
 
     queue!(w, ResetColor, MoveTo(0, cursor_park))?;
 
@@ -63,14 +65,14 @@ pub fn draw<W: Write>(
     Ok(())
 }
 
+/// Clears one full row and parks the cursor at its start.
+pub(crate) fn clear_line(w: &mut impl Write, row: u16) -> io::Result<()> {
+    queue!(w, MoveTo(0, row), Clear(ClearType::CurrentLine))
+}
+
 fn draw_separator(w: &mut impl Write, row: u16, separator: &str) -> io::Result<u16> {
-    queue!(
-        w,
-        MoveTo(0, row),
-        Clear(ClearType::CurrentLine),
-        ResetColor,
-        Print(separator),
-    )?;
+    clear_line(w, row)?;
+    queue!(w, ResetColor, Print(separator))?;
 
     Ok(row.saturating_add(1))
 }
