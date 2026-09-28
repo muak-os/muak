@@ -1,6 +1,6 @@
 //! Prepares a UKI manifest from a probed stub and component sizes.
 
-use uki::section::{CMDLINE, INITRD, KERNEL, canonical_rank};
+use uki::section::{CMDLINE, INITRD, KERNEL, OSREL, canonical_rank};
 
 use crate::error::{Result, YukiError};
 use crate::layout::{self, Layout};
@@ -38,6 +38,19 @@ pub(crate) struct Assembly {
     pub(crate) sections: Vec<section::Section>,
 }
 
+/// Sizes of the UKI components appended to the stub in bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Components {
+    /// Size of the `.cmdline` payload.
+    pub cmdline: u64,
+    /// Size of the `.kernel` payload.
+    pub kernel: u64,
+    /// Size of the `.initrd` payload.
+    pub initramfs: u64,
+    /// Size of the `.osrel` payload; zero omits the section.
+    pub osrel: u64,
+}
+
 /// Computes the full UKI plan from a probed stub and component sizes.
 ///
 /// # Errors
@@ -45,13 +58,7 @@ pub(crate) struct Assembly {
 /// Returns an error when the stub is truncated (its last section ends past
 /// `stub_size`), the stub size is smaller than the probed header, component
 /// lengths overflow PE limits, or the section table lacks capacity.
-pub fn prepare(
-    probe: Probe,
-    stub_size: u64,
-    cmdline_size: u64,
-    kernel_size: u64,
-    initramfs_size: u64,
-) -> Result<Manifest> {
+pub fn prepare(probe: Probe, stub_size: u64, components: Components) -> Result<Manifest> {
     let consumed = probe.consumed();
     let stub_remainder = stub_size.checked_sub(consumed).ok_or_else(|| {
         YukiError::InvalidPeStructure(format!(
@@ -67,21 +74,17 @@ pub fn prepare(
     }
 
     let mut sizes = [
-        (CMDLINE, Some(cmdline_size)),
-        (KERNEL, Some(kernel_size)),
-        (INITRD, Some(initramfs_size)),
+        (CMDLINE, Some(components.cmdline)),
+        (KERNEL, Some(components.kernel)),
+        (INITRD, Some(components.initramfs)),
+        (OSREL, (components.osrel > 0).then_some(components.osrel)),
     ];
     sizes.sort_by_key(|&(name, _size)| canonical_rank(name));
 
     let table = section::build_table(&probe.metadata, stub_size, &sizes)?;
 
     let mut patched_prefix = probe.prefix;
-    header::patch(
-        &mut patched_prefix,
-        &probe.metadata,
-        &table,
-        section::NEW_SECTION_COUNT,
-    )?;
+    header::patch(&mut patched_prefix, &probe.metadata, &table)?;
 
     let layout = layout::from_table(stub_size, &table)?;
     let assembly = Assembly {
@@ -98,7 +101,7 @@ pub fn prepare(
 mod tests {
     use uki::align;
     use uki::metadata::Metadata;
-    use uki::section::{CMDLINE, INITRD, KERNEL};
+    use uki::section::{CMDLINE, INITRD, KERNEL, OSREL};
 
     use super::*;
 
@@ -132,7 +135,16 @@ mod tests {
         let probe = probe_with(test_metadata());
 
         // ACT
-        let result = prepare(probe, 100, 10, 100, 100);
+        let result = prepare(
+            probe,
+            100,
+            Components {
+                cmdline: 10,
+                kernel: 100,
+                initramfs: 100,
+                osrel: 0,
+            },
+        );
 
         // ASSERT
         assert!(matches!(
@@ -148,7 +160,17 @@ mod tests {
         let probe = probe_with(test_metadata());
 
         // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096).unwrap();
+        let manifest = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 2048,
+                initramfs: 4096,
+                osrel: 0,
+            },
+        )
+        .unwrap();
 
         // ASSERT
         let layout = manifest.layout();
@@ -158,12 +180,81 @@ mod tests {
     }
 
     #[test]
+    fn prepare_places_osrel_after_kernel() {
+        // ARRANGE
+        let probe = probe_with(test_metadata());
+
+        // ACT
+        let manifest = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 2048,
+                initramfs: 4096,
+                osrel: 64,
+            },
+        )
+        .unwrap();
+
+        // ASSERT
+        let layout = manifest.layout();
+        assert!(layout.kernel_offset < layout.osrel_offset);
+        assert!(layout.osrel_offset < layout.total_size);
+        let osrel_is_last = manifest
+            .assembly()
+            .sections
+            .last()
+            .is_some_and(|section| section.name == OSREL);
+        assert!(osrel_is_last, "osrel must be the last planned section");
+    }
+
+    #[test]
+    fn prepare_omits_osrel_when_zero() {
+        // ARRANGE
+        let probe = probe_with(test_metadata());
+
+        // ACT
+        let manifest = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 2048,
+                initramfs: 4096,
+                osrel: 0,
+            },
+        )
+        .unwrap();
+
+        // ASSERT
+        assert!(
+            !manifest
+                .assembly()
+                .sections
+                .iter()
+                .any(|section| section.name == OSREL)
+        );
+        assert_eq!(manifest.layout().osrel_offset, 0);
+    }
+
+    #[test]
     fn prepare_layout_matches_assembly_sections() {
         // ARRANGE
         let probe = probe_with(test_metadata());
 
         // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096).unwrap();
+        let manifest = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 2048,
+                initramfs: 4096,
+                osrel: 0,
+            },
+        )
+        .unwrap();
 
         // ASSERT
         for planned in &manifest.assembly().sections {
@@ -171,6 +262,7 @@ mod tests {
                 CMDLINE => manifest.layout().cmdline_offset,
                 KERNEL => manifest.layout().kernel_offset,
                 INITRD => manifest.layout().initramfs_offset,
+                OSREL => manifest.layout().osrel_offset,
                 _ => panic!("unexpected section '{}'", planned.name),
             };
             assert_eq!(
@@ -188,7 +280,17 @@ mod tests {
         let probe = probe_with(test_metadata());
 
         // ACT
-        let manifest = prepare(probe, 1024, 10, 2048, 4096).unwrap();
+        let manifest = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 2048,
+                initramfs: 4096,
+                osrel: 0,
+            },
+        )
+        .unwrap();
 
         // ASSERT
         let last = manifest.assembly().sections.last().unwrap();
@@ -216,7 +318,16 @@ mod tests {
         let probe = probe_with(metadata);
 
         // ACT
-        let result = prepare(probe, 1024, 10, 100, 100);
+        let result = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 100,
+                initramfs: 100,
+                osrel: 0,
+            },
+        );
 
         // ASSERT
         assert!(matches!(result, Err(YukiError::TooManySections)));
@@ -232,7 +343,16 @@ mod tests {
         let probe = probe_with(metadata);
 
         // ACT
-        let result = prepare(probe, 1024, 10, 100, 100);
+        let result = prepare(
+            probe,
+            1024,
+            Components {
+                cmdline: 10,
+                kernel: 100,
+                initramfs: 100,
+                osrel: 0,
+            },
+        );
 
         // ASSERT
         assert!(matches!(
@@ -253,7 +373,16 @@ mod tests {
         let probe = probe_with(metadata);
 
         // ACT
-        let result = prepare(probe, 2048, 10, 100, 100);
+        let result = prepare(
+            probe,
+            2048,
+            Components {
+                cmdline: 10,
+                kernel: 100,
+                initramfs: 100,
+                osrel: 0,
+            },
+        );
 
         // ASSERT
         assert!(matches!(

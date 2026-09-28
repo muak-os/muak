@@ -23,5 +23,8 @@ uki = { workspace = true }
 # Utilities
 object = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

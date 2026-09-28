@@ -5,7 +5,7 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use uki::section::{CANONICAL_ORDER, CMDLINE, INITRD, KERNEL, Sections};
+    use uki::section::{CANONICAL_ORDER, CMDLINE, INITRD, KERNEL, OSREL, Sections};
 
     use crate::common::{add_section, build_test_pe};
 
@@ -59,6 +59,7 @@ mod tests {
         assert_eq!(sections.kernel, b"kernel_data");
         assert!(sections.initrd.is_none());
         assert!(sections.cmdline.is_none());
+        assert!(sections.osrel.is_none());
     }
 
     #[test]
@@ -68,6 +69,7 @@ mod tests {
         add_section(&mut data, *b".kernel\0", b"kernel");
         add_section(&mut data, *b".initrd\0", b"initrd");
         add_section(&mut data, *b".cmdline", b"cmdline");
+        add_section(&mut data, *b".osrel\0\0", b"osrel");
 
         // ACT
         let sections = Sections::parse(&data).expect("parse should succeed");
@@ -76,6 +78,7 @@ mod tests {
         assert_eq!(sections.kernel, b"kernel");
         assert_eq!(sections.initrd.expect("initrd"), b"initrd");
         assert_eq!(sections.cmdline.expect("cmdline"), b"cmdline");
+        assert_eq!(sections.osrel.expect("osrel"), b"osrel");
     }
 
     #[test]
@@ -99,6 +102,7 @@ mod tests {
             kernel: b"kern",
             initrd: None,
             cmdline: None,
+            osrel: None,
         };
 
         // ACT
@@ -115,6 +119,7 @@ mod tests {
             kernel: b"kern",
             initrd: Some(b"initrd"),
             cmdline: Some(b"quiet"),
+            osrel: Some(b"1.2.3"),
         };
 
         // ACT
@@ -127,6 +132,7 @@ mod tests {
                 (CMDLINE, &b"quiet"[..]),
                 (INITRD, &b"initrd"[..]),
                 (KERNEL, &b"kern"[..]),
+                (OSREL, &b"1.2.3"[..]),
             ]
         );
     }
@@ -138,6 +144,7 @@ mod tests {
             kernel: b"l",
             initrd: Some(b"i"),
             cmdline: Some(b"c"),
+            osrel: Some(b"o"),
         };
 
         // ACT

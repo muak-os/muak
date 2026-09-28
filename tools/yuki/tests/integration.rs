@@ -10,13 +10,15 @@ mod tests {
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
+    use uki::measure;
+    use uki::section::{CANONICAL_ORDER, OSREL};
     use yuki::error::YukiError;
     use yuki::pe::section::Section;
     use yuki::prepare;
     use yuki::probe;
     use yuki::write::{self, Input};
 
-    use super::fixtures::components::{fake_initrd, fake_kernel, sample_cmdline};
+    use super::fixtures::components::{fake_initrd, fake_kernel, sample_cmdline, sample_osrel};
     use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count, write_u32};
 
     fn build_to_vec(
@@ -25,34 +27,55 @@ mod tests {
         kernel: &[u8],
         initrd: &[u8],
     ) -> Result<(Vec<u8>, Vec<Section>), YukiError> {
+        build_to_vec_with_osrel(stub_bytes, cmdline, kernel, initrd, &[])
+    }
+
+    fn build_to_vec_with_osrel(
+        stub_bytes: &[u8],
+        cmdline: &[u8],
+        kernel: &[u8],
+        initrd: &[u8],
+        osrel: &[u8],
+    ) -> Result<(Vec<u8>, Vec<Section>), YukiError> {
         let stub_size = u64::try_from(stub_bytes.len()).unwrap_or(0);
-        let cmdline_size = u64::try_from(cmdline.len()).unwrap_or(0);
-        let kernel_size = u64::try_from(kernel.len()).unwrap_or(0);
-        let initrd_size = u64::try_from(initrd.len()).unwrap_or(0);
 
         let mut stub_reader = Cursor::new(stub_bytes);
         let probed = probe::probe(&mut stub_reader)?;
-        let manifest = prepare::prepare(probed, stub_size, cmdline_size, kernel_size, initrd_size)?;
+        let manifest = prepare::prepare(
+            probed,
+            stub_size,
+            prepare::Components {
+                cmdline: u64::try_from(cmdline.len()).unwrap_or(0),
+                kernel: u64::try_from(kernel.len()).unwrap_or(0),
+                initramfs: u64::try_from(initrd.len()).unwrap_or(0),
+                osrel: u64::try_from(osrel.len()).unwrap_or(0),
+            },
+        )?;
 
         let mut output = Cursor::new(Vec::new());
         let mut cmdline_r = Cursor::new(cmdline);
         let mut kernel_r = Cursor::new(kernel);
         let mut initrd_r = Cursor::new(initrd);
+        let mut osrel_r = Cursor::new(osrel);
 
         let sections = write::write(
             &manifest,
             &mut stub_reader,
             Input {
                 reader: &mut cmdline_r,
-                size: cmdline_size,
+                size: u64::try_from(cmdline.len()).unwrap_or(0),
             },
             Input {
                 reader: &mut kernel_r,
-                size: kernel_size,
+                size: u64::try_from(kernel.len()).unwrap_or(0),
             },
             Input {
                 reader: &mut initrd_r,
-                size: initrd_size,
+                size: u64::try_from(initrd.len()).unwrap_or(0),
+            },
+            Input {
+                reader: &mut osrel_r,
+                size: u64::try_from(osrel.len()).unwrap_or(0),
             },
             &mut output,
         )?;
@@ -390,7 +413,17 @@ mod tests {
 
         let mut stub_reader = Cursor::new(&stub);
         let probed = probe::probe(&mut stub_reader).unwrap();
-        let manifest = prepare::prepare(probed, stub_size, 10, 1024, 2048).unwrap();
+        let manifest = prepare::prepare(
+            probed,
+            stub_size,
+            prepare::Components {
+                cmdline: 10,
+                kernel: 1024,
+                initramfs: 2048,
+                osrel: 0,
+            },
+        )
+        .unwrap();
 
         let mut fail_writer = FailWriter;
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
@@ -413,6 +446,10 @@ mod tests {
                 reader: &mut initrd_r,
                 size: 2048,
             },
+            Input {
+                reader: &mut std::io::empty(),
+                size: 0,
+            },
             &mut fail_writer,
         );
 
@@ -434,9 +471,12 @@ mod tests {
         let manifest = prepare::prepare(
             probed,
             stub_size,
-            u64::try_from(cmdline.len()).unwrap(),
-            u64::try_from(kernel.len()).unwrap(),
-            u64::try_from(initrd.len()).unwrap(),
+            prepare::Components {
+                cmdline: u64::try_from(cmdline.len()).unwrap(),
+                kernel: u64::try_from(kernel.len()).unwrap(),
+                initramfs: u64::try_from(initrd.len()).unwrap(),
+                osrel: 0,
+            },
         )
         .unwrap();
 
@@ -464,6 +504,10 @@ mod tests {
                 reader: &mut Cursor::new(&initrd),
                 size: u64::try_from(initrd.len()).unwrap(),
             },
+            Input {
+                reader: &mut std::io::empty(),
+                size: 0,
+            },
             &mut limited_writer,
         );
 
@@ -479,7 +523,17 @@ mod tests {
 
         let mut stub_reader = Cursor::new(&stub);
         let probed = probe::probe(&mut stub_reader).unwrap();
-        let manifest = prepare::prepare(probed, stub_size, 10, 100, 2048).unwrap();
+        let manifest = prepare::prepare(
+            probed,
+            stub_size,
+            prepare::Components {
+                cmdline: 10,
+                kernel: 100,
+                initramfs: 2048,
+                osrel: 0,
+            },
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
@@ -501,6 +555,10 @@ mod tests {
             Input {
                 reader: &mut initrd_r,
                 size: 2048,
+            },
+            Input {
+                reader: &mut std::io::empty(),
+                size: 0,
             },
             &mut output,
         );
@@ -527,9 +585,12 @@ mod tests {
         let manifest = prepare::prepare(
             probed,
             stub_size,
-            u64::try_from(cmdline.len()).unwrap(),
-            u64::try_from(kernel.len()).unwrap(),
-            u64::try_from(initrd.len()).unwrap(),
+            prepare::Components {
+                cmdline: u64::try_from(cmdline.len()).unwrap(),
+                kernel: u64::try_from(kernel.len()).unwrap(),
+                initramfs: u64::try_from(initrd.len()).unwrap(),
+                osrel: 0,
+            },
         )
         .expect("prepare must succeed");
         let layout = manifest.layout();
@@ -559,7 +620,16 @@ mod tests {
         let probed = probe::probe(&mut stub_reader).unwrap();
 
         // ACT
-        let result = prepare::prepare(probed, 2048, 10, 1024, 2048);
+        let result = prepare::prepare(
+            probed,
+            2048,
+            prepare::Components {
+                cmdline: 10,
+                kernel: 1024,
+                initramfs: 2048,
+                osrel: 0,
+            },
+        );
 
         // ASSERT
         assert!(matches!(
@@ -590,5 +660,61 @@ mod tests {
                 section.name
             );
         }
+    }
+
+    #[test]
+    fn build_embeds_osrel_section() {
+        // ARRANGE
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(2048);
+        let cmdline = sample_cmdline();
+        let osrel = sample_osrel();
+
+        // ACT
+        let (manifest, sections) =
+            build_to_vec_with_osrel(&stub, &cmdline, &kernel, &initrd, &osrel)
+                .expect("build with osrel should succeed");
+
+        // ASSERT
+        assert_eq!(sections.len(), 4);
+        assert_eq!(sections.last().expect("osrel last").name, OSREL);
+
+        let pe = PeFile64::parse(&*manifest).expect("osrel UKI should be valid PE");
+        let header = pe
+            .section_table()
+            .iter()
+            .find(|section| section.name.starts_with(b".osrel"))
+            .expect("osrel section should exist");
+        let offset = usize::try_from(header.pointer_to_raw_data.get(LE)).unwrap();
+        let size = usize::try_from(header.virtual_size.get(LE)).unwrap();
+        let written = manifest
+            .get(offset..offset + size)
+            .expect("osrel in bounds");
+        assert_eq!(written, osrel.as_slice());
+    }
+
+    #[test]
+    fn build_osrel_measures_in_canonical_order() {
+        // ARRANGE
+        let stub = generate_minimal_stub();
+        let kernel = fake_kernel(1024);
+        let initrd = fake_initrd(2048);
+        let cmdline = sample_cmdline();
+        let osrel = sample_osrel();
+
+        // ACT
+        let (manifest, sections) =
+            build_to_vec_with_osrel(&stub, &cmdline, &kernel, &initrd, &osrel)
+                .expect("build with osrel should succeed");
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), &manifest).expect("write manifest");
+        let records = measure::from_file(file.path()).expect("measure osrel UKI");
+
+        // ASSERT
+        let measured: Vec<_> = records.iter().map(|record| record.name).collect();
+        assert_eq!(measured, CANONICAL_ORDER.to_vec());
+        let written: Vec<_> = sections.iter().map(|section| section.name).collect();
+        assert_eq!(written, CANONICAL_ORDER.to_vec());
     }
 }

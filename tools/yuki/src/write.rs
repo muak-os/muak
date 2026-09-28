@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 
 use sha2::{Digest as _, Sha256};
 use uki::align;
-use uki::section::{CMDLINE, INITRD, KERNEL};
+use uki::section::{CMDLINE, INITRD, KERNEL, OSREL};
 
 use crate::error::{Result, YukiError};
 use crate::io;
@@ -34,9 +34,10 @@ pub fn write<W: Write>(
     cmdline: Input<'_>,
     kernel: Input<'_>,
     initramfs: Input<'_>,
+    osrel: Input<'_>,
     output: &mut W,
 ) -> Result<Vec<Section>> {
-    validate_inputs(manifest, &cmdline, &kernel, &initramfs)?;
+    validate_inputs(manifest, &cmdline, &kernel, &initramfs, &osrel)?;
 
     let layout = manifest.layout();
     let assembly = manifest.assembly();
@@ -47,6 +48,7 @@ pub fn write<W: Write>(
     let cmdline_reader = cmdline.reader;
     let kernel_reader = kernel.reader;
     let initramfs_reader = initramfs.reader;
+    let osrel_reader = osrel.reader;
 
     let mut pos = layout.stub_size;
     let mut sections = Vec::with_capacity(assembly.sections.len());
@@ -70,6 +72,7 @@ pub fn write<W: Write>(
             CMDLINE => &mut *cmdline_reader,
             KERNEL => &mut *kernel_reader,
             INITRD => &mut *initramfs_reader,
+            OSREL => &mut *osrel_reader,
             _ => {
                 return Err(YukiError::InvalidPeStructure(format!(
                     "unknown section '{}'",
@@ -110,12 +113,16 @@ fn validate_inputs(
     cmdline: &Input<'_>,
     kernel: &Input<'_>,
     initramfs: &Input<'_>,
+    osrel: &Input<'_>,
 ) -> Result<()> {
+    let mut osrel_planned = false;
     for planned in &manifest.assembly().sections {
+        osrel_planned |= planned.name == OSREL;
         let input_size = match planned.name {
             CMDLINE => cmdline.size,
             KERNEL => kernel.size,
             INITRD => initramfs.size,
+            OSREL => osrel.size,
             _ => 0,
         };
         let planned_size = u64::try_from(planned.size).map_err(|_source| {
@@ -129,16 +136,24 @@ fn validate_inputs(
         }
     }
 
+    if !osrel_planned && osrel.size != 0 {
+        return Err(YukiError::InvalidPeStructure(format!(
+            "section '{OSREL}' input size {} does not match planned 0",
+            osrel.size
+        )));
+    }
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Cursor, Write};
+    use std::io::{Cursor, Write, empty};
 
     use object::LittleEndian as LE;
     use object::pe as object_pe;
     use object::read::pe::PeFile64;
+    use uki::section::OSREL;
 
     use super::*;
     use crate::prepare;
@@ -204,34 +219,54 @@ mod tests {
         kernel: &[u8],
         initrd: &[u8],
     ) -> Result<(Vec<u8>, Vec<Section>)> {
-        let stub_size = u64::try_from(stub_bytes.len()).unwrap();
-        let cmdline_size = u64::try_from(cmdline.len()).unwrap();
-        let kernel_size = u64::try_from(kernel.len()).unwrap();
-        let initrd_size = u64::try_from(initrd.len()).unwrap();
+        build_with_osrel(stub_bytes, cmdline, kernel, initrd, &[])
+    }
 
+    fn build_with_osrel(
+        stub_bytes: &[u8],
+        cmdline: &[u8],
+        kernel: &[u8],
+        initrd: &[u8],
+        osrel: &[u8],
+    ) -> Result<(Vec<u8>, Vec<Section>)> {
+        let stub_size = u64::try_from(stub_bytes.len()).unwrap();
         let mut stub = Cursor::new(stub_bytes);
         let probe = probe::probe(&mut stub)?;
-        let manifest = prepare::prepare(probe, stub_size, cmdline_size, kernel_size, initrd_size)?;
+        let manifest = prepare::prepare(
+            probe,
+            stub_size,
+            prepare::Components {
+                cmdline: u64::try_from(cmdline.len()).unwrap(),
+                kernel: u64::try_from(kernel.len()).unwrap(),
+                initramfs: u64::try_from(initrd.len()).unwrap(),
+                osrel: u64::try_from(osrel.len()).unwrap(),
+            },
+        )?;
 
         let mut output = Vec::new();
         let mut cmdline_r = Cursor::new(cmdline);
         let mut kernel_r = Cursor::new(kernel);
         let mut initrd_r = Cursor::new(initrd);
+        let mut osrel_r = Cursor::new(osrel);
 
         let sections = crate::write::write(
             &manifest,
             &mut stub,
             Input {
                 reader: &mut cmdline_r,
-                size: cmdline_size,
+                size: u64::try_from(cmdline.len()).unwrap(),
             },
             Input {
                 reader: &mut kernel_r,
-                size: kernel_size,
+                size: u64::try_from(kernel.len()).unwrap(),
             },
             Input {
                 reader: &mut initrd_r,
-                size: initrd_size,
+                size: u64::try_from(initrd.len()).unwrap(),
+            },
+            Input {
+                reader: &mut osrel_r,
+                size: u64::try_from(osrel.len()).unwrap(),
             },
             &mut output,
         )?;
@@ -260,7 +295,17 @@ mod tests {
         let stub_size = u64::try_from(stub.len()).unwrap();
         let mut stub_reader = Cursor::new(stub);
         let probe = probe::probe(&mut stub_reader).unwrap();
-        let manifest = prepare::prepare(probe, stub_size, cmdline, kernel, initrd).unwrap();
+        let manifest = prepare::prepare(
+            probe,
+            stub_size,
+            prepare::Components {
+                cmdline,
+                kernel,
+                initramfs: initrd,
+                osrel: 0,
+            },
+        )
+        .unwrap();
         (manifest, stub_reader)
     }
 
@@ -323,6 +368,10 @@ mod tests {
             Input {
                 reader: &mut initrd_r,
                 size: 300,
+            },
+            Input {
+                reader: &mut empty(),
+                size: 0,
             },
             &mut output,
         )
@@ -407,6 +456,10 @@ mod tests {
                 reader: &mut initrd_r,
                 size: 2048,
             },
+            Input {
+                reader: &mut empty(),
+                size: 0,
+            },
             &mut output,
         );
 
@@ -444,6 +497,10 @@ mod tests {
             Input {
                 reader: &mut initrd_r,
                 size: 2048,
+            },
+            Input {
+                reader: &mut empty(),
+                size: 0,
             },
             &mut error_writer,
         );
@@ -493,7 +550,17 @@ mod tests {
         let mut stub_reader = Cursor::new(&stub);
         let probe = probe::probe(&mut stub_reader).unwrap();
         let consumed = probe.consumed();
-        let manifest = prepare::prepare(probe, stub_size, 10, 1024, 2048).unwrap();
+        let manifest = prepare::prepare(
+            probe,
+            stub_size,
+            prepare::Components {
+                cmdline: 10,
+                kernel: 1024,
+                initramfs: 2048,
+                osrel: 0,
+            },
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
@@ -515,6 +582,10 @@ mod tests {
             Input {
                 reader: &mut initrd_r,
                 size: 2048,
+            },
+            Input {
+                reader: &mut empty(),
+                size: 0,
             },
             &mut output,
         )
@@ -554,5 +625,69 @@ mod tests {
         let chars = kernel_section.characteristics.get(LE);
         assert!(chars & object_pe::IMAGE_SCN_MEM_EXECUTE != 0);
         assert!(chars & object_pe::IMAGE_SCN_MEM_READ != 0);
+    }
+
+    #[test]
+    fn write_emits_osrel_content() {
+        // ARRANGE
+        let stub = minimal_stub();
+        let cmdline = b"quiet".to_vec();
+        let kernel = vec![0xBB_u8; 1024];
+        let initrd = vec![0xCC_u8; 2048];
+        let osrel = b"ID=muak\nVERSION_ID=v1.2.3\n".to_vec();
+
+        // ACT
+        let (uki_out, sections) =
+            build_with_osrel(&stub, &cmdline, &kernel, &initrd, &osrel).unwrap();
+
+        // ASSERT
+        let osrel_section = sections
+            .iter()
+            .find(|section| section.name == OSREL)
+            .expect("osrel section should be planned");
+        let offset = osrel_section.file_offset;
+        let written = uki_out.get(offset..offset + osrel.len()).unwrap();
+        assert_eq!(written, osrel.as_slice());
+    }
+
+    #[test]
+    fn write_rejects_osrel_input_without_osrel_section() {
+        // ARRANGE
+        let stub = minimal_stub();
+        let (manifest, mut stub_r) = prepare_uki(&stub, 10, 1024, 2048);
+
+        let mut output = Vec::new();
+        let mut cmdline_r = Cursor::new(vec![0xAA; 10]);
+        let mut kernel_r = Cursor::new(vec![0xBB; 1024]);
+        let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
+
+        // ACT
+        let result = crate::write::write(
+            &manifest,
+            &mut stub_r,
+            Input {
+                reader: &mut cmdline_r,
+                size: 10,
+            },
+            Input {
+                reader: &mut kernel_r,
+                size: 1024,
+            },
+            Input {
+                reader: &mut initrd_r,
+                size: 2048,
+            },
+            Input {
+                reader: &mut empty(),
+                size: 8,
+            },
+            &mut output,
+        );
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(YukiError::InvalidPeStructure(msg)) if msg.contains(OSREL)
+        ));
     }
 }

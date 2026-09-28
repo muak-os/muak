@@ -91,7 +91,7 @@ fn write_optional_header(
     write_u32(buf, off, 0);
 }
 
-fn write_text_section_header(buf: &mut [u8], optional_header_offset: usize) {
+fn write_text_section_header(buf: &mut [u8], optional_header_offset: usize, num_sections: u16) {
     let section_headers_offset = optional_header_offset.saturating_add(OPTIONAL_HEADER_SIZE);
     write_bytes(buf, section_headers_offset, b".text");
     write_u32(
@@ -113,7 +113,11 @@ fn write_text_section_header(buf: &mut [u8], optional_header_offset: usize) {
     let section_rva = u32::try_from(
         optional_header_offset
             .saturating_add(OPTIONAL_HEADER_SIZE)
-            .saturating_add(SECTION_HEADER_SIZE)
+            .saturating_add(
+                usize::from(num_sections)
+                    .saturating_add(EXTRA_SECTION_HEADER_SLOTS)
+                    .saturating_mul(SECTION_HEADER_SIZE),
+            )
             .next_multiple_of(FILE_ALIGNMENT),
     )
     .unwrap_or_default();
@@ -164,7 +168,7 @@ fn write_pe_headers(buf: &mut [u8], coff_offset: usize, num_sections: u16) {
     off = off.saturating_add(2);
 
     write_optional_header(buf, off, num_sections, FILE_ALIGNMENT);
-    write_text_section_header(buf, off);
+    write_text_section_header(buf, off, num_sections);
     write_extra_section_headers(buf, off, num_sections);
 }
 

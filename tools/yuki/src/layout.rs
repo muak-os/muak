@@ -1,6 +1,6 @@
 //! Compute the layout of a UKI image from its section table.
 
-use uki::section::{CMDLINE, INITRD, KERNEL};
+use uki::section::{CMDLINE, INITRD, KERNEL, OSREL};
 
 use crate::error::{Result, YukiError};
 use crate::pe::section::Table;
@@ -16,6 +16,8 @@ pub struct Layout {
     pub kernel_offset: u64,
     /// File offset of the `.initrd` section.
     pub initramfs_offset: u64,
+    /// File offset of the `.osrel` section.
+    pub osrel_offset: u64,
     /// Total size of the output UKI image in bytes.
     pub total_size: u64,
 }
@@ -25,6 +27,7 @@ pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
     let mut cmdline_offset = 0_u64;
     let mut kernel_offset = 0_u64;
     let mut initramfs_offset = 0_u64;
+    let mut osrel_offset = 0_u64;
 
     for sec in &table.sections {
         let offset = u64::try_from(sec.file_offset).map_err(|_source| {
@@ -34,6 +37,7 @@ pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
             CMDLINE => cmdline_offset = offset,
             KERNEL => kernel_offset = offset,
             INITRD => initramfs_offset = offset,
+            OSREL => osrel_offset = offset,
             _ => {}
         }
     }
@@ -43,6 +47,7 @@ pub(crate) fn from_table(stub_size: u64, table: &Table) -> Result<Layout> {
         cmdline_offset,
         kernel_offset,
         initramfs_offset,
+        osrel_offset,
         total_size: u64::from(table.current_file_offset),
     })
 }

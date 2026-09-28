@@ -90,9 +90,12 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let manifest = prepare::prepare(
         probed,
         input(UKI_STUB)?,
-        input(UKI_CMDLINE)?,
-        input(UKI_KERNEL)?,
-        input(UKI_INITRAMFS)?,
+        prepare::Components {
+            cmdline: input(UKI_CMDLINE)?,
+            kernel: input(UKI_KERNEL)?,
+            initramfs: input(UKI_INITRAMFS)?,
+            osrel: 0,
+        },
     )
     .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
 
@@ -121,8 +124,17 @@ fn run(
 
     let probed = probe::probe(&mut stub.reader)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;
-    let manifest = prepare::prepare(probed, stub.size, cmdline.size, kernel.size, initramfs.size)
-        .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
+    let manifest = prepare::prepare(
+        probed,
+        stub.size,
+        prepare::Components {
+            cmdline: cmdline.size,
+            kernel: kernel.size,
+            initramfs: initramfs.size,
+            osrel: 0,
+        },
+    )
+    .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
 
     let total_size = manifest.layout().total_size;
     if total_size != output.size {
@@ -138,6 +150,10 @@ fn run(
         input(&mut cmdline),
         input(&mut kernel),
         input(&mut initramfs),
+        Input {
+            reader: &mut std::io::empty(),
+            size: 0,
+        },
         &mut output.writer,
     )
     .map(|sections| Some(to_measured_sections(sections)))

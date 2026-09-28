@@ -2980,6 +2980,7 @@ version = "1.0.0-beta"
 dependencies = [
  "object",
  "sha2",
+ "tempfile",
  "thiserror 2.0.20",
  "uki",
 ]

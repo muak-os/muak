@@ -25,9 +25,6 @@ const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x0000_0040;
 const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
 const IMAGE_SCN_MEM_READ: u32 = 0x4000_0000;
 
-/// Number of UKI sections yuki appends to the stub.
-pub const NEW_SECTION_COUNT: u16 = 3;
-
 /// A PE section in the output UKI image, with its file offset and size.
 #[derive(Debug, Clone)]
 pub struct Section {
@@ -195,13 +192,11 @@ pub(crate) fn build_table(
     stub_len: u64,
     sizes: &[(&'static str, Option<u64>)],
 ) -> Result<Table> {
-    let count = NEW_SECTION_COUNT;
-    if usize::from(metadata.existing_section_count).saturating_add(usize::from(count))
-        > usize::from(u16::MAX)
-    {
+    let count = sizes.iter().filter(|entry| entry.1.is_some()).count();
+    if usize::from(metadata.existing_section_count).saturating_add(count) > usize::from(u16::MAX) {
         return Err(YukiError::TooManySections);
     }
-    validate_header_capacity(metadata, usize::from(count))?;
+    validate_header_capacity(metadata, count)?;
 
     let mut table = Table::new(metadata);
     let Ok(stub_file_off) = u32::try_from(stub_len) else {

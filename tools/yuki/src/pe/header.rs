@@ -12,15 +12,11 @@ use crate::error::{Result, YukiError};
 const COFF_NUMBER_OF_SECTIONS_OFFSET: usize = offset_of!(ImageFileHeader, number_of_sections);
 const OPT_HEADER_SIZE_OF_IMAGE_OFFSET: usize = offset_of!(ImageOptionalHeader64, size_of_image);
 
-pub(crate) fn patch(
-    prefix: &mut [u8],
-    metadata: &Metadata,
-    table: &Table,
-    new_section_count: u16,
-) -> Result<()> {
-    let total_sections = metadata
-        .existing_section_count
-        .saturating_add(new_section_count);
+pub(crate) fn patch(prefix: &mut [u8], metadata: &Metadata, table: &Table) -> Result<()> {
+    let appended = u16::try_from(table.sections.len()).map_err(|_source| {
+        YukiError::InvalidPeStructure("appended section count does not fit in u16".to_owned())
+    })?;
+    let total_sections = metadata.existing_section_count.saturating_add(appended);
     header_fields(prefix, metadata, table, total_sections)?;
 
     section_headers(prefix, metadata, table)
@@ -119,7 +115,7 @@ mod tests {
         table.finalize_section(".test", 100).unwrap();
 
         // ACT
-        patch(&mut prefix, &metadata, &table, 1).unwrap();
+        patch(&mut prefix, &metadata, &table).unwrap();
 
         // ASSERT
         let count_offset = section_count_offset(&metadata);
@@ -143,7 +139,7 @@ mod tests {
         table.finalize_section(".test", 100).unwrap();
 
         // ACT
-        patch(&mut prefix, &metadata, &table, 1).unwrap();
+        patch(&mut prefix, &metadata, &table).unwrap();
 
         // ASSERT
         let soi_offset = size_of_image_offset(&metadata);
@@ -168,7 +164,7 @@ mod tests {
         table.finalize_section(".kernel", 200).unwrap();
 
         // ACT
-        patch(&mut prefix, &metadata, &table, 2).unwrap();
+        patch(&mut prefix, &metadata, &table).unwrap();
 
         // ASSERT
         let hdr_size = core::mem::size_of::<ImageSectionHeader>();
@@ -188,7 +184,7 @@ mod tests {
         table.finalize_section(".test", 100).unwrap();
 
         // ACT
-        let result = patch(&mut prefix, &metadata, &table, 1);
+        let result = patch(&mut prefix, &metadata, &table);
 
         // ASSERT
         assert!(matches!(

@@ -14,8 +14,10 @@ pub const KERNEL: &str = ".kernel";
 pub const INITRD: &str = ".initrd";
 /// PE section name for the kernel command line.
 pub const CMDLINE: &str = ".cmdline";
+/// PE section name for the os-release identification data.
+pub const OSREL: &str = ".osrel";
 /// UKI sections in canonical order.
-pub const CANONICAL_ORDER: [&str; 3] = [CMDLINE, INITRD, KERNEL];
+pub const CANONICAL_ORDER: [&str; 4] = [CMDLINE, INITRD, KERNEL, OSREL];
 
 /// Parsed UKI sections from a PE image.
 #[derive(Debug)]
@@ -26,6 +28,8 @@ pub struct Sections<'a> {
     pub initrd: Option<&'a [u8]>,
     /// Optional command line bytes.
     pub cmdline: Option<&'a [u8]>,
+    /// Optional os-release bytes.
+    pub osrel: Option<&'a [u8]>,
 }
 
 impl<'a> Sections<'a> {
@@ -51,15 +55,24 @@ impl<'a> Sections<'a> {
         let mut kernel = None::<&'a [u8]>;
         let mut initrd = None::<&'a [u8]>;
         let mut cmdline = None::<&'a [u8]>;
+        let mut osrel = None::<&'a [u8]>;
 
         for (name, section_data) in items {
-            set_uki_section(name, section_data, &mut kernel, &mut initrd, &mut cmdline)?;
+            set_uki_section(
+                name,
+                section_data,
+                &mut kernel,
+                &mut initrd,
+                &mut cmdline,
+                &mut osrel,
+            )?;
         }
 
         Ok(Sections {
             kernel: kernel.ok_or(UkiError::InvalidPe("missing .kernel section"))?,
             initrd,
             cmdline,
+            osrel,
         })
     }
 
@@ -69,6 +82,7 @@ impl<'a> Sections<'a> {
             (KERNEL, Some(self.kernel)),
             (CMDLINE, self.cmdline),
             (INITRD, self.initrd),
+            (OSREL, self.osrel),
         ];
         sections.sort_by_key(|&(name, _data)| canonical_rank(name));
 
@@ -109,11 +123,13 @@ fn set_uki_section<'a>(
     kernel: &mut Option<&'a [u8]>,
     initrd: &mut Option<&'a [u8]>,
     cmdline: &mut Option<&'a [u8]>,
+    osrel: &mut Option<&'a [u8]>,
 ) -> Result<()> {
     match name {
         KERNEL => *kernel = Some(section_data),
         INITRD => *initrd = Some(section_data),
         CMDLINE => *cmdline = Some(section_data),
+        OSREL => *osrel = Some(section_data),
         _ => return Err(UkiError::InvalidPe("unexpected UKI section")),
     }
 

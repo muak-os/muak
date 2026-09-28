@@ -31,3 +31,9 @@ pub fn fake_initrd(size: usize) -> Vec<u8> {
 pub fn sample_cmdline() -> Vec<u8> {
     b"console=ttyS0 quiet".to_vec()
 }
+
+/// Generates a sample os-release document.
+#[must_use]
+pub fn sample_osrel() -> Vec<u8> {
+    b"ID=muak\nVERSION_ID=v1.2.3\n".to_vec()
+}
