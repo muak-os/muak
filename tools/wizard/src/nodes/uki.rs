@@ -1,6 +1,6 @@
 //! Builds the unified kernel image with yuki.
 
-use std::io::Read as _;
+use std::io::{Cursor, Read as _};
 
 use koci::pull;
 use uki::measure::MeasuredSection;
@@ -94,7 +94,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
             cmdline: input(UKI_CMDLINE)?,
             kernel: input(UKI_KERNEL)?,
             initramfs: input(UKI_INITRAMFS)?,
-            osrel: 0,
+            osrel: osrel_size(build.version())?,
         },
     )
     .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
@@ -114,13 +114,17 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
 fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
-    _ctx: &BuildContext<'_, '_>,
+    ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let mut stub = ports.input(UKI_STUB)?;
     let mut cmdline = ports.input(UKI_CMDLINE)?;
     let mut kernel = ports.input(UKI_KERNEL)?;
     let mut initramfs = ports.input(UKI_INITRAMFS)?;
     let mut output = ports.output(UKI_OUTPUT)?;
+
+    let osrel_len = osrel_size(ctx.build.version())?;
+    let osrel_text = osrel(ctx.build.version());
+    let mut osrel_reader = Cursor::new(&osrel_text);
 
     let probed = probe::probe(&mut stub.reader)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;
@@ -131,7 +135,7 @@ fn run(
             cmdline: cmdline.size,
             kernel: kernel.size,
             initramfs: initramfs.size,
-            osrel: 0,
+            osrel: osrel_size(ctx.build.version())?,
         },
     )
     .map_err(|e| WizardError::BuildError(format!("prepare UKI plan: {e}")))?;
@@ -151,8 +155,8 @@ fn run(
         input(&mut kernel),
         input(&mut initramfs),
         Input {
-            reader: &mut std::io::empty(),
-            size: 0,
+            reader: &mut osrel_reader,
+            size: osrel_len,
         },
         &mut output.writer,
     )
@@ -165,6 +169,15 @@ fn input<'b>(stream: &'b mut InputStream<'_>) -> Input<'b> {
         reader: &mut stream.reader,
         size: stream.size,
     }
+}
+
+fn osrel(version: &str) -> Vec<u8> {
+    format!("ID=muak\nVERSION_ID={version}\n").into_bytes()
+}
+
+fn osrel_size(version: &str) -> Result<u64> {
+    u64::try_from(osrel(version).len())
+        .map_err(|e| WizardError::BuildError(format!("osrel size overflow: {e}")))
 }
 
 fn to_measured_sections(sections: Vec<Section>) -> Vec<MeasuredSection> {

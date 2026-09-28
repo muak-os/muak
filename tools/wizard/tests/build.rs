@@ -328,6 +328,26 @@ digest = "{overlay}"
                 .all(|section| !section.name.is_empty() && section.hash != [0_u8; 32])
     }
 
+    /// Reads a named PE section's content from a UKI image on disk semantics.
+    fn measured_section_content(uki: &[u8], name: &str) -> Vec<u8> {
+        use object::LittleEndian as LE;
+        use object::read::pe::PeFile64;
+
+        let file = PeFile64::parse(uki).expect("uki should be a valid PE");
+        let header = file
+            .section_table()
+            .iter()
+            .find(|section| section.name.starts_with(name.as_bytes()))
+            .unwrap_or_else(|| panic!("section {name} should exist"));
+        let offset =
+            usize::try_from(header.pointer_to_raw_data.get(LE)).expect("offset fits usize");
+        let size = usize::try_from(header.virtual_size.get(LE)).expect("size fits usize");
+        let end = offset.checked_add(size).expect("section bounds overflow");
+        uki.get(offset..end)
+            .expect("section content should be in bounds")
+            .to_vec()
+    }
+
     /// Reads every member of a tar archive as `(path, content)` pairs.
     fn read_tar_members(tar_bytes: &[u8]) -> Vec<(std::path::PathBuf, Vec<u8>)> {
         let mut archive = tar::Archive::new(tar_bytes);
@@ -587,20 +607,31 @@ digest = "{overlay}"
         // ASSERT
         assert_eq!(measured, report.sections);
         let names: Vec<&str> = measured.iter().map(|section| section.name).collect();
-        let expected: Vec<&str> = uki::section::CANONICAL_ORDER
-            .iter()
-            .filter(|canonical| {
-                report
-                    .sections
-                    .iter()
-                    .any(|section| section.name == **canonical)
-            })
-            .copied()
-            .collect();
         assert_eq!(
-            names, expected,
+            names,
+            uki::section::CANONICAL_ORDER.to_vec(),
             "UKI section table must follow canonical measurement order"
         );
+    }
+
+    #[test]
+    fn uki_embeds_the_release_in_osrel() {
+        // ARRANGE
+        let _env = env();
+        let mut uki = Vec::new();
+
+        // ACT
+        Request::new(RELEASE)
+            .arch(Arch::Amd64)
+            .artifact(Artifact::Uki, &mut uki)
+            .expect("uki target")
+            .build(&base_profile())
+            .expect("build uki");
+
+        // ASSERT
+        let expected = format!("ID=muak\nVERSION_ID={RELEASE}\n");
+        let measured_osrel = measured_section_content(&uki, uki::section::OSREL);
+        assert_eq!(measured_osrel, expected.into_bytes());
     }
 
     #[test]
