@@ -225,11 +225,15 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     };
 
     if !has_update_marker() {
-        if let Err(e) = snapshot::restore(&update_id, &snapshot_path, "Uncommitted update reverted")
-        {
-            kmsg::warn!("Failed to revert uncommitted update {}: {:#}", update_id, e);
+        match snapshot::restore(&update_id, &snapshot_path, "Uncommitted update reverted") {
+            Ok(true) => cleanup_stale(),
+            Ok(false) => {
+                kmsg::warn!("Revert of {update_id} untracked; snapshot kept for next-boot retry");
+            }
+            Err(e) => {
+                kmsg::warn!("Failed to revert uncommitted update {}: {:#}", update_id, e);
+            }
         }
-        cleanup_stale();
         return Ok(());
     }
 
@@ -302,14 +306,11 @@ pub(super) fn update_config_version(update_id: &str, version: &str, author: &str
 
     let updated_config = config::serialize(&config).context("Failed to serialize config")?;
     let entry = Entry::new(update_id, author, ChangeKind::Update);
+
+    journal::append(&entry, &updated_config).context("Failed to append config journal entry")?;
+
     config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
-        .context("Failed to write updated config")?;
-
-    if let Err(e) = journal::append(&entry, &updated_config) {
-        eprintln!("Failed to append config journal entry: {e}");
-    }
-
-    Ok(())
+        .context("Failed to write updated config")
 }
 
 pub(super) fn update_config(
@@ -326,14 +327,11 @@ pub(super) fn update_config(
 
     let updated_config = config::serialize(&merged).context("Failed to serialize config")?;
     let entry = Entry::new(update_id, author, ChangeKind::Update);
+
+    journal::append(&entry, &updated_config).context("Failed to append config journal entry")?;
+
     config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
-        .context("Failed to write updated config")?;
-
-    if let Err(e) = journal::append(&entry, &updated_config) {
-        eprintln!("Failed to append config journal entry: {e}");
-    }
-
-    Ok(())
+        .context("Failed to write updated config")
 }
 
 pub(super) fn resolve_sb_hierarchy() -> Result<Bundle> {

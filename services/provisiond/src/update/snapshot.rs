@@ -65,8 +65,9 @@ pub fn read_config(snapshot_path: &Path) -> Result<config::SystemConfig> {
     config::parse_from_str(&contents).context("Failed to parse config snapshot")
 }
 
-/// Restores the system config from a snapshot file, overwriting the current, and records history.
-pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
+/// Restores the system config from a snapshot file, overwriting the current,
+/// and records the rollback. Returns `false` when the journal write failed.
+pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<bool> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
     config::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
         .context("Failed to restore config from snapshot")?;
@@ -74,11 +75,14 @@ pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()
     let failed_version = config::host().version.clone();
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
         .rolled_back(&failed_version, reason);
-    if let Err(e) = journal::append(&entry, &contents) {
-        eprintln!("Failed to append rollback journal entry: {e}");
-    }
 
-    Ok(())
+    match journal::append(&entry, &contents) {
+        Ok(()) => Ok(true),
+        Err(e) => {
+            kmsg::warn!("Rollback of {update_id} is untracked (journal write failed: {e})");
+            Ok(false)
+        }
+    }
 }
 
 fn generate_id() -> String {

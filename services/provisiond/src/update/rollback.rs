@@ -18,10 +18,13 @@ use super::snapshot;
 pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     kmsg::info!("Rolling back update {update_id}: {reason}");
 
-    snapshot::restore(update_id, snapshot_path, reason)?;
-
-    if let Err(e) = fs::remove_dir_all(Path::new(UPDATE_DIR)) {
-        eprintln!("Failed to cleanup update work dir: {e}");
+    let tracked = snapshot::restore(update_id, snapshot_path, reason)?;
+    if tracked {
+        if let Err(e) = fs::remove_dir_all(Path::new(UPDATE_DIR)) {
+            eprintln!("Failed to cleanup update work dir: {e}");
+        }
+    } else {
+        kmsg::warn!("Rollback of {update_id} untracked. Snapshot kept for next-boot retry");
     }
 
     sync();
