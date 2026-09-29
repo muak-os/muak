@@ -12,6 +12,16 @@ pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, na
     supervisor.state.primary.as_ref() == Some(name)
 }
 
+/// Returns true when the elected primary's interface is in `Failed` state.
+pub(super) fn is_primary_failed<N: Ops>(supervisor: &NetworkSupervisor<N>) -> bool {
+    supervisor
+        .state
+        .primary
+        .as_ref()
+        .and_then(|primary| supervisor.interfaces.get(primary))
+        .is_some_and(|handle| handle.state_rx.borrow().state == Lifecycle::Failed)
+}
+
 pub(super) fn is_interface_configured<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     name: &Name,

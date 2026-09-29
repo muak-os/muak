@@ -114,6 +114,14 @@ pub(super) async fn reconcile<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, co
     }
 }
 
+/// Marks the interface `Failed` once acquisition exhausted its attempts, letting
+/// the supervisor consider the primary dead and fail over to a backup.
+pub(super) fn acquisition_failed<N: Ops>(actor: &mut Actor<N>) {
+    kmsg::warn!("DHCP acquisition gave up on {}", actor.snapshot.name);
+    actor.dhcp = None;
+    actor.set_state(Lifecycle::Failed);
+}
+
 /// Applies a freshly acquired DHCP lease and clears the in-progress manager.
 pub(super) async fn acquired<N: Ops>(actor: &mut Actor<N>, lease: Lease) {
     actor.dhcp = None;

@@ -46,6 +46,7 @@ pub struct ActorHandle {
 enum ActorEvent {
     Command(Command),
     DhcpLease(Lease),
+    DhcpFailed,
     Slaac(SlaacEvent),
     Renew,
     Rebind,
@@ -190,6 +191,7 @@ async fn actor_loop<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &
         match event {
             ActorEvent::Command(cmd) => actor.dispatch(cmd, connector).await,
             ActorEvent::DhcpLease(lease) => dhcp::acquired(actor, lease).await,
+            ActorEvent::DhcpFailed => dhcp::acquisition_failed(actor),
             ActorEvent::Slaac(event) => slaac::handle_event(actor, event).await,
             ActorEvent::Renew => dhcp::renew_lease(actor, connector).await,
             ActorEvent::Rebind => dhcp::rebind_lease(actor, connector).await,
@@ -218,8 +220,14 @@ async fn actor_select(
         if let core::task::Poll::Ready(Some(cmd)) = cmd_fut.as_mut().poll(cx) {
             return core::task::Poll::Ready(Some(ActorEvent::Command(cmd)));
         }
-        if let core::task::Poll::Ready(lease) = dhcp_fut.as_mut().poll(cx) {
-            return core::task::Poll::Ready(Some(ActorEvent::DhcpLease(lease)));
+        match dhcp_fut.as_mut().poll(cx) {
+            core::task::Poll::Ready(Some(lease)) => {
+                return core::task::Poll::Ready(Some(ActorEvent::DhcpLease(lease)));
+            }
+            core::task::Poll::Ready(None) => {
+                return core::task::Poll::Ready(Some(ActorEvent::DhcpFailed));
+            }
+            core::task::Poll::Pending => {}
         }
         if let core::task::Poll::Ready(event) = slaac_fut.as_mut().poll(cx) {
             return core::task::Poll::Ready(Some(ActorEvent::Slaac(event)));
@@ -258,9 +266,10 @@ async fn slaac_next_event(slaac: &mut Option<SlaacManager>) -> SlaacEvent {
 }
 
 /// Drives a `Manager` when `Some`, or parks forever when `None`.
-async fn dhcp_acquire(dhcp: &mut Option<Manager>) -> Lease {
+/// Returns `None` when acquisition gave up after exhausting its attempts.
+async fn dhcp_acquire(dhcp: &mut Option<Manager>) -> Option<Lease> {
     match dhcp.as_mut() {
-        Some(mgr) => mgr.acquire().await,
+        Some(mgr) => mgr.acquire().await.ok(),
         None => core::future::pending().await,
     }
 }

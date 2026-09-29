@@ -7,7 +7,6 @@ use networkd::interface::commands::ApplyMode;
 use tokio::time::sleep;
 
 use super::*;
-
 #[tokio::test]
 async fn link_down_on_configured_transitions_to_degraded() {
     // ARRANGE
@@ -223,4 +222,67 @@ async fn link_up_after_link_down_publishes_snapshot() {
     // ASSERT
     let snap = handle.state_rx.borrow().clone();
     assert_eq!(snap.link, State::Up);
+}
+
+#[tokio::test]
+async fn link_down_on_configuring_transitions_to_failed() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    let idx = mock.add_link("eth6", [0x66; 6], true);
+    let snapshot = make_snapshot(Name::new("eth6").expect("valid name"), idx, [0x66; 6]);
+    let handle = Actor::spawn_with(snapshot, mock, make_config(), MockDhcpConnector);
+
+    handle
+        .cmd_tx
+        .send(Command::ConfigureDhcp {
+            mode: ApplyMode::Provision,
+        })
+        .await
+        .expect("send failed");
+    wait_for_state(&handle, Lifecycle::Configuring).await;
+
+    // ACT
+    handle
+        .cmd_tx
+        .send(Command::LinkDown)
+        .await
+        .expect("send failed");
+
+    // ASSERT
+    wait_for_state(&handle, Lifecycle::Failed).await;
+}
+
+#[tokio::test]
+async fn link_up_on_failed_restarts_acquisition() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    let idx = mock.add_link("eth7", [0x77; 6], true);
+    let snapshot = make_snapshot(Name::new("eth7").expect("valid name"), idx, [0x77; 6]);
+    let handle = Actor::spawn_with(snapshot, mock, make_config(), MockDhcpConnector);
+
+    handle
+        .cmd_tx
+        .send(Command::ConfigureDhcp {
+            mode: ApplyMode::Provision,
+        })
+        .await
+        .expect("send failed");
+    wait_for_state(&handle, Lifecycle::Configuring).await;
+
+    handle
+        .cmd_tx
+        .send(Command::LinkDown)
+        .await
+        .expect("send failed");
+    wait_for_state(&handle, Lifecycle::Failed).await;
+
+    // ACT
+    handle
+        .cmd_tx
+        .send(Command::LinkUp)
+        .await
+        .expect("send failed");
+
+    // ASSERT
+    wait_for_state(&handle, Lifecycle::Configuring).await;
 }

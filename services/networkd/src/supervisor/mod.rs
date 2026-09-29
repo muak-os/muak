@@ -318,10 +318,24 @@ async fn supervisor_loop<N: Ops>(
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
             SupervisorEvent::Netlink(event) => dispatch::handle_event(&mut supervisor, event).await,
-            SupervisorEvent::PrimaryChanged => supervisor.flush_dns(),
+            SupervisorEvent::PrimaryChanged => {
+                maybe_failover_primary(&mut supervisor).await;
+                supervisor.flush_dns();
+            }
             SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
     }
+}
+
+// Fails over when the elected primary's interface exhausted its DHCP attempts.
+async fn maybe_failover_primary<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
+    if !failover::is_primary_failed(supervisor) {
+        return;
+    }
+    let Some(primary) = supervisor.state.primary.clone() else {
+        return;
+    };
+    failover::handle_primary_failure(supervisor, &primary).await;
 }
 
 /// Waits for the next command, netlink event, primary snapshot change, or reconcile tick.
