@@ -122,14 +122,58 @@ pub async fn handle(
     wait_for_update_completion(ctx, &update_id, steps).await
 }
 
-/// Outcome of a single update-status poll.
 enum PollOutcome {
     Done,
     Failed(String),
-    Retry,
+    Pending,
+    Unknown,
+    Unreachable(String),
 }
 
-/// Polls the server until the update reaches a terminal state.
+const UNKNOWN_WARN_THRESHOLD: u32 = 30;
+
+struct PollFeedback {
+    unreachable: u32,
+    unknown: u32,
+    unknown_warned: bool,
+}
+
+impl PollFeedback {
+    fn on_pending(&mut self, steps: &ui::steps::Steps) {
+        if self.unreachable > 0 {
+            steps.start(format!(
+                "Update pending (reachable again after {} failed poll(s))",
+                self.unreachable
+            ));
+        }
+        self.unreachable = 0;
+        self.unknown = 0;
+        self.unknown_warned = false;
+    }
+
+    fn on_unknown(&mut self, steps: &ui::steps::Steps, update_id: &str) {
+        self.unreachable = 0;
+        self.unknown = self.unknown.saturating_add(1);
+        if self.unknown >= UNKNOWN_WARN_THRESHOLD && !self.unknown_warned {
+            self.unknown_warned = true;
+            steps.start(format!(
+                "Server does not recognize update {update_id}; it may have rolled \
+                 back without a journal entry. Check 'muakctl rollback history'."
+            ));
+        }
+    }
+
+    fn on_unreachable(&mut self, steps: &ui::steps::Steps, err: &str) {
+        self.unreachable = self.unreachable.saturating_add(1);
+        if self.unreachable == 1 || self.unreachable.is_multiple_of(5) {
+            steps.start(format!(
+                "Waiting for system ({} failed polls): {err}",
+                self.unreachable
+            ));
+        }
+    }
+}
+
 async fn wait_for_update_completion(
     ctx: &ServerContext,
     update_id: &str,
@@ -138,12 +182,21 @@ async fn wait_for_update_completion(
     let timeout = Duration::from_mins(5);
     let poll_interval = Duration::from_secs(2);
     let start = Instant::now();
+    let mut feedback = PollFeedback {
+        unreachable: 0,
+        unknown: 0,
+        unknown_warned: false,
+    };
 
     loop {
         if start.elapsed() > timeout {
             steps.fail("Timeout waiting for system to come back online after update");
             steps.finish().await;
-            return Err(anyhow::anyhow!("Timed out waiting for update to complete"));
+            return Err(anyhow::anyhow!(
+                "Timed out waiting for update {update_id} to complete. The machine may \
+                 still be booting, or may have rolled back - check `muakctl rollback \
+                 history` and `muakctl config history`."
+            ));
         }
 
         match poll_update_status(ctx, update_id, &steps).await {
@@ -156,21 +209,23 @@ async fn wait_for_update_completion(
                 steps.finish().await;
                 return Err(anyhow::anyhow!("{msg}"));
             }
-            PollOutcome::Retry => {
-                sleep(poll_interval).await;
-            }
+            PollOutcome::Pending => feedback.on_pending(&steps),
+            PollOutcome::Unknown => feedback.on_unknown(&steps, update_id),
+            PollOutcome::Unreachable(err) => feedback.on_unreachable(&steps, &err),
         }
+
+        sleep(poll_interval).await;
     }
 }
 
-/// Polls the update status once and decides whether to keep waiting.
 async fn poll_update_status(
     ctx: &ServerContext,
     update_id: &str,
     steps: &ui::steps::Steps,
 ) -> PollOutcome {
-    let Ok(channel) = connect(ctx, 10).await else {
-        return PollOutcome::Retry;
+    let channel = match connect(ctx, 10).await {
+        Ok(channel) => channel,
+        Err(err) => return PollOutcome::Unreachable(format!("connect failed: {err}")),
     };
 
     let mut client = ProvisionServiceClient::new(channel);
@@ -180,7 +235,7 @@ async fn poll_update_status(
 
     let resp = match client.get_update_status(request).await {
         Ok(response) => response.into_inner(),
-        Err(_) => return PollOutcome::Retry,
+        Err(err) => return PollOutcome::Unreachable(format!("status rpc failed: {err}")),
     };
 
     match UpdateStatus::try_from(resp.status).unwrap_or(UpdateStatus::Unknown) {
@@ -194,11 +249,11 @@ async fn poll_update_status(
             steps.fail(&msg);
             PollOutcome::Failed(msg)
         }
-        UpdateStatus::Pending | UpdateStatus::Unknown => PollOutcome::Retry,
+        UpdateStatus::Pending => PollOutcome::Pending,
+        UpdateStatus::Unknown => PollOutcome::Unknown,
     }
 }
 
-/// Fetches and parses the installed config from the server.
 async fn fetch_installed_config(
     client: &mut ProvisionServiceClient<Channel>,
 ) -> Result<config::SystemConfig> {
