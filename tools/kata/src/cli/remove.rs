@@ -24,8 +24,8 @@ pub struct Args {
     #[arg(long, value_name = "PATH", default_value = ".")]
     dir: std::path::PathBuf,
 
-    /// Release line.
-    #[arg(long)]
+    /// Release line (defaults to this binary's version).
+    #[arg(long, default_value = kata::version::LINE)]
     release: String,
 }
 
@@ -83,5 +83,18 @@ mod tests {
         assert_eq!(removed.kind, "overlays");
         assert_eq!(removed.name.as_deref(), Some("rpi_5"));
         assert_eq!(removed.release, "v1.2.0");
+    }
+
+    #[test]
+    fn remove_defaults_release_to_the_baked_line() {
+        // ARRANGE / ACT
+        let args = CliArgs::try_parse_from(["kata", "remove", "--kind", "kernel"])
+            .expect("parse remove args");
+
+        // ASSERT
+        let Command::Remove(removed) = args.command else {
+            panic!("expected remove command");
+        };
+        assert_eq!(removed.release, kata::version::LINE);
     }
 }

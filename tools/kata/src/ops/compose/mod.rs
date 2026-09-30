@@ -12,6 +12,7 @@ use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
+use crate::version;
 
 pub(crate) mod auto;
 pub(crate) mod lines;
@@ -71,10 +72,14 @@ pub struct Input {
 ///
 /// Returns an error when the lineage or publication gates refuse the
 /// composition, a selection or carried pin cannot be resolved, or a document
-/// fails verification. Nothing is written when any gate or verification
-/// fails.
+/// fails verification. Nothing is written when any gate or verification fails.
 pub fn run(input: &Input) -> Result<Vec<String>> {
     validate_release(&input.release)?;
+    version::ensure_line(
+        &input.release,
+        repository::document_path(Kind::Core, &input.dir, &input.release).exists(),
+        input.force,
+    )?;
 
     let carried = carried_documents(
         input.from.as_ref(),

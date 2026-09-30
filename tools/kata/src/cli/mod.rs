@@ -16,6 +16,7 @@ const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 struct Args {
     #[command(subcommand)]
     command: Command,

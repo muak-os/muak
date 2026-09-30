@@ -85,6 +85,23 @@ jobs:
             echo "tag=$(git describe --tag --always --dirty --match v[0-9]* 2>/dev/null || echo dev)" >> $GITHUB_OUTPUT
           fi
 
+      - name: Release tag matches Cargo.toml
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          case "$tag" in
+            dev | *-dirty* | *-[0-9]-g*)
+              echo "Non-release tag '$tag': version check skipped"
+              exit 0
+              ;;
+          esac
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [[ "$tag" != "v${cargo_version}" ]]; then
+            echo "::error::Release tag '$tag' does not match Cargo.toml version 'v${cargo_version}'"
+            exit 1
+          fi
+          echo "Release tag '$tag' matches Cargo.toml version 'v${cargo_version}'"
+
       - name: Build ${{ inputs.image }} (${{ matrix.arch }})
         run: |
           CONTAINER_RUNTIME=docker \

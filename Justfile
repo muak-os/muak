@@ -137,11 +137,11 @@ catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
     mkdir -p "{{ absolute_path(out) }}/catalog"
     printf "{{ cyan }}Seeding scratch catalog line {{ tag }}{{ reset }}\n"
     just _kata add --kind kernel --source muak-os/linux --repository linux \
-        --tag "{{ kernel_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
+        --tag "{{ kernel_tag }}" --release "{{ tag }}" --force --registry {{ registry }} --dir /data
     just _kata add --kind stub --source muak-os/stub --repository stub \
-        --tag "{{ stub_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
+        --tag "{{ stub_tag }}" --release "{{ tag }}" --force --registry {{ registry }} --dir /data
     just _kata add --kind installer --source muak-os/muak --repository installer \
-        --tag "{{ installer_tag }}" --release "{{ tag }}" --registry {{ registry }} --dir /data
+        --tag "{{ installer_tag }}" --release "{{ tag }}" --force --registry {{ registry }} --dir /data
     just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data --channel stable
     printf "{{ green }}Scratch line seeded: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 

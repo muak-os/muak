@@ -13,6 +13,7 @@ use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
+use crate::version;
 
 const DOCUMENT_PATH: &str = "catalog.toml";
 
@@ -37,6 +38,12 @@ pub fn run(
     validate_release(release)?;
     for channel in channels {
         validate_release(channel)?;
+    }
+    if !force {
+        let core = super::reference(registry, Kind::Core.repository(), release);
+        let line_published = registry::manifest_exists(&core)
+            .map_err(|error| KataError::Registry(error.to_string()))?;
+        version::ensure_line(release, line_published, false)?;
     }
     let kinds = match kind {
         Some(kind) => vec![kind],
@@ -218,7 +225,6 @@ mod tests {
         // ACT / ASSERT
         assert!(ensure_channel_forward("stable", "v1.2.0", "v1.1.0").is_err());
         assert!(ensure_channel_forward("stable", "v1.2.0", "v1.1.0-beta").is_err());
-        // A pre-release below its own already-served release is a backwards move.
         assert!(ensure_channel_forward("beta", "v1.2.0", "v1.2.0-beta").is_err());
     }
 
