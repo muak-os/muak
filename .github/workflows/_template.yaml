@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           tag="${{ steps.tag.outputs.tag }}"
           case "$tag" in
-            dev | *-dirty* | *-[0-9]-g*)
+            dev | *-dirty* | *-[0-9]*-g*)
               echo "Non-release tag '$tag': version check skipped"
               exit 0
               ;;
