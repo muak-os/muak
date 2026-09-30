@@ -9,6 +9,7 @@ use oci::arch::Arch;
 
 mod annotate;
 mod copy;
+mod digest;
 mod merge;
 mod pull;
 mod push;
@@ -32,6 +33,7 @@ enum Command {
     Merge(merge::Args),
     Push(push::Args),
     Copy(copy::Args),
+    Digest(digest::Args),
 }
 
 /// Run the CLI from a caller-provided argument iterator.
@@ -77,6 +79,7 @@ fn run_command(command: Command) -> Result<()> {
         Command::Merge(args) => merge::run(args),
         Command::Push(args) => push::run(args),
         Command::Copy(args) => copy::run(args),
+        Command::Digest(args) => digest::run(args),
     }
 }
 
