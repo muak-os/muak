@@ -17,7 +17,7 @@ pub fn ensure_line(release: &str, line_exists: bool, bypass: bool) -> Result<()>
 
     Err(KataError::Version(format!(
         "refusing to create line '{release}' with the {LINE} tools image; \
-         tag and release '{release}' first, or pass --force for a dev scratch line"
+         tag and release '{release}' first, or pass --force."
     )))
 }
 

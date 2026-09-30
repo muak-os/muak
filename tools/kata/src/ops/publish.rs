@@ -88,7 +88,7 @@ fn ensure_channel_forward(channel: &str, served: &str, release: &str) -> Result<
 
     if new_version < served_version {
         return Err(KataError::Gate(format!(
-            "channel '{channel}' would move backwards: '{served}' → '{release}'"
+            "channel '{channel}' would move backwards: '{served}' → '{release}'; pass --force."
         )));
     }
 
@@ -118,7 +118,7 @@ fn check_monotonic(kind: Kind, document: &Document, served: &Document) -> Result
             Some(existing) if existing != check => {
                 return Err(KataError::Gate(format!(
                     "published entry '{identity}' changed ({} {} → {} {}); \
-                     published pins never change — compose a new line",
+                     published pins never change. Compose a new line, or pass --force",
                     existing.tag, existing.digest, check.tag, check.digest
                 )));
             }
@@ -129,7 +129,7 @@ fn check_monotonic(kind: Kind, document: &Document, served: &Document) -> Result
     if !served_entries.is_empty() {
         let removed: Vec<String> = served_entries.into_keys().collect();
         return Err(KataError::Gate(format!(
-            "published entries would be removed: {} — removals land in the next line",
+            "published entries would be removed: {}. Removals land in the next line, or pass --force.",
             removed.join(", ")
         )));
     }
