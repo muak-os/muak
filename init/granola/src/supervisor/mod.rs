@@ -237,6 +237,7 @@ mod tests {
     use std::sync::Mutex;
 
     use anyhow::Result;
+    use granola::runtime::notify::Health;
     use tempfile::TempDir;
     use tokio::sync::Notify;
 
@@ -554,12 +555,102 @@ mod tests {
             &mut sup,
             ServiceNotification::StatusUpdate {
                 service_name: "svc".to_owned(),
-                new_status: ServiceStatus::Degraded,
+                status_text: "Sync failed".to_owned(),
+                health: Health::Degraded,
             },
         );
 
         // ASSERT
         assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Degraded));
+    }
+
+    #[tokio::test]
+    async fn apply_healthy_status_update_preserves_lifecycle_status() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", &[])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        notify::apply(
+            &mut sup,
+            ServiceNotification::StatusUpdate {
+                service_name: "svc".to_owned(),
+                status_text: "Synchronized".to_owned(),
+                health: Health::Healthy,
+            },
+        );
+
+        // ASSERT
+        let state = sup.services.get("svc").expect("svc exists");
+        assert_eq!(state.status, ServiceStatus::Pending);
+        assert_eq!(
+            state.last_status,
+            Some(("Synchronized".to_owned(), Health::Healthy))
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_identical_status_update_deduplicates_last_status() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", &[])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+        let notification = || ServiceNotification::StatusUpdate {
+            service_name: "svc".to_owned(),
+            status_text: "Synchronized".to_owned(),
+            health: Health::Healthy,
+        };
+
+        // ACT
+        notify::apply(&mut sup, notification());
+        let first = sup
+            .services
+            .get("svc")
+            .expect("svc exists")
+            .last_status
+            .clone();
+        notify::apply(&mut sup, notification());
+
+        // ASSERT
+        let state = sup.services.get("svc").expect("svc exists");
+        assert_eq!(first, Some(("Synchronized".to_owned(), Health::Healthy)));
+        assert_eq!(state.last_status, first);
+    }
+
+    #[tokio::test]
+    async fn apply_healthy_status_after_degraded_restores_ready() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", &[])];
+        let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+        notify::apply(
+            &mut sup,
+            ServiceNotification::StatusUpdate {
+                service_name: "svc".to_owned(),
+                status_text: "Sync failed".to_owned(),
+                health: Health::Degraded,
+            },
+        );
+
+        // ACT
+        notify::apply(
+            &mut sup,
+            ServiceNotification::StatusUpdate {
+                service_name: "svc".to_owned(),
+                status_text: "Synchronized".to_owned(),
+                health: Health::Healthy,
+            },
+        );
+
+        // ASSERT
+        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Ready));
     }
 
     #[tokio::test]

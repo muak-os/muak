@@ -19,7 +19,8 @@ pub enum ServiceNotification {
     },
     StatusUpdate {
         service_name: String,
-        new_status: ServiceStatus,
+        status_text: String,
+        health: Health,
     },
     Stopping {
         service_name: String,
@@ -75,9 +76,10 @@ pub(super) fn apply<S: Spawn, R: Reap>(
         }
         ServiceNotification::StatusUpdate {
             service_name,
-            new_status,
+            status_text,
+            health,
         } => {
-            apply_status_update(supervisor, &service_name, new_status);
+            apply_status_update(supervisor, &service_name, &status_text, health);
         }
         ServiceNotification::Stopping { service_name } => {
             apply_stopping(supervisor, &service_name);
@@ -95,14 +97,35 @@ fn apply_ready<S: Spawn, R: Reap>(supervisor: &mut Supervisor<S, R>, service_nam
     state.restart_count = 0;
 }
 
-/// Records a status update for a service.
+/// Records a status update for a service, logging only transitions.
 fn apply_status_update<S: Spawn, R: Reap>(
     supervisor: &mut Supervisor<S, R>,
     service_name: &str,
-    new_status: ServiceStatus,
+    status_text: &str,
+    health: Health,
 ) {
-    if let Some(state) = supervisor.services.get_mut(service_name) {
-        state.status = new_status;
+    let Some(state) = supervisor.services.get_mut(service_name) else {
+        return;
+    };
+    if state
+        .last_status
+        .as_ref()
+        .is_some_and(|last| last.0 == status_text && last.1 == health)
+    {
+        return;
+    }
+    match health {
+        Health::Healthy => kmsg::info!("Service {service_name} status: {status_text}"),
+        Health::Degraded => kmsg::warn!("Service {service_name} status: {status_text}"),
+        Health::Unhealthy => kmsg::error!("Service {service_name} status: {status_text}"),
+    }
+    state.last_status = Some((status_text.to_owned(), health));
+    if health == Health::Healthy {
+        if state.status == ServiceStatus::Degraded {
+            state.status = ServiceStatus::Ready;
+        }
+    } else {
+        state.status = ServiceStatus::Degraded;
     }
 }
 
@@ -149,14 +172,11 @@ fn parse_notification(text: &str) -> Option<ServiceNotification> {
 
     if let Some(msg) = status_msg {
         let health = health.unwrap_or(Health::Healthy);
-        kmsg::info!("Service {} status: {} (health: {:?})", name, msg, health);
-        if health == Health::Degraded {
-            return Some(ServiceNotification::StatusUpdate {
-                service_name: name,
-                new_status: ServiceStatus::Degraded,
-            });
-        }
-        return None;
+        return Some(ServiceNotification::StatusUpdate {
+            service_name: name,
+            status_text: msg.to_owned(),
+            health,
+        });
     }
 
     if let Some(reason) = stopping_reason {
@@ -213,17 +233,19 @@ mod tests {
         // ASSERT
         let Some(ServiceNotification::StatusUpdate {
             service_name,
-            new_status,
+            status_text,
+            health,
         }) = result
         else {
             panic!("expected StatusUpdate notification");
         };
         assert_eq!(service_name, "myservice");
-        assert_eq!(new_status, ServiceStatus::Degraded);
+        assert_eq!(status_text, "Things are bad");
+        assert_eq!(health, Health::Degraded);
     }
 
     #[test]
-    fn status_update_healthy_returns_none() {
+    fn status_update_healthy_is_forwarded() {
         // ARRANGE
         let text = "SERVICE_NAME=myservice\nSTATUS=All good\nHEALTH=healthy";
 
@@ -231,11 +253,20 @@ mod tests {
         let result = parse_notification(text);
 
         // ASSERT
-        assert!(result.is_none());
+        let Some(ServiceNotification::StatusUpdate {
+            status_text,
+            health,
+            ..
+        }) = result
+        else {
+            panic!("expected StatusUpdate notification");
+        };
+        assert_eq!(status_text, "All good");
+        assert_eq!(health, Health::Healthy);
     }
 
     #[test]
-    fn status_update_unhealthy_returns_none() {
+    fn status_update_unhealthy_is_forwarded() {
         // ARRANGE
         let text = "SERVICE_NAME=myservice\nSTATUS=Very bad\nHEALTH=unhealthy";
 
@@ -243,11 +274,20 @@ mod tests {
         let result = parse_notification(text);
 
         // ASSERT
-        assert!(result.is_none());
+        let Some(ServiceNotification::StatusUpdate {
+            status_text,
+            health,
+            ..
+        }) = result
+        else {
+            panic!("expected StatusUpdate notification");
+        };
+        assert_eq!(status_text, "Very bad");
+        assert_eq!(health, Health::Unhealthy);
     }
 
     #[test]
-    fn status_without_health_defaults_to_healthy_returns_none() {
+    fn status_without_health_defaults_to_healthy() {
         // ARRANGE
         let text = "SERVICE_NAME=myservice\nSTATUS=Some status";
 
@@ -255,7 +295,10 @@ mod tests {
         let result = parse_notification(text);
 
         // ASSERT
-        assert!(result.is_none());
+        let Some(ServiceNotification::StatusUpdate { health, .. }) = result else {
+            panic!("expected StatusUpdate notification");
+        };
+        assert_eq!(health, Health::Healthy);
     }
 
     #[test]

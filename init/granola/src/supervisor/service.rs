@@ -1,6 +1,7 @@
 use std::os::fd::OwnedFd;
 use std::time::Instant;
 
+use granola::runtime::notify::Health;
 use serde::Deserialize;
 
 /// Blueprint for a supervised service.
@@ -81,6 +82,7 @@ pub struct ServiceState {
     pub listener_fd: Option<OwnedFd>,
     pub restart_count: u32,
     pub last_restart: Option<Instant>,
+    pub last_status: Option<(String, Health)>,
 }
 
 impl ServiceState {
@@ -92,6 +94,7 @@ impl ServiceState {
             listener_fd: None,
             restart_count: 0,
             last_restart: None,
+            last_status: None,
         }
     }
 }
