@@ -9,14 +9,12 @@ use kata::schema::kinds::Kind;
 use kata::schema::view::Role;
 use kata::version;
 
-use super::registry_prefix;
-
 /// Arguments of the `add` subcommand.
 #[derive(clap::Args, Debug)]
 pub struct Args {
-    /// Entry kind: kernel, stub, installer, overlays, or extensions.
+    /// Entry role: kernel, stub, installer, overlays, or extensions.
     #[arg(long)]
-    kind: String,
+    role: String,
 
     /// Logical source of the payload repository.
     #[arg(long)]
@@ -34,10 +32,6 @@ pub struct Args {
     #[arg(long)]
     name: Option<String>,
 
-    /// Digest claimed by the announcing payload.
-    #[arg(long, value_name = "DIGEST")]
-    digest: Option<String>,
-
     /// Release line to write into (defaults to this binary's version).
     #[arg(long, default_value = kata::version::LINE)]
     release: String,
@@ -49,28 +43,22 @@ pub struct Args {
     /// Catalog repository root.
     #[arg(long, value_name = "PATH", default_value = ".")]
     dir: PathBuf,
-
-    /// Registry prefix.
-    #[arg(long)]
-    registry: Option<String>,
 }
 
 /// Execute the `add` subcommand.
 pub(crate) fn run(args: Args) -> Result<()> {
     let Args {
-        kind,
+        role,
         source,
         repository,
         tag,
         name,
-        digest,
         release,
         dir,
-        registry,
         force,
     } = args;
 
-    let role = Role::parse(&kind).context("Invalid kind")?;
+    let role = Role::parse(&role).context("Invalid role")?;
     version::ensure_line(
         &release,
         repository::document_path(Kind::Core, &dir, &release).exists(),
@@ -83,8 +71,6 @@ pub(crate) fn run(args: Args) -> Result<()> {
         source,
         repository,
         tag,
-        claimed_digest: digest,
-        registry: registry_prefix(registry.as_deref()),
     };
 
     let path = add::run(&dir, &input).context("Failed to add entry")?;
@@ -100,12 +86,12 @@ mod tests {
     use crate::cli::{Args as CliArgs, Command};
 
     #[test]
-    fn add_parses_kind_entry_fields_and_claim() {
+    fn add_parses_role_and_entry_fields() {
         // ARRANGE / ACT
         let args = CliArgs::try_parse_from([
             "kata",
             "add",
-            "--kind",
+            "--role",
             "overlays",
             "--source",
             "muak-os/sbc-raspberrypi",
@@ -115,8 +101,6 @@ mod tests {
             "v0.4.1",
             "--name",
             "rpi_generic",
-            "--digest",
-            "sha256:abc",
             "--release",
             "v1.2.3",
         ])
@@ -126,12 +110,11 @@ mod tests {
         let Command::Add(add) = args.command else {
             panic!("expected add command");
         };
-        assert_eq!(add.kind, "overlays");
+        assert_eq!(add.role, "overlays");
         assert_eq!(add.source, "muak-os/sbc-raspberrypi");
         assert_eq!(add.repository, "sbc/raspberrypi");
         assert_eq!(add.tag, "v0.4.1");
         assert_eq!(add.name.as_deref(), Some("rpi_generic"));
-        assert_eq!(add.digest.as_deref(), Some("sha256:abc"));
         assert_eq!(add.release, "v1.2.3");
     }
 
@@ -141,7 +124,7 @@ mod tests {
         let args = CliArgs::try_parse_from([
             "kata",
             "add",
-            "--kind",
+            "--role",
             "kernel",
             "--source",
             "muak-os/linux",

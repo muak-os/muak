@@ -17,41 +17,30 @@ use crate::version;
 
 const DOCUMENT_PATH: &str = "catalog.toml";
 
-/// Publish one kind's catalog image, or every kind with a document for the
-/// release when `kind` is [`None`], moving each `channels` tag to it.
+/// Publish every kind's catalog image with a document for `release`, moving
+/// each `channels` tag to it.
 ///
 /// # Errors
 ///
-/// Returns an error when the root is unusable, no document exists, a document
-/// is not canonical, an entry fails verification, a published line would be
-/// mutated, a channel would move backwards, or the registry push fails.
-pub fn run(
-    root: &Path,
-    release: &str,
-    kind: Option<Kind>,
-    registry: &str,
-    channels: &[String],
-    arch: Arch,
-    force: bool,
-) -> Result<Vec<String>> {
+/// Returns an error when the root is unusable, no document exists, a document is not canonical,
+/// an entry fails verification, a published line would be mutated, a channel would move backwards,
+/// or the registry push fails.
+pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Result<Vec<String>> {
     repository::require_root(root)?;
     validate_release(release)?;
     for channel in channels {
         validate_release(channel)?;
     }
     if !force {
-        let core = super::reference(registry, Kind::Core.repository(), release);
+        let core = super::reference(Kind::Core.dir(), release);
         let line_published = registry::manifest_exists(&core)
             .map_err(|error| KataError::Registry(error.to_string()))?;
         version::ensure_line(release, line_published, false)?;
     }
-    let kinds = match kind {
-        Some(kind) => vec![kind],
-        None => Kind::all()
-            .into_iter()
-            .filter(|kind| repository::document_path(*kind, root, release).exists())
-            .collect(),
-    };
+    let kinds: Vec<Kind> = Kind::all()
+        .into_iter()
+        .filter(|kind| repository::document_path(*kind, root, release).exists())
+        .collect();
     if kinds.is_empty() {
         return Err(KataError::Document(format!(
             "no catalog documents found for {release}"
@@ -60,9 +49,7 @@ pub fn run(
 
     let mut published = Vec::new();
     for kind in kinds {
-        published.push(publish_one(
-            root, release, kind, registry, channels, arch, force,
-        )?);
+        published.push(publish_one(root, release, kind, channels, force)?);
     }
 
     Ok(published)
@@ -108,8 +95,8 @@ fn ensure_channel_forward(channel: &str, served: &str, release: &str) -> Result<
     Ok(())
 }
 
-fn check_channel_forward(kind: Kind, registry: &str, release: &str, channel: &str) -> Result<()> {
-    let reference = format!("{registry}/{}:{channel}", kind.repository());
+fn check_channel_forward(kind: Kind, release: &str, channel: &str) -> Result<()> {
+    let reference = super::reference(kind.dir(), channel);
     let Some(bytes) = fetch_document_bytes(&reference)? else {
         return Ok(());
     };
@@ -154,9 +141,7 @@ fn publish_one(
     root: &Path,
     release: &str,
     kind: Kind,
-    registry: &str,
     channels: &[String],
-    arch: Arch,
     force: bool,
 ) -> Result<String> {
     let document = repository::load(kind, root, release)?;
@@ -168,9 +153,9 @@ fn publish_one(
         )));
     }
 
-    verify::verify_document(&document, registry)?;
+    verify::verify_document(&document)?;
 
-    let line_reference = format!("{registry}/{}:{release}", kind.repository());
+    let line_reference = super::reference(kind.dir(), release);
     let line_published = registry::manifest_exists(&line_reference)
         .map_err(|error| KataError::Registry(error.to_string()))?;
 
@@ -183,17 +168,17 @@ fn publish_one(
 
     if !force {
         for channel in channels {
-            check_channel_forward(kind, registry, release, channel)?;
+            check_channel_forward(kind, release, channel)?;
         }
     }
 
-    let image = format!("{registry}/{}", kind.repository());
+    let image = format!("{}/{}", super::registry(), kind.dir());
     let mut tags = vec![release.to_owned()];
     tags.extend(channels.iter().cloned());
     let pushed = push::files(
         &image,
         &tags,
-        &arch,
+        &Arch::Amd64,
         &[push::Entry {
             path: "catalog.toml".to_owned(),
             source: repository::document_path(kind, root, release),

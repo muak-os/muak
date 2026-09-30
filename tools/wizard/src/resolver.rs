@@ -155,7 +155,7 @@ fn fetch(kind: Kind, release: &str, registry: &str) -> Result<Document> {
 }
 
 fn fetch_tag(kind: Kind, tag: &str, registry: &str) -> Result<Document> {
-    let reference = format!("{registry}/{}:{tag}", kind.repository());
+    let reference = format!("{registry}/{}:{tag}", kind.dir());
     let mut document: Option<Vec<u8>> = None;
     koci::pull::files(&reference, &Arch::Amd64, None, |entry| {
         if entry.path == DOCUMENT_PATH {

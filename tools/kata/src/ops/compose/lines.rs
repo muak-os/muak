@@ -1,13 +1,8 @@
 //! Release line discovery and ordering.
 
-use alloc::collections::BTreeSet;
 use std::cmp::Ordering;
 use std::path::Path;
 
-use crate::error::Result;
-use crate::repository;
-use crate::schema::documents::{CoreDocument, Document};
-use crate::schema::entries::NamedEntry;
 use crate::schema::kinds::Kind;
 
 /// Lines present in a docs root, oldest first, unparsable lines are ignored.
@@ -60,51 +55,6 @@ pub(crate) fn compare(left: &str, right: &str) -> Ordering {
             (Some(_), None) => Ordering::Less,
             (Some(left_pre), Some(right_pre)) => left_pre.cmp(&right_pre),
         })
-}
-
-/// Entry identities (`kind/identity`) of every document of a line.
-///
-/// # Errors
-///
-/// Returns an error when a document exists but cannot be loaded.
-pub(crate) fn identities(root: &Path, line: &str) -> Result<BTreeSet<String>> {
-    let mut identities = BTreeSet::new();
-
-    for kind in Kind::all() {
-        if !repository::document_path(kind, root, line).exists() {
-            continue;
-        }
-        let document = repository::load(kind, root, line)?;
-        match document {
-            Document::Core(core) => insert_core(&mut identities, &core),
-            Document::Overlays(overlays) => {
-                insert_named(&mut identities, "overlays", &overlays.overlays);
-            }
-            Document::Extensions(extensions) => {
-                insert_named(&mut identities, "extensions", &extensions.extensions);
-            }
-        }
-    }
-
-    Ok(identities)
-}
-
-fn insert_core(identities: &mut BTreeSet<String>, core: &CoreDocument) {
-    for kernel in &core.kernels {
-        identities.insert(format!("kernels/{}", kernel.source));
-    }
-    if core.stub.is_some() {
-        identities.insert("stub".to_owned());
-    }
-    if core.installer.is_some() {
-        identities.insert("installer".to_owned());
-    }
-}
-
-fn insert_named(identities: &mut BTreeSet<String>, prefix: &str, entries: &[NamedEntry]) {
-    for entry in entries {
-        identities.insert(format!("{prefix}/{}", entry.name));
-    }
 }
 
 fn parse_version(line: &str) -> Option<(u64, u64, u64, Option<String>)> {

@@ -170,8 +170,8 @@ release version: lint test
 catalog *args:
     mkdir -p "{{ absolute_path(out) }}/catalog"
     just _kata compose --force --dir /data --release "{{ tag }}" \
-        --registry {{ registry }} "$@" --set installer={{ tag }}
-    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data --channel stable
+        "$@" --set installer={{ tag }}
+    just _kata publish --force --release "{{ tag }}" --dir /data --channel stable
     printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # Seed a fresh scratch catalog line from the local registry (first run only)
@@ -180,13 +180,13 @@ catalog *args:
 catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
     mkdir -p "{{ absolute_path(out) }}/catalog"
     printf "{{ cyan }}Seeding scratch catalog line {{ tag }}{{ reset }}\n"
-    just _kata add --kind kernel --source muak-os/linux --repository linux \
-        --tag "{{ kernel_tag }}" --release "{{ tag }}" --force --registry {{ registry }} --dir /data
-    just _kata add --kind stub --source muak-os/stub --repository stub \
-        --tag "{{ stub_tag }}" --release "{{ tag }}" --force --registry {{ registry }} --dir /data
-    just _kata add --kind installer --source muak-os/muak --repository installer \
-        --tag "{{ installer_tag }}" --release "{{ tag }}" --force --registry {{ registry }} --dir /data
-    just _kata publish --force --release "{{ tag }}" --registry {{ registry }} --dir /data --channel stable
+    just _kata add --role kernel --source muak-os/linux --repository linux \
+        --tag "{{ kernel_tag }}" --release "{{ tag }}" --force --dir /data
+    just _kata add --role stub --source muak-os/stub --repository stub \
+        --tag "{{ stub_tag }}" --release "{{ tag }}" --force --dir /data
+    just _kata add --role installer --source muak-os/muak --repository installer \
+        --tag "{{ installer_tag }}" --release "{{ tag }}" --force --dir /data
+    just _kata publish --force --release "{{ tag }}" --dir /data --channel stable
     printf "{{ green }}Scratch line seeded: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -443,6 +443,7 @@ clean:
 _kata *args:
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        -e REGISTRY="{{ registry }}" \
         -v "{{ absolute_path(out) }}/catalog:/data" \
         {{ tools }} \
         /kata "${@}"

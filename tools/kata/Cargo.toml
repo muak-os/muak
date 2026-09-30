@@ -24,7 +24,6 @@ clap = { workspace = true, optional = true }
 
 # Encoding
 serde = { workspace = true }
-serde_json = { workspace = true, optional = true }
 toml = { workspace = true }
 
 # Error handling
@@ -39,7 +38,7 @@ semver = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["dep:anyhow", "dep:clap", "dep:koci", "dep:serde_json", "koci/pull", "koci/push"]
+cli = ["dep:anyhow", "dep:clap", "dep:koci", "koci/pull", "koci/push"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

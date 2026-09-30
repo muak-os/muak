@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result};
 use clap::Parser;
 use kata::ops::compose::plan::Selections;
-use kata::ops::compose::{self, Mode, Policy};
+use kata::ops::compose::{self, Policy};
 
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]
@@ -32,32 +32,9 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     auto: bool,
 
-    /// Print the resolved plan as JSON and exit without writing.
-    #[arg(long, default_value_t = false)]
-    print_plan: bool,
-
-    /// Registry prefix for resolution and publication checks.
-    #[arg(long)]
-    registry: Option<String>,
-
-    #[command(flatten)]
-    flags: Flags,
-}
-
-/// Flags controlling gates and scratch behavior.
-#[derive(clap::Args, Debug)]
-pub struct Flags {
-    /// Ignore carried and scratch pins; compose only selected roles.
-    #[arg(long, default_value_t = false)]
-    fresh: bool,
-
     /// Replace an already-published line (dev scratch registries only).
     #[arg(long, default_value_t = false)]
     force: bool,
-
-    /// Compose from a line that is not the newest one.
-    #[arg(long, default_value_t = false)]
-    allow_outdated_from: bool,
 }
 
 /// Execute the `compose` subcommand.
@@ -69,21 +46,13 @@ pub(crate) fn run(args: Args) -> Result<()> {
         from_line,
         sets,
         auto,
-        print_plan,
-        registry,
-        flags:
-            Flags {
-                fresh,
-                force,
-                allow_outdated_from,
-            },
+        force,
     } = args;
 
     let selections = Selections {
         sets: parse_pairs(&sets).context("Invalid set selection")?,
     };
 
-    let mode = if print_plan { Mode::Print } else { Mode::Write };
     let written = compose::run(&compose::Input {
         dir,
         from,
@@ -91,11 +60,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
         release,
         selections,
         policy: if auto { Policy::Auto } else { Policy::Carried },
-        fresh,
         force,
-        allow_outdated_from,
-        mode,
-        registry: super::registry_prefix(registry.as_deref()),
     })
     .context("Failed to compose line")?;
 

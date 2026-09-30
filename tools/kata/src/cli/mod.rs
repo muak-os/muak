@@ -11,8 +11,6 @@ mod publish;
 mod remove;
 mod verify;
 
-const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
-
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -75,24 +73,6 @@ fn run_command(command: Command) -> Result<()> {
         Command::Compose(args) => compose::run(args),
         Command::Remove(args) => remove::run(args),
     }
-}
-
-/// Resolve the registry prefix: explicit flag, then `REGISTRY`, then default.
-#[must_use]
-pub(crate) fn registry_prefix(explicit: Option<&str>) -> String {
-    explicit
-        .map(str::to_owned)
-        .or_else(|| {
-            std::env::var("REGISTRY")
-                .ok()
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_else(|| DEFAULT_REGISTRY.to_owned())
-}
-
-/// Parse an architecture CLI value.
-pub(crate) fn parse_arch(arch: &str) -> Result<koci::arch::Arch, String> {
-    arch.parse()
 }
 
 #[cfg(test)]

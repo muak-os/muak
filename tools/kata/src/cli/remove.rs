@@ -8,9 +8,9 @@ use kata::schema::view::Role;
 /// Arguments of the `remove` subcommand.
 #[derive(Parser, Debug)]
 pub struct Args {
-    /// Entry kind: kernel, overlays or extensions.
+    /// Entry role: kernel, stub, installer, overlays or extensions.
     #[arg(long)]
-    kind: String,
+    role: String,
 
     /// Name of the entry (overlays and extensions).
     #[arg(long)]
@@ -32,14 +32,14 @@ pub struct Args {
 /// Execute the `remove` subcommand.
 pub(crate) fn run(args: Args) -> Result<()> {
     let Args {
-        kind,
+        role,
         name,
         source,
         dir,
         release,
     } = args;
 
-    let role = Role::parse(&kind).context("Invalid kind")?;
+    let role = Role::parse(&role).context("Invalid role")?;
     let identity = remove::run(&remove::Input {
         dir,
         role,
@@ -60,12 +60,12 @@ mod tests {
     use crate::cli::{Args as CliArgs, Command};
 
     #[test]
-    fn remove_subcommand_parses_kind_name_and_release() {
+    fn remove_subcommand_parses_role_name_and_release() {
         // ARRANGE
         let args = CliArgs::try_parse_from([
             "kata",
             "remove",
-            "--kind",
+            "--role",
             "overlays",
             "--name",
             "rpi_5",
@@ -80,7 +80,7 @@ mod tests {
         };
 
         // ASSERT
-        assert_eq!(removed.kind, "overlays");
+        assert_eq!(removed.role, "overlays");
         assert_eq!(removed.name.as_deref(), Some("rpi_5"));
         assert_eq!(removed.release, "v1.2.0");
     }
@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn remove_defaults_release_to_the_baked_line() {
         // ARRANGE / ACT
-        let args = CliArgs::try_parse_from(["kata", "remove", "--kind", "kernel"])
+        let args = CliArgs::try_parse_from(["kata", "remove", "--role", "kernel"])
             .expect("parse remove args");
 
         // ASSERT

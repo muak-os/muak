@@ -44,29 +44,17 @@ impl NamedEntries for ExtensionDocument {
 }
 
 /// Assemble the base documents and record each entry's origin.
-pub(crate) fn assemble(
-    output: &Bases,
-    carried: Option<&Bases>,
-    fresh: bool,
-    release: &str,
-) -> (Bases, Origins) {
+pub(crate) fn assemble(output: &Bases, carried: Option<&Bases>, release: &str) -> (Bases, Origins) {
     let mut origins = Origins::new();
     let carried_core = carried.and_then(|bases| bases.core.as_ref());
     let carried_overlays = carried.and_then(|bases| bases.overlays.as_ref());
     let carried_extensions = carried.and_then(|bases| bases.extensions.as_ref());
 
     let bases = Bases {
-        core: assemble_core(
-            output.core.as_ref(),
-            carried_core,
-            fresh,
-            release,
-            &mut origins,
-        ),
+        core: assemble_core(output.core.as_ref(), carried_core, release, &mut origins),
         overlays: assemble_named(
             output.overlays.as_ref(),
             carried_overlays,
-            fresh,
             release,
             "overlays",
             &mut origins,
@@ -74,7 +62,6 @@ pub(crate) fn assemble(
         extensions: assemble_named(
             output.extensions.as_ref(),
             carried_extensions,
-            fresh,
             release,
             "extensions",
             &mut origins,
@@ -87,20 +74,16 @@ pub(crate) fn assemble(
 fn assemble_core(
     output: Option<&CoreDocument>,
     carried: Option<&CoreDocument>,
-    fresh: bool,
     release: &str,
     origins: &mut Origins,
 ) -> Option<CoreDocument> {
-    let mut base = base_document(output, carried, fresh, release)?;
+    let mut base = base_document(output, carried, release)?;
 
-    if !fresh {
-        match (output.as_ref(), carried) {
-            (None, Some(_carried)) => record_core(origins, &base, Action::Carry),
-            (Some(_), Some(carried)) => fill_core(&mut base, carried, origins),
-            _ => {}
-        }
+    match (output.as_ref(), carried) {
+        (None, Some(_carried)) => record_core(origins, &base, Action::Carry),
+        (Some(_), Some(carried)) => fill_core(&mut base, carried, origins),
+        _ => {}
     }
-    base.set_release(release.to_owned());
 
     Some(base)
 }
@@ -108,21 +91,17 @@ fn assemble_core(
 fn assemble_named<T: Clone + NamedEntries + SetRelease>(
     output: Option<&T>,
     carried: Option<&T>,
-    fresh: bool,
     release: &str,
     prefix: &str,
     origins: &mut Origins,
 ) -> Option<T> {
-    let mut base = base_document(output, carried, fresh, release)?;
+    let mut base = base_document(output, carried, release)?;
 
-    if !fresh {
-        match (output.as_ref(), carried) {
-            (None, Some(carried)) => record_named(origins, carried, prefix, Action::Carry),
-            (Some(_), Some(carried)) => fill_named(&mut base, carried, prefix, origins),
-            _ => {}
-        }
+    match (output.as_ref(), carried) {
+        (None, Some(carried)) => record_named(origins, carried, prefix, Action::Carry),
+        (Some(_), Some(carried)) => fill_named(&mut base, carried, prefix, origins),
+        _ => {}
     }
-    base.set_release(release.to_owned());
 
     Some(base)
 }
@@ -162,12 +141,8 @@ fn missing_named<T: NamedEntries>(base: &T, carried: &T) -> Vec<NamedEntry> {
 fn base_document<T: Clone + SetRelease>(
     output: Option<&T>,
     carried: Option<&T>,
-    fresh: bool,
     release: &str,
 ) -> Option<T> {
-    if fresh {
-        return None;
-    }
     let mut base = output.cloned().or_else(|| carried.cloned())?;
     base.set_release(release.to_owned());
 
@@ -296,7 +271,7 @@ mod tests {
         };
 
         // ACT
-        let (bases, origins) = assemble(&output, Some(&carried), false, "v1.1.0");
+        let (bases, origins) = assemble(&output, Some(&carried), "v1.1.0");
 
         // ASSERT
         let core = bases.core.expect("core base");
@@ -326,24 +301,6 @@ mod tests {
     }
 
     #[test]
-    fn assemble_ignores_carried_documents_when_fresh() {
-        // ARRANGE
-        let carried = Bases {
-            core: Some(core(&["muak-os/linux"], true)),
-            overlays: Some(overlays(&["rpi_generic"])),
-            extensions: None,
-        };
-
-        // ACT
-        let (bases, origins) = assemble(&Bases::default(), Some(&carried), true, "v1.1.0");
-
-        // ASSERT
-        assert!(bases.core.is_none());
-        assert!(bases.overlays.is_none());
-        assert!(origins.is_empty());
-    }
-
-    #[test]
     fn assembled_documents_expose_the_document_enum() {
         // ARRANGE
         let output = Bases {
@@ -353,7 +310,7 @@ mod tests {
         };
 
         // ACT
-        let (bases, _) = assemble(&output, None, false, "v1.1.0");
+        let (bases, _) = assemble(&output, None, "v1.1.0");
 
         // ASSERT
         assert!(bases.core.is_some());

@@ -27,10 +27,6 @@ pub struct Input {
     pub repository: String,
     /// Payload tag to resolve.
     pub tag: String,
-    /// Digest claimed by the announcing payload, when dispatched.
-    pub claimed_digest: Option<String>,
-    /// Registry prefix for digest resolution.
-    pub registry: String,
 }
 
 /// Resolve the entry digest from the registry and write it into the document.
@@ -47,16 +43,9 @@ pub fn run(root: &Path, input: &Input) -> Result<PathBuf> {
         ));
     }
 
-    let reference = super::reference(&input.registry, &input.repository, &input.tag);
+    let reference = super::reference(&input.repository, &input.tag);
     let digest = registry::manifest_digest(&reference)
         .map_err(|error| KataError::Registry(error.to_string()))?;
-    if let Some(ref claimed) = input.claimed_digest
-        && *claimed != digest
-    {
-        return Err(KataError::Registry(format!(
-            "claimed digest {claimed} does not match registry digest {digest} for {reference}"
-        )));
-    }
 
     let kind = input.role.catalog_kind();
     let mut document = if repository::document_path(kind, root, &input.release).exists() {

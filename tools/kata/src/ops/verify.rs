@@ -29,7 +29,7 @@ pub(crate) struct EntryCheck {
 /// # Errors
 ///
 /// Returns an error listing every failing line.
-pub fn run(root: &Path, release: Option<&str>, registry: &str) -> Result<Vec<String>> {
+pub fn run(root: &Path, release: Option<&str>) -> Result<Vec<String>> {
     repository::require_root(root)?;
     if let Some(release) = release {
         validate_release(release)?;
@@ -37,7 +37,7 @@ pub fn run(root: &Path, release: Option<&str>, registry: &str) -> Result<Vec<Str
     let mut verified = Vec::new();
     let mut failures = Vec::new();
     for (kind, line) in lines(root, release) {
-        match verify_line(root, kind, &line, registry) {
+        match verify_line(root, kind, &line) {
             Ok(count) => verified.push(format!("{}/{} ({count} entries)", kind.dir(), line)),
             Err(error) => failures.push(format!("{}/{line}: {error}", kind.dir())),
         }
@@ -89,7 +89,7 @@ fn collect_all(kind: Kind, root: &Path, found: &mut Vec<(Kind, String)>) {
     }
 }
 
-fn verify_line(root: &Path, kind: Kind, release: &str, registry: &str) -> Result<usize> {
+fn verify_line(root: &Path, kind: Kind, release: &str) -> Result<usize> {
     let document = repository::load(kind, root, release)?;
     if !repository::canonical_on_disk(&document, root, release)? {
         return Err(KataError::Document(
@@ -97,7 +97,7 @@ fn verify_line(root: &Path, kind: Kind, release: &str, registry: &str) -> Result
         ));
     }
 
-    let verified = verify_document(&document, registry)?;
+    let verified = verify_document(&document)?;
     eprintln!("{}/{release}: verified", kind.dir());
 
     Ok(verified.len())
@@ -109,10 +109,10 @@ fn verify_line(root: &Path, kind: Kind, release: &str, registry: &str) -> Result
 ///
 /// Returns an error when a registry resolution fails or a pin does not match
 /// what the registry serves.
-pub(crate) fn verify_document(document: &Document, registry: &str) -> Result<Vec<String>> {
+pub(crate) fn verify_document(document: &Document) -> Result<Vec<String>> {
     let mut verified: Vec<String> = Vec::new();
     for check in checks(document) {
-        let reference = super::reference(registry, &check.repository, &check.tag);
+        let reference = super::reference(&check.repository, &check.tag);
         let actual = registry::manifest_digest(&reference)
             .map_err(|error| KataError::Registry(error.to_string()))?;
         if actual != check.digest {

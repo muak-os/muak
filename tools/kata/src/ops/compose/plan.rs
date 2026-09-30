@@ -2,10 +2,11 @@
 
 use alloc::collections::BTreeMap;
 
+use super::entries::{enumerate, validate_selections};
 use super::merge::Bases;
-use crate::error::{KataError, Result};
-use crate::schema::documents::{Document, ExtensionDocument, OverlayDocument};
-use crate::schema::entries::{NamedEntry, SourcedEntry};
+use super::pins::{apply_entries, apply_pins, resolve_pins};
+use crate::error::Result;
+use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 
 /// Payload tag selections for one composition, addressed by role shorthand
@@ -32,7 +33,8 @@ impl Selections {
     }
 }
 
-fn selection_matches(key: &str, identity: &str) -> bool {
+/// Whether a selection `key` addresses the entry `identity`.
+pub(crate) fn selection_matches(key: &str, identity: &str) -> bool {
     if key == "kernel" {
         return identity.starts_with("kernels/");
     }
@@ -51,16 +53,6 @@ pub(crate) enum Action {
     Carry,
 }
 
-impl Action {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pin => "pin",
-            Self::Keep => "keep",
-            Self::Carry => "carry",
-        }
-    }
-}
-
 /// One planned entry of the composed line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PlannedEntry {
@@ -77,7 +69,6 @@ pub(crate) struct PlannedEntry {
 /// The resolved composition: final documents plus their planned entries.
 #[derive(Debug)]
 pub(crate) struct Plan {
-    pub(crate) release: String,
     pub(crate) entries: Vec<PlannedEntry>,
     pub(crate) documents: Vec<Document>,
 }
@@ -92,7 +83,6 @@ pub(crate) fn build(
     bases: &mut Bases,
     origins: &BTreeMap<String, Action>,
     selections: &Selections,
-    release: &str,
     resolve: &dyn Fn(&str, &str) -> Result<String>,
     auto: Option<&Auto<'_>>,
 ) -> Result<Plan> {
@@ -103,322 +93,7 @@ pub(crate) fn build(
     apply_entries(&mut entries, &pins);
     let documents = take_documents(bases);
 
-    Ok(Plan {
-        release: release.to_owned(),
-        entries,
-        documents,
-    })
-}
-
-/// Print the plan as JSON on stdout and a table on stderr.
-///
-/// # Errors
-///
-/// Returns an error when the plan fails to serialize.
-pub(crate) fn print(plan: &Plan) -> Result<()> {
-    let entries: Vec<serde_json::Value> = plan
-        .entries
-        .iter()
-        .map(|entry| {
-            serde_json::json!({
-                "identity": entry.identity,
-                "kind": entry.kind.dir(),
-                "name": entry.name,
-                "source": entry.source,
-                "repository": entry.repository,
-                "tag": entry.tag,
-                "digest": entry.digest,
-                "action": entry.action.as_str(),
-            })
-        })
-        .collect();
-    let document = serde_json::json!({ "release": plan.release, "entries": entries });
-    let rendered = serde_json::to_string_pretty(&document)
-        .map_err(|error| KataError::Document(format!("Failed to serialize plan: {error}")))?;
-    println!("{rendered}");
-
-    for entry in &plan.entries {
-        eprintln!(
-            "{:>6}  {}  {} ({})",
-            entry.action.as_str(),
-            entry.identity,
-            entry.digest,
-            entry.tag
-        );
-    }
-
-    Ok(())
-}
-
-fn enumerate(bases: &Bases, origins: &BTreeMap<String, Action>) -> Vec<PlannedEntry> {
-    let mut entries = Vec::new();
-
-    if let Some(ref core) = bases.core {
-        for kernel in &core.kernels {
-            let identity = format!("kernels/{}", kernel.source);
-            entries.push(planned(identity, Kind::Core, None, kernel, origins));
-        }
-        if let Some(stub) = core.stub.as_ref() {
-            entries.push(planned("stub".to_owned(), Kind::Core, None, stub, origins));
-        }
-        if let Some(installer) = core.installer.as_ref() {
-            entries.push(planned(
-                "installer".to_owned(),
-                Kind::Core,
-                None,
-                installer,
-                origins,
-            ));
-        }
-    }
-    if let Some(ref overlays) = bases.overlays {
-        for overlay in &overlays.overlays {
-            let identity = format!("overlays/{}", overlay.name);
-            let view = SourcedEntry {
-                source: overlay.source.clone(),
-                repository: overlay.repository.clone(),
-                tag: overlay.tag.clone(),
-                digest: overlay.digest.clone(),
-            };
-            entries.push(planned(
-                identity,
-                Kind::Overlays,
-                Some(overlay.name.clone()),
-                &view,
-                origins,
-            ));
-        }
-    }
-    if let Some(ref extensions) = bases.extensions {
-        for extension in &extensions.extensions {
-            let identity = format!("extensions/{}", extension.name);
-            let view = SourcedEntry {
-                source: extension.source.clone(),
-                repository: extension.repository.clone(),
-                tag: extension.tag.clone(),
-                digest: extension.digest.clone(),
-            };
-            entries.push(planned(
-                identity,
-                Kind::Extensions,
-                Some(extension.name.clone()),
-                &view,
-                origins,
-            ));
-        }
-    }
-
-    entries
-}
-
-fn planned(
-    identity: String,
-    kind: Kind,
-    name: Option<String>,
-    entry: &SourcedEntry,
-    origins: &BTreeMap<String, Action>,
-) -> PlannedEntry {
-    let action = origins.get(&identity).copied().unwrap_or(Action::Keep);
-
-    PlannedEntry {
-        identity,
-        kind,
-        name,
-        source: entry.source.clone(),
-        repository: entry.repository.clone(),
-        tag: entry.tag.clone(),
-        digest: entry.digest.clone(),
-        action,
-    }
-}
-
-/// Validate that every selection matches a planned entry of the right role.
-///
-/// # Errors
-///
-/// Returns an error when a core role or named entry has no planned entry to
-/// retag.
-fn validate_selections(selections: &Selections, entries: &[PlannedEntry]) -> Result<()> {
-    let mut missing: Vec<String> = Vec::new();
-
-    for pair in &selections.sets {
-        if !entries
-            .iter()
-            .any(|entry| selection_matches(&pair.0, &entry.identity))
-        {
-            missing.push(selection_missing_message(&pair.0));
-        }
-    }
-
-    if missing.is_empty() {
-        return Ok(());
-    }
-
-    Err(KataError::Document(format!(
-        "selections without a matching entry: {}",
-        missing.join(", ")
-    )))
-}
-
-fn selection_missing_message(key: &str) -> String {
-    match key {
-        "kernel" => "kernel (no kernels entry to retag)".to_owned(),
-        "stub" => "stub (no stub entry to retag)".to_owned(),
-        "installer" => "installer (no installer entry to retag)".to_owned(),
-        _ => {
-            let name = key.rsplit('/').next().unwrap_or("?");
-            format!("'{name}' (introduce it with `kata add`)")
-        }
-    }
-}
-
-fn resolve_pins(
-    selections: &Selections,
-    entries: &[PlannedEntry],
-    resolve: &dyn Fn(&str, &str) -> Result<String>,
-    auto: Option<&Auto<'_>>,
-) -> Result<Vec<Pinned>> {
-    let mut pins = Vec::new();
-
-    for entry in entries {
-        let tag = match selections.tag_of(&entry.identity) {
-            Some(tag) => tag.clone(),
-            None => match auto {
-                Some(auto) => auto(&entry.repository)?,
-                None => continue,
-            },
-        };
-        let digest = resolve(&entry.repository, &tag)?;
-        pins.push(Pinned {
-            identity: entry.identity.clone(),
-            tag: tag.clone(),
-            digest,
-        });
-    }
-
-    Ok(pins)
-}
-
-struct Pinned {
-    identity: String,
-    tag: String,
-    digest: String,
-}
-
-fn apply_pins(bases: &mut Bases, pins: &[Pinned]) -> Result<()> {
-    for pin in pins {
-        if pin.identity == "stub" {
-            retag_core_slot(bases, "stub", pin)?;
-        } else if pin.identity == "installer" {
-            retag_core_slot(bases, "installer", pin)?;
-        } else if let Some(("kernels", source)) = pin.identity.split_once('/') {
-            retag_kernel(bases, source, pin)?;
-        } else if let Some(("overlays", name)) = pin.identity.split_once('/') {
-            retag_named(bases.overlays.as_mut(), name, pin)?;
-        } else if let Some(("extensions", name)) = pin.identity.split_once('/') {
-            retag_named(bases.extensions.as_mut(), name, pin)?;
-        } else {
-            return Err(KataError::Document(format!(
-                "unknown entry identity '{}'",
-                pin.identity
-            )));
-        }
-    }
-
-    Ok(())
-}
-
-fn apply_entries(entries: &mut [PlannedEntry], pins: &[Pinned]) {
-    for pin in pins {
-        let Some(entry) = entries
-            .iter_mut()
-            .find(|entry| entry.identity == pin.identity)
-        else {
-            continue;
-        };
-        entry.tag.clone_from(&pin.tag);
-        entry.digest.clone_from(&pin.digest);
-        entry.action = Action::Pin;
-    }
-}
-
-fn retag_kernel(bases: &mut Bases, source: &str, pin: &Pinned) -> Result<()> {
-    let Some(core) = bases.core.as_mut() else {
-        return Err(KataError::Document("no core document to retag".to_owned()));
-    };
-    let Some(kernel) = core
-        .kernels
-        .iter_mut()
-        .find(|kernel| kernel.source == source)
-    else {
-        return Err(KataError::Document(format!(
-            "no kernels entry for source '{source}'"
-        )));
-    };
-
-    kernel.tag.clone_from(&pin.tag);
-    kernel.digest.clone_from(&pin.digest);
-
-    Ok(())
-}
-
-fn retag_core_slot(bases: &mut Bases, role: &str, pin: &Pinned) -> Result<()> {
-    let Some(core) = bases.core.as_mut() else {
-        return Err(KataError::Document("no core document to retag".to_owned()));
-    };
-    let slot = match role {
-        "stub" => &mut core.stub,
-        _ => &mut core.installer,
-    };
-    let Some(entry) = slot.as_mut() else {
-        return Err(KataError::Document(format!("no {role} entry to retag")));
-    };
-
-    entry.tag.clone_from(&pin.tag);
-    entry.digest.clone_from(&pin.digest);
-
-    Ok(())
-}
-
-fn retag_named<T: NamedEntries>(document: Option<&mut T>, name: &str, pin: &Pinned) -> Result<()> {
-    let Some(document) = document else {
-        return Err(KataError::Document(format!(
-            "no {} document to retag",
-            pin.identity
-                .split_once('/')
-                .map_or("named", |(kind, _)| kind)
-        )));
-    };
-    let Some(entry) = document
-        .named_entries_mut()
-        .iter_mut()
-        .find(|entry| entry.name == name)
-    else {
-        return Err(KataError::Document(format!(
-            "no entry named '{name}' to retag"
-        )));
-    };
-
-    entry.tag.clone_from(&pin.tag);
-    entry.digest.clone_from(&pin.digest);
-
-    Ok(())
-}
-
-trait NamedEntries {
-    fn named_entries_mut(&mut self) -> &mut [NamedEntry];
-}
-
-impl NamedEntries for OverlayDocument {
-    fn named_entries_mut(&mut self) -> &mut [NamedEntry] {
-        &mut self.overlays
-    }
-}
-
-impl NamedEntries for ExtensionDocument {
-    fn named_entries_mut(&mut self) -> &mut [NamedEntry] {
-        &mut self.extensions
-    }
+    Ok(Plan { entries, documents })
 }
 
 fn take_documents(bases: &mut Bases) -> Vec<Document> {
@@ -513,7 +188,6 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
-            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             None,
         )
@@ -568,7 +242,6 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
-            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             None,
         )
@@ -599,7 +272,6 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
-            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             Some(&|repository: &str| Ok(format!("v9-{repository}"))),
         )
@@ -636,7 +308,6 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
-            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             Some(&|_| Ok("v9".to_owned())),
         )
@@ -671,7 +342,6 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
-            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             None,
         )

@@ -3,6 +3,7 @@
 use koci::registry;
 
 use crate::error::{KataError, Result};
+use crate::ops::registry;
 use crate::schema::parse::release_version;
 
 /// Newest version tag of `repository`, for entries without an explicit selection.
@@ -10,8 +11,8 @@ use crate::schema::parse::release_version;
 /// # Errors
 ///
 /// Returns an error when the registry listing fails or the repository has no version tag.
-pub(crate) fn newest_tag(registry: &str, repository: &str) -> Result<String> {
-    let tags = registry::tags(&format!("{registry}/{repository}"))
+pub(crate) fn newest_tag(repository: &str) -> Result<String> {
+    let tags = registry::tags(&format!("{}/{}", registry(), repository))
         .map_err(|error| KataError::Registry(error.to_string()))?;
 
     newest(&tags)
