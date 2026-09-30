@@ -21,7 +21,7 @@ pub(crate) mod merge;
 pub(crate) mod pins;
 pub mod plan;
 
-use bases::{carried_bases, carried_documents, output_documents};
+use bases::{output_documents, parent_bases, parent_line};
 use plan::{Auto, Selections};
 
 /// Tag policy for entries without an explicit selection.
@@ -35,11 +35,9 @@ pub enum Policy {
 
 /// One `kata compose` request.
 pub struct Input {
-    /// Output docs root (scratch for local runs, the repo for CI).
+    /// Docs root holding the release lines.
     pub dir: PathBuf,
-    /// Derivation root (catalog repo checkout).
-    pub from: Option<PathBuf>,
-    /// Lineage parent line; defaults to the newest line of `from`.
+    /// Lineage parent line; defaults to the newest line other than `release`.
     pub from_line: Option<String>,
     /// Release line being composed.
     pub release: String,
@@ -66,10 +64,13 @@ pub fn run(input: &Input) -> Result<Vec<String>> {
         input.force,
     )?;
 
-    let carried = carried_documents(input.from.as_ref(), input.from_line.as_deref())?;
-    let carried_bases = carried.as_ref().map(carried_bases).transpose()?;
-    let output = output_documents(&input.dir, &input.release);
-    let (mut bases, origins) = merge::assemble(&output, carried_bases.as_ref(), &input.release);
+    let parent = parent_line(&input.dir, &input.release, input.from_line.as_deref())?;
+    let parent_docs = parent
+        .as_ref()
+        .map(|line| parent_bases(&input.dir, line))
+        .transpose()?;
+    let output = output_documents(&input.dir, &input.release)?;
+    let (mut bases, origins) = merge::assemble(&output, parent_docs.as_ref(), &input.release);
     let resolve = |repository: &str, tag: &str| {
         let line_reference = reference(repository, tag);
         koci::registry::manifest_digest(&line_reference)

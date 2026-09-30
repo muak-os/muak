@@ -30,11 +30,6 @@ pub(crate) fn scan(root: &Path) -> Vec<String> {
     lines
 }
 
-/// The newest line of a docs root.
-pub(crate) fn newest(root: &Path) -> Option<String> {
-    scan(root).pop()
-}
-
 /// Compare two line names, pre-releases sort below their release.
 #[must_use]
 pub(crate) fn compare(left: &str, right: &str) -> Ordering {
@@ -82,7 +77,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{compare, newest, parse_version, scan};
+    use super::{compare, parse_version, scan};
 
     #[test]
     fn parse_version_reads_base_and_pre_release() {
@@ -109,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_and_newest_read_the_docs_root() {
+    fn scan_reads_the_docs_root() {
         // ARRANGE
         let root = TempDir::new().expect("create temp dir");
         for line in ["v1.0.0-beta", "v1.1.0", "notes.toml"] {
@@ -119,7 +114,6 @@ mod tests {
         }
 
         // ACT / ASSERT
-        assert_eq!(newest(root.path()), Some("v1.1.0".to_owned()));
         assert_eq!(
             scan(root.path()),
             vec!["v1.0.0-beta".to_owned(), "v1.1.0".to_owned()]

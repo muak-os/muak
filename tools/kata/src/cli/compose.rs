@@ -16,11 +16,7 @@ pub struct Args {
     #[arg(long, value_name = "PATH", default_value = ".")]
     dir: std::path::PathBuf,
 
-    /// Derivation root whose newest line provides the topology and pins.
-    #[arg(long, value_name = "PATH")]
-    from: Option<std::path::PathBuf>,
-
-    /// Lineage parent line.
+    /// Lineage parent line (default: newest line other than the release).
     #[arg(long)]
     from_line: Option<String>,
 
@@ -42,7 +38,6 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let Args {
         release,
         dir,
-        from,
         from_line,
         sets,
         auto,
@@ -55,7 +50,6 @@ pub(crate) fn run(args: Args) -> Result<()> {
 
     let written = compose::run(&compose::Input {
         dir,
-        from,
         from_line,
         release,
         selections,
