@@ -17,6 +17,17 @@ pub enum SystemStatus {
     Maintenance,
 }
 
+/// Secure Boot state: firmware enforcement, pending activation, or off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecureBootStatus {
+    /// Keys are enrolled and Secure Boot is active in the firmware.
+    Enabled,
+    /// Keys are enrolled; a firmware reboot activates Secure Boot.
+    Pending,
+    /// Keys are not enrolled and Secure Boot is inactive.
+    Disabled,
+}
+
 /// Snapshot of system state at a point in time.
 #[derive(Debug, Clone)]
 pub struct SystemState {
@@ -26,7 +37,7 @@ pub struct SystemState {
     pub cpu: CpuUsage,
     pub memory: MemoryInfo,
     pub system_status: SystemStatus,
-    pub secure_boot: bool,
+    pub secure_boot: SecureBootStatus,
     pub ntp_server: Option<String>,
     pub interfaces: Vec<NetInterface>,
     pub gateway: Option<String>,
@@ -72,6 +83,8 @@ pub struct PollState {
     net_scratch: String,
     config_stamp: Option<SystemTime>,
     ntp_cache: Option<String>,
+    secureboot_stamp: Option<SystemTime>,
+    secureboot_cache: bool,
 }
 
 impl MemoryInfo {
@@ -102,7 +115,7 @@ pub fn collect(poll: &mut PollState) -> SystemState {
         cpu,
         memory,
         system_status: read_system_status(),
-        secure_boot: read_secure_boot(),
+        secure_boot: read_secure_boot(poll),
         ntp_server,
         interfaces,
         gateway,

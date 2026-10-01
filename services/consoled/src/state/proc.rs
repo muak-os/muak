@@ -3,11 +3,12 @@
 use std::fs;
 use std::path::Path;
 
-use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SystemStatus, Uptime};
+use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SecureBootStatus, SystemStatus, Uptime};
 
 const CONFIG_PATH: &str = "/run/state/config.toml";
 const SECURE_BOOT_EFIVAR: &str =
     "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c";
+const PK_EFIVAR: &str = "/sys/firmware/efi/efivars/PK-8be4df61-93ca-11d2-aa0d-00e098032b8c";
 
 /// Reads a whole file into `buf` and returns its trimmed content.
 pub(super) fn read_file<'a>(path: &str, buf: &'a mut String) -> Option<&'a str> {
@@ -84,15 +85,17 @@ pub(super) fn read_system_status() -> SystemStatus {
     }
 }
 
-pub(super) fn read_secure_boot() -> bool {
-    fs::read(SECURE_BOOT_EFIVAR)
-        .ok()
-        .and_then(|bytes| bytes.get(4).copied())
-        .is_some_and(|byte| byte == 1)
+pub(super) fn read_secure_boot(poll: &mut PollState) -> SecureBootStatus {
+    if sb_enabled() {
+        return SecureBootStatus::Enabled;
+    }
+    if config_wants_secureboot(poll) && Path::new(PK_EFIVAR).exists() {
+        return SecureBootStatus::Pending;
+    }
+
+    SecureBootStatus::Disabled
 }
 
-/// Returns the configured NTP server, re-reading the config only when its
-/// modification time changed since the last poll.
 pub(super) fn read_ntp_server(poll: &mut PollState) -> Option<String> {
     let stamp = fs::metadata(CONFIG_PATH).ok()?.modified().ok()?;
     if poll.config_stamp == Some(stamp) {
@@ -168,6 +171,27 @@ fn field_kb(line: &str, key: &str) -> Option<u64> {
         .next()?
         .parse()
         .ok()
+}
+
+fn sb_enabled() -> bool {
+    fs::read(SECURE_BOOT_EFIVAR)
+        .ok()
+        .and_then(|bytes| bytes.get(4).copied())
+        .is_some_and(|byte| byte == 1)
+}
+
+fn config_wants_secureboot(poll: &mut PollState) -> bool {
+    let Ok(stamp) = fs::metadata(CONFIG_PATH).and_then(|meta| meta.modified()) else {
+        return false;
+    };
+    if poll.secureboot_stamp == Some(stamp) {
+        return poll.secureboot_cache;
+    }
+    poll.secureboot_stamp = Some(stamp);
+    poll.secureboot_cache =
+        config::load_from_path(Path::new(CONFIG_PATH)).is_ok_and(|cfg| cfg.host.secureboot);
+
+    poll.secureboot_cache
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use crossterm::style::Color;
 use super::PANEL_BODY_ROWS;
 use super::clear_line;
 use super::span::{Line, Span};
-use crate::state::{SystemState, SystemStatus};
+use crate::state::{SecureBootStatus, SystemState, SystemStatus};
 
 /// Draws the two-column status body between the separators.
 pub(super) fn draw(
@@ -40,10 +40,10 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line> {
         SystemStatus::Maintenance => ("MAINTENANCE", Color::Red),
     };
 
-    let (sb_label, sb_color) = if state.secure_boot {
-        ("true", Color::Green)
-    } else {
-        ("false", Color::Red)
+    let (sb_label, sb_color) = match state.secure_boot {
+        SecureBootStatus::Enabled => ("Enabled", Color::Green),
+        SecureBootStatus::Pending => ("Pending (firmware reboot required)", Color::Yellow),
+        SecureBootStatus::Disabled => ("Disabled", Color::Red),
     };
 
     let mut lines = Vec::new();
@@ -128,7 +128,7 @@ mod tests {
             cpu: CpuUsage::default(),
             memory: MemoryInfo::default(),
             system_status: SystemStatus::Maintenance,
-            secure_boot: false,
+            secure_boot: SecureBootStatus::Disabled,
             ntp_server: None,
             interfaces: vec![NetInterface {
                 name: "eth0".to_owned(),
@@ -144,13 +144,33 @@ mod tests {
         // ARRANGE
         let mut state = test_state();
         state.system_status = SystemStatus::Installed;
-        state.secure_boot = true;
+        state.secure_boot = SecureBootStatus::Enabled;
 
         // ACT
         let lines = build_left(&state, 0);
 
         // ASSERT
         assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn build_left_secureboot_pending_label() {
+        // ARRANGE
+        let mut state = test_state();
+        state.secure_boot = SecureBootStatus::Pending;
+
+        // ACT
+        let lines = build_left(&state, 0);
+
+        // ASSERT
+        let Some(sb_line) = lines.get(1) else {
+            panic!("expected SECUREBOOT line, got: {lines:?}");
+        };
+        let pending = sb_line
+            .spans
+            .iter()
+            .any(|span| span.text == "Pending (firmware reboot required)");
+        assert!(pending, "expected pending label, got: {:?}", sb_line.spans);
     }
 
     #[test]
