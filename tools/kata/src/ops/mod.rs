@@ -1,6 +1,5 @@
 //! Registry-backed catalog operations.
 
-pub mod add;
 pub mod compose;
 pub mod publish;
 pub mod remove;

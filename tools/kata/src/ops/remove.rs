@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use crate::error::{KataError, Result};
 use crate::repository;
-use crate::schema::documents::{CoreDocument, Document};
+use crate::schema::documents;
+use crate::schema::documents::Document;
 use crate::schema::entries::{NamedEntry, SourcedEntry};
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
@@ -45,7 +46,7 @@ pub fn run(input: &Input) -> Result<String> {
     }?;
 
     if let Document::Core(ref core) = document {
-        ensure_resolvable(core)?;
+        documents::ensure_resolvable(core)?;
     }
 
     repository::write(&document, &input.dir, &input.release)?;
@@ -157,28 +158,6 @@ fn remove_named(document: &mut Document, kind: Kind, name: &str) -> Result<Strin
             kind.dir()
         ))),
     }
-}
-
-fn ensure_resolvable(core: &CoreDocument) -> Result<()> {
-    let mut missing: Vec<&str> = Vec::new();
-    if core.kernels.is_empty() {
-        missing.push("a kernel");
-    }
-    if core.stub.is_none() {
-        missing.push("a stub");
-    }
-    if core.installer.is_none() {
-        missing.push("an installer");
-    }
-
-    if missing.is_empty() {
-        return Ok(());
-    }
-
-    Err(KataError::Document(format!(
-        "removal refused: a release line requires {}",
-        missing.join(" and ")
-    )))
 }
 
 fn take_kernel(entries: &mut Vec<SourcedEntry>, source: &str) -> Result<SourcedEntry> {

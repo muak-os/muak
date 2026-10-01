@@ -3,8 +3,6 @@
 use crate::error;
 use crate::schema::documents::Document;
 use crate::schema::entries::{NamedEntry, SourcedEntry};
-use crate::schema::kinds::Kind;
-
 /// Flattened role of a catalog entry within the resolution identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Role {
@@ -49,22 +47,6 @@ impl Role {
             Self::Overlay => "overlay",
             Self::Extension => "extension",
         }
-    }
-
-    /// Catalog document holding this role's entries.
-    #[must_use]
-    pub const fn catalog_kind(self) -> Kind {
-        match self {
-            Self::Kernel | Self::Stub | Self::Installer => Kind::Core,
-            Self::Overlay => Kind::Overlays,
-            Self::Extension => Kind::Extensions,
-        }
-    }
-
-    /// Whether entries of this role are identified by a `name`.
-    #[must_use]
-    pub const fn requires_name(self) -> bool {
-        matches!(self, Self::Overlay | Self::Extension)
     }
 }
 
@@ -131,9 +113,7 @@ pub fn named(role: Role, entry: &NamedEntry) -> EntryRef<'_> {
 mod tests {
     use crate::schema::documents::{CoreDocument, Document, ExtensionDocument, OverlayDocument};
     use crate::schema::entries::{NamedEntry, SourcedEntry};
-    use crate::schema::kinds::{
-        CORE_API_VERSION, EXTENSIONS_API_VERSION, Kind, OVERLAYS_API_VERSION,
-    };
+    use crate::schema::kinds::{CORE_API_VERSION, EXTENSIONS_API_VERSION, OVERLAYS_API_VERSION};
     use crate::schema::view::{EntryRef, Role, entries};
 
     fn sourced(source: &str, digest: &str) -> SourcedEntry {
@@ -253,19 +233,6 @@ mod tests {
             Role::Extension
         );
         Role::parse("board").unwrap_err();
-    }
-
-    #[test]
-    fn roles_map_to_catalog_kinds_and_name_requirement() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(Role::Kernel.catalog_kind(), Kind::Core);
-        assert_eq!(Role::Overlay.catalog_kind(), Kind::Overlays);
-        assert_eq!(Role::Extension.catalog_kind(), Kind::Extensions);
-        assert!(Role::Overlay.requires_name());
-        assert!(Role::Extension.requires_name());
-        assert!(!Role::Kernel.requires_name());
-        assert!(!Role::Stub.requires_name());
-        assert!(!Role::Installer.requires_name());
     }
 
     #[test]

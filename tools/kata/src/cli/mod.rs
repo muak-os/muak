@@ -5,7 +5,6 @@ use std::ffi::OsString;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-mod add;
 mod compose;
 mod publish;
 mod remove;
@@ -22,7 +21,6 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    Add(add::Args),
     Verify(verify::Args),
     Publish(publish::Args),
     Compose(compose::Args),
@@ -67,7 +65,6 @@ pub fn run() -> i32 {
 
 fn run_command(command: Command) -> Result<()> {
     match command {
-        Command::Add(args) => add::run(args),
         Command::Verify(args) => verify::run(args),
         Command::Publish(args) => publish::run(args),
         Command::Compose(args) => compose::run(args),

@@ -8,18 +8,22 @@ use crate::error::{KataError, Result};
 use crate::ops::reference;
 use crate::ops::verify;
 use crate::repository;
+use crate::schema::documents;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
 use crate::version;
 
+pub(crate) mod apply;
 pub(crate) mod auto;
 pub(crate) mod bases;
 pub(crate) mod entries;
+pub(crate) mod introductions;
 pub(crate) mod lines;
 pub(crate) mod merge;
 pub(crate) mod pins;
 pub mod plan;
+pub(crate) mod selection;
 
 use bases::{output_documents, parent_bases, parent_line};
 use plan::{Auto, Selections};
@@ -82,12 +86,16 @@ pub fn run(input: &Input) -> Result<Vec<String>> {
         &mut bases,
         &origins,
         &input.selections,
+        &input.release,
         &resolve,
         policy.as_ref().map(coerce),
     )?;
 
     gate_publication(&plan.documents, &input.release, input.force)?;
     for document in &plan.documents {
+        if let Document::Core(ref core) = *document {
+            documents::ensure_resolvable(core)?;
+        }
         verify::verify_document(document)?;
     }
     let written = write_documents(&plan.documents, &input.dir, &input.release)?;

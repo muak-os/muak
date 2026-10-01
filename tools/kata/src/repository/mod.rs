@@ -8,8 +8,6 @@ use crate::schema::kinds::Kind;
 use crate::schema::parse::from_toml;
 use crate::schema::serialize::canonical;
 
-pub(crate) mod edit;
-
 /// Ensure `root` names a usable catalog repository layout.
 ///
 /// # Errors

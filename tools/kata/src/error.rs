@@ -41,10 +41,6 @@ pub enum KataError {
     #[error("Registry operation failed: {0}")]
     Registry(String),
 
-    /// An entry is frozen within a release line and cannot change.
-    #[error("Frozen catalog entry: {0}")]
-    Frozen(String),
-
     /// An append-only publication gate prevented the operation.
     #[error("Append-only gate: {0}")]
     Gate(String),

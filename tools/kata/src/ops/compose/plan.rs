@@ -2,9 +2,12 @@
 
 use alloc::collections::BTreeMap;
 
-use super::entries::{enumerate, validate_selections};
+use super::apply::{apply_entries, apply_pins};
+use super::entries::enumerate;
+use super::introductions::{classify, ensure_documents};
 use super::merge::Bases;
-use super::pins::{apply_entries, apply_pins, resolve_pins};
+use super::pins::resolve_pins;
+use super::selection;
 use crate::error::Result;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
@@ -14,33 +17,12 @@ use crate::schema::kinds::Kind;
 /// `overlays/NAME`, `extensions/NAME`).
 #[derive(Debug, Default, Clone)]
 pub struct Selections {
-    /// `KEY=TAG` pairs; see the type documentation for the `KEY` forms.
+    /// `KEY=VALUE` pairs; see the type documentation for the forms.
     pub sets: Vec<(String, String)>,
 }
 
 /// Auto-selection policy: newest-tag discovery for one repository.
 pub(crate) type Auto<'a> = dyn Fn(&str) -> Result<String> + 'a;
-
-impl Selections {
-    /// The selected tag for `identity`, if any selection addresses it. The
-    /// last selection for a key wins.
-    pub(crate) fn tag_of(&self, identity: &str) -> Option<&String> {
-        self.sets
-            .iter()
-            .rev()
-            .find(|pair| selection_matches(&pair.0, identity))
-            .map(|pair| &pair.1)
-    }
-}
-
-/// Whether a selection `key` addresses the entry `identity`.
-pub(crate) fn selection_matches(key: &str, identity: &str) -> bool {
-    if key == "kernel" {
-        return identity.starts_with("kernels/");
-    }
-
-    identity == key
-}
 
 /// Why an entry is part of the plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,18 +59,27 @@ pub(crate) struct Plan {
 ///
 /// # Errors
 ///
-/// Returns an error when a selection references an unknown entry, auto
-/// discovery fails, or a registry resolution fails.
+/// Returns an error when a selection is malformed, references an entry it
+/// cannot retag or introduce, auto discovery fails, or a registry resolution
+/// fails.
 pub(crate) fn build(
     bases: &mut Bases,
     origins: &BTreeMap<String, Action>,
     selections: &Selections,
+    release: &str,
     resolve: &dyn Fn(&str, &str) -> Result<String>,
     auto: Option<&Auto<'_>>,
 ) -> Result<Plan> {
+    let selections = selection::parse_selections(&selections.sets)?;
     let mut entries = enumerate(bases, origins);
-    validate_selections(selections, &entries)?;
-    let pins = resolve_pins(selections, &entries, resolve, auto)?;
+    let introductions = classify(&selections, &entries)?;
+    ensure_documents(bases, &introductions, release);
+    entries.extend(
+        introductions
+            .iter()
+            .map(super::introductions::Introduction::planned),
+    );
+    let pins = resolve_pins(&selections, &entries, resolve, auto)?;
     apply_pins(bases, &pins)?;
     apply_entries(&mut entries, &pins);
     let documents = take_documents(bases);
@@ -166,16 +157,20 @@ mod tests {
         format!("sha256:{repository}@{tag}")
     }
 
-    #[test]
-    fn selections_pin_their_entries_and_carry_the_rest() {
-        // ARRANGE
-        let mut bases = bases();
-        let origins = BTreeMap::from([
+    fn origins_all_carried() -> BTreeMap<String, Action> {
+        BTreeMap::from([
             ("kernels/muak-os/linux".to_owned(), Action::Carry),
             ("stub".to_owned(), Action::Carry),
             ("installer".to_owned(), Action::Carry),
             ("overlays/rpi_generic".to_owned(), Action::Carry),
-        ]);
+        ])
+    }
+
+    #[test]
+    fn selections_pin_their_entries_and_carry_the_rest() {
+        // ARRANGE
+        let mut bases = bases();
+        let origins = origins_all_carried();
         let selections = Selections {
             sets: vec![
                 ("installer".to_owned(), "v2".to_owned()),
@@ -188,6 +183,7 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
+            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             None,
         )
@@ -229,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn selections_reject_unknown_named_entries() {
+    fn selections_reject_unknown_named_entries_without_a_source() {
         // ARRANGE
         let mut bases = bases();
         let origins = BTreeMap::new();
@@ -242,29 +238,144 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
+            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             None,
         )
         .expect_err("unknown overlay must fail");
 
         // ASSERT
-        assert!(
-            error
-                .to_string()
-                .contains("'rpi4b' (introduce it with `kata add`)")
+        assert!(error.to_string().contains("has no entry to retag"));
+        assert!(error.to_string().contains("SOURCE@REPOSITORY@TAG"));
+    }
+
+    #[test]
+    fn selections_introduce_named_entries_with_a_source() {
+        // ARRANGE
+        let mut bases = bases();
+        let origins = BTreeMap::new();
+        let selections = Selections {
+            sets: vec![(
+                "overlays/rpi4b".to_owned(),
+                "muak-os/sbc-raspberrypi@sbc/raspberrypi@v0.4.0".to_owned(),
+            )],
+        };
+
+        // ACT
+        let plan = build(
+            &mut bases,
+            &origins,
+            &selections,
+            "v1.1.0",
+            &|repository, tag| Ok(fake_resolve(repository, tag)),
+            None,
+        )
+        .expect("build plan");
+
+        // ASSERT
+        let Document::Overlays(ref overlays) = *plan.documents.last().expect("overlays document")
+        else {
+            panic!("expected overlays document");
+        };
+        assert_eq!(overlays.overlays.len(), 2);
+        let rpi4b = overlays
+            .overlays
+            .iter()
+            .find(|entry| entry.name == "rpi4b")
+            .expect("introduced overlay");
+        assert_eq!(rpi4b.source, "muak-os/sbc-raspberrypi");
+        assert_eq!(rpi4b.repository, "sbc/raspberrypi");
+        assert_eq!(rpi4b.tag, "v0.4.0");
+        assert_eq!(rpi4b.digest, "sha256:sbc/raspberrypi@v0.4.0");
+    }
+
+    #[test]
+    fn selections_introduce_a_whole_fresh_core_line() {
+        // ARRANGE
+        let mut bases = Bases::default();
+        let origins = BTreeMap::new();
+        let selections = Selections {
+            sets: vec![
+                ("kernels/muak-os/linux".to_owned(), "linux@v6".to_owned()),
+                ("stub".to_owned(), "muak-os/stub@stub@v1".to_owned()),
+                (
+                    "installer".to_owned(),
+                    "muak-os/muak@installer@v1".to_owned(),
+                ),
+            ],
+        };
+
+        // ACT
+        let plan = build(
+            &mut bases,
+            &origins,
+            &selections,
+            "v1.0.0",
+            &|repository, tag| Ok(fake_resolve(repository, tag)),
+            None,
+        )
+        .expect("build plan");
+
+        // ASSERT
+        assert_eq!(plan.entries.len(), 3);
+        assert!(plan.entries.iter().all(|entry| entry.action == Action::Pin));
+        let Document::Core(ref core) = *plan.documents.first().expect("core document") else {
+            panic!("expected core document");
+        };
+        assert_eq!(core.release, "v1.0.0");
+        let kernel = core.kernels.first().expect("introduced kernel");
+        assert_eq!(kernel.source, "muak-os/linux");
+        assert_eq!(kernel.repository, "linux");
+        assert_eq!(kernel.tag, "v6");
+        assert_eq!(
+            core.stub.as_ref().expect("introduced stub").source,
+            "muak-os/stub"
         );
+        assert_eq!(core.stub.as_ref().expect("introduced stub").tag, "v1");
+        assert!(
+            core.installer
+                .as_ref()
+                .expect("introduced installer")
+                .source
+                .starts_with("muak-os/muak")
+        );
+    }
+
+    #[test]
+    fn retag_in_selections_update_the_repository() {
+        // ARRANGE
+        let mut bases = bases();
+        let origins = origins_all_carried();
+        let selections = Selections {
+            sets: vec![("kernels/muak-os/linux".to_owned(), "linux-rt@v7".to_owned())],
+        };
+
+        // ACT
+        let plan = build(
+            &mut bases,
+            &origins,
+            &selections,
+            "v1.1.0",
+            &|repository, tag| Ok(fake_resolve(repository, tag)),
+            None,
+        )
+        .expect("build plan");
+
+        // ASSERT
+        let Document::Core(ref core) = *plan.documents.first().expect("core document") else {
+            panic!("expected core document");
+        };
+        let kernel = core.kernels.first().expect("kernel");
+        assert_eq!(kernel.repository, "linux-rt");
+        assert_eq!(kernel.tag, "v7");
+        assert_eq!(kernel.source, "muak-os/linux", "the source is the identity");
     }
 
     #[test]
     fn auto_bumps_entries_without_a_selection() {
         // ARRANGE
         let mut bases = bases();
-        let origins = BTreeMap::from([
-            ("kernels/muak-os/linux".to_owned(), Action::Carry),
-            ("stub".to_owned(), Action::Carry),
-            ("installer".to_owned(), Action::Carry),
-            ("overlays/rpi_generic".to_owned(), Action::Carry),
-        ]);
+        let origins = origins_all_carried();
         let selections = Selections::default();
 
         // ACT
@@ -272,6 +383,7 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
+            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             Some(&|repository: &str| Ok(format!("v9-{repository}"))),
         )
@@ -308,6 +420,7 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
+            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             Some(&|_| Ok("v9".to_owned())),
         )
@@ -342,6 +455,7 @@ mod tests {
             &mut bases,
             &origins,
             &selections,
+            "v1.1.0",
             &|repository, tag| Ok(fake_resolve(repository, tag)),
             None,
         )

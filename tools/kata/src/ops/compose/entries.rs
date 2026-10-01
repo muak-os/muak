@@ -1,10 +1,9 @@
-//! Enumeration of a line's planned entries and selection validation.
+//! Enumeration of a line's planned entries and selection classification.
 
 use alloc::collections::BTreeMap;
 
 use super::merge::Bases;
-use super::plan::{Action, PlannedEntry, Selections, selection_matches};
-use crate::error::{KataError, Result};
+use super::plan::{Action, PlannedEntry};
 use crate::schema::entries::SourcedEntry;
 use crate::schema::kinds::Kind;
 
@@ -88,45 +87,5 @@ fn planned(
         tag: entry.tag.clone(),
         digest: entry.digest.clone(),
         action,
-    }
-}
-
-/// Validate that every selection matches a planned entry of the right role.
-///
-/// # Errors
-///
-/// Returns an error when a core role or named entry has no planned entry to
-/// retag.
-pub(crate) fn validate_selections(selections: &Selections, entries: &[PlannedEntry]) -> Result<()> {
-    let mut missing: Vec<String> = Vec::new();
-
-    for pair in &selections.sets {
-        if !entries
-            .iter()
-            .any(|entry| selection_matches(&pair.0, &entry.identity))
-        {
-            missing.push(selection_missing_message(&pair.0));
-        }
-    }
-
-    if missing.is_empty() {
-        return Ok(());
-    }
-
-    Err(KataError::Document(format!(
-        "selections without a matching entry: {}",
-        missing.join(", ")
-    )))
-}
-
-fn selection_missing_message(key: &str) -> String {
-    match key {
-        "kernel" => "kernel (no kernels entry to retag)".to_owned(),
-        "stub" => "stub (no stub entry to retag)".to_owned(),
-        "installer" => "installer (no installer entry to retag)".to_owned(),
-        _ => {
-            let name = key.rsplit('/').next().unwrap_or("?");
-            format!("'{name}' (introduce it with `kata add`)")
-        }
     }
 }

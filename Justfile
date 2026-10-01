@@ -174,21 +174,6 @@ catalog *args:
     just _kata publish --force --release "{{ tag }}" --dir /data --channel stable
     printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
-# Seed a fresh scratch catalog line from the local registry (first run only)
-[group('build')]
-[script]
-catalog-seed kernel_tag="latest" stub_tag="latest" installer_tag=tag:
-    mkdir -p "{{ absolute_path(out) }}/catalog"
-    printf "{{ cyan }}Seeding scratch catalog line {{ tag }}{{ reset }}\n"
-    just _kata add --role kernel --source muak-os/linux --repository linux \
-        --tag "{{ kernel_tag }}" --release "{{ tag }}" --force --dir /data
-    just _kata add --role stub --source muak-os/stub --repository stub \
-        --tag "{{ stub_tag }}" --release "{{ tag }}" --force --dir /data
-    just _kata add --role installer --source muak-os/muak --repository installer \
-        --tag "{{ installer_tag }}" --release "{{ tag }}" --force --dir /data
-    just _kata publish --force --release "{{ tag }}" --dir /data --channel stable
-    printf "{{ green }}Scratch line seeded: {{ registry }}/core:{{ tag }}{{ reset }}\n"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # OCI Images
 # ─────────────────────────────────────────────────────────────────────────────

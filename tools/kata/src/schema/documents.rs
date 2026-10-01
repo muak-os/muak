@@ -171,6 +171,32 @@ fn frozen<'a>(
     })
 }
 
+/// Refuse a core document machines cannot resolve a release line from.
+///
+/// # Errors
+///
+/// Returns an error naming the first missing entry.
+pub fn ensure_resolvable(core: &CoreDocument) -> error::DocumentResult<()> {
+    let mut missing: Vec<&str> = Vec::new();
+    if core.kernels.is_empty() {
+        missing.push("a kernel");
+    }
+    if core.stub.is_none() {
+        missing.push("a stub");
+    }
+    if core.installer.is_none() {
+        missing.push("an installer");
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    Err(error::DocumentError::Document(format!(
+        "a release line requires {}",
+        missing.join(" and ")
+    )))
+}
+
 fn mismatch(role: &str) -> error::DocumentError {
     error::DocumentError::Document(format!(
         "'{role}' lookup requires the core catalog document"
