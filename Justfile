@@ -127,10 +127,6 @@ release version: lint test
     arg="{{ version }}"
     next="${arg#v}"
 
-    if [[ -n "$(git status --porcelain)" ]]; then
-        printf "{{ red }}{{ bold }}Error:{{ reset }} working tree is dirty\n"
-        exit 1
-    fi
     if [[ "$(git branch --show-current)" != "master" ]]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} releases happen from master\n"
         exit 1
