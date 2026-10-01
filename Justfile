@@ -156,7 +156,7 @@ release version: lint test
     cargo update -w --offline
     git add Cargo.toml Cargo.lock
     git commit -m "chore(release): v$next"
-    git tag -a "v$next" -m "v$next"
+    git tag -s "v$next" -m "v$next"
     git push origin master "v$next"
     printf "{{ green }}Release {{ bold }}v$next{{ reset }} {{ green }}pushed{{ reset }}\n"
 
