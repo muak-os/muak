@@ -38,7 +38,7 @@ COPY --link --from=pkg-provisiond /provisiond                    /rootfs/sbin/pr
 COPY --link --from=pkg-modd       /modd                          /rootfs/sbin/modd
 COPY --link --from=pkg-networkd   /networkd                      /rootfs/sbin/networkd
 COPY --link --from=pkg-apid       /apid                          /rootfs/sbin/apid
-COPY --link --from=pkg-workloadd        /workloadd                           /rootfs/sbin/workloadd
+COPY --link --from=pkg-workloadd  /workloadd                     /rootfs/sbin/workloadd
 COPY --link --from=pkg-timed      /timed                         /rootfs/sbin/timed
 COPY --link --from=pkg-consoled   /consoled                      /rootfs/sbin/consoled
 
