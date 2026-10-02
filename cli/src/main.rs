@@ -82,6 +82,8 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    Reboot,
+    Shutdown,
     Disks,
     Dmesg {
         #[arg(long, short)]

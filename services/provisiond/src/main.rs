@@ -6,7 +6,7 @@ mod install;
 mod ipc;
 mod journal;
 mod medium;
-mod reboot;
+mod power;
 mod reset;
 mod secrets;
 mod streaming;

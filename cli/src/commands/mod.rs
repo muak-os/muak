@@ -5,6 +5,7 @@ pub mod disks;
 pub mod dmesg;
 pub mod install;
 pub mod logs;
+pub mod power;
 pub mod process;
 pub mod reset;
 pub mod rollback;
@@ -180,6 +181,8 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
         | Commands::Dmesg { .. }
         | Commands::Logs { .. }
         | Commands::Reset { .. }
+        | Commands::Reboot
+        | Commands::Shutdown
         | Commands::Version => Ok(false),
     }
 }
@@ -263,6 +266,14 @@ async fn handle_cmd(
         Commands::Reset { force } => {
             let mut client = ProvisionServiceClient::new(channel);
             reset::handle(&mut client, force, context).await
+        }
+        Commands::Reboot => {
+            let mut client = ProvisionServiceClient::new(channel);
+            power::reboot(&mut client).await
+        }
+        Commands::Shutdown => {
+            let mut client = ProvisionServiceClient::new(channel);
+            power::shutdown(&mut client).await
         }
         Commands::Version => version::handle(channel).await,
         Commands::Context { .. } => bail!("Command not handled"),

@@ -35,6 +35,12 @@ service ProvisionService {
 
     // @rbac: admin
     rpc FactoryReset(FactoryResetRequest) returns (FactoryResetResponse);
+
+    // @rbac: maintenance|admin
+    rpc Reboot(RebootRequest) returns (PowerResponse);
+
+    // @rbac: admin
+    rpc Shutdown(ShutdownRequest) returns (PowerResponse);
 }
 
 enum UpdateStatus {
@@ -171,6 +177,15 @@ message GetRollbackHistoryResponse {
 message FactoryResetRequest {}
 
 message FactoryResetResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+message RebootRequest {}
+
+message ShutdownRequest {}
+
+message PowerResponse {
     bool success = 1;
     string error = 2;
 }

@@ -10,13 +10,14 @@ use super::proto::provision::{
     GetConfigSnapshotRequest, GetConfigSnapshotResponse, GetDefaultConfigRequest,
     GetDefaultConfigResponse, GetRollbackHistoryRequest, GetRollbackHistoryResponse,
     GetUpdateStatusRequest, GetUpdateStatusResponse, InstallProgress, InstallRequest,
-    ListDisksRequest, ListDisksResponse, PartitionInfo, PrepareUpdateProgress,
-    PrepareUpdateRequest, RollbackHistoryEntry, UpdateRequest, UpdateResponse,
+    ListDisksRequest, ListDisksResponse, PartitionInfo, PowerResponse, PrepareUpdateProgress,
+    PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
+    UpdateResponse,
 };
 use crate::disk;
 use crate::install;
 use crate::journal;
-use crate::reboot;
+use crate::power;
 use crate::reset;
 use crate::streaming;
 use crate::template;
@@ -64,7 +65,7 @@ impl ProvisionService for ServiceImpl {
             move |result, out_tx| {
                 let msg = match result {
                     Ok(result) => {
-                        reboot::schedule(1);
+                        power::reboot(1);
                         Ok(InstallProgress {
                             ca_pem: result.ca_pem,
                             client_cert_pem: result.admin_cert_pem,
@@ -376,7 +377,7 @@ impl ProvisionService for ServiceImpl {
     ) -> Result<Response<FactoryResetResponse>, Status> {
         match task::spawn_blocking(reset::factory_reset).await {
             Ok(Ok(())) => {
-                reboot::schedule(1);
+                power::reboot(1);
                 Ok(Response::new(FactoryResetResponse {
                     success: true,
                     error: String::new(),
@@ -391,6 +392,30 @@ impl ProvisionService for ServiceImpl {
                 error: format!("Task panicked: {e}"),
             })),
         }
+    }
+
+    async fn reboot(
+        &self,
+        _request: Request<RebootRequest>,
+    ) -> Result<Response<PowerResponse>, Status> {
+        power::reboot(1);
+
+        Ok(Response::new(PowerResponse {
+            success: true,
+            error: String::new(),
+        }))
+    }
+
+    async fn shutdown(
+        &self,
+        _request: Request<ShutdownRequest>,
+    ) -> Result<Response<PowerResponse>, Status> {
+        power::poweroff(1);
+
+        Ok(Response::new(PowerResponse {
+            success: true,
+            error: String::new(),
+        }))
     }
 }
 
