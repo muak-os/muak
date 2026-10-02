@@ -166,7 +166,7 @@ release version: lint test
 catalog *args:
     mkdir -p "{{ absolute_path(out) }}/catalog"
     just _kata compose --force --dir /data --release "{{ tag }}" \
-        "$@" --set installer={{ tag }}
+        "$@" --set installer=muak-os/muak@installer@{{ tag }}
     just _kata publish --force --release "{{ tag }}" --dir /data --channel stable
     printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 

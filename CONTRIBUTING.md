@@ -40,11 +40,18 @@ EOF
 ```sh
 REGISTRY="localhost:5000" just mirror linux latest
 REGISTRY="localhost:5000" just mirror stub latest
+TAG="v0.0.1" REGISTRY="localhost:5000" just build --release
+TAG="v0.0.1" REGISTRY="localhost:5000" just installer
+TAG="v0.0.1" REGISTRY="localhost:5000" just catalog \
+  --set kernels/muak-os/linux=linux@latest \
+  --set stub=muak-os/stub@stub@latest
 REGISTRY="localhost:5000" just dev # Uses the default tools
 just start
 
 REGISTRY="10.0.2.2:5000" just e2e
 ```
+
+Every run after that is plain `REGISTRY="10.0.2.2:5000" just dev` to iterate.
 
 ### Local tool image
 
