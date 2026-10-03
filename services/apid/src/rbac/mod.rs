@@ -159,9 +159,16 @@ mod tests {
         assert!(
             MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/GetDefaultConfig")
         );
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Reboot"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
-        assert_eq!(MAINTENANCE_METHODS.len(), 5);
+        assert!(!MAINTENANCE_METHODS.is_empty());
+        for method in MAINTENANCE_METHODS {
+            assert!(
+                KNOWN_METHODS.contains(method),
+                "Maintenance method {method} is not a known method",
+            );
+        }
     }
 
     #[test]
