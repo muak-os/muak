@@ -2,7 +2,7 @@
 
 ARG ALPINE_VERSION
 
-ARG TOOLS=ghcr.io/muak-os/tools:latest
+ARG TOOLCHAIN=ghcr.io/muak-os/toolchain:latest
 
 ARG PKG_GRANOLA=ghcr.io/muak-os/pkgs/granola:latest
 ARG PKG_PROVISIOND=ghcr.io/muak-os/pkgs/provisiond:latest
@@ -26,7 +26,7 @@ FROM ${PKG_WORKLOADD} AS pkg-workloadd
 FROM ${PKG_TIMED} AS pkg-timed
 FROM ${PKG_CONSOLED} AS pkg-consoled
 FROM ${PKG_MILLEFEUILLE} AS pkg-millefeuille
-FROM ${TOOLS} AS tools
+FROM ${TOOLCHAIN} AS toolchain
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Assemble rootfs
@@ -49,7 +49,7 @@ COPY --link --from=services       */*.service /rootfs/etc/services/
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/alpine:${ALPINE_VERSION} AS selinux
 
-COPY --link --from=tools /secilc /usr/local/bin/secilc
+COPY --link --from=toolchain /secilc /usr/local/bin/secilc
 
 WORKDIR /policy
 
@@ -61,7 +61,7 @@ RUN secilc -f file_contexts \
 # ─────────────────────────────────────────────────────────────────────────────
 # Create initramfs
 # ─────────────────────────────────────────────────────────────────────────────
-FROM ${TOOLS} AS initramfs-builder
+FROM ${TOOLCHAIN} AS initramfs-builder
 
 COPY --link --from=rootfs-base      /rootfs               /rootfs
 COPY --link --from=selinux          /policy/policy.*      /rootfs/etc/selinux/

@@ -18,7 +18,7 @@ rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tag := env_var_or_default("TAG", "latest")
-tools := env_var_or_default("TOOLS", "ghcr.io/muak-os/tools:latest")
+toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain:latest")
 push := env_var_or_default("PUSH", "true")
 latest := env_var_or_default("LATEST", "false")
 signature := env_var_or_default("SIGNATURE", "signature.key")
@@ -39,7 +39,7 @@ build_cmd := if container_runtime == "podman" { "podman build" } else { "docker 
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
 push_arg := if container_runtime == "podman" { "" } else { if push == "true" { "--push" } else { "" } }
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " --build-arg TOOLS=" + tools + " " + provenance_arg
+common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " --build-arg TOOLCHAIN=" + toolchain + " " + provenance_arg
 
 # Colors
 
@@ -56,7 +56,7 @@ reset := '\e[0m'
 # Full local development build (build → installer → sign → catalog → iso)
 [group('build')]
 dev: (build "--release" "") installer annotate sign catalog (artifacts "iso")
-  @printf "{{ green }}Development build complete. Tools used: {{ bold }}{{ tools }}{{ reset }}\n"
+  @printf "{{ green }}Development build complete. Toolchain used: {{ bold }}{{ toolchain }}{{ reset }}\n"
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [group('build')]
@@ -111,7 +111,7 @@ artifacts *types:
     {{ container_runtime }} run --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \
-        {{ tools }} \
+        {{ toolchain }} \
         /wizard build \
             --profile /out/profile.toml \
             --artifacts {{ types }} \
@@ -174,7 +174,7 @@ catalog *args:
 # OCI Images
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Build OCI images (e.g., just oci granola installer cli tools)
+# Build OCI images (e.g., just oci granola installer cli toolchain)
 [group('oci')]
 [script]
 oci *pkgs:
@@ -187,17 +187,17 @@ oci *pkgs:
         case "$pkg" in
             installer) just installer --prod ;;
             cli)      just _build-oci muakctl cli/Dockerfile ;;
-            tools)    just _build-oci tools tools/Dockerfile ;;
+            toolchain) just _build-oci toolchain toolchain/Dockerfile ;;
             *)
                 dockerfile=""
-                for dir in init services tools pkgs; do
+                for dir in init services toolchain pkgs; do
                     if [ -f "$dir/$pkg/Dockerfile" ]; then
                         dockerfile="$dir/$pkg/Dockerfile"
                         break
                     fi
                 done
                 if [ -z "$dockerfile" ]; then
-                    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in init/, services/, tools/, or pkgs/\n"
+                    printf "{{ red }}{{ bold }}Error:{{ reset }} Dockerfile for $pkg not found in init/, services/, toolchain/, or pkgs/\n"
                     exit 1
                 fi
                 just _build-oci "pkgs/$pkg" "$dockerfile"
@@ -215,7 +215,7 @@ merge image *sources:
     fi
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
-        {{ tools }} \
+        {{ toolchain }} \
         /koci merge \
             --image "{{ registry }}/{{ image }}" \
             --tag "{{ tag }}" \
@@ -229,7 +229,7 @@ mirror image tag upstream="ghcr.io/muak-os":
     printf "{{ cyan }}Mirroring {{ upstream }}/{{ image }}:{{ tag }} to {{ registry }}/{{ image }}:{{ tag }}{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
-        {{ tools }} \
+        {{ toolchain }} \
         /koci copy \
             --source "{{ upstream }}/{{ image }}:{{ tag }}" \
             --destination "{{ registry }}/{{ image }}:{{ tag }}"
@@ -241,7 +241,7 @@ annotate image=(registry + "/installer:" + tag):
     @printf "{{ cyan }}Annotating OCI image {{ image }}{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
-        {{ tools }} \
+        {{ toolchain }} \
         /koci annotate \
             --image "{{ image }}" \
             --annotation dev.muak.sizes
@@ -254,7 +254,7 @@ sign image=(registry + "/installer:" + tag):
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         -v "{{ absolute_path(signature) }}:/key:ro" \
-        {{ tools }} \
+        {{ toolchain }} \
         /koci sign \
             --image "{{ image }}" \
             --key /key \
@@ -268,7 +268,7 @@ extract image arch=oci_arch output=(out + "/extract"):
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         -v "{{ absolute_path(output) }}:/out" \
-        {{ tools }} \
+        {{ toolchain }} \
         /koci pull \
             --image "{{ image }}" \
             --arch "{{ arch }}" \
@@ -403,7 +403,7 @@ policy:
         -name "*.cil" | LC_ALL=c sort | sed 's|{{ justfile_directory() }}|/src|g')
     {{ container_runtime }} run --rm \
         -v {{ justfile_directory() }}:/src:ro \
-        {{ tools }} \
+        {{ toolchain }} \
         /secilc -o /dev/null -f /dev/null ${cil_files}
     printf "{{ green }}SELinux policy is valid{{ reset }}\n"
 
@@ -426,7 +426,7 @@ _kata *args:
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         -e REGISTRY="{{ registry }}" \
         -v "{{ absolute_path(out) }}/catalog:/data" \
-        {{ tools }} \
+        {{ toolchain }} \
         /kata "${@}"
 
 [private]

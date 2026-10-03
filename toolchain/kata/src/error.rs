@@ -49,7 +49,7 @@ pub enum KataError {
     #[error("Lineage check failed: {0}")]
     Lineage(String),
 
-    /// A release does not correlate with the baked tools version.
+    /// A release does not correlate with the baked toolchain version.
     #[error("Version correlation failed: {0}")]
     Version(String),
 

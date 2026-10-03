@@ -93,6 +93,6 @@ COPY --link --from=builder /ramune  /ramune
 COPY --link --from=builder /wizard  /wizard
 COPY --link --from=secilc  /secilc /secilc
 
-LABEL org.opencontainers.image.title="tools"
-LABEL org.opencontainers.image.description="Muak build tools"
+LABEL org.opencontainers.image.title="toolchain"
+LABEL org.opencontainers.image.description="Muak build toolchain"
 LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"

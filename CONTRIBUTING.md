@@ -11,7 +11,7 @@ Local QEMU development uses two addresses for the same registry:
 - `localhost:5000` from the host, for `just dev` and other pushes
 - `10.0.2.2:5000` from inside the QEMU guest, for installs and `just e2e`
 
-`REGISTRY` controls where Muak images are pushed. The tools image is pulled by default from ghcr unless you explicitly set `TOOLS`.
+`REGISTRY` controls where Muak images are pushed. The toolchain image is pulled by default from ghcr unless you explicitly set `TOOLCHAIN`.
 
 Start a local registry:
 
@@ -45,7 +45,7 @@ TAG="v0.0.1" REGISTRY="localhost:5000" just installer
 TAG="v0.0.1" REGISTRY="localhost:5000" just catalog \
   --set kernels/muak-os/linux=linux@latest \
   --set stub=muak-os/stub@stub@latest
-REGISTRY="localhost:5000" just dev # Uses the default tools
+REGISTRY="localhost:5000" just dev # Uses the default toolchain
 just start
 
 REGISTRY="10.0.2.2:5000" just e2e
@@ -53,11 +53,11 @@ REGISTRY="10.0.2.2:5000" just e2e
 
 Every run after that is plain `REGISTRY="10.0.2.2:5000" just dev` to iterate.
 
-### Local tool image
+### Local Toolchain Image
 
 ```sh
-REGISTRY="localhost:5000" just oci tools
-TOOLS="localhost:5000/tools:latest" REGISTRY="localhost:5000" just dev
+REGISTRY="localhost:5000" just oci toolchain
+TOOLCHAIN="localhost:5000/toolchain:latest" REGISTRY="localhost:5000" just dev
 ```
 
 ### ARM

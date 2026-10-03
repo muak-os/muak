@@ -6,7 +6,7 @@ on:
     paths:
       - "init/**"
       - "services/**"
-      - "tools/**"
+      - "toolchain/**"
       - "libs/**"
       - "api/**"
       - "Cargo.toml"
@@ -18,7 +18,7 @@ on:
     paths:
       - "init/**"
       - "services/**"
-      - "tools/**"
+      - "toolchain/**"
       - "libs/**"
       - "api/**"
       - "Cargo.toml"
@@ -135,14 +135,14 @@ jobs:
               - 'libs/granola-macros/**'
               - 'libs/parttable/**'
               - 'libs/uki/**'
-              - 'tools/kata/**'
-              - 'tools/koci/**'
-              - 'tools/miso/**'
-              - 'tools/mumi/**'
-              - 'tools/ramune/**'
-              - 'tools/sbolt/**'
-              - 'tools/wizard/**'
-              - 'tools/yuki/**'
+              - 'toolchain/kata/**'
+              - 'toolchain/koci/**'
+              - 'toolchain/miso/**'
+              - 'toolchain/mumi/**'
+              - 'toolchain/ramune/**'
+              - 'toolchain/sbolt/**'
+              - 'toolchain/wizard/**'
+              - 'toolchain/yuki/**'
             timed:
               - 'services/timed/**'
               - 'init/granola/**'

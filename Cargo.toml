@@ -14,14 +14,14 @@ members = [
     "services/timed",
     "services/workloadd",
 
-    "tools/wizard",
-    "tools/kata",
-    "tools/koci",
-    "tools/miso",
-    "tools/mumi",
-    "tools/ramune",
-    "tools/sbolt",
-    "tools/yuki",
+    "toolchain/wizard",
+    "toolchain/kata",
+    "toolchain/koci",
+    "toolchain/miso",
+    "toolchain/mumi",
+    "toolchain/ramune",
+    "toolchain/sbolt",
+    "toolchain/yuki",
 
     "libs/btrfs",
     "libs/config",
@@ -56,15 +56,15 @@ categories = ["os"]
 [workspace.dependencies]
 # Internal crates
 
-## Tools
-kata = { path = "tools/kata", default-features = false }
-wizard = { path = "tools/wizard", default-features = false }
-koci = { path = "tools/koci", default-features = false }
-miso = { path = "tools/miso", default-features = false }
-mumi = { path = "tools/mumi", default-features = false }
-ramune = { path = "tools/ramune", default-features = false }
-sbolt = { path = "tools/sbolt", default-features = false }
-yuki = { path = "tools/yuki", default-features = false }
+## Toolchain
+kata = { path = "toolchain/kata", default-features = false }
+wizard = { path = "toolchain/wizard", default-features = false }
+koci = { path = "toolchain/koci", default-features = false }
+miso = { path = "toolchain/miso", default-features = false }
+mumi = { path = "toolchain/mumi", default-features = false }
+ramune = { path = "toolchain/ramune", default-features = false }
+sbolt = { path = "toolchain/sbolt", default-features = false }
+yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
 btrfs = { path = "libs/btrfs" }

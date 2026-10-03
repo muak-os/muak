@@ -1,17 +1,17 @@
-name: Build Tools
+name: Build Toolchain
 
 on:
   push:
     branches: [master]
     paths:
-      - "tools/miso/**"
-      - "tools/kata/**"
-      - "tools/koci/**"
-      - "tools/mumi/**"
-      - "tools/ramune/**"
-      - "tools/sbolt/**"
-      - "tools/wizard/**"
-      - "tools/yuki/**"
+      - "toolchain/miso/**"
+      - "toolchain/kata/**"
+      - "toolchain/koci/**"
+      - "toolchain/mumi/**"
+      - "toolchain/ramune/**"
+      - "toolchain/sbolt/**"
+      - "toolchain/wizard/**"
+      - "toolchain/yuki/**"
       - "libs/disk/**"
       - "libs/erofs/**"
       - "libs/esp/**"
@@ -26,14 +26,14 @@ on:
       - ".dockerignore"
   pull_request:
     paths:
-      - "tools/miso/**"
-      - "tools/kata/**"
-      - "tools/koci/**"
-      - "tools/mumi/**"
-      - "tools/ramune/**"
-      - "tools/sbolt/**"
-      - "tools/wizard/**"
-      - "tools/yuki/**"
+      - "toolchain/miso/**"
+      - "toolchain/kata/**"
+      - "toolchain/koci/**"
+      - "toolchain/mumi/**"
+      - "toolchain/ramune/**"
+      - "toolchain/sbolt/**"
+      - "toolchain/wizard/**"
+      - "toolchain/yuki/**"
       - "libs/disk/**"
       - "libs/erofs/**"
       - "libs/esp/**"
@@ -75,8 +75,8 @@ jobs:
       packages: write
     uses: ./.github/workflows/_template.yaml
     with:
-      image: tools
-      recipe: oci tools
+      image: toolchain
+      recipe: oci toolchain
       push: ${{ github.event_name != 'pull_request' }}
       latest: ${{ startsWith(github.ref, 'refs/tags/') || inputs.latest == true }}
       tag: ${{ inputs.tag }}

@@ -39,7 +39,7 @@ mod tests {
             "koci",
             "digest",
             "--image",
-            "ghcr.io/muak-os/tools",
+            "ghcr.io/muak-os/toolchain",
             "--tag",
             "v1.0.0-beta",
         ])
@@ -49,7 +49,7 @@ mod tests {
         let Command::Digest(digest) = args.command else {
             panic!("expected digest command");
         };
-        assert_eq!(digest.image, "ghcr.io/muak-os/tools");
+        assert_eq!(digest.image, "ghcr.io/muak-os/toolchain");
         assert_eq!(digest.tag, "v1.0.0-beta");
     }
 }

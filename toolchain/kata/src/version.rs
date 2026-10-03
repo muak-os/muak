@@ -1,4 +1,4 @@
-//! Correlation between the baked tools version and catalog release lines.
+//! Correlation between the baked toolchain version and catalog release lines.
 
 use crate::error::{KataError, Result};
 
@@ -16,7 +16,7 @@ pub fn ensure_line(release: &str, line_exists: bool, bypass: bool) -> Result<()>
     }
 
     Err(KataError::Version(format!(
-        "refusing to create line '{release}' with the {LINE} tools image; \
+        "refusing to create line '{release}' with the {LINE} toolchain image; \
          tag and release '{release}' first, or pass --force."
     )))
 }
