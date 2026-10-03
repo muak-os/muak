@@ -243,8 +243,7 @@ async fn provision_static_ipv4_initializes() {
 
 #[tokio::test]
 async fn provision_static_ipv4_named_interface_not_found_still_initializes() {
-    // ARRANGE — eth1 is present but config resolves to eth0; the provision
-    // failure is logged and swallowed, so init still completes.
+    // ARRANGE
     let mock = MockNetlinkOps::new();
     mock.add_link("eth1", [0xBB; 6], true);
 
@@ -281,7 +280,7 @@ async fn provision_dhcp_sends_configure_dhcp_command() {
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
-    // ASSERT — init completes (DHCP config command is sent to actor)
+    // ASSERT
     assert!(result.is_ok(), "should not time out");
     assert!(
         result.expect("timeout").is_ok(),
@@ -354,8 +353,7 @@ async fn provision_named_interface_resolves_by_name() {
 
 #[tokio::test]
 async fn provision_named_interface_not_found_still_initializes() {
-    // ARRANGE — eth0 is configured but only eth1 is discovered; provision
-    // failure is logged and swallowed by try_provision_interface.
+    // ARRANGE
     let mock = MockNetlinkOps::new();
     mock.add_link("eth1", [0xBB; 6], true);
 
@@ -366,7 +364,7 @@ async fn provision_named_interface_not_found_still_initializes() {
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
-    // ASSERT — init succeeds even though the named interface wasn't found
+    // ASSERT
     assert!(result.is_ok(), "should not time out");
     assert!(
         result.expect("timeout").is_ok(),
@@ -434,7 +432,7 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
-    // ASSERT — init succeeds; the multi-port warn branch (provision.rs:187-192) was exercised
+    // ASSERT
     assert!(result.is_ok(), "should not time out");
     assert!(
         result.expect("timeout").is_ok(),
@@ -460,7 +458,7 @@ async fn provision_bridge_named_port_resolves_by_name() {
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
-    // ASSERT — init succeeds; the named-port branch (provision.rs:196) was exercised
+    // ASSERT
     assert!(result.is_ok(), "should not time out");
     assert!(
         result.expect("timeout").is_ok(),
@@ -486,7 +484,7 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
 
-    // ASSERT — init succeeds; the empty-ports None branch (provision.rs:197) was exercised
+    // ASSERT
     assert!(result.is_ok(), "should not time out");
     assert!(
         result.expect("timeout").is_ok(),

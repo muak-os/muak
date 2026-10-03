@@ -80,7 +80,7 @@ unsafe fn prepare_service_socket(src_raw: RawFd) -> std::io::Result<()> {
     // SAFETY: src_raw is a valid, open descriptor in the child (see caller).
     let src = unsafe { BorrowedFd::borrow_raw(src_raw) };
     // SAFETY: fd 3 exists in the child during pre_exec. ManuallyDrop prevents
-    // closing a descriptor we do not own — dup2 closes and reuses it itself.
+    // closing a descriptor we do not own; dup2 closes and reuses it itself.
     let mut dst = ManuallyDrop::new(unsafe { OwnedFd::from_raw_fd(3) });
     rustix::io::dup2(src, &mut dst).map_err(rustix_error)?;
     // SAFETY: fd 3 is open after the successful dup2 above.

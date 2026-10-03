@@ -123,8 +123,8 @@ fn gate_publication(documents: &[Document], release: &str, force: bool) -> Resul
             .map_err(|error| KataError::Registry(error.to_string()))?
         {
             return Err(KataError::Gate(format!(
-                "{line_reference} is already published; lines are append-only — \
-                 compose a new line, or pass --force (dev scratch registries only)"
+                "{line_reference} is already published; lines are append-only. \
+                 Compose a new line, or pass --force (dev scratch registries only)"
             )));
         }
     }

@@ -163,7 +163,7 @@ mod tests {
         // ACT
         inject_required_dirs(dir.path()).unwrap();
 
-        // ASSERT — no error
+        // ASSERT
     }
 
     #[test]

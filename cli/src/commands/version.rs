@@ -61,14 +61,14 @@ pub fn print_compat_warning(client_ver: &str, server_ver: &str) {
         CompatibilityStatus::MajorMismatch { cli_newer: true } => {
             format!(
                 "significant version mismatch: server {server_ver} vs client {client_ver} \
-                 (major version differs) — API compatibility not guaranteed; \
+                 (major version differs), API compatibility not guaranteed; \
                  consider updating the server"
             )
         }
         CompatibilityStatus::MajorMismatch { cli_newer: false } => {
             format!(
                 "significant version mismatch: client {client_ver} vs server {server_ver} \
-                 (major version differs) — API compatibility not guaranteed; \
+                 (major version differs), API compatibility not guaranteed; \
                  consider updating muakctl"
             )
         }

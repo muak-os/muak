@@ -92,7 +92,6 @@ fn config_bridge_missing_port() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-/// Verifies supervisor reconcile restores drifted static IPv4 state.
 #[tokio::test]
 async fn reconcile_reapplies_static_ipv4_after_drift() {
     // ARRANGE
@@ -127,7 +126,6 @@ async fn reconcile_reapplies_static_ipv4_after_drift() {
     );
 }
 
-/// Verifies reconcile is a no-op before initialization completes.
 #[tokio::test]
 async fn reconcile_before_initialization_is_a_noop() {
     // ARRANGE
@@ -155,7 +153,6 @@ async fn reconcile_before_initialization_is_a_noop() {
     );
 }
 
-/// Verifies supervisor reconcile restores drifted static IPv6 state.
 #[tokio::test]
 async fn reconcile_reapplies_static_ipv6_after_drift() {
     // ARRANGE
@@ -193,7 +190,6 @@ async fn reconcile_reapplies_static_ipv6_after_drift() {
     );
 }
 
-/// Verifies reconcile can safely drive the DHCP path.
 #[tokio::test]
 async fn reconcile_with_dhcp_config_completes() {
     // ARRANGE
@@ -218,7 +214,6 @@ async fn reconcile_with_dhcp_config_completes() {
     assert!(result.is_ok(), "DHCP reconcile should complete");
 }
 
-/// Verifies reconcile skips bridge creation when the configured port is unresolved.
 #[tokio::test]
 async fn reconcile_skips_bridge_when_port_is_missing() {
     // ARRANGE
@@ -244,7 +239,6 @@ async fn reconcile_skips_bridge_when_port_is_missing() {
     assert!(!has_link(&mock, "br0"), "bridge should not be created");
 }
 
-/// Verifies reconcile tolerates a configured interface that is absent at runtime.
 #[tokio::test]
 async fn reconcile_named_missing_interface_is_non_fatal() {
     // ARRANGE
@@ -272,7 +266,6 @@ async fn reconcile_named_missing_interface_is_non_fatal() {
     );
 }
 
-/// Verifies reconcile re-applies bridge configuration for a discovered bridge actor.
 #[tokio::test]
 async fn reconcile_refreshes_unconfigured_bridge() {
     // ARRANGE
@@ -291,7 +284,7 @@ async fn reconcile_refreshes_unconfigured_bridge() {
     handle.initialize_with_retry().await.expect("init failed");
     assert_eq!(mock.ensure_bridge_calls(), 0, "no bridge should exist yet");
 
-    // ACT — announce the bridge so the supervisor spawns an actor for it, then reconcile
+    // ACT
     event_tx
         .send(Event::Added {
             name: Name::new("br0").expect("valid bridge name"),
@@ -323,7 +316,6 @@ async fn reconcile_refreshes_unconfigured_bridge() {
     );
 }
 
-/// Verifies reconcile skips a bridge actor that is already configured.
 #[tokio::test]
 async fn reconcile_skips_configured_bridge() {
     // ARRANGE
@@ -341,7 +333,6 @@ async fn reconcile_skips_configured_bridge() {
     .expect("start failed");
     handle.initialize_with_retry().await.expect("init failed");
 
-    // Announce the bridge and reconcile once so the bridge actor reaches `Configured`.
     event_tx
         .send(Event::Added {
             name: Name::new("br0").expect("valid bridge name"),

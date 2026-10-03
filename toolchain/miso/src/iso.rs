@@ -263,7 +263,7 @@ fn build_boot_catalog(efi_image_lba: u32, efi_image_sectors: u16) -> Result<[u8;
     write_byte(&mut cat, 64, 0x91);
     write_byte(&mut cat, 65, 0xEF);
     write_bytes(&mut cat, 66, &1_u16.to_le_bytes());
-    // Section entry (§2.5) — same as default entry above
+    // Section entry (§2.5), same as default entry above
     write_byte(&mut cat, 96, 0x88);
     write_byte(&mut cat, 97, 0x00);
     write_byte(&mut cat, 98, 0x00);
