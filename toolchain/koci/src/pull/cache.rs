@@ -23,30 +23,18 @@ pub struct Store {
 
 impl Store {
     /// Set the cache directory programmatically.
-    ///
-    /// This is overridden by the `MUAK_KOCI_CACHE` environment variable if set.
-    /// Must be called before creating any `Store` instances.
     pub fn set_dir(path: PathBuf) {
         drop(CACHE_DIR.set(Some(path)));
     }
 
     /// Create a new cache.
-    ///
-    /// Resolution order:
-    /// 1. `MUAK_KOCI_CACHE` environment variable (highest priority)
-    /// 2. [`set_dir`]
-    /// 3. No cache (all methods become no-ops)
     pub(crate) fn new() -> Self {
-        let root = std::env::var("MUAK_KOCI_CACHE")
-            .ok()
-            .map(PathBuf::from)
-            .or_else(|| CACHE_DIR.get().cloned().flatten());
         let ttl = std::env::var("MUAK_KOCI_CACHE_TTL")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .map_or(Duration::from_mins(5), Duration::from_secs);
 
-        Self { root, ttl }
+        Self { root: root(), ttl }
     }
 
     /// Return a cached manifest.
@@ -77,10 +65,7 @@ impl Store {
 
     /// Return the filesystem path for a blob digest.
     pub(crate) fn blob_path(&self, digest: &str) -> Option<PathBuf> {
-        let root = self.root.as_ref()?;
-        let hash = digest.strip_prefix("sha256:")?;
-
-        Some(root.join("blobs").join("sha256").join(hash))
+        blob_file_path(self.root.as_deref(), digest)
     }
 
     /// Return cached manifest JSON for a tag reference or `None` if missing or the TTL has expired.
@@ -121,7 +106,34 @@ fn is_digest(manifest_ref: &str) -> bool {
     manifest_ref.starts_with("sha256:")
 }
 
-/// Write `data` to `path` atomically using a temporary file + rename.
+/// The cache root shared by the manifest cache and the content store.
+///
+/// Resolution order:
+/// 1. `MUAK_KOCI_CACHE` environment variable (highest priority)
+/// 2. [`Store::set_dir`]
+/// 3. `None`: both caches are disabled
+pub(crate) fn root() -> Option<PathBuf> {
+    std::env::var("MUAK_KOCI_CACHE")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| CACHE_DIR.get().cloned().flatten())
+}
+
+/// The filesystem path holding a committed blob, or `None` when `root` is
+/// unset or the digest has no `sha256:` prefix.
+pub(crate) fn blob_file_path(root: Option<&Path>, digest: &str) -> Option<PathBuf> {
+    let hash = digest.strip_prefix("sha256:")?;
+
+    Some(root?.join("blobs").join("sha256").join(hash))
+}
+
+/// Return a unique sibling path for an in-progress write.
+pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
+    let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+
+    path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
+}
+
 fn atomic_write(path: &Path, data: &[u8]) {
     let Some(parent) = path.parent() else {
         return;
@@ -135,13 +147,6 @@ fn atomic_write(path: &Path, data: &[u8]) {
     }
 
     drop(std::fs::rename(&tmp, path));
-}
-
-/// Return a unique sibling path for an in-progress write.
-pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
-    let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-
-    path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
 }
 
 #[cfg(test)]

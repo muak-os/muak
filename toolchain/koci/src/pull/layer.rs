@@ -12,12 +12,13 @@ use oci::model::Descriptor;
 use oci_client::auth::Access;
 use oci_client::client::Client;
 use tar::Archive;
-use tokio::task::JoinSet;
 
 use super::cache::Store;
+use super::content::Content;
 use super::entries::FileEntry;
+use super::fetch;
 use super::{download, resolve, scan};
-use crate::error::{KociError, Result};
+use crate::error::Result;
 use crate::progress::Progress;
 use crate::registry;
 use crate::signature::Verification;
@@ -46,7 +47,7 @@ where
 
     walk(
         &client,
-        &cache,
+        &Content::new(),
         &layers,
         progress,
         |_layer_idx, entry, info| scan::handle_file_entry(entry, info, &mut handler),
@@ -62,7 +63,6 @@ where
 #[cfg(feature = "annotate")]
 pub(crate) async fn entry_sizes(
     client: &Client,
-    cache: &Store,
     layers: &[Descriptor],
     exclude: &[String],
     progress: &dyn Progress,
@@ -71,7 +71,7 @@ pub(crate) async fn entry_sizes(
 
     walk(
         client,
-        cache,
+        &Content::new(),
         layers,
         progress,
         |_layer_idx, _entry, info| {
@@ -92,42 +92,49 @@ pub(crate) async fn entry_sizes(
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
 async fn walk<F>(
     client: &Client,
-    cache: &Store,
+    content: &Content,
     layers: &[Descriptor],
     progress: &dyn Progress,
     mut on_entry: F,
 ) -> Result<()>
 where
-    F: for<'a, 'b> FnMut(
+    F: for<'a> FnMut(
         usize,
-        tar::Entry<&'b mut download::LayerReader<'a>>,
+        tar::Entry<&'a mut download::LayerReader>,
         scan::EntryInfo,
     ) -> Result<()>,
 {
-    let (blobs, whiteouts) = download_all(client, cache, layers, progress).await?;
+    let (bytes, whiteouts) = fetch::download_all(client, content, layers, progress).await?;
     let n = layers.len();
 
     for (layer_idx, layer) in layers.iter().enumerate() {
-        let data = blobs
-            .get(layer_idx)
-            .ok_or_else(|| KociError::Pull(format!("missing layer bytes for layer {layer_idx}")))?;
         progress.layer_extracting(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
-        let mut reader = download::decompress(data, layer.media_type.as_deref())?;
+        let cached = fetch::cached_bytes(&bytes, layer_idx);
+        let mut reader = fetch::layer_reader(content, cached.as_deref(), layer)?;
         extract_layer(&mut reader, layer_idx, &whiteouts, &mut on_entry)?;
     }
 
     Ok(())
 }
 
+/// The short digest prefix used for progress lines.
+pub(crate) fn short_digest(digest: &str) -> &str {
+    if let Some(hash) = digest.strip_prefix("sha256:") {
+        hash.get(..12).unwrap_or(hash)
+    } else {
+        digest
+    }
+}
+
 /// Iterate one layer's archive, skipping entries blocked by whiteouts.
-fn extract_layer<'a, F>(
-    reader: &mut download::LayerReader<'a>,
+fn extract_layer<F>(
+    reader: &mut download::LayerReader,
     layer_idx: usize,
     whiteouts: &HashMap<PathBuf, usize>,
     on_entry: &mut F,
 ) -> Result<()>
 where
-    F: FnMut(usize, tar::Entry<&mut download::LayerReader<'a>>, scan::EntryInfo) -> Result<()>,
+    F: FnMut(usize, tar::Entry<&mut download::LayerReader>, scan::EntryInfo) -> Result<()>,
 {
     let mut archive = Archive::new(reader);
     let entries = archive.entries()?;
@@ -141,69 +148,6 @@ where
     }
 
     Ok(())
-}
-
-/// Download every layer blob concurrently, then map whiteout targets to the first layer that must be hidden by them.
-async fn download_all(
-    client: &Client,
-    cache: &Store,
-    layers: &[Descriptor],
-    progress: &dyn Progress,
-) -> Result<(Vec<Vec<u8>>, HashMap<PathBuf, usize>)> {
-    let n = layers.len();
-
-    let mut downloads = JoinSet::new();
-    for (layer_idx, layer) in layers.iter().enumerate() {
-        let cache = cache.clone();
-        let http = client.http().clone();
-        let image = client.image().clone();
-        let authorization = client.authorization().map(str::to_owned);
-        let digest = layer.digest.clone();
-        progress.layer_download_queued(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
-        downloads.spawn(async move {
-            (
-                layer_idx,
-                download::cached(&cache, &http, &image, &digest, authorization.as_deref()).await,
-            )
-        });
-    }
-
-    let mut blobs: Vec<Option<Result<Vec<u8>>>> = std::iter::repeat_with(|| None).take(n).collect();
-    while let Some(joined) = downloads.join_next().await {
-        let (layer_idx, blob) = joined
-            .map_err(|error| KociError::Pull(format!("layer download task failed: {error}")))?;
-        let layer = layers.get(layer_idx).ok_or_else(|| {
-            KociError::Pull(format!("missing download slot for layer {layer_idx}"))
-        })?;
-        progress.layer_downloaded(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
-        *blobs.get_mut(layer_idx).ok_or_else(|| {
-            KociError::Pull(format!("missing download slot for layer {layer_idx}"))
-        })? = Some(blob);
-    }
-
-    let mut bytes = Vec::with_capacity(n);
-    let mut whiteouts: HashMap<PathBuf, usize> = HashMap::new();
-    for (layer_idx, layer) in layers.iter().enumerate() {
-        let blob = blobs
-            .get_mut(layer_idx)
-            .and_then(Option::take)
-            .ok_or_else(|| KociError::Pull(format!("missing download for layer {layer_idx}")))??;
-        let reader = download::decompress(&blob, layer.media_type.as_deref())?;
-        for whiteout in scan::scan_whiteouts(reader)? {
-            whiteouts.entry(whiteout).or_insert(layer_idx);
-        }
-        bytes.push(blob);
-    }
-
-    Ok((bytes, whiteouts))
-}
-
-fn short_digest(digest: &str) -> &str {
-    if let Some(hash) = digest.strip_prefix("sha256:") {
-        hash.get(..12).unwrap_or(hash)
-    } else {
-        digest
-    }
 }
 
 /// Whether a file entry is deleted by a whiteout recorded in a later layer.

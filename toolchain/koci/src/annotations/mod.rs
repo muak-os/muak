@@ -139,15 +139,9 @@ impl Mutation<'_> {
                 exclude,
             } => {
                 let parsed = oci::manifest::parse(manifest_json)?;
-                let cache = pull::cache::Store::new();
-                let sizes = pull::layer::entry_sizes(
-                    client,
-                    &cache,
-                    &parsed.layers,
-                    exclude,
-                    &progress::Noop,
-                )
-                .await?;
+                let sizes =
+                    pull::layer::entry_sizes(client, &parsed.layers, exclude, &progress::Noop)
+                        .await?;
                 eprintln!("Annotating {} file(s)", sizes.len());
                 let sizes_json = serde_json::to_string(&sizes)?;
                 let (body, content_type) =

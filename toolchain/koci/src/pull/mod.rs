@@ -12,8 +12,10 @@ use crate::runtime;
 use crate::signature::Verification;
 
 pub mod cache;
+pub(crate) mod content;
 pub(crate) mod download;
 pub mod entries;
+pub(crate) mod fetch;
 pub(crate) mod layer;
 pub(crate) mod paths;
 pub(crate) mod resolve;
