@@ -203,8 +203,8 @@ mod tests {
             "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
             None,
             vec![Extension::new(
-                "muak-os/qemu".to_owned(),
-                "ghcr.io/muak-os/qemu:v1.0.0".to_owned(),
+                "qemu".to_owned(),
+                "ghcr.io/muak-os/extensions/qemu:v1.0.0".to_owned(),
             )],
         )
     }

@@ -187,14 +187,10 @@ mod tests {
     #[test]
     fn derives_stable_archive_names() {
         // ARRANGE / ACT / ASSERT
-        assert_eq!("muak-os/qemu".replace('/', "-"), "muak-os-qemu");
+        assert_eq!("qemu".replace('/', "-"), "qemu");
         assert_eq!(
-            format!(
-                "extensions/{}{}",
-                "muak-os/qemu".replace('/', "-"),
-                ".erofs"
-            ),
-            "extensions/muak-os-qemu.erofs"
+            format!("extensions/{}{}", "qemu".replace('/', "-"), ".erofs"),
+            "extensions/qemu.erofs"
         );
     }
 

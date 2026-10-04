@@ -342,11 +342,14 @@ mod tests {
     #[test]
     fn resolved_extension_accessors() {
         // ARRANGE
-        let ext = Extension::new("muak-os/qemu".into(), "ghcr.io/muak-os/qemu:v1.0.0".into());
+        let ext = Extension::new(
+            "qemu".into(),
+            "ghcr.io/muak-os/extensions/qemu:v1.0.0".into(),
+        );
 
         // ACT & ASSERT
-        assert_eq!(ext.name(), "muak-os/qemu");
-        assert_eq!(ext.source(), "ghcr.io/muak-os/qemu:v1.0.0");
+        assert_eq!(ext.name(), "qemu");
+        assert_eq!(ext.source(), "ghcr.io/muak-os/extensions/qemu:v1.0.0");
     }
 
     #[test]

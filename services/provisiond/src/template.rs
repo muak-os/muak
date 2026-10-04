@@ -58,14 +58,14 @@ mod tests {
         // ARRANGE / ACT
         let rendered = render(
             "v1.2.3".to_owned(),
-            &["muak-os/virtio".to_owned(), "muak-os/qemu".to_owned()],
+            &["virtio".to_owned(), "qemu".to_owned()],
         )
         .expect("render");
 
         // ASSERT
         let config: SystemConfig = config::parse_from_str(&rendered).expect("valid config");
         assert_eq!(config.host.version, "v1.2.3");
-        assert_eq!(config.host.extensions, ["muak-os/qemu", "muak-os/virtio"]);
+        assert_eq!(config.host.extensions, ["qemu", "virtio"]);
     }
 
     #[test]
@@ -73,16 +73,12 @@ mod tests {
         // ARRANGE / ACT
         let rendered = render(
             "v1.2.3".to_owned(),
-            &[
-                "muak-os/qemu".to_owned(),
-                "muak-os/qemu".to_owned(),
-                "muak-os/virtio".to_owned(),
-            ],
+            &["qemu".to_owned(), "qemu".to_owned(), "virtio".to_owned()],
         )
         .expect("render");
 
         // ASSERT
         let config: SystemConfig = config::parse_from_str(&rendered).expect("valid config");
-        assert_eq!(config.host.extensions, ["muak-os/qemu", "muak-os/virtio"]);
+        assert_eq!(config.host.extensions, ["qemu", "virtio"]);
     }
 }

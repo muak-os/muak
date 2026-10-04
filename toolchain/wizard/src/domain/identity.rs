@@ -164,7 +164,7 @@ mod tests {
         let profile = ProfileId::new(b"data");
         let forward = [
             input(Role::Kernel, "muak-os/linux", "sha256:1111"),
-            input(Role::Extension, "muak-os/qemu", "sha256:4444"),
+            input(Role::Extension, "qemu", "sha256:4444"),
         ];
         let reversed = [forward[1].clone(), forward[0].clone()];
 

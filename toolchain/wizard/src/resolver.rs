@@ -226,7 +226,7 @@ digest = "sha256:3333"
 release = "v1.2.3"
 
 [[extensions]]
-name = "muak-os/qemu"
+name = "qemu"
 source = "muak-os/extensions"
 repository = "extensions/qemu"
 tag = "v0.2.1"
@@ -304,7 +304,7 @@ digest = "sha256:1111"
     fn match_extensions_resolves_by_exact_name() {
         // ARRANGE
         let document = extensions_document();
-        let profile = profile(None, &["muak-os/qemu"]);
+        let profile = profile(None, &["qemu"]);
         let mut inputs = Vec::new();
 
         // ACT
@@ -313,7 +313,7 @@ digest = "sha256:1111"
 
         // ASSERT
         let ext = extensions.first().expect("extension");
-        assert_eq!(ext.name(), "muak-os/qemu");
+        assert_eq!(ext.name(), "qemu");
         assert_eq!(ext.source(), "ghcr.io/muak-os/extensions/qemu@sha256:4444");
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs.first().expect("input").digest, "sha256:4444");

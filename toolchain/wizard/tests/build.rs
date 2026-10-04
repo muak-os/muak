@@ -161,7 +161,7 @@ digest = "{installer}"
 release = "{RELEASE}"
 
 [[extensions]]
-name = "muak-os/qemu"
+name = "qemu"
 source = "muak-os/extensions"
 repository = "pkgs/qemu"
 tag = "latest"
@@ -320,7 +320,7 @@ digest = "{unsorted}"
     fn extension_profile() -> Profile {
         Profile::new(
             None,
-            CustomizationSpec::new(vec!["muak-os/qemu".to_owned()]).expect("extension spec"),
+            CustomizationSpec::new(vec!["qemu".to_owned()]).expect("extension spec"),
             KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
         )
     }
@@ -594,7 +594,7 @@ digest = "{unsorted}"
 
         // ASSERT
         assert!(
-            contains(&initramfs, b"extensions/muak-os-qemu.erofs"),
+            contains(&initramfs, b"extensions/qemu.erofs"),
             "initramfs must carry the extension payload entry"
         );
     }

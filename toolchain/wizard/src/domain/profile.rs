@@ -209,7 +209,7 @@ name = "rpi_generic"
 source = "muak-os/linux"
 
 [customization]
-extensions = ["muak-os/qemu"]
+extensions = ["qemu"]
 "#
     }
 
@@ -352,7 +352,7 @@ extensions = ["muak-os/qemu"]
     fn rejects_duplicate_extensions() {
         // ARRANGE
         let doc = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"muak-os/qemu\", \"muak-os/qemu\"]",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"qemu\", \"qemu\"]",
         )
         .expect("parse");
 

@@ -319,8 +319,8 @@ mod tests {
         };
         let extension_layer = extension_layer(
             &Extension::new(
-                "muak-os/qemu".to_owned(),
-                "ghcr.io/muak-os/pkgs/qemu:latest".to_owned(),
+                "qemu".to_owned(),
+                "ghcr.io/muak-os/extensions/qemu:latest".to_owned(),
             ),
             Arch::Amd64,
         );
@@ -330,7 +330,7 @@ mod tests {
             size: 0,
         };
         let extension_meta = mumi::payload::Meta {
-            name: "muak-os/qemu".to_owned(),
+            name: "qemu".to_owned(),
             format: ".erofs".to_owned(),
             size: 0,
         };
@@ -339,7 +339,7 @@ mod tests {
         assert_eq!(stream_name(&module_layer, &module_meta), "modules.erofs");
         assert_eq!(
             stream_name(&extension_layer, &extension_meta),
-            "extensions/muak-os-qemu.erofs"
+            "extensions/qemu.erofs"
         );
     }
 }

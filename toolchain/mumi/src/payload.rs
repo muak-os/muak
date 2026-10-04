@@ -277,7 +277,7 @@ mod tests {
     fn meta_format_is_mumi_owned() {
         // ARRANGE
         let (entry, mut data) = file("/f", 2, b"ab");
-        let mut payload = Payload::new("muak-os/qemu");
+        let mut payload = Payload::new("qemu");
         payload.add_file(entry, &mut data).expect("add file");
         let mut payloads = [payload];
 
@@ -292,7 +292,7 @@ mod tests {
     fn meta_name_is_forwarded_unchanged() {
         // ARRANGE
         let (entry, mut data) = file("/f", 2, b"ab");
-        let mut payload = Payload::new("muak-os/qemu");
+        let mut payload = Payload::new("qemu");
         payload.add_file(entry, &mut data).expect("add file");
         let mut payloads = [payload];
 
@@ -300,7 +300,7 @@ mod tests {
         let planned = plan(&mut payloads, &config()).expect("plan payloads");
 
         // ASSERT
-        assert_eq!(planned.first().expect("one").meta().name, "muak-os/qemu");
+        assert_eq!(planned.first().expect("one").meta().name, "qemu");
     }
 
     #[test]
