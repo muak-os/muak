@@ -2,6 +2,7 @@
 
 use oci::error::OciError;
 use oci_client::error::ClientError;
+use oci_client::retry;
 use thiserror::Error;
 
 /// Error type for koci operations.
@@ -59,3 +60,69 @@ pub enum KociError {
 
 /// Result type alias for koci operations.
 pub type Result<T> = core::result::Result<T, KociError>;
+
+impl KociError {
+    /// Whether retrying the failed operation may still succeed.
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Client(error) if retry::is_retryable(error))
+            || matches!(self, Self::IoError(error) if is_retryable_io(error.kind()))
+    }
+}
+
+/// Whether an IO failure of this kind may succeed on a later attempt.
+fn is_retryable_io(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::WouldBlock
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_failures_inherit_the_transport_classification() {
+        // ARRANGE
+        let transient = KociError::from(ClientError::Network("timeout".to_owned()));
+        let permanent = KociError::from(ClientError::Status {
+            status: 404,
+            url: "http://registry/v2/".to_owned(),
+        });
+
+        // ACT / ASSERT
+        assert!(transient.is_retryable());
+        assert!(!permanent.is_retryable());
+    }
+
+    #[test]
+    fn io_failures_are_retryable_only_by_kind() {
+        // ARRANGE
+        let transient = KociError::IoError(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        let permanent = KociError::IoError(std::io::Error::from(std::io::ErrorKind::InvalidData));
+
+        // ACT / ASSERT
+        assert!(transient.is_retryable());
+        assert!(!permanent.is_retryable());
+    }
+
+    #[test]
+    fn orchestration_failures_are_never_retryable() {
+        // ARRANGE
+        let errors = [
+            KociError::Pull("interrupted stream".to_owned()),
+            KociError::LayerExtractionError("bad entry".to_owned()),
+        ];
+
+        // ACT / ASSERT
+        for error in &errors {
+            assert!(!error.is_retryable(), "{error} must not retry");
+        }
+    }
+}

@@ -165,7 +165,8 @@ async fn transfer_blob(src: &Client, dst: &Client, digest: &str) -> Result<()> {
     let url = blob::build_url(src.image(), digest);
     let response = http::get(src.http(), &url, src.authorization(), &[]).await?;
     let mut verifier = Verifier::new(digest)?;
-    let bytes = http::stream_body_to_vec(response, &mut verifier).await?;
+    let mut bytes = Vec::new();
+    http::stream_body_to_sink(response, &mut bytes, &mut verifier).await?;
     verifier.verify()?;
     blob::upload(dst, digest, Bytes::from(bytes)).await?;
     eprintln!("Transferred blob {digest}");

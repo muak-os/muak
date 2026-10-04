@@ -1,75 +1,79 @@
-//! Shared HTTP/HTTPS client and low-level request helpers for OCI registry communication.
+//! Shared HTTP/HTTPS request execution for OCI registry communication.
 
 use core::time::Duration;
 
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::http::request::Builder;
-use hyper::{Method, Request, Response};
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioExecutor;
+use hyper::http::StatusCode;
+use hyper::{Request, Response};
 use oci::digest::Verifier;
 use tokio::time::timeout;
 
 use crate::error::{ClientError, Result};
 use crate::redirect;
+use crate::request;
+use crate::retry;
+use crate::transport::Transport;
 
+/// Deadline for a request to reach its response head.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
 
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3";
+/// Per-frame read deadline for streamed response bodies.
+const BODY_TIMEOUT: Duration = Duration::from_mins(1);
 
-#[cfg(feature = "https")]
-type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
-
-#[cfg(not(feature = "https"))]
-type Connector = HttpConnector;
-
-/// Cloneable HTTP client for all registries.
-pub type Transport = Client<Connector, Full<Bytes>>;
-
-/// Build a reusable client supporting both HTTPS and plain HTTP.
-#[cfg(feature = "https")]
-#[must_use]
-pub fn build_client() -> Transport {
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-    let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-
-    let connector = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_tls_config(tls_config)
-        .https_or_http()
-        .enable_http1()
-        .enable_http2()
-        .build();
-
-    Client::builder(TokioExecutor::new()).build(connector)
+/// A byte range for resumable downloads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Range {
+    /// First byte of the range, inclusive.
+    pub start: u64,
+    /// Last byte of the range, inclusive; `None` runs to the end of the body.
+    pub end: Option<u64>,
 }
 
-/// Build a reusable plain-HTTP client.
-#[cfg(not(feature = "https"))]
-#[must_use]
-pub fn build_client() -> Transport {
-    Client::builder(TokioExecutor::new()).build(HttpConnector::new())
+impl Range {
+    /// A range from `start` to the end of the body.
+    #[must_use]
+    pub fn from_start(start: u64) -> Self {
+        Self { start, end: None }
+    }
+
+    /// The `Range` header value for this range.
+    #[must_use]
+    pub(crate) fn header_value(&self) -> String {
+        match self.end {
+            Some(end) => format!("bytes={}-{}", self.start, end),
+            None => format!("bytes={}-", self.start),
+        }
+    }
 }
 
-/// Execute an authorized GET, returning the response on 2xx.
+/// Execute an authorized GET, following redirects and retrying transient failures.
 ///
 /// # Errors
 ///
-/// Returns an error when the request fails or the registry answers non-2xx.
+/// Returns an error when a request fails or the registry answers non-2xx.
 pub async fn get(
     client: &Transport,
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
 ) -> Result<Response<Incoming>> {
-    let response = redirect::follow(client, url, authorization, accept_headers).await?;
+    get_with_range(client, url, authorization, accept_headers, None).await
+}
 
-    ensure_success(url, response)
+/// Execute an authorized ranged GET for resumable downloads.
+///
+/// # Errors
+///
+/// Returns an error when a request fails or the registry answers non-2xx.
+pub async fn get_range(
+    client: &Transport,
+    url: &str,
+    authorization: Option<&str>,
+    accept_headers: &[&str],
+    range: &Range,
+) -> Result<Response<Incoming>> {
+    get_with_range(client, url, authorization, accept_headers, Some(range)).await
 }
 
 /// Execute a GET and return the response whatever its status.
@@ -82,13 +86,15 @@ pub async fn get_any_status(
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
+    range: Option<&Range>,
 ) -> Result<Response<Incoming>> {
-    let request = get_request(url, authorization, accept_headers)?;
+    let req = request::get_request(url, authorization, accept_headers, range)?;
 
-    send(client, url, request).await
+    send(client, url, req).await
 }
 
-/// Execute a HEAD and return the response whatever its status.
+/// Execute a HEAD and return the response whatever its status, retrying
+/// transient failures.
 ///
 /// # Errors
 ///
@@ -98,9 +104,21 @@ pub async fn head_any_status(
     url: &str,
     authorization: Option<&str>,
 ) -> Result<Response<Incoming>> {
-    let request = head_request(url, authorization)?;
-
-    send(client, url, request).await
+    let policy = retry::Policy::default();
+    let mut attempt = 0;
+    loop {
+        let req = request::head_request(url, authorization)?;
+        match send(client, url, req).await {
+            Ok(response) => return Ok(response),
+            Err(error) => match retry::next_retry(&policy, &error, attempt) {
+                Some(delay) => {
+                    tokio::time::sleep(delay).await;
+                    attempt = attempt.saturating_add(1);
+                }
+                None => return Err(error),
+            },
+        }
+    }
 }
 
 /// Execute a POST with an empty body and return the response whatever its status.
@@ -113,9 +131,9 @@ pub async fn post_any_status(
     url: &str,
     authorization: Option<&str>,
 ) -> Result<Response<Incoming>> {
-    let request = post_request(url, authorization)?;
+    let req = request::post_request(url, authorization)?;
 
-    send(client, url, request).await
+    send(client, url, req).await
 }
 
 /// Execute an authorized PUT with a raw body, returning the response on 2xx.
@@ -130,10 +148,16 @@ pub async fn put(
     content_type: &str,
     body: Bytes,
 ) -> Result<Response<Incoming>> {
-    let request = put_request(url, authorization, content_type, body)?;
-    let response = send(client, url, request).await?;
+    let req = request::put_request(url, authorization, content_type, body)?;
+    let response = send(client, url, req).await?;
 
     ensure_success(url, response)
+}
+
+/// Whether the response is a partial body (`206 Partial Content`).
+#[must_use]
+pub fn is_partial<B>(response: &Response<B>) -> bool {
+    response.status() == StatusCode::PARTIAL_CONTENT
 }
 
 /// Fully collect an HTTP response body into [`Bytes`].
@@ -153,21 +177,21 @@ pub async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
         .map_err(|error| ClientError::Network(format!("Failed to read response body: {error}")))
 }
 
-/// Stream an HTTP response body into memory while computing a digest.
+/// Stream an HTTP response body into a writer while computing a digest.
 ///
 /// # Errors
 ///
-/// Returns an error when reading the body times out or fails.
-pub async fn stream_body_to_vec(
+/// Returns an error when reading the body times out, fails, or the sink rejects a write.
+pub async fn stream_body_to_sink<W: std::io::Write>(
     resp: Response<Incoming>,
+    sink: &mut W,
     digest: &mut Verifier,
-) -> Result<Vec<u8>> {
+) -> Result<()> {
     let mut body = resp.into_body();
-    let mut bytes = Vec::new();
 
-    while let Some(frame) = timeout(HTTP_TIMEOUT, body.frame()).await.map_err(|error| {
+    while let Some(frame) = timeout(BODY_TIMEOUT, body.frame()).await.map_err(|error| {
         ClientError::Network(format!(
-            "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
+            "HTTP response body timed out after {BODY_TIMEOUT:?}: {error}"
         ))
     })? {
         let frame = frame.map_err(|error| {
@@ -175,82 +199,53 @@ pub async fn stream_body_to_vec(
         })?;
 
         if let Some(data) = frame.data_ref() {
-            bytes.extend_from_slice(data);
             digest.update(data);
+            write_frame(sink, data)?;
         }
     }
 
-    Ok(bytes)
+    Ok(())
 }
 
-fn get_request(
+fn write_frame<W: std::io::Write>(sink: &mut W, data: &[u8]) -> Result<()> {
+    sink.write_all(data)
+        .map_err(|error| ClientError::Network(format!("Failed to write response body: {error}")))
+}
+
+async fn get_with_range(
+    client: &Transport,
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
-) -> Result<Request<Full<Bytes>>> {
-    let mut builder = base_request(Method::GET, url);
-    for accept in accept_headers {
-        builder = builder.header("Accept", *accept);
+    range: Option<&Range>,
+) -> Result<Response<Incoming>> {
+    let policy = retry::Policy::default();
+    let mut attempt = 0;
+    loop {
+        let result = match redirect::follow(client, url, authorization, accept_headers, range).await
+        {
+            Ok(response) => ensure_success(url, response),
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(response) => return Ok(response),
+            Err(error) => match retry::next_retry(&policy, &error, attempt) {
+                Some(delay) => {
+                    tokio::time::sleep(delay).await;
+                    attempt = attempt.saturating_add(1);
+                }
+                None => return Err(error),
+            },
+        }
     }
-
-    finish_request(builder, authorization, Full::new(Bytes::new()))
-}
-
-fn head_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
-    finish_request(
-        base_request(Method::HEAD, url),
-        authorization,
-        Full::new(Bytes::new()),
-    )
-}
-
-fn post_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
-    finish_request(
-        base_request(Method::POST, url),
-        authorization,
-        Full::new(Bytes::new()),
-    )
-}
-
-fn put_request(
-    url: &str,
-    authorization: Option<&str>,
-    content_type: &str,
-    body: Bytes,
-) -> Result<Request<Full<Bytes>>> {
-    let builder = base_request(Method::PUT, url).header("Content-Type", content_type);
-
-    finish_request(builder, authorization, Full::new(body))
-}
-
-fn base_request(method: Method, url: &str) -> Builder {
-    Request::builder()
-        .method(method)
-        .uri(url)
-        .header("User-Agent", USER_AGENT)
-}
-
-fn finish_request(
-    builder: Builder,
-    authorization: Option<&str>,
-    body: Full<Bytes>,
-) -> Result<Request<Full<Bytes>>> {
-    let builder = match authorization {
-        Some(value) => builder.header("Authorization", value),
-        None => builder,
-    };
-
-    builder
-        .body(body)
-        .map_err(|error| ClientError::Network(format!("Failed to build request: {error}")))
 }
 
 async fn send(
     client: &Transport,
     url: &str,
-    request: Request<Full<Bytes>>,
+    req: Request<Full<Bytes>>,
 ) -> Result<Response<Incoming>> {
-    timeout(HTTP_TIMEOUT, client.request(request))
+    timeout(HTTP_TIMEOUT, client.request(req))
         .await
         .map_err(|error| {
             ClientError::Network(format!(
@@ -264,11 +259,10 @@ fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<In
     if response.status().is_success() {
         Ok(response)
     } else {
-        Err(ClientError::Download(format!(
-            "HTTP {} for URL: {}",
-            response.status(),
-            url
-        )))
+        Err(ClientError::Status {
+            status: response.status().as_u16(),
+            url: url.to_owned(),
+        })
     }
 }
 
@@ -279,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn get_rejects_invalid_url_before_request() {
         // ARRANGE
-        let client = build_client();
+        let client = crate::transport::build_client();
 
         // ACT
         let error = get(&client, "http://127.0.0.1:5000/has space", None, &[])
@@ -293,7 +287,7 @@ mod tests {
     #[tokio::test]
     async fn put_rejects_invalid_url_before_request() {
         // ARRANGE
-        let client = build_client();
+        let client = crate::transport::build_client();
 
         // ACT
         let error = put(
@@ -313,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn head_rejects_invalid_url_before_request() {
         // ARRANGE
-        let client = build_client();
+        let client = crate::transport::build_client();
 
         // ACT
         let error = head_any_status(&client, "http://127.0.0.1:5000/has space", None)
@@ -327,7 +321,7 @@ mod tests {
     #[tokio::test]
     async fn post_rejects_invalid_url_before_request() {
         // ARRANGE
-        let client = build_client();
+        let client = crate::transport::build_client();
 
         // ACT
         let error = post_any_status(&client, "http://127.0.0.1:5000/has space", None)
@@ -341,7 +335,7 @@ mod tests {
     #[tokio::test]
     async fn get_reports_connection_failures() {
         // ARRANGE
-        let client = build_client();
+        let client = crate::transport::build_client();
 
         // ACT
         let error = get(
@@ -355,5 +349,39 @@ mod tests {
 
         // ASSERT
         assert!(matches!(error, ClientError::Network(_)));
+    }
+
+    #[test]
+    fn range_headers_cover_open_and_closed_ranges() {
+        // ARRANGE
+        let open = Range::from_start(1024);
+        let closed = Range {
+            start: 1024,
+            end: Some(2047),
+        };
+
+        // ACT
+        let (open_value, closed_value) = (open.header_value(), closed.header_value());
+
+        // ASSERT
+        assert_eq!(open_value, "bytes=1024-");
+        assert_eq!(closed_value, "bytes=1024-2047");
+    }
+
+    #[test]
+    fn is_partial_recognizes_only_partial_content() {
+        // ARRANGE
+        let partial = Response::builder()
+            .status(StatusCode::PARTIAL_CONTENT)
+            .body(())
+            .expect("build response");
+        let full = Response::builder()
+            .status(StatusCode::OK)
+            .body(())
+            .expect("build response");
+
+        // ACT / ASSERT
+        assert!(is_partial(&partial));
+        assert!(!is_partial(&full));
     }
 }

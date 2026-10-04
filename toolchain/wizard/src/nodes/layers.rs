@@ -169,9 +169,13 @@ fn pull_payloads(layers: &[Layer]) -> Result<Vec<mumi::payload::Payload>> {
     let mut payloads = Vec::with_capacity(layers.len());
     for layer in layers {
         let mut payload = mumi::payload::Payload::new(layer.name.clone());
-        pull::files(&layer.source, &layer.arch, None, |entry| {
-            add_entry(&mut payload, entry, layer.entry)
-        })
+        pull::files(
+            &layer.source,
+            &layer.arch,
+            None,
+            &koci::progress::Noop,
+            |entry| add_entry(&mut payload, entry, layer.entry),
+        )
         .map_err(|e| WizardError::BuildError(format!("pull layer {}: {e}", layer.name)))?;
         payloads.push(payload);
     }

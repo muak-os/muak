@@ -4,7 +4,7 @@ use oci::reference::Image;
 
 use crate::auth::{Access, Credentials, authenticate};
 use crate::error::Result;
-use crate::http::{Transport, build_client};
+use crate::transport::{Transport, for_host};
 
 /// An authenticated connection to one image's registry.
 #[derive(Clone)]
@@ -29,7 +29,7 @@ impl Client {
         credentials: Option<Credentials>,
     ) -> Result<Self> {
         let image = Image::parse(reference);
-        let client = build_client();
+        let client = for_host(&image.registry);
         let credentials = credentials.or_else(Credentials::from_env);
         let authorization = authenticate(
             &client,

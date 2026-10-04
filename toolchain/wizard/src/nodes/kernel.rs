@@ -75,9 +75,13 @@ fn run(
         ports.output_pairs_from(PortId(0), None)?;
     let mut seen_cmdline = false;
 
-    pull::files(source, &ctx.build.arch(), None, |entry| {
-        route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline)
-    })
+    pull::files(
+        source,
+        &ctx.build.arch(),
+        None,
+        &koci::progress::Noop,
+        |entry| route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline),
+    )
     .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;
 
     Ok(None)

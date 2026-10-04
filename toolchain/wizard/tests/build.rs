@@ -87,11 +87,17 @@ mod tests {
     /// Drains one fixture image into the cache.
     fn warm_image(harness: &Harness, repo: &str, tag: &str) {
         let reference = format!("{}/{repo}:{tag}", harness.registry.address());
-        koci::pull::files(&reference, &Arch::Amd64, None, |entry| {
-            std::io::copy(entry.reader, &mut std::io::sink())
-                .map_err(koci::error::KociError::IoError)?;
-            Ok(())
-        })
+        koci::pull::files(
+            &reference,
+            &Arch::Amd64,
+            None,
+            &koci::progress::Noop,
+            |entry| {
+                std::io::copy(entry.reader, &mut std::io::sink())
+                    .map_err(koci::error::KociError::IoError)?;
+                Ok(())
+            },
+        )
         .expect("warm cache pull");
     }
 

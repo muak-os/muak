@@ -8,7 +8,8 @@ use serde::Deserialize;
 
 use crate::challenge::Challenge;
 use crate::error::{ClientError, Result};
-use crate::http::{self, Transport};
+use crate::http;
+use crate::transport::Transport;
 
 const USERNAME_ENV: &str = "KOCI_REGISTRY_USERNAME";
 const PASSWORD_ENV: &str = "KOCI_REGISTRY_PASSWORD";
@@ -88,7 +89,7 @@ pub async fn authenticate(
     credentials: Option<&Credentials>,
 ) -> Result<Option<String>> {
     let ping_url = format!("{scheme}://{registry}/v2/");
-    let response = http::get_any_status(client, &ping_url, None, &[]).await?;
+    let response = http::get_any_status(client, &ping_url, None, &[], None).await?;
 
     if response.status().is_success() {
         return Ok(None);
@@ -254,7 +255,7 @@ mod tests {
     use oci::reference::Image;
 
     use super::*;
-    use crate::http::build_client;
+    use crate::transport::build_client;
 
     const BASIC_CHALLENGE: &str = "WWW-Authenticate: Basic realm=\"registry\"";
 

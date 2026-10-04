@@ -6,6 +6,7 @@ use oci::arch::Arch;
 use oci_client::auth::Access;
 
 use crate::error::Result;
+use crate::progress::Progress;
 use crate::registry;
 use crate::runtime;
 use crate::signature::Verification;
@@ -49,10 +50,17 @@ pub fn files<F>(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
+    progress: &dyn Progress,
     handler: F,
 ) -> Result<()>
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    runtime::runtime()?.block_on(layer::files(reference, arch, verification, handler))
+    runtime::runtime()?.block_on(layer::files(
+        reference,
+        arch,
+        verification,
+        progress,
+        handler,
+    ))
 }

@@ -11,6 +11,7 @@ use oci_client::manifest;
 use p256::ecdsa::SigningKey;
 
 use crate::error::{KociError, Result};
+use crate::progress;
 #[cfg(feature = "annotate")]
 use crate::pull;
 use crate::registry;
@@ -55,9 +56,6 @@ pub fn sizes(reference: &str, annotation: &str, exclude: &[String]) -> Result<()
     ))
 }
 
-/// Platform manifests of an index are addressed by digest: a mutated manifest
-/// changes bytes, so it is pushed under its NEW digest and the index
-/// descriptors are repointed before the index is pushed back under its tag.
 async fn rewrite(reference: &str, include_root: bool, mutation: Mutation<'_>) -> Result<()> {
     let client = registry::connect(reference, Access::PullPush).await?;
     let root_json = manifest::fetch(&client, &client.image().manifest_ref).await?;
@@ -142,8 +140,14 @@ impl Mutation<'_> {
             } => {
                 let parsed = oci::manifest::parse(manifest_json)?;
                 let cache = pull::cache::Store::new();
-                let sizes =
-                    pull::layer::entry_sizes(client, &cache, &parsed.layers, exclude).await?;
+                let sizes = pull::layer::entry_sizes(
+                    client,
+                    &cache,
+                    &parsed.layers,
+                    exclude,
+                    &progress::Noop,
+                )
+                .await?;
                 eprintln!("Annotating {} file(s)", sizes.len());
                 let sizes_json = serde_json::to_string(&sizes)?;
                 let (body, content_type) =

@@ -69,14 +69,20 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let build = ctx.build;
 
     let mut prefix = Vec::new();
-    pull::files(build.stub(), &build.arch(), None, |entry| {
-        if entry.path == "stub.efi" {
-            let max = u64::try_from(yuki::probe::MAX_HEADER_BYTES)
-                .map_err(|e| std::io::Error::other(format!("stub prefix size: {e}")))?;
-            entry.reader.take(max).read_to_end(&mut prefix)?;
-        }
-        Ok(())
-    })
+    pull::files(
+        build.stub(),
+        &build.arch(),
+        None,
+        &koci::progress::Noop,
+        |entry| {
+            if entry.path == "stub.efi" {
+                let max = u64::try_from(yuki::probe::MAX_HEADER_BYTES)
+                    .map_err(|e| std::io::Error::other(format!("stub prefix size: {e}")))?;
+                entry.reader.take(max).read_to_end(&mut prefix)?;
+            }
+            Ok(())
+        },
+    )
     .map_err(|e| WizardError::BuildError(format!("probe stub prefix: {e}")))?;
 
     let mut stub = prefix.as_slice();

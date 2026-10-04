@@ -19,6 +19,7 @@ mod tests {
     use koci::annotations;
     use koci::error::KociError;
     use koci::merge;
+    use koci::progress::Noop;
     use koci::pull;
     use koci::push;
     use oci::arch::Arch;
@@ -51,7 +52,7 @@ mod tests {
 
     fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
         let mut files = Vec::new();
-        pull::files(reference, &arch, None, |entry| {
+        pull::files(reference, &arch, None, &Noop, |entry| {
             let path = entry.path.clone();
             let mut contents = Vec::new();
             entry.reader.read_to_end(&mut contents)?;
@@ -63,7 +64,8 @@ mod tests {
     }
 
     fn expect_stream_error(reference: &str) -> KociError {
-        pull::files(reference, &Arch::Amd64, None, |_entry| Ok(())).expect_err("stream should fail")
+        pull::files(reference, &Arch::Amd64, None, &Noop, |_entry| Ok(()))
+            .expect_err("stream should fail")
     }
 
     fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
@@ -235,6 +237,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
+            &Noop,
             |_entry| Ok(()),
         )
         .expect_err("stream should fail");
@@ -1068,7 +1071,10 @@ mod tests {
         let error = expect_stream_error(&registry.reference("repo", "test"));
 
         // ASSERT
-        assert!(matches!(error, KociError::Client(ClientError::Download(_))));
+        assert!(matches!(
+            error,
+            KociError::Client(ClientError::Status { status: 404, .. })
+        ));
     }
 
     #[test]
@@ -1190,6 +1196,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            &Noop,
             |_entry| Ok(()),
         )
         .expect_err("stream should fail");
@@ -1212,6 +1219,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            &Noop,
             |_entry| Ok(()),
         )
         .expect_err("stream should fail");

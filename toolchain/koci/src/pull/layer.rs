@@ -18,6 +18,7 @@ use super::cache::Store;
 use super::entries::FileEntry;
 use super::{download, resolve, scan};
 use crate::error::{KociError, Result};
+use crate::progress::Progress;
 use crate::registry;
 use crate::signature::Verification;
 
@@ -31,6 +32,7 @@ pub(crate) async fn files<F>(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
+    progress: &dyn Progress,
     mut handler: F,
 ) -> Result<()>
 where
@@ -38,13 +40,17 @@ where
 {
     let client = registry::connect(reference, Access::Pull).await?;
     let cache = Store::new();
-    eprintln!("Pulling {reference} for {}", arch.as_str());
+    progress.pulling(reference, arch.as_str());
     let layers = resolve::layers(&client, &cache, arch, verification).await?;
-    eprintln!("Resolved {} layer(s)", layers.len());
+    progress.resolved(layers.len());
 
-    walk(&client, &cache, &layers, |_layer_idx, entry, info| {
-        scan::handle_file_entry(entry, info, &mut handler)
-    })
+    walk(
+        &client,
+        &cache,
+        &layers,
+        progress,
+        |_layer_idx, entry, info| scan::handle_file_entry(entry, info, &mut handler),
+    )
     .await
 }
 
@@ -59,18 +65,25 @@ pub(crate) async fn entry_sizes(
     cache: &Store,
     layers: &[Descriptor],
     exclude: &[String],
+    progress: &dyn Progress,
 ) -> Result<BTreeMap<String, u64>> {
     let mut sizes = BTreeMap::new();
 
-    walk(client, cache, layers, |_layer_idx, _entry, info| {
-        if let scan::EntryInfo::File(path, size, _) = info
-            && !excluded(&path, exclude)
-        {
-            sizes.insert(path.to_string_lossy().to_string(), size);
-        }
+    walk(
+        client,
+        cache,
+        layers,
+        progress,
+        |_layer_idx, _entry, info| {
+            if let scan::EntryInfo::File(path, size, _) = info
+                && !excluded(&path, exclude)
+            {
+                sizes.insert(path.to_string_lossy().to_string(), size);
+            }
 
-        Ok(())
-    })
+            Ok(())
+        },
+    )
     .await?;
 
     Ok(sizes)
@@ -81,6 +94,7 @@ async fn walk<F>(
     client: &Client,
     cache: &Store,
     layers: &[Descriptor],
+    progress: &dyn Progress,
     mut on_entry: F,
 ) -> Result<()>
 where
@@ -90,19 +104,14 @@ where
         scan::EntryInfo,
     ) -> Result<()>,
 {
-    let (blobs, whiteouts) = download_all(client, cache, layers).await?;
+    let (blobs, whiteouts) = download_all(client, cache, layers, progress).await?;
     let n = layers.len();
 
     for (layer_idx, layer) in layers.iter().enumerate() {
         let data = blobs
             .get(layer_idx)
             .ok_or_else(|| KociError::Pull(format!("missing layer bytes for layer {layer_idx}")))?;
-        eprintln!(
-            "Extracting layer {}/{}: {}",
-            layer_idx.saturating_add(1),
-            n,
-            short_digest(&layer.digest)
-        );
+        progress.layer_extracting(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
         let mut reader = download::decompress(data, layer.media_type.as_deref())?;
         extract_layer(&mut reader, layer_idx, &whiteouts, &mut on_entry)?;
     }
@@ -139,6 +148,7 @@ async fn download_all(
     client: &Client,
     cache: &Store,
     layers: &[Descriptor],
+    progress: &dyn Progress,
 ) -> Result<(Vec<Vec<u8>>, HashMap<PathBuf, usize>)> {
     let n = layers.len();
 
@@ -149,10 +159,8 @@ async fn download_all(
         let image = client.image().clone();
         let authorization = client.authorization().map(str::to_owned);
         let digest = layer.digest.clone();
+        progress.layer_download_queued(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
         downloads.spawn(async move {
-            let layer_number = layer_idx.saturating_add(1);
-            let short = short_digest(&digest);
-            eprintln!("Downloading layer {layer_number}/{n}: {short}");
             (
                 layer_idx,
                 download::cached(&cache, &http, &image, &digest, authorization.as_deref()).await,
@@ -164,6 +172,10 @@ async fn download_all(
     while let Some(joined) = downloads.join_next().await {
         let (layer_idx, blob) = joined
             .map_err(|error| KociError::Pull(format!("layer download task failed: {error}")))?;
+        let layer = layers.get(layer_idx).ok_or_else(|| {
+            KociError::Pull(format!("missing download slot for layer {layer_idx}"))
+        })?;
+        progress.layer_downloaded(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
         *blobs.get_mut(layer_idx).ok_or_else(|| {
             KociError::Pull(format!("missing download slot for layer {layer_idx}"))
         })? = Some(blob);

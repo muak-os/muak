@@ -57,15 +57,21 @@ pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Resu
 
 fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
     let mut bytes: Option<Vec<u8>> = None;
-    pull::files(reference, &Arch::Amd64, None, |entry| {
-        if entry.path == DOCUMENT_PATH {
-            let mut buffer = Vec::new();
-            entry.reader.read_to_end(&mut buffer)?;
-            bytes = Some(buffer);
-        }
+    pull::files(
+        reference,
+        &Arch::Amd64,
+        None,
+        &koci::progress::Noop,
+        |entry| {
+            if entry.path == DOCUMENT_PATH {
+                let mut buffer = Vec::new();
+                entry.reader.read_to_end(&mut buffer)?;
+                bytes = Some(buffer);
+            }
 
-        Ok(())
-    })
+            Ok(())
+        },
+    )
     .map_err(|error| KataError::Registry(error.to_string()))?;
 
     Ok(bytes)

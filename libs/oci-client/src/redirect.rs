@@ -4,7 +4,8 @@ use hyper::Response;
 use hyper::body::Incoming;
 
 use crate::error::{ClientError, Result};
-use crate::http::{Transport, get_any_status};
+use crate::http::{Range, get_any_status};
+use crate::transport::Transport;
 
 const MAX_REDIRECTS: usize = 5;
 
@@ -19,12 +20,14 @@ pub(crate) async fn follow(
     url: &str,
     authorization: Option<&str>,
     accept_headers: &[&str],
+    range: Option<&Range>,
 ) -> Result<Response<Incoming>> {
     let mut current = url.to_owned();
     let mut authorization = authorization;
 
     for _ in 0..MAX_REDIRECTS {
-        let response = get_any_status(client, &current, authorization, accept_headers).await?;
+        let response =
+            get_any_status(client, &current, authorization, accept_headers, range).await?;
 
         if !is_redirect(response.status().as_u16()) {
             return Ok(response);

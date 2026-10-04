@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use koci::error;
+use koci::progress::Stderr;
 use koci::pull;
 use koci::signature::Verification;
 use oci::arch;
@@ -56,9 +57,13 @@ pub(crate) fn run(args: Args) -> Result<()> {
 
     let target_arch = arch.unwrap_or(arch::host());
 
-    pull::files(&image, &target_arch, verification.as_ref(), |entry| {
-        write_entry_to_dir(entry, &output)
-    })
+    pull::files(
+        &image,
+        &target_arch,
+        verification.as_ref(),
+        &Stderr,
+        |entry| write_entry_to_dir(entry, &output),
+    )
     .context("Failed to stream image")?;
 
     println!("Successfully extracted image to {}", output.display());

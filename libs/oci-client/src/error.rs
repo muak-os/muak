@@ -29,6 +29,15 @@ pub enum ClientError {
     /// A network request failed.
     #[error("Network error: {0}")]
     Network(String),
+
+    /// The registry answered a non-success status for a URL.
+    #[error("HTTP {status} for URL: {url}")]
+    Status {
+        /// The non-success HTTP status code.
+        status: u16,
+        /// The requested URL.
+        url: String,
+    },
 }
 
 /// Result type alias for distribution-spec client operations.

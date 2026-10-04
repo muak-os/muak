@@ -64,12 +64,18 @@ fn run(
     let build = ctx.build;
     let mut output = ports.output(STUB)?;
 
-    pull::files(build.stub(), &build.arch(), None, |mut entry| {
-        if entry.path == STUB_PATH {
-            std::io::copy(&mut entry.reader, &mut output.writer).map_err(KociError::IoError)?;
-        }
-        Ok(())
-    })
+    pull::files(
+        build.stub(),
+        &build.arch(),
+        None,
+        &koci::progress::Noop,
+        |mut entry| {
+            if entry.path == STUB_PATH {
+                std::io::copy(&mut entry.reader, &mut output.writer).map_err(KociError::IoError)?;
+            }
+            Ok(())
+        },
+    )
     .map_err(|e| WizardError::BuildError(format!("pull stub files: {e}")))?;
 
     Ok(None)

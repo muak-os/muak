@@ -10,4 +10,7 @@ pub mod error;
 pub mod http;
 pub mod manifest;
 pub mod redirect;
+pub mod request;
+pub mod retry;
 pub mod tags;
+pub mod transport;

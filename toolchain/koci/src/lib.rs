@@ -12,6 +12,7 @@ pub mod copy;
 pub mod error;
 #[cfg(feature = "merge")]
 pub mod merge;
+pub mod progress;
 #[cfg(feature = "pull")]
 pub mod pull;
 #[cfg(feature = "push")]

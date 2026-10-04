@@ -6,7 +6,8 @@ use flate2::read::GzDecoder;
 use oci::digest::Verifier;
 use oci::reference::Image;
 use oci_client::blob::build_url;
-use oci_client::http::{Transport, get, stream_body_to_vec};
+use oci_client::http::{get, stream_body_to_sink};
+use oci_client::transport::Transport;
 
 use super::cache::Store;
 use crate::error::{KociError, Result};
@@ -38,7 +39,8 @@ pub(crate) async fn blob(
     let resp = get(client, &url, authorization, &[]).await?;
     let mut digest_verifier = Verifier::new(digest)?;
 
-    let bytes = stream_body_to_vec(resp, &mut digest_verifier).await?;
+    let mut bytes = Vec::new();
+    stream_body_to_sink(resp, &mut bytes, &mut digest_verifier).await?;
     digest_verifier.verify()?;
 
     Ok(bytes)
