@@ -40,6 +40,7 @@ pub fn build_client() -> Transport {
 
     let mut http_connector = HttpConnector::new();
     http_connector.set_connect_timeout(Some(CONNECT_TIMEOUT));
+    http_connector.enforce_http(false);
 
     let connector = HttpsConnectorBuilder::new()
         .with_tls_config(tls_config)
