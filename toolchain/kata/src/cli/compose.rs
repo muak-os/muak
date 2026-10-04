@@ -20,8 +20,14 @@ pub struct Args {
     #[arg(long)]
     from_line: Option<String>,
 
-    /// Retag planned entries: KEY=TAG where KEY is a role shorthand.
-    #[arg(long = "set", value_name = "KEY=TAG")]
+    /// Retag or introduce planned entries: KEY is a role shorthand (`kernel`,
+    /// `stub`, `installer`) or an entry identity (`kernels/SOURCE`,
+    /// `overlays/NAME`, `extensions/NAME`); the value selects the mutation
+    /// scope: TAG, REPOSITORY@TAG, or SOURCE@REPOSITORY@TAG.
+    #[arg(
+        long = "set",
+        value_name = "KEY=[TAG|REPOSITORY@TAG|SOURCE@REPOSITORY@TAG]"
+    )]
     sets: Vec<String>,
 
     /// Bump entries without an explicit selection to their newest version tag.
@@ -69,11 +75,15 @@ fn parse_pairs(specs: &[String]) -> Result<Vec<(String, String)>> {
     specs
         .iter()
         .map(|spec| {
-            let (key, tag) = spec
-                .split_once('=')
-                .ok_or_else(|| anyhow::anyhow!("expected KEY=TAG, got '{spec}'"))?;
+            let (key, tag) = spec.split_once('=').ok_or_else(|| {
+                anyhow::anyhow!(
+                    "expected KEY=[TAG|REPOSITORY@TAG|SOURCE@REPOSITORY@TAG], got '{spec}'"
+                )
+            })?;
             if key.is_empty() || tag.is_empty() {
-                return Err(anyhow::anyhow!("expected KEY=TAG, got '{spec}'"));
+                return Err(anyhow::anyhow!(
+                    "expected KEY=[TAG|REPOSITORY@TAG|SOURCE@REPOSITORY@TAG], got '{spec}'"
+                ));
             }
 
             Ok((key.to_owned(), tag.to_owned()))
