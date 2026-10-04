@@ -1,6 +1,7 @@
 //! Resolving an image reference to platform manifests and layer descriptors.
 
 use oci::arch::Arch;
+use oci::digest::sha256_hex;
 use oci::model::Descriptor;
 use oci_client::client::Client;
 use oci_client::manifest;
@@ -17,8 +18,19 @@ pub(crate) async fn layers(
     arch: &Arch,
     verification: Option<&Verification<'_>>,
 ) -> Result<Vec<Descriptor>> {
+    if verification.is_none()
+        && let Some(layers) = cached_layers(client, cache)
+    {
+        return Ok(layers);
+    }
+
     let manifest_json = platform_manifest_json(client, cache, arch, verification).await?;
     let manifest = oci::manifest::parse(&manifest_json)?;
+    cache.put_manifest_layers(
+        client.image(),
+        &content_digest(&manifest_json),
+        &manifest.layers,
+    );
 
     Ok(manifest.layers)
 }
@@ -59,4 +71,14 @@ async fn fetch_cached_manifest(
     cache.put_manifest(client.image(), manifest_ref, &json);
 
     Ok(json)
+}
+
+fn cached_layers(client: &Client, cache: &Store) -> Option<Vec<Descriptor>> {
+    let manifest_json = cache.get_manifest(client.image(), &client.image().manifest_ref)?;
+
+    cache.manifest_layers(client.image(), &content_digest(&manifest_json))
+}
+
+fn content_digest(manifest_json: &str) -> String {
+    format!("sha256:{}", sha256_hex(manifest_json.as_bytes()))
 }

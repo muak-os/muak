@@ -119,17 +119,16 @@ pub(crate) async fn fetch_into_store(
     image_ref: &Image,
     digest: &str,
     authorization: Option<&str>,
-) -> Result<()> {
-    if content.has_blob(digest).is_some() {
-        return Ok(());
+) -> Result<u64> {
+    if let Some(size) = content.has_blob(digest) {
+        return Ok(size);
     }
 
     let mut ingest = content.blob_writer(digest)?;
     let url = build_url(image_ref, digest);
     let verifier = stream_blob(&mut ingest, http, &url, digest, authorization).await?;
-    ingest.commit(verifier)?;
 
-    Ok(())
+    ingest.commit(verifier)
 }
 
 /// HTTP status code for a staging prefix that overshoots the blob.

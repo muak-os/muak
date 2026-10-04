@@ -6,7 +6,10 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
+use oci::model::Descriptor;
 use oci::reference::Image;
+
+use super::blobinfo;
 
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -61,6 +64,44 @@ impl Store {
         if let Some(path) = self.blob_path(digest) {
             atomic_write(&path, data);
         }
+    }
+
+    /// Return the layer list recorded for a resolved manifest digest.
+    pub(crate) fn manifest_layers(
+        &self,
+        image: &Image,
+        manifest_digest: &str,
+    ) -> Option<Vec<Descriptor>> {
+        blobinfo::manifest_layers(self.root.as_deref(), image, manifest_digest)
+    }
+
+    /// Record the layer list of a resolved manifest digest.
+    pub(crate) fn put_manifest_layers(
+        &self,
+        image: &Image,
+        manifest_digest: &str,
+        layers: &[Descriptor],
+    ) {
+        blobinfo::put_manifest_layers(self.root.as_deref(), image, manifest_digest, layers);
+    }
+
+    /// Where this repository stands on a layer blob, honoring the negative TTL.
+    pub(crate) fn layer_location(
+        &self,
+        image: &Image,
+        digest: &str,
+    ) -> Option<blobinfo::LayerLocation> {
+        blobinfo::layer_location(self.root.as_deref(), image, digest)
+    }
+
+    /// Record that this repository served a layer blob of `size` bytes.
+    pub(crate) fn put_blob_present(&self, image: &Image, digest: &str, size: u64) {
+        blobinfo::put_blob_present(self.root.as_deref(), image, digest, size);
+    }
+
+    /// Record that this repository does not serve a layer blob, for the store TTL.
+    pub(crate) fn put_blob_missing(&self, image: &Image, digest: &str) {
+        blobinfo::put_blob_missing(self.root.as_deref(), image, digest, self.ttl);
     }
 
     /// Return the filesystem path for a blob digest.

@@ -47,6 +47,7 @@ where
 
     walk(
         &client,
+        &cache,
         &Content::new(),
         &layers,
         progress,
@@ -71,6 +72,7 @@ pub(crate) async fn entry_sizes(
 
     walk(
         client,
+        &Store::new(),
         &Content::new(),
         layers,
         progress,
@@ -92,6 +94,7 @@ pub(crate) async fn entry_sizes(
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
 async fn walk<F>(
     client: &Client,
+    cache: &Store,
     content: &Content,
     layers: &[Descriptor],
     progress: &dyn Progress,
@@ -104,7 +107,7 @@ where
         scan::EntryInfo,
     ) -> Result<()>,
 {
-    let (bytes, whiteouts) = fetch::download_all(client, content, layers, progress).await?;
+    let (bytes, whiteouts) = fetch::download_all(client, cache, content, layers, progress).await?;
     let n = layers.len();
 
     for (layer_idx, layer) in layers.iter().enumerate() {

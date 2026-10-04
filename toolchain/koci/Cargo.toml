@@ -32,6 +32,7 @@ signature = { workspace = true, optional = true }
 
 # Encoding
 bytes = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 # Error handling
@@ -67,7 +68,7 @@ sign = [
     "json",
     "registry",
 ]
-json = ["dep:serde_json"]
+json = ["dep:serde", "dep:serde_json"]
 runtime = ["dep:tokio"]
 
 [dev-dependencies]

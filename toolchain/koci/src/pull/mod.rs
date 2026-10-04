@@ -11,6 +11,7 @@ use crate::registry;
 use crate::runtime;
 use crate::signature::Verification;
 
+pub(crate) mod blobinfo;
 pub mod cache;
 pub(crate) mod content;
 pub(crate) mod download;

@@ -95,6 +95,20 @@ impl MockRegistry {
             .cloned())
     }
 
+    /// Number of recorded requests matching `method` and `path`.
+    pub(crate) fn count(&self, method: &str, path: &str) -> Result<usize, IoError> {
+        let method = method.to_ascii_uppercase();
+        let requests = self
+            .requests
+            .lock()
+            .map_err(|_error| IoError::other("request log mutex poisoned"))?;
+
+        Ok(requests
+            .iter()
+            .filter(|request| request.method == method && request.path == path)
+            .count())
+    }
+
     pub(crate) fn puts(&self) -> Result<Vec<RecordedRequest>, IoError> {
         let requests = self
             .requests

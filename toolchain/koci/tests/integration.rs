@@ -14,6 +14,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
     use std::process::Command;
+    use std::sync::Mutex;
     use std::time::{Duration, Instant, SystemTime};
 
     use koci::annotations;
@@ -47,6 +48,10 @@ mod tests {
         Path::new(env!("CARGO_BIN_EXE_koci"))
     }
 
+    /// Serializes tests that reconfigure the process-wide cache directory.
+    static CACHE_LOCK: Mutex<()> = Mutex::new(());
+
+    #[derive(Debug, PartialEq)]
     struct CollectedFile {
         path: String,
         contents: Vec<u8>,
@@ -1541,6 +1546,7 @@ mod tests {
     #[test]
     fn stream_files_resumes_an_interrupted_blob_download() {
         // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
         let layer = plain_tar_layer("hello.txt", b"tar payload bytes").expect("build tar layer");
         let digest = sha256_digest(&layer);
         let manifest =
@@ -1580,5 +1586,50 @@ mod tests {
             .find(|file| file.path == "hello.txt")
             .expect("resumed stream yields the layer file");
         assert_eq!(restored.contents, b"tar payload bytes");
+    }
+
+    #[test]
+    fn warm_cache_pull_skips_manifest_and_layer_round_trips() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer = plain_tar_layer("hello.txt", b"warm cache payload").expect("build tar layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest json");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get(
+                "/v2/repo/manifests/warm",
+                HttpResponse::json(manifest.clone()),
+            ),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer.clone()),
+            ),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        let first = collect_files(&registry.reference("repo", "warm"), Arch::Amd64);
+        let second = collect_files(&registry.reference("repo", "warm"), Arch::Amd64);
+
+        // ASSERT
+        assert_eq!(first, second, "the warm pull must stream identical files");
+        assert_eq!(
+            registry
+                .count("GET", "/v2/repo/manifests/warm")
+                .expect("count"),
+            1,
+            "the warm pull must not refetch the manifest"
+        );
+        assert_eq!(
+            registry
+                .count("GET", &format!("/v2/repo/blobs/{digest}"))
+                .expect("count"),
+            1,
+            "the warm pull must not redownload the layer"
+        );
     }
 }

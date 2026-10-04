@@ -19,7 +19,7 @@ pub struct Manifest {
 }
 
 /// OCI descriptor used to reference a blob.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Descriptor {
     /// Media type of the referenced blob.
     #[serde(rename = "mediaType")]
@@ -35,7 +35,7 @@ pub struct Descriptor {
 }
 
 /// Platform information for multi-architecture images.
-#[derive(Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq, Serialize)]
 pub struct Platform {
     /// CPU architecture such as `amd64`.
     pub architecture: Option<String>,

@@ -5,15 +5,21 @@ use std::path::PathBuf;
 
 use oci::model::Descriptor;
 use oci::reference::Image;
+use oci_client::blob::build_url;
 use oci_client::client::Client;
+use oci_client::error::ClientError;
 use oci_client::transport::Transport;
 use tokio::task::JoinSet;
 
+use super::cache::Store;
 use super::content::Content;
-use super::{download, scan};
+use super::{blobinfo, download, scan};
 use crate::error::{KociError, Result};
 use crate::progress::Progress;
 use crate::pull::layer::short_digest;
+
+/// HTTP status code for a blob the registry does not serve.
+const NOT_FOUND: u16 = 404;
 
 /// The fetched bytes of a layer, held in memory only when no store is configured.
 pub(crate) fn cached_bytes(bytes: &[Option<Vec<u8>>], layer_idx: usize) -> Option<Vec<u8>> {
@@ -39,6 +45,7 @@ pub(crate) fn layer_reader<'bytes>(
 /// Download every layer blob concurrently, then map whiteout targets to the first layer that must be hidden by them.
 pub(crate) async fn download_all(
     client: &Client,
+    cache: &Store,
     content: &Content,
     layers: &[Descriptor],
     progress: &dyn Progress,
@@ -49,6 +56,7 @@ pub(crate) async fn download_all(
     for (layer_idx, layer) in layers.iter().enumerate() {
         progress.layer_download_queued(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
         let blob = fetch_blob(
+            cache.clone(),
             content.clone(),
             client.http().clone(),
             client.image().clone(),
@@ -94,19 +102,67 @@ fn scan_whiteouts(
 }
 
 async fn fetch_blob(
+    cache: Store,
     content: Content,
     http: Transport,
     image: Image,
     digest: String,
     authorization: Option<String>,
 ) -> Result<Option<Vec<u8>>> {
-    if content.disk().is_some() {
-        download::fetch_into_store(&content, &http, &image, &digest, authorization.as_deref())
-            .await
-            .map(|()| None)
-    } else {
-        download::blob(&http, &image, &digest, authorization.as_deref())
-            .await
-            .map(Some)
+    if cache.layer_location(&image, &digest) == Some(blobinfo::LayerLocation::Missing) {
+        return Err(ClientError::Status {
+            status: NOT_FOUND,
+            url: build_url(&image, &digest),
+        }
+        .into());
     }
+
+    match fetch_bytes(
+        &cache,
+        &content,
+        &http,
+        &image,
+        &digest,
+        authorization.as_deref(),
+    )
+    .await
+    {
+        Ok(bytes) => Ok(bytes),
+        Err(KociError::Client(
+            error @ ClientError::Status {
+                status: NOT_FOUND, ..
+            },
+        )) => {
+            cache.put_blob_missing(&image, &digest);
+            Err(KociError::Client(error))
+        }
+        Err(other) => Err(other),
+    }
+}
+
+async fn fetch_bytes(
+    cache: &Store,
+    content: &Content,
+    http: &Transport,
+    image: &Image,
+    digest: &str,
+    authorization: Option<&str>,
+) -> Result<Option<Vec<u8>>> {
+    let fetched = if content.disk().is_some() {
+        download::fetch_into_store(content, http, image, digest, authorization)
+            .await
+            .map(|size| (size, None))
+    } else {
+        download::blob(http, image, digest, authorization)
+            .await
+            .map(|bytes| {
+                let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                (size, Some(bytes))
+            })
+    };
+
+    let (size, bytes) = fetched?;
+    cache.put_blob_present(image, digest, size);
+
+    Ok(bytes)
 }
