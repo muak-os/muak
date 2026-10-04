@@ -59,7 +59,7 @@ pub(crate) fn media_layout<'a>(
         uki.size,
     ));
     for asset in assets {
-        if let Asset::EspFile { ref path, size } = *asset {
+        if let Asset::EspFile { ref path, size, .. } = *asset {
             file_metas.push(FileMeta::new(path, size));
         }
     }

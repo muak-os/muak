@@ -46,6 +46,7 @@ mod tests {
         kernel: FixtureImage,
         extension: FixtureImage,
         overlay: FixtureImage,
+        overlay_unsorted: FixtureImage,
     }
 
     struct Env {
@@ -82,6 +83,7 @@ mod tests {
         warm_image(harness, "linux", "latest");
         warm_image(harness, "pkgs/qemu", "latest");
         warm_image(harness, "sbc/raspberrypi", "latest");
+        warm_image(harness, "sbc/unsorted", "latest");
     }
 
     /// Drains one fixture image into the cache.
@@ -110,6 +112,7 @@ mod tests {
         install_image(routes, "linux", "latest", &images.kernel);
         install_image(routes, "pkgs/qemu", "latest", &images.extension);
         install_image(routes, "sbc/raspberrypi", "latest", &images.overlay);
+        install_image(routes, "sbc/unsorted", "latest", &images.overlay_unsorted);
 
         for (repo, tag, image) in build_catalogs(images) {
             install_image(routes, &repo, &tag, &image);
@@ -120,6 +123,7 @@ mod tests {
             ("linux", &images.kernel),
             ("pkgs/qemu", &images.extension),
             ("sbc/raspberrypi", &images.overlay),
+            ("sbc/unsorted", &images.overlay_unsorted),
         ] {
             install_image(routes, repo, &sha256_digest(&image.manifest), image);
         }
@@ -175,8 +179,16 @@ source = "muak-os/sbc-raspberrypi"
 repository = "sbc/raspberrypi"
 tag = "latest"
 digest = "{overlay}"
+
+[[overlays]]
+name = "unsorted"
+source = "muak-os/sbc-unsorted"
+repository = "sbc/unsorted"
+tag = "latest"
+digest = "{unsorted}"
 "#,
             overlay = sha256_digest(&images.overlay.manifest),
+            unsorted = sha256_digest(&images.overlay_unsorted.manifest),
         );
 
         vec![
@@ -216,6 +228,16 @@ digest = "{overlay}"
                 (
                     "rpi_generic/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
                     OVERLAY_B,
+                ),
+            ]),
+            overlay_unsorted: build_image(&[
+                (
+                    "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
+                    OVERLAY_B,
+                ),
+                (
+                    "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+                    OVERLAY_A,
                 ),
             ]),
         }
@@ -306,6 +328,14 @@ digest = "{overlay}"
     fn overlay_profile() -> Profile {
         Profile::new(
             Some(OverlaySpec::new("rpi_generic".to_owned()).expect("overlay spec")),
+            CustomizationSpec::new(Vec::new()).expect("empty customization"),
+            KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
+        )
+    }
+
+    fn unsorted_overlay_profile() -> Profile {
+        Profile::new(
+            Some(OverlaySpec::new("unsorted".to_owned()).expect("overlay spec")),
             CustomizationSpec::new(Vec::new()).expect("empty customization"),
             KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
         )
@@ -768,6 +798,45 @@ digest = "{overlay}"
             raw.get(..4),
             Some(&[0x28, 0xb5, 0x2f, 0xfd][..]),
             "must not be zstd"
+        );
+    }
+
+    #[test]
+    fn unsorted_overlay_image_falls_back_to_per_asset_walks() {
+        // ARRANGE
+        let _env = env();
+        let mut tar_out = Vec::new();
+
+        // ACT
+        Request::new(RELEASE)
+            .arch(Arch::Amd64)
+            .artifact(Artifact::Overlays, &mut tar_out)
+            .expect("overlays target")
+            .build(&unsorted_overlay_profile())
+            .expect("build unsorted overlays");
+
+        // ASSERT
+        let members = read_tar_members(&tar_out);
+        let names: Vec<String> = members
+            .iter()
+            .map(|member| member.0.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            ["a.txt", "b.bin"],
+            "canonical order kept by the fallback"
+        );
+        assert!(
+            members
+                .iter()
+                .find(|member| member.0.to_string_lossy() == "a.txt")
+                .is_some_and(|member| member.1 == OVERLAY_A)
+        );
+        assert!(
+            members
+                .iter()
+                .find(|member| member.0.to_string_lossy() == "b.bin")
+                .is_some_and(|member| member.1 == OVERLAY_B)
         );
     }
 

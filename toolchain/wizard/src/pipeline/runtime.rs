@@ -20,6 +20,16 @@ pub(crate) struct OutputStream<'name, 'writer> {
     pub(crate) writer: OutputWriter<'writer>,
 }
 
+impl Write for OutputStream<'_, '_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.writer.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 /// The final destination of an output stream:.
 pub(crate) enum OutputWriter<'writer> {
     /// Pipe end read by the next node.

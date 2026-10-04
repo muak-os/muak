@@ -10,6 +10,8 @@ use crate::error::{Result, WizardError};
 pub enum Asset {
     /// A file written into the EFI System Partition FAT image.
     EspFile {
+        /// Raw OCI path of the entry.
+        entry: String,
         /// Stripped path of the file inside the ESP (e.g. `EFI/BOOT/BOOTAA64.EFI`).
         path: String,
         /// Size of the file payload in bytes.
@@ -17,6 +19,8 @@ pub enum Asset {
     },
     /// A raw blob written at a fixed byte offset before the partition table.
     RawBlob {
+        /// Raw OCI path of the entry.
+        entry: String,
         /// File name of the blob as stored under `blob/<offset>/`.
         source: String,
         /// Size of the blob payload in bytes.
@@ -27,6 +31,14 @@ pub enum Asset {
 }
 
 impl Asset {
+    /// Returns the raw OCI path of the image entry backing this asset.
+    #[must_use]
+    pub(crate) fn entry(&self) -> &str {
+        match *self {
+            Asset::EspFile { ref entry, .. } | Asset::RawBlob { ref entry, .. } => entry,
+        }
+    }
+
     /// Returns the canonical output stream name for this asset.
     #[must_use]
     pub(crate) fn name(&self) -> &str {
@@ -80,6 +92,14 @@ pub(crate) fn classify(overlay: &Overlay, entries: Vec<(String, u64)>) -> Result
         return Err(error);
     }
     found.sort_by(|left, right| left.name().cmp(right.name()));
+    if found
+        .windows(2)
+        .any(|pair| matches!(pair, [left, right] if left.name() == right.name()))
+    {
+        return Err(WizardError::BuildError(
+            "overlay holds two assets with the same canonical name".to_owned(),
+        ));
+    }
 
     Ok(found)
 }
@@ -105,7 +125,11 @@ fn classify_one(
         return Ok(());
     };
     match placement {
-        Placement::Esp { file } => found.push(Asset::EspFile { path: file, size }),
+        Placement::Esp { file } => found.push(Asset::EspFile {
+            entry: path.to_owned(),
+            path: file,
+            size,
+        }),
         Placement::Blob { offset, file } => {
             if !blob_dirs.insert(offset) {
                 return Err(WizardError::BuildError(format!(
@@ -113,6 +137,7 @@ fn classify_one(
                 )));
             }
             found.push(Asset::RawBlob {
+                entry: path.to_owned(),
                 source: file,
                 size,
                 offset,

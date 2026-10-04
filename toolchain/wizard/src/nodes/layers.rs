@@ -1,5 +1,7 @@
 //! Layer payload nodes for the kernel modules and extension initramfs layers.
 
+use std::sync::{Mutex, PoisonError};
+
 use koci::arch::Arch;
 use koci::error::KociError;
 use koci::pull;
@@ -26,6 +28,11 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
+/// Payloads staged by preflight for [`run`]: one pull and one EROFS plan per build instead of two.
+type Staged = Vec<(mumi::payload::Payload, mumi::payload::Planned)>;
+
+static STAGED: Mutex<Option<Staged>> = Mutex::new(None);
+
 /// One layer payload.
 pub(crate) struct Layer {
     pub(crate) name: String,
@@ -51,45 +58,52 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_
     let layers = layer_specs(ctx)?;
     let mut payloads = pull_payloads(&layers)?;
     let planned = measure(&mut payloads, &layers)?;
+    let staged = payloads.into_iter().zip(planned).collect::<Staged>();
 
     let bindings = graph
         .node(id)?
         .output_bindings()
         .copied()
         .collect::<Vec<_>>();
-    if bindings.len() != planned.len() {
+    if bindings.len() != staged.len() {
         return Err(WizardError::BuildError(format!(
             "layer output/payload count mismatch: {} != {}",
             bindings.len(),
-            planned.len(),
+            staged.len(),
         )));
     }
-    for (binding, (layer, payload)) in bindings.iter().zip(layers.iter().zip(&planned)) {
-        let meta = payload.meta();
+    for (binding, item) in bindings.iter().zip(layers.iter().zip(&staged)) {
+        let (layer, pair) = item;
+        let meta = pair.1.meta();
         let stream = graph.stream_mut(binding.stream)?;
         stream.size = meta.size;
         stream.name = stream_name(layer, meta);
     }
 
+    *STAGED.lock().unwrap_or_else(PoisonError::into_inner) = Some(staged);
+
     Ok(())
 }
 
-/// Re-pulls and remeasures every layer payload, then streams it into its output stream.
+/// Streams the preflight-staged payloads into their output streams.
 pub(crate) fn run(
     _kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let layers = layer_specs(ctx)?;
-    let mut payloads = pull_payloads(&layers)?;
-    let planned = measure(&mut payloads, &layers)?;
+    let mut staged = match STAGED.lock().unwrap_or_else(PoisonError::into_inner).take() {
+        Some(staged) if matches(&staged, &layers) => staged,
+        _ => pull_and_measure(&layers)?,
+    };
 
-    let mut outputs = ports.outputs_from(FIRST_OUTPUT, Some(planned.len()))?;
+    let mut outputs = ports.outputs_from(FIRST_OUTPUT, Some(staged.len()))?;
 
-    for ((payload, output), source) in planned.iter().zip(outputs.iter_mut()).zip(&payloads) {
-        ensure_size_matches(payload, output)?;
-        payload
-            .write(&mut output.writer, source)
+    for (item, output) in staged.iter_mut().zip(outputs.iter_mut()) {
+        let &mut (ref payload, ref planned) = item;
+        ensure_size_matches(planned, output)?;
+        planned
+            .write(&mut output.writer, payload)
             .map_err(|e| WizardError::BuildError(format!("stream layer payload: {e}")))?;
     }
 
@@ -119,6 +133,21 @@ fn extension_layer(extension: &Extension, arch: Arch) -> Layer {
 
 fn include_all(_entry: &FileEntry<'_>) -> bool {
     true
+}
+
+fn matches(staged: &Staged, layers: &[Layer]) -> bool {
+    staged.len() == layers.len()
+        && staged
+            .iter()
+            .zip(layers)
+            .all(|(pair, layer)| pair.1.meta().name == layer.name)
+}
+
+fn pull_and_measure(layers: &[Layer]) -> Result<Staged> {
+    let mut payloads = pull_payloads(layers)?;
+    let planned = measure(&mut payloads, layers)?;
+
+    Ok(payloads.into_iter().zip(planned).collect())
 }
 
 fn stream_name(layer: &Layer, meta: &mumi::payload::Meta) -> String {
