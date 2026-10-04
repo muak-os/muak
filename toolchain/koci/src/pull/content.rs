@@ -1,9 +1,11 @@
 //! Content-addressed store for layer blobs.
 
-use std::fs::File;
-use std::io::{self, Write as _};
+use std::collections::HashSet;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use oci::digest::Verifier;
@@ -17,6 +19,9 @@ const INGEST_DIR: &str = "ingest";
 /// Age at which an orphaned ingest file is garbage collected.
 const STALE_INGEST: Duration = Duration::from_mins(60);
 
+/// Size of the staging read window while hashing a resume prefix.
+const PREFIX_WINDOW: usize = 16 * 1024;
+
 /// Sequence number for unique ingest file names.
 static INGEST_SEQ: AtomicUsize = AtomicUsize::new(0);
 
@@ -24,6 +29,26 @@ static INGEST_SEQ: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone, Debug)]
 pub struct Content {
     root: Option<PathBuf>,
+}
+
+/// Staging files claimed by an in-progress ingest, per digest.
+static CLAIMED_STAGES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn claim_staging(path: &Path) -> bool {
+    let claimed = CLAIMED_STAGES.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut claimed = claimed.lock().unwrap_or_else(PoisonError::into_inner);
+
+    claimed.insert(path.to_string_lossy().into_owned())
+}
+
+fn release_staging(path: &Path) {
+    let Some(claimed) = CLAIMED_STAGES.get() else {
+        return;
+    };
+    claimed
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&path.to_string_lossy().into_owned());
 }
 
 impl Content {
@@ -64,7 +89,7 @@ impl Content {
         File::open(path)
     }
 
-    /// Start a verified ingest of `digest` into a unique staging file.
+    /// Start an ingest of `digest` into its staging file.
     ///
     /// # Errors
     ///
@@ -72,28 +97,52 @@ impl Content {
     pub(crate) fn blob_writer(&self, digest: &str) -> Result<Ingest> {
         let target = cache::blob_file_path(self.root.as_deref(), digest)
             .ok_or_else(|| KociError::Pull(format!("digest without sha256 prefix: {digest}")))?;
-        let staging = self.ingest_path(digest)?;
-        if let Some(parent) = staging.parent() {
-            std::fs::create_dir_all(parent).map_err(KociError::IoError)?;
+        let root = self.root.as_ref().ok_or_else(|| {
+            KociError::Pull("no content store configured for blob ingest".to_owned())
+        })?;
+        let staging_dir = root.join(INGEST_DIR);
+        std::fs::create_dir_all(&staging_dir).map_err(KociError::IoError)?;
+        let hash = digest.strip_prefix("sha256:").unwrap_or(digest);
+        let canonical = staging_dir.join(format!("{hash}.part"));
+
+        if !claim_staging(&canonical) {
+            return Self::detached_ingest(&staging_dir, target, digest);
         }
-        let file = File::create(&staging).map_err(KociError::IoError)?;
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&canonical)
+            .map_err(KociError::IoError)?;
+        let resume_offset = file.metadata().map_err(KociError::IoError)?.len();
+
+        Ok(Ingest {
+            staging_path: canonical,
+            target_path: target,
+            file,
+            committed: false,
+            resumable: true,
+            resume_offset,
+        })
+    }
+
+    fn detached_ingest(staging_dir: &Path, target: PathBuf, digest: &str) -> Result<Ingest> {
+        let seq = INGEST_SEQ.fetch_add(1, Ordering::Relaxed);
+        let hash = digest.strip_prefix("sha256:").unwrap_or(digest);
+        let staging = staging_dir.join(format!("{hash}.{seq}.part"));
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&staging)
+            .map_err(KociError::IoError)?;
 
         Ok(Ingest {
             staging_path: staging,
             target_path: target,
             file,
             committed: false,
+            resumable: false,
+            resume_offset: 0,
         })
-    }
-
-    fn ingest_path(&self, digest: &str) -> Result<PathBuf> {
-        let root = self.root.as_ref().ok_or_else(|| {
-            KociError::Pull("no content store configured for blob ingest".to_owned())
-        })?;
-        let seq = INGEST_SEQ.fetch_add(1, Ordering::Relaxed);
-        let hash = digest.strip_prefix("sha256:").unwrap_or(digest);
-
-        Ok(root.join(INGEST_DIR).join(format!("{hash}.{seq}.ingest")))
     }
 
     fn gc(&self) {
@@ -108,6 +157,21 @@ impl Content {
         {
             drop(std::fs::remove_file(stale));
         }
+    }
+}
+
+fn pump_prefix(read: &mut impl Read, verifier: &mut Verifier) -> Result<u64> {
+    let mut buffer = [0_u8; PREFIX_WINDOW];
+    let mut hashed = 0_u64;
+    loop {
+        let chunk_len = read.read(&mut buffer).map_err(KociError::IoError)?;
+        if chunk_len == 0 {
+            return Ok(hashed);
+        }
+        if let Some(chunk) = buffer.get(..chunk_len) {
+            verifier.update(chunk);
+        }
+        hashed = hashed.saturating_add(u64::try_from(chunk_len).unwrap_or(u64::MAX));
     }
 }
 
@@ -131,19 +195,62 @@ pub struct Ingest {
     target_path: PathBuf,
     file: File,
     committed: bool,
+    resumable: bool,
+    resume_offset: u64,
 }
 
 impl Ingest {
+    /// The staged byte count a following fetch can resume from.
+    #[must_use]
+    pub(crate) fn resume_offset(&self) -> u64 {
+        self.resume_offset
+    }
+
+    /// Discard the staged bytes and start over from an empty staging file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the staging file cannot be truncated.
+    pub(crate) fn restart(&mut self) -> Result<()> {
+        self.file.set_len(0).map_err(KociError::IoError)?;
+        self.resume_offset = 0;
+
+        Ok(())
+    }
+
+    /// Feed the already-staged bytes into `verifier`, so a resumed fetch hashes
+    /// the complete blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the staging file cannot be read back in full.
+    pub(crate) fn hash_prefix(&self, verifier: &mut Verifier) -> Result<()> {
+        let staging = File::open(&self.staging_path).map_err(KociError::IoError)?;
+        let mut limited = staging.take(self.resume_offset);
+        let hashed = pump_prefix(&mut limited, verifier)?;
+        if hashed != self.resume_offset {
+            return Err(KociError::Pull(
+                "staging file shorter than its resume offset".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Verify the streamed bytes and atomically commit them into the store.
     ///
     /// # Errors
     ///
     /// Returns an error when the bytes do not match `digest`, the file metadata cannot be read,
-    /// or the rename fails. The staging file is removed either way.
+    /// or the rename fails. A digest mismatch discards the staging file; an
+    /// interrupted fetch keeps it for a later resume.
     pub(crate) fn commit(mut self, verifier: Verifier) -> Result<u64> {
         self.file.flush().map_err(KociError::IoError)?;
         let size = self.file.metadata().map_err(KociError::IoError)?.len();
-        verifier.verify().map_err(KociError::Oci)?;
+        verifier.verify().map_err(|error| {
+            self.resumable = false;
+            KociError::Oci(error)
+        })?;
         if let Some(parent) = self.target_path.parent() {
             std::fs::create_dir_all(parent).map_err(KociError::IoError)?;
         }
@@ -166,16 +273,15 @@ impl std::io::Write for Ingest {
 
 impl Drop for Ingest {
     fn drop(&mut self) {
-        if !self.committed {
+        if !self.committed && !self.resumable {
             drop(std::fs::remove_file(&self.staging_path));
         }
+        release_staging(&self.staging_path);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read as _;
-
     use oci::digest::sha256_hex;
     use tempfile::TempDir;
 
@@ -258,24 +364,69 @@ mod tests {
     }
 
     #[test]
-    fn aborted_ingests_leave_no_files_behind() {
+    fn detached_ingests_leave_no_files_behind() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let content = content_at(&tmp);
-        let digest = digest_of(b"never committed because the writer is dropped");
+        let digest = digest_of(b"detached ingests never leave staging files");
+        let _holder = content.blob_writer(&digest).expect("hold the claim");
 
         // ACT
-        drop(content.blob_writer(&digest).expect("start ingest"));
+        drop(content.blob_writer(&digest).expect("detached ingest"));
 
         // ASSERT
         assert!(content.has_blob(&digest).is_none());
-        assert!(
-            std::fs::read_dir(tmp.path().join("ingest"))
-                .expect("read ingest dir")
-                .next()
-                .is_none(),
-            "the ingest file must be cleaned up"
+        let staged = std::fs::read_dir(tmp.path().join("ingest"))
+            .expect("read ingest dir")
+            .count();
+        assert_eq!(staged, 1, "detached staging must be cleaned up");
+    }
+
+    #[test]
+    fn aborted_ingests_keep_their_staged_bytes_for_resume() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let content = content_at(&tmp);
+        let digest = digest_of(b"a staged prefix that a later fetch resumes");
+
+        // ACT
+        {
+            let mut ingest = content.blob_writer(&digest).expect("start ingest");
+            ingest.write_all(b"stage").expect("write bytes");
+        }
+        let resumed = content.blob_writer(&digest).expect("reclaim ingest");
+
+        // ASSERT
+        assert_eq!(
+            resumed.resume_offset(),
+            u64::try_from(b"stage".len()).unwrap_or_default(),
+            "the resume offset must match the staged bytes"
         );
+    }
+
+    #[test]
+    fn contended_ingests_never_resume_and_still_commit() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let content = content_at(&tmp);
+        let data = b"complete blob bytes streamed by the winning ingest";
+        let digest = digest_of(data);
+
+        // ACT
+        let _holder = content.blob_writer(&digest).expect("hold the claim");
+        let mut loser = content.blob_writer(&digest).expect("contended ingest");
+        assert_eq!(loser.resume_offset(), 0, "contended ingests never resume");
+        let verifier = ingest_and_verify(&mut loser, &digest, data);
+        loser.commit(verifier).expect("commit blob");
+
+        // ASSERT
+        let mut bytes = Vec::new();
+        content
+            .open_blob(&digest)
+            .expect("open blob")
+            .read_to_end(&mut bytes)
+            .expect("read blob");
+        assert_eq!(bytes, data);
     }
 
     #[test]
@@ -307,8 +458,8 @@ mod tests {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let content = content_at(&tmp);
-        let ingest = tmp.path().join("ingest/fresh.ingest");
-        let stale = tmp.path().join("ingest/stale.ingest");
+        let ingest = tmp.path().join("ingest/fresh.part");
+        let stale = tmp.path().join("ingest/stale.part");
         std::fs::create_dir_all(tmp.path().join("ingest")).expect("create ingest dir");
         std::fs::write(&ingest, b"still being written").expect("write fresh");
         std::fs::write(&stale, b"abandoned").expect("write stale");

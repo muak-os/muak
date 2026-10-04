@@ -8,7 +8,7 @@ extern crate alloc;
 mod fixtures;
 #[cfg(test)]
 mod registry;
-
+#[cfg(test)]
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -21,6 +21,7 @@ mod tests {
     use koci::merge;
     use koci::progress::Noop;
     use koci::pull;
+    use koci::pull::cache;
     use koci::push;
     use oci::arch::Arch;
     use oci::error::OciError;
@@ -29,6 +30,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::fixtures::*;
+    use super::registry::resume::ResumeServer;
     use super::registry::{HttpResponse, MockRegistry, RecordedRequest, get, head, post, put};
 
     fn required_request(registry: &MockRegistry, method: &str, path: &str) -> RecordedRequest {
@@ -1534,5 +1536,49 @@ mod tests {
                 .and_then(Value::as_str),
             Some(r#"{"stub.efi":10}"#),
         );
+    }
+
+    #[test]
+    fn stream_files_resumes_an_interrupted_blob_download() {
+        // ARRANGE
+        let layer = plain_tar_layer("hello.txt", b"tar payload bytes").expect("build tar layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest json");
+        let split = layer.len() >> 1;
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let server = ResumeServer::start(layer, manifest);
+        // ACT
+        let failure = pull::files(
+            &server.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            &Noop,
+            |_entry| Ok(()),
+        )
+        .expect_err("truncated blob transfer must fail");
+        let collected = collect_files(&server.reference("repo", "test"), Arch::Amd64);
+
+        // ASSERT
+        assert!(matches!(
+            failure,
+            KociError::Client(ClientError::Network(_))
+        ));
+        assert_eq!(
+            server.resumed_offset(),
+            Some(split),
+            "the resume must ask for the staged offset"
+        );
+        assert!(
+            server.resumed_bytes() < server.layer_len(),
+            "the resumed transfer must re-send fewer bytes than the whole blob"
+        );
+        let restored = collected
+            .iter()
+            .find(|file| file.path == "hello.txt")
+            .expect("resumed stream yields the layer file");
+        assert_eq!(restored.contents, b"tar payload bytes");
     }
 }

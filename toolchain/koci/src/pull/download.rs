@@ -7,10 +7,11 @@ use flate2::read::GzDecoder;
 use oci::digest::Verifier;
 use oci::reference::Image;
 use oci_client::blob::build_url;
-use oci_client::http::{get, stream_body_to_sink};
+use oci_client::error::ClientError;
+use oci_client::http::{Range, get, get_range, is_partial, stream_body_to_sink};
 use oci_client::transport::Transport;
 
-use super::content::Content;
+use super::content::{Content, Ingest};
 use crate::error::{KociError, Result};
 
 /// A sequential streaming reader for one layer blob.
@@ -123,15 +124,64 @@ pub(crate) async fn fetch_into_store(
         return Ok(());
     }
 
-    let url = build_url(image_ref, digest);
-    let resp = get(http, &url, authorization, &[]).await?;
-    let mut digest_verifier = Verifier::new(digest)?;
     let mut ingest = content.blob_writer(digest)?;
-
-    stream_body_to_sink(resp, &mut ingest, &mut digest_verifier).await?;
-    ingest.commit(digest_verifier)?;
+    let url = build_url(image_ref, digest);
+    let verifier = stream_blob(&mut ingest, http, &url, digest, authorization).await?;
+    ingest.commit(verifier)?;
 
     Ok(())
+}
+
+/// HTTP status code for a staging prefix that overshoots the blob.
+const RANGE_NOT_SATISFIABLE: u16 = 416;
+
+/// Stream the blob body into `ingest`, resuming staged bytes via Range.
+async fn stream_blob(
+    ingest: &mut Ingest,
+    http: &Transport,
+    url: &str,
+    digest: &str,
+    authorization: Option<&str>,
+) -> Result<Verifier> {
+    let offset = ingest.resume_offset();
+    if offset > 0 {
+        let range = Range::from_start(offset);
+        return match get_range(http, url, authorization, &[], &range).await {
+            Ok(resp) if is_partial(&resp) => {
+                let mut digest_verifier = Verifier::new(digest)?;
+                ingest.hash_prefix(&mut digest_verifier)?;
+                stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+
+                Ok(digest_verifier)
+            }
+            Ok(resp) => {
+                // The registry ignored the Range header, we fetch the whole blob.
+                ingest.restart()?;
+                let mut digest_verifier = Verifier::new(digest)?;
+                stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+
+                Ok(digest_verifier)
+            }
+            Err(ClientError::Status {
+                status: RANGE_NOT_SATISFIABLE,
+                ..
+            }) => {
+                // The staged prefix overshoots the blob, we start over.
+                ingest.restart()?;
+                let resp = get(http, url, authorization, &[]).await?;
+                let mut digest_verifier = Verifier::new(digest)?;
+                stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+
+                Ok(digest_verifier)
+            }
+            Err(error) => Err(KociError::Client(error)),
+        };
+    }
+    let resp = get(http, url, authorization, &[]).await?;
+    let mut digest_verifier = Verifier::new(digest)?;
+    stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+
+    Ok(digest_verifier)
 }
 
 #[cfg(test)]

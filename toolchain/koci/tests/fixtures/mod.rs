@@ -18,6 +18,8 @@ pub(crate) const SIZES_ANNOTATION: &str = "dev.muak.sizes";
 
 const GZIP_LAYER_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
 
+pub(crate) const PLAIN_LAYER_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
+
 pub(crate) struct TestKeys {
     pub(crate) private_key_pem: String,
     pub(crate) public_key_pem: String,
@@ -100,6 +102,18 @@ fn manifest_with_layers_and_annotations_json(
     }
 
     serde_json::to_vec(&manifest)
+}
+
+/// A plain, uncompressed tar archive holding one file.
+pub(crate) fn plain_tar_layer(path: &str, bytes: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut archive = Builder::new(Vec::new());
+    let mut header = Header::new_gnu();
+    header.set_size(u64::try_from(bytes.len())?);
+    header.set_mode(0o100_644);
+    header.set_cksum();
+    archive.append_data(&mut header, path, bytes)?;
+
+    Ok(archive.into_inner()?)
 }
 
 pub(crate) fn minimal_manifest_json() -> Result<Vec<u8>, serde_json::Error> {

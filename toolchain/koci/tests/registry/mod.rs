@@ -1,5 +1,7 @@
 extern crate alloc;
 
+pub(crate) mod resume;
+
 use alloc::sync::Arc;
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
