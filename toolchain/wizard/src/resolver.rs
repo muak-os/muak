@@ -9,7 +9,7 @@ use koci::arch::{self, Arch};
 
 use crate::config;
 use crate::domain::identity::{ResolutionId, ResolvedInput};
-use crate::domain::profile::{OverlaySpec, Profile, normalize_extension_name};
+use crate::domain::profile::{OverlaySpec, Profile};
 use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild};
 use crate::error::{Result, WizardError};
 use crate::request::Request;
@@ -103,7 +103,6 @@ fn match_extensions(
         .extensions()
         .iter()
         .map(|name| {
-            let name = normalize_extension_name(name);
             let entry = document.named(name).ok_or_else(|| {
                 WizardError::SourceResolution(format!(
                     "catalog does not contain extension '{name}'"
@@ -302,7 +301,7 @@ digest = "sha256:1111"
     }
 
     #[test]
-    fn match_extensions_resolves_by_canonical_name() {
+    fn match_extensions_resolves_by_exact_name() {
         // ARRANGE
         let document = extensions_document();
         let profile = profile(None, &["muak-os/qemu"]);
@@ -318,23 +317,6 @@ digest = "sha256:1111"
         assert_eq!(ext.source(), "ghcr.io/muak-os/extensions/qemu@sha256:4444");
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs.first().expect("input").digest, "sha256:4444");
-    }
-
-    #[test]
-    fn match_extensions_aliases_bare_names() {
-        // ARRANGE
-        let document = extensions_document();
-        let profile = profile(None, &["qemu"]);
-
-        // ACT
-        let extensions = match_extensions(&document, &profile, "ghcr.io/muak-os", &mut Vec::new())
-            .expect("match extensions");
-
-        // ASSERT
-        assert_eq!(
-            extensions.first().expect("extension").name(),
-            "muak-os/qemu"
-        );
     }
 
     #[test]

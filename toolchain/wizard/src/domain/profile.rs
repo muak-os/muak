@@ -70,11 +70,11 @@ impl Profile {
         Ok(ProfileId::new(&self.canonical_bytes()?))
     }
 
-    /// Serializes the profile with normalized extensions to canonical bytes.
+    /// Serializes the profile with sorted extensions to canonical bytes.
     ///
     /// # Errors
     ///
-    /// Returns an error when extension normalization or serialization fails.
+    /// Returns an error when extension sorting or serialization fails.
     pub fn canonical_bytes(&self) -> Result<Vec<u8>> {
         let mut normalized = self.clone();
         normalized.customization.extensions = canonical_extensions(&self.customization.extensions)?;
@@ -83,25 +83,13 @@ impl Profile {
     }
 }
 
-/// Normalizes a legacy extension alias to its canonical logical name.
-#[must_use]
-pub fn normalize_extension_name(name: &str) -> &str {
-    match name {
-        "qemu" => "muak-os/qemu",
-        other => other,
-    }
-}
-
-/// Sorts and normalizes extension names, rejecting duplicates.
+/// Sorts extension names and rejects duplicates.
 ///
 /// # Errors
 ///
 /// Returns an error when two names normalize to the same identity.
 fn canonical_extensions(names: &[String]) -> Result<Vec<String>> {
-    let mut names = names
-        .iter()
-        .map(|name| normalize_extension_name(name).to_owned())
-        .collect::<Vec<_>>();
+    let mut names = names.to_vec();
     names.sort_unstable();
 
     if names.windows(2).any(|pair| pair.first() == pair.get(1)) {
@@ -212,16 +200,6 @@ extensions = []
 "#
     }
 
-    fn extension_toml() -> &'static str {
-        r#"
-[kernel]
-source = "muak-os/linux"
-
-[customization]
-extensions = ["muak-os/qemu"]
-"#
-    }
-
     fn overlay_toml() -> &'static str {
         r#"
 [overlay]
@@ -287,22 +265,6 @@ extensions = ["muak-os/qemu"]
         assert_eq!(
             first.profile_id().expect("id"),
             second.profile_id().expect("id")
-        );
-    }
-
-    #[test]
-    fn extension_alias_normalizes_to_same_profile_id() {
-        // ARRANGE
-        let aliased = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"qemu\"]",
-        )
-        .expect("parse");
-        let canonical = Profile::from_toml(extension_toml().as_bytes()).expect("parse");
-
-        // ACT / ASSERT
-        assert_eq!(
-            aliased.profile_id().expect("id"),
-            canonical.profile_id().expect("id")
         );
     }
 
@@ -390,7 +352,7 @@ extensions = ["muak-os/qemu"]
     fn rejects_duplicate_extensions() {
         // ARRANGE
         let doc = Profile::from_toml(
-            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"muak-os/qemu\", \"qemu\"]",
+            b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = [\"muak-os/qemu\", \"muak-os/qemu\"]",
         )
         .expect("parse");
 

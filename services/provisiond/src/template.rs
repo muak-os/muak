@@ -3,7 +3,6 @@
 use anyhow::{Context as _, Result};
 use config::SystemConfig;
 use tokio::task;
-use wizard::domain::profile::normalize_extension_name;
 
 use crate::medium;
 
@@ -16,7 +15,7 @@ pub fn render(version: String, extensions: &[String]) -> Result<String> {
     let mut config: SystemConfig = config::parse_from_str(&config::serialize_default())
         .context("embedded default config is invalid")?;
     config.host.version = version;
-    config.host.extensions = normalized(extensions);
+    config.host.extensions = sorted(extensions);
 
     Ok(config::serialize(&config)?)
 }
@@ -42,11 +41,8 @@ pub async fn generate() -> Result<String> {
     render(version, &extensions)
 }
 
-fn normalized(extensions: &[String]) -> Vec<String> {
-    let mut names = extensions
-        .iter()
-        .map(|name| normalize_extension_name(name).to_owned())
-        .collect::<Vec<_>>();
+fn sorted(extensions: &[String]) -> Vec<String> {
+    let mut names = extensions.to_vec();
     names.sort_unstable();
     names.dedup();
 
@@ -58,11 +54,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_prefills_version_and_normalized_extensions() {
+    fn render_prefills_version_and_sorted_extensions() {
         // ARRANGE / ACT
         let rendered = render(
             "v1.2.3".to_owned(),
-            &["qemu".to_owned(), "muak-os/virtio".to_owned()],
+            &["muak-os/virtio".to_owned(), "muak-os/qemu".to_owned()],
         )
         .expect("render");
 
@@ -73,20 +69,20 @@ mod tests {
     }
 
     #[test]
-    fn render_dedupes_aliases() {
+    fn render_dedupes_repeated_extensions() {
         // ARRANGE / ACT
         let rendered = render(
             "v1.2.3".to_owned(),
             &[
-                "qemu".to_owned(),
                 "muak-os/qemu".to_owned(),
-                "qemu".to_owned(),
+                "muak-os/qemu".to_owned(),
+                "muak-os/virtio".to_owned(),
             ],
         )
         .expect("render");
 
         // ASSERT
         let config: SystemConfig = config::parse_from_str(&rendered).expect("valid config");
-        assert_eq!(config.host.extensions, ["muak-os/qemu"]);
+        assert_eq!(config.host.extensions, ["muak-os/qemu", "muak-os/virtio"]);
     }
 }
