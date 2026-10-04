@@ -1107,6 +1107,65 @@ mod tests {
             elapsed < Duration::from_millis(900),
             "parallel layer downloads should take about {delay:?}, took {elapsed:?}"
         );
+        assert_eq!(
+            registry.max_concurrent(),
+            2,
+            "both layers must be served concurrently"
+        );
+    }
+
+    #[test]
+    fn parallel_downloads_respect_the_configured_limit() {
+        // ARRANGE
+        let delay = Duration::from_millis(300);
+        let names = ["a", "b", "c", "d"];
+        let layers = names
+            .iter()
+            .map(|name| layer_archive(&[(*name, b"payload")]))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("build layer archives");
+        let digests: Vec<String> = layers.iter().map(|layer| sha256_digest(layer)).collect();
+        let entries = digests
+            .iter()
+            .zip(layers.iter().map(alloc::vec::Vec::len))
+            .map(|(digest, size)| {
+                (
+                    digest.as_str(),
+                    size,
+                    "application/vnd.oci.image.layer.v1.tar+gzip",
+                )
+            })
+            .collect::<Vec<_>>();
+        let manifest = manifest_with_layers_json(&entries).expect("build manifest json");
+        let mut routes = HashMap::from([get(
+            "/v2/repo/manifests/bounded",
+            HttpResponse::json(manifest),
+        )]);
+        for (digest, layer) in digests.iter().zip(&layers) {
+            let route = ("GET".to_owned(), format!("/v2/repo/blobs/{digest}"));
+            routes.insert(
+                route,
+                HttpResponse::octet_stream(layer.clone()).with_delay(delay),
+            );
+        }
+        let registry = MockRegistry::start(routes).expect("start mock registry");
+        pull::parallel::set_parallel_downloads(2);
+
+        // ACT
+        let start = Instant::now();
+        collect_files(&registry.reference("repo", "bounded"), Arch::Amd64);
+        let elapsed = start.elapsed();
+
+        // ASSERT
+        assert_eq!(
+            registry.max_concurrent(),
+            2,
+            "with the limit at 2, exactly two layers may download concurrently"
+        );
+        assert!(
+            elapsed < Duration::from_millis(900),
+            "two waves of two (~600ms) must beat serialized (~1200ms): took {elapsed:?}"
+        );
     }
 
     #[test]

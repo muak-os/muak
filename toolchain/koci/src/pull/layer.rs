@@ -15,6 +15,7 @@ use super::cache::Store;
 use super::content::Content;
 use super::download;
 use super::fetch;
+use super::parallel;
 use super::scan;
 use crate::error::Result;
 use crate::progress::Progress;
@@ -70,7 +71,7 @@ where
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
-    let bytes = fetch::download_all(client, cache, content, layers, progress).await?;
+    let bytes = parallel::download_all(client, cache, content, layers, progress).await?;
     let whiteouts = fetch::whiteout_map(content, layers, &bytes, progress)?;
     let n = layers.len();
 

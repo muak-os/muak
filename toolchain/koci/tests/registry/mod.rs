@@ -4,7 +4,7 @@ pub(crate) mod resume;
 
 use alloc::sync::Arc;
 use core::mem;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::time::Duration;
 use std::collections::HashMap;
 use std::io::{Error as IoError, ErrorKind, Read as _, Write as _};
@@ -22,11 +22,49 @@ pub(crate) struct RecordedRequest {
     pub(crate) body: Vec<u8>,
 }
 
+/// Tracks how many requests the server handles at the same time.
+#[derive(Default)]
+struct Gauge {
+    active: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl Gauge {
+    fn enter(&self) {
+        let in_flight = self.active.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+        self.raise_peak(in_flight);
+    }
+
+    /// Record that one fewer request is in flight.
+    fn exit(&self) {
+        self.active.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Raise the recorded peak when `in_flight` exceeds it.
+    fn raise_peak(&self, in_flight: usize) {
+        let mut recorded = self.peak.load(Ordering::SeqCst);
+        while in_flight > recorded {
+            let exchanged =
+                self.peak
+                    .compare_exchange(recorded, in_flight, Ordering::SeqCst, Ordering::SeqCst);
+            match exchanged {
+                Ok(_) => break,
+                Err(current) => recorded = current,
+            }
+        }
+    }
+
+    fn peak(&self) -> usize {
+        self.peak.load(Ordering::SeqCst)
+    }
+}
+
 pub(crate) struct MockRegistry {
     address: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
     shutdown: Arc<AtomicBool>,
     connections: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
+    gauge: Arc<Gauge>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -41,12 +79,14 @@ impl MockRegistry {
         let pushed = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
         let connections = Arc::new(Mutex::new(Vec::new()));
+        let gauge = Arc::new(Gauge::default());
 
         let thread_routes = Arc::clone(&routes);
         let thread_requests = Arc::clone(&requests);
         let thread_pushed = Arc::clone(&pushed);
         let thread_shutdown = Arc::clone(&shutdown);
         let thread_connections = Arc::clone(&connections);
+        let thread_gauge = Arc::clone(&gauge);
 
         let handle = thread::spawn(move || {
             run_registry_server(
@@ -56,6 +96,7 @@ impl MockRegistry {
                 &thread_requests,
                 &thread_shutdown,
                 &thread_connections,
+                &thread_gauge,
             );
         });
 
@@ -64,8 +105,15 @@ impl MockRegistry {
             requests,
             shutdown,
             connections,
+            gauge,
             handle: Some(handle),
         })
+    }
+
+    /// Peak number of requests the server processed at the same time.
+    #[must_use]
+    pub(crate) fn max_concurrent(&self) -> usize {
+        self.gauge.peak()
     }
 
     #[must_use]
@@ -249,6 +297,7 @@ fn run_registry_server(
     requests: &Arc<Mutex<Vec<RecordedRequest>>>,
     shutdown: &AtomicBool,
     connections: &Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
+    gauge: &Arc<Gauge>,
 ) {
     loop {
         if shutdown.load(Ordering::SeqCst) {
@@ -264,8 +313,11 @@ fn run_registry_server(
         let routes = Arc::clone(routes);
         let pushed = Arc::clone(pushed);
         let requests = Arc::clone(requests);
+        let gauge = Arc::clone(gauge);
         let connection_handle = thread::spawn(move || {
-            drop(handle_connection(stream, &routes, &pushed, &requests));
+            drop(handle_connection(
+                stream, &routes, &pushed, &requests, &gauge,
+            ));
         });
         connections
             .lock()
@@ -290,6 +342,7 @@ fn handle_connection(
     routes: &HashMap<RouteKey, HttpResponse>,
     pushed: &Mutex<HashMap<String, Vec<u8>>>,
     requests: &Mutex<Vec<RecordedRequest>>,
+    gauge: &Gauge,
 ) -> Result<(), IoError> {
     let request = read_request(&mut stream)?;
 
@@ -327,7 +380,7 @@ fn handle_connection(
         .map_err(|_error| IoError::other("request log mutex poisoned"))?
         .push(request);
 
-    write_response(&mut stream, &response)
+    write_response(&mut stream, &response, gauge)
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<RecordedRequest, IoError> {
@@ -435,7 +488,19 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> Result<(), IoError> {
+fn write_response(
+    stream: &mut TcpStream,
+    response: &HttpResponse,
+    gauge: &Gauge,
+) -> Result<(), IoError> {
+    gauge.enter();
+    let written = write_stream(stream, response);
+    gauge.exit();
+
+    written
+}
+
+fn write_stream(stream: &mut TcpStream, response: &HttpResponse) -> Result<(), IoError> {
     if !response.delay.is_zero() {
         thread::sleep(response.delay);
     }

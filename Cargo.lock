@@ -1084,6 +1084,7 @@ dependencies = [
  "oci",
  "oci-client",
  "p256",
+ "serde",
  "serde_json",
  "signature",
  "tar",
