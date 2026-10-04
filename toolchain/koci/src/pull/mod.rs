@@ -14,13 +14,16 @@ use crate::signature::Verification;
 pub(crate) mod blobinfo;
 pub mod cache;
 pub(crate) mod content;
-pub(crate) mod download;
+pub mod demux;
+pub mod download;
 pub mod entries;
 pub(crate) mod fetch;
 pub(crate) mod layer;
+pub(crate) mod lazy;
 pub(crate) mod paths;
 pub(crate) mod resolve;
 pub(crate) mod scan;
+pub mod session;
 
 /// Fetch the manifest annotations of the platform manifest matching `arch`.
 ///
@@ -59,11 +62,5 @@ pub fn files<F>(
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    runtime::runtime()?.block_on(layer::files(
-        reference,
-        arch,
-        verification,
-        progress,
-        handler,
-    ))
+    session::open(reference, arch, verification)?.walk(progress, handler)
 }

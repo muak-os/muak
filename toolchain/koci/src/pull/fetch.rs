@@ -33,12 +33,18 @@ pub(crate) fn layer_reader<'bytes>(
     layer: &Descriptor,
 ) -> Result<download::LayerReader<'bytes>> {
     if let Some(bytes) = bytes {
-        download::decompress(bytes, layer.media_type.as_deref())
+        download::decompress(
+            download::BlobSource::Borrowed(bytes),
+            layer.media_type.as_deref(),
+        )
     } else {
         let file = content
             .open_blob(&layer.digest)
             .map_err(KociError::IoError)?;
-        download::decompress_file(file, layer.media_type.as_deref())
+        download::decompress(
+            download::BlobSource::File(file),
+            layer.media_type.as_deref(),
+        )
     }
 }
 
@@ -107,6 +113,38 @@ pub(crate) fn whiteout_map(
     Ok(whiteouts)
 }
 
+/// Fetch one blob for a session, consulting and updating the blob info cache.
+pub(crate) async fn fetch_one(
+    cache: &Store,
+    content: &Content,
+    http: &Transport,
+    image: &Image,
+    digest: &str,
+    authorization: Option<&str>,
+) -> Result<Option<Vec<u8>>> {
+    if cache.layer_location(image, digest) == Some(blobinfo::LayerLocation::Missing) {
+        return Err(ClientError::Status {
+            status: NOT_FOUND,
+            url: build_url(image, digest),
+        }
+        .into());
+    }
+
+    match fetch_bytes(cache, content, http, image, digest, authorization).await {
+        Ok(bytes) => Ok(bytes),
+        Err(KociError::Client(
+            error @ ClientError::Status {
+                status: NOT_FOUND, ..
+            },
+        )) => {
+            cache.put_blob_missing(image, digest);
+            Err(KociError::Client(error))
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// Spawn-shaped wrapper of [`fetch_one`] taking owned arguments.
 async fn fetch_blob(
     cache: Store,
     content: Content,
@@ -115,15 +153,7 @@ async fn fetch_blob(
     digest: String,
     authorization: Option<String>,
 ) -> Result<Option<Vec<u8>>> {
-    if cache.layer_location(&image, &digest) == Some(blobinfo::LayerLocation::Missing) {
-        return Err(ClientError::Status {
-            status: NOT_FOUND,
-            url: build_url(&image, &digest),
-        }
-        .into());
-    }
-
-    match fetch_bytes(
+    fetch_one(
         &cache,
         &content,
         &http,
@@ -132,20 +162,9 @@ async fn fetch_blob(
         authorization.as_deref(),
     )
     .await
-    {
-        Ok(bytes) => Ok(bytes),
-        Err(KociError::Client(
-            error @ ClientError::Status {
-                status: NOT_FOUND, ..
-            },
-        )) => {
-            cache.put_blob_missing(&image, &digest);
-            Err(KociError::Client(error))
-        }
-        Err(other) => Err(other),
-    }
 }
 
+/// Download one blob, keeping it in the store when available, and record its presence.
 async fn fetch_bytes(
     cache: &Store,
     content: &Content,

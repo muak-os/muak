@@ -12,6 +12,7 @@ mod registry;
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::io::Read as _;
     use std::path::Path;
     use std::process::Command;
     use std::sync::Mutex;
@@ -24,6 +25,8 @@ mod tests {
     use koci::progress::{Noop, Progress};
     use koci::pull;
     use koci::pull::cache;
+    use koci::pull::demux::Demux;
+    use koci::pull::session;
     use koci::push;
     use oci::arch::Arch;
     use oci::error::OciError;
@@ -1715,5 +1718,129 @@ mod tests {
             1,
             "the warm pull must not redownload the layer"
         );
+    }
+
+    #[test]
+    fn session_demux_serves_many_consumers_in_one_pass() {
+        // ARRANGE
+        let layer = layer_archive(&[
+            ("a", b"alpha\n"),
+            ("b", b"beta\n"),
+            ("c", b"gamma\n"),
+            ("x/ignored", b"drain\n"),
+        ])
+        .expect("build layer archive");
+        let digest = sha256_digest(&layer);
+        let manifest = manifest_json(&digest, layer.len()).expect("build manifest json");
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/demux", HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer.clone()),
+            ),
+        ]))
+        .expect("start mock registry");
+        let session = session::open(&registry.reference("repo", "demux"), &Arch::Amd64, None)
+            .expect("open session");
+        let counter = PassCounter::new();
+        let mut demux = Demux::by_name(HashMap::from([
+            ("a".to_owned(), Vec::new()),
+            ("b".to_owned(), Vec::new()),
+            ("c".to_owned(), Vec::new()),
+        ]))
+        .with_sizes([
+            ("a".to_owned(), 6_u64),
+            ("b".to_owned(), 5_u64),
+            ("c".to_owned(), 6_u64),
+        ]);
+
+        // ACT
+        session
+            .walk(&counter, |entry| demux.route(entry))
+            .expect("walk session");
+        let writers = demux.into_writers();
+
+        // ASSERT
+        assert_eq!(
+            registry
+                .count("GET", "/v2/repo/manifests/demux")
+                .expect("count"),
+            1,
+            "the session must resolve the manifest exactly once"
+        );
+        assert_eq!(
+            registry
+                .count("GET", &format!("/v2/repo/blobs/{digest}"))
+                .expect("count"),
+            1,
+            "each layer must be downloaded once regardless of consumers"
+        );
+        assert_eq!(
+            counter.extractions(),
+            1,
+            "each layer must be decompressed once regardless of consumers"
+        );
+        assert_eq!(counter.scans(), 0, "single-layer sessions must not scan");
+        assert_eq!(writers.get("a").expect("writer a"), b"alpha\n");
+        assert_eq!(writers.get("b").expect("writer b"), b"beta\n");
+        assert_eq!(writers.get("c").expect("writer c"), b"gamma\n");
+    }
+
+    #[test]
+    fn lazy_layers_download_on_first_read_and_stream_from_the_store() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer = plain_tar_layer("hello.txt", b"lazy layer payload").expect("build tar layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest json");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/lazy", HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer.clone()),
+            ),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        let session = session::open(&registry.reference("repo", "lazy"), &Arch::Amd64, None)
+            .expect("open session");
+        let lazy = session.lazy();
+        let mut first_blob = Vec::new();
+        let mut first = Vec::new();
+        lazy.layer(0)
+            .expect("layer handle")
+            .blob_into(&mut first_blob)
+            .expect("first blob")
+            .read_to_end(&mut first)
+            .expect("read blob");
+        let mut second_blob = Vec::new();
+        let mut second = Vec::new();
+        lazy.layer(0)
+            .expect("layer handle")
+            .blob_into(&mut second_blob)
+            .expect("second blob")
+            .read_to_end(&mut second)
+            .expect("read blob again");
+
+        // ASSERT
+        assert_eq!(
+            lazy.count(),
+            1,
+            "lazy layers enumerate the resolved descriptors"
+        );
+        assert_eq!(
+            registry
+                .count("GET", &format!("/v2/repo/blobs/{digest}"))
+                .expect("count"),
+            1,
+            "the second read must be served from the store, not the network"
+        );
+        assert_eq!(first, layer, "the lazy blob must stream the layer bytes");
+        assert_eq!(second, layer);
     }
 }

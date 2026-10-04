@@ -7,54 +7,17 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
-use oci::arch::Arch;
 use oci::model::Descriptor;
-use oci_client::auth::Access;
 use oci_client::client::Client;
 use tar::Archive;
 
 use super::cache::Store;
 use super::content::Content;
-use super::entries::FileEntry;
+use super::download;
 use super::fetch;
-use super::{download, resolve, scan};
+use super::scan;
 use crate::error::Result;
 use crate::progress::Progress;
-use crate::registry;
-use crate::signature::Verification;
-
-/// Stream every live file entry of the image's platform layers.
-///
-/// # Errors
-///
-/// Returns an error if the image cannot be fetched, signature verification
-/// fails, a layer cannot be decompressed, or the handler returns an error.
-pub(crate) async fn files<F>(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-    progress: &dyn Progress,
-    mut handler: F,
-) -> Result<()>
-where
-    F: FnMut(FileEntry<'_>) -> Result<()>,
-{
-    let client = registry::connect(reference, Access::Pull).await?;
-    let cache = Store::new();
-    progress.pulling(reference, arch.as_str());
-    let layers = resolve::layers(&client, &cache, arch, verification).await?;
-    progress.resolved(layers.len());
-
-    walk(
-        &client,
-        &cache,
-        &Content::new(),
-        &layers,
-        progress,
-        |_layer_idx, entry, info| scan::handle_file_entry(entry, info, &mut handler),
-    )
-    .await
-}
 
 /// Collect the byte size of every live file entry, keyed by normalized path.
 ///
@@ -92,7 +55,7 @@ pub(crate) async fn entry_sizes(
 }
 
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
-async fn walk<F>(
+pub(crate) async fn walk<F>(
     client: &Client,
     cache: &Store,
     content: &Content,

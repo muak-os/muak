@@ -14,73 +14,75 @@ use oci_client::transport::Transport;
 use super::content::{Content, Ingest};
 use crate::error::{KociError, Result};
 
+/// Where a layer blob's bytes come from.
+#[derive(Debug)]
+pub enum BlobSource<'bytes> {
+    /// A blob streamed from a committed store file.
+    File(File),
+    /// A blob borrowed from memory.
+    Borrowed(&'bytes [u8]),
+}
+
+impl Read for BlobSource<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match *self {
+            Self::File(ref mut file) => file.read(buf),
+            Self::Borrowed(ref mut bytes) => bytes.read(buf),
+        }
+    }
+}
+
 /// A sequential streaming reader for one layer blob.
 #[derive(Debug)]
 pub enum LayerReader<'bytes> {
-    /// A plain (uncompressed) layer streamed from the store.
-    PlainFile(File),
-    /// A gzip layer streaming from the store.
-    GzippedFile(GzDecoder<File>),
-    /// A plain (uncompressed) layer held in memory.
-    Plain(&'bytes [u8]),
-    /// A gzip layer decompressed in memory.
-    Gzipped(GzDecoder<&'bytes [u8]>),
+    /// A plain (uncompressed) layer.
+    Plain(BlobSource<'bytes>),
+    /// A gzip layer decoded on the fly.
+    Gzipped(GzDecoder<BlobSource<'bytes>>),
 }
 
 impl Read for LayerReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match *self {
-            Self::PlainFile(ref mut file) => file.read(buf),
-            Self::GzippedFile(ref mut decoder) => decoder.read(buf),
-            Self::Plain(ref mut bytes) => bytes.read(buf),
+            Self::Plain(ref mut source) => source.read(buf),
             Self::Gzipped(ref mut decoder) => decoder.read(buf),
         }
     }
 }
 
-/// Wrap a committed store blob in the appropriate streaming decompressor.
-///
-/// # Errors
-///
-/// Returns an error when the layer media type is not supported.
-pub(crate) fn decompress_file(
-    file: File,
-    media_type: Option<&str>,
-) -> Result<LayerReader<'static>> {
+/// How a layer blob is compressed, derived from its media type.
+enum Codec {
+    Gzip,
+    Plain,
+}
+
+fn codec(media_type: Option<&str>) -> Result<Codec> {
     match media_type {
         Some(
             "application/vnd.oci.image.layer.v1.tar+gzip"
             | "application/vnd.docker.image.rootfs.diff.tar.gzip",
-        ) => Ok(LayerReader::GzippedFile(GzDecoder::new(file))),
+        ) => Ok(Codec::Gzip),
         Some(
             "application/vnd.oci.image.layer.v1.tar"
             | "application/vnd.docker.image.rootfs.diff.tar",
         )
-        | None => Ok(LayerReader::PlainFile(file)),
+        | None => Ok(Codec::Plain),
         Some(other) => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
     }
 }
 
-/// Wrap layer bytes held in memory in the appropriate streaming decompressor.
+/// Wrap a blob source in the appropriate streaming decompressor.
 ///
 /// # Errors
 ///
 /// Returns an error when the layer media type is not supported.
 pub(crate) fn decompress<'bytes>(
-    bytes: &'bytes [u8],
+    source: BlobSource<'bytes>,
     media_type: Option<&str>,
 ) -> Result<LayerReader<'bytes>> {
-    match media_type {
-        Some(
-            "application/vnd.oci.image.layer.v1.tar+gzip"
-            | "application/vnd.docker.image.rootfs.diff.tar.gzip",
-        ) => Ok(LayerReader::Gzipped(GzDecoder::new(bytes))),
-        Some(
-            "application/vnd.oci.image.layer.v1.tar"
-            | "application/vnd.docker.image.rootfs.diff.tar",
-        )
-        | None => Ok(LayerReader::Plain(bytes)),
-        Some(other) => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
+    match codec(media_type)? {
+        Codec::Gzip => Ok(LayerReader::Gzipped(GzDecoder::new(source))),
+        Codec::Plain => Ok(LayerReader::Plain(source)),
     }
 }
 
@@ -213,7 +215,7 @@ mod tests {
         let (file, bytes) = test_store_bytes();
 
         // ACT
-        let mut reader = decompress_file(file, Some(PLAIN_LAYER)).expect("decompress");
+        let mut reader = decompress(BlobSource::File(file), Some(PLAIN_LAYER)).expect("decompress");
         let mut got = Vec::new();
         reader.read_to_end(&mut got).expect("read");
 
@@ -227,8 +229,8 @@ mod tests {
         let (file, _) = test_store_bytes();
 
         // ACT / ASSERT
-        let error =
-            decompress_file(file, Some("application/x-something")).expect_err("unsupported");
+        let error = decompress(BlobSource::File(file), Some("application/x-something"))
+            .expect_err("unsupported");
         assert!(
             error.to_string().contains("application/x-something"),
             "the error must name the media type: {error}"
@@ -244,13 +246,14 @@ mod tests {
         encoder.finish().expect("gzip finish");
 
         // ACT / ASSERT
-        let mut plain = decompress(b"uncompressed", Some(PLAIN_LAYER)).expect("decompress");
+        let mut plain = decompress(BlobSource::Borrowed(b"uncompressed"), Some(PLAIN_LAYER))
+            .expect("decompress");
         let mut got = Vec::new();
         plain.read_to_end(&mut got).expect("read");
         assert_eq!(got, b"uncompressed");
 
         let mut layer = decompress(
-            &gzipped,
+            BlobSource::Borrowed(&gzipped),
             Some("application/vnd.oci.image.layer.v1.tar+gzip"),
         )
         .expect("decompress");
