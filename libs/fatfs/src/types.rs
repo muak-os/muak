@@ -1,5 +1,7 @@
 //! Core types and constants for FAT filesystem operations.
 
+use crate::tree;
+
 /// Sector size in bytes used for all FAT layouts.
 pub(crate) const SECTOR_SIZE: u64 = 512;
 /// Number of FAT copies written to disk.
@@ -63,10 +65,10 @@ impl<'a> FileMeta<'a> {
 }
 
 /// Precomputed FAT filesystem metadata.
-#[derive(Clone, Debug)]
-pub struct Precomputed {
+#[derive(Debug)]
+pub struct Precomputed<'a> {
     pub(crate) layout: FatLayout,
-    pub(crate) dirs: Vec<String>,
+    pub(crate) tree: tree::DirIndex<'a>,
     pub(crate) cluster_map: ClusterMap,
     pub(crate) fat_bytes: Vec<u8>,
     pub(crate) dir_data: Vec<Vec<u8>>,

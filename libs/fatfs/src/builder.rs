@@ -5,39 +5,29 @@ use std::io::{Read, Write};
 use crate::boot;
 use crate::dir;
 use crate::error::{FatError, Result};
+use crate::layout;
 use crate::table;
-use crate::types::{
-    ClusterMap, FAT_COUNT, FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, FileMeta, MAX_IMAGE_SIZE,
-    Precomputed, RESERVED_SECTORS, ROOT_CLUSTER, SECTOR_SIZE,
-};
+use crate::tree::DirIndex;
+use crate::types::{ClusterMap, FatLayout, FileMeta, Precomputed, ROOT_CLUSTER, SECTOR_SIZE};
 
 /// Precomputes all FAT metadata from file paths and sizes.
 ///
 /// # Errors
 ///
 /// Returns `Error::Fat` when layout computation fails or files don't fit.
-pub fn precompute(files: &[FileMeta<'_>], image_size: u64) -> Result<Precomputed> {
-    let layout = compute_layout(image_size)?;
-    let dirs = collect_dir_paths(files);
-    let probe = ClusterMap {
-        dir_starts: vec![0; dirs.len()],
-        dir_counts: vec![0; dirs.len()],
-        file_starts: vec![0; files.len()],
-        file_counts: vec![0; files.len()],
-        file_sizes: files.iter().map(|file| file.size).collect(),
-    };
-    let probe_dirs = build_all_dir_data(files, &dirs, &probe, &layout);
-    let dir_sizes: Vec<u64> = probe_dirs
-        .iter()
-        .map(|data| u64::try_from(data.len()).unwrap_or(u64::MAX))
-        .collect();
-    let cluster_map = assign_clusters(files, &dirs, &layout, &dir_sizes)?;
+pub fn precompute<'a>(files: &'a [FileMeta<'a>], image_size: u64) -> Result<Precomputed<'a>> {
+    let layout = layout::compute(image_size)?;
+    let tree = DirIndex::collect(files);
+    let dir_sizes = tree.sizes(files);
+    let cluster_map = assign_clusters(files, &tree, &layout, &dir_sizes)?;
     let fat_bytes = table::make_fat(&cluster_map, &layout);
-    let dir_data: Vec<Vec<u8>> = build_all_dir_data(files, &dirs, &cluster_map, &layout);
+    let dir_data: Vec<Vec<u8>> = (0..tree.len())
+        .map(|i| dir::build_data(files, &tree, &cluster_map, i, &layout))
+        .collect();
 
     Ok(Precomputed {
         layout,
-        dirs,
+        tree,
         cluster_map,
         fat_bytes,
         dir_data,
@@ -127,7 +117,7 @@ fn write_reserved_padding<W: Write>(writer: &mut W, layout: &FatLayout) -> Resul
 fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Result<()> {
     let cluster_bytes = precomputed.layout.spc.wrapping_mul(SECTOR_SIZE);
 
-    for i in 0..precomputed.dirs.len() {
+    for i in 0..precomputed.tree.len() {
         let dir_data = precomputed
             .dir_data
             .get(i)
@@ -152,18 +142,6 @@ fn write_dir_entries<W: Write>(writer: &mut W, precomputed: &Precomputed) -> Res
     Ok(())
 }
 
-fn build_all_dir_data(
-    files: &[FileMeta<'_>],
-    dirs: &[String],
-    map: &ClusterMap,
-    layout: &FatLayout,
-) -> Vec<Vec<u8>> {
-    dirs.iter()
-        .enumerate()
-        .map(|(i, _)| dir::build_data(files, dirs, map, i, layout))
-        .collect()
-}
-
 fn stream_reader<W: Write>(writer: &mut W, reader: &mut impl Read, size: u64) -> Result<()> {
     let mut buf = [0_u8; 8192];
     let buf_len = u64::try_from(buf.len()).unwrap_or(u64::MAX);
@@ -186,93 +164,16 @@ fn stream_reader<W: Write>(writer: &mut W, reader: &mut impl Read, size: u64) ->
     Ok(())
 }
 
-fn compute_layout(image_size: u64) -> Result<FatLayout> {
-    if image_size > MAX_IMAGE_SIZE {
-        return Err(FatError::Fat(format!(
-            "image too large for FAT32: {image_size} bytes > {MAX_IMAGE_SIZE}"
-        )));
-    }
-    let total_sectors = image_size.div_euclid(SECTOR_SIZE);
-    if total_sectors < 2 {
-        return Err(FatError::Fat("image too small for reserved area".into()));
-    }
-    let rsvd = RESERVED_SECTORS;
-    let spc_values: &[u64] = &[64, 32, 16, 8, 4, 2, 1];
-    for &spc in spc_values {
-        let result = test_spc(spc, total_sectors, rsvd, 0);
-        let (fat_sectors, final_clusters, _) = match result {
-            Some(triple) if triple.1 >= FAT32_MIN_CLUSTERS => triple,
-            _ => continue,
-        };
-        return Ok(FatLayout {
-            total_sectors,
-            reserved_sectors: rsvd,
-            fat_sectors,
-            spc,
-            data_cluster_count: final_clusters,
-        });
-    }
-
-    Err(FatError::Fat(
-        "image size insufficient for any FAT type".into(),
-    ))
-}
-
-fn test_spc(spc: u64, total_sectors: u64, rsvd: u64, root_secs: u64) -> Option<(u64, u64, u64)> {
-    let data_sectors = total_sectors.wrapping_sub(rsvd);
-    let total_clusters = data_sectors.div_euclid(spc);
-    if total_clusters == 0 {
-        return None;
-    }
-    let fat_entries = total_clusters.saturating_add(2);
-    let fat_bytes = fat_entries.checked_mul(FAT_ENTRY_SIZE)?;
-    let fat_sectors = fat_bytes
-        .next_multiple_of(SECTOR_SIZE)
-        .div_euclid(SECTOR_SIZE);
-    let actual_data_sectors = data_sectors
-        .wrapping_sub(fat_sectors.wrapping_mul(FAT_COUNT))
-        .wrapping_sub(root_secs);
-    let final_clusters = actual_data_sectors.div_euclid(spc);
-    if final_clusters == 0 {
-        return None;
-    }
-
-    Some((fat_sectors, final_clusters, spc))
-}
-
-fn collect_dir_paths(files: &[FileMeta<'_>]) -> Vec<String> {
-    let mut dirs: Vec<String> = Vec::new();
-    dirs.push(String::new());
-    for file in files {
-        let target = std::path::Path::new(file.path);
-        push_parent_dirs(&mut dirs, target);
-    }
-    dirs.sort_by(|left, right| left.len().cmp(&right.len()).then(left.cmp(right)));
-
-    dirs
-}
-
-fn push_parent_dirs(dirs: &mut Vec<String>, target: &std::path::Path) {
-    let mut dir = target;
-    while let Some(parent) = dir.parent() {
-        let dir_path = parent.to_string_lossy().into_owned();
-        if !dirs.contains(&dir_path) {
-            dirs.push(dir_path);
-        }
-        dir = parent;
-    }
-}
-
 fn assign_clusters(
     files: &[FileMeta<'_>],
-    dirs: &[String],
+    tree: &DirIndex<'_>,
     layout: &FatLayout,
     dir_sizes: &[u64],
 ) -> Result<ClusterMap> {
     let cluster_bytes = layout.spc.wrapping_mul(SECTOR_SIZE);
     let mut next_cluster = u64::from(ROOT_CLUSTER);
-    let mut dir_starts = Vec::with_capacity(dirs.len());
-    let mut dir_counts = Vec::with_capacity(dirs.len());
+    let mut dir_starts = Vec::with_capacity(tree.len());
+    let mut dir_counts = Vec::with_capacity(tree.len());
     for &size in dir_sizes {
         let count = size.div_ceil(cluster_bytes);
         let start = u32::try_from(next_cluster)
@@ -813,30 +714,6 @@ mod tests {
         // ASSERT
         assert!(accepted, "minimum image size must be accepted");
         assert!(!rejected, "one byte below minimum must be rejected");
-    }
-
-    #[test]
-    fn compute_layout_accepts_the_largest_fat32_volume() {
-        // ARRANGE / ACT
-        let result = compute_layout(MAX_IMAGE_SIZE);
-
-        // ASSERT
-        assert!(result.is_ok(), "the largest FAT32 volume must be accepted");
-    }
-
-    #[test]
-    fn compute_layout_rejects_volumes_above_fat32_ceiling() {
-        // ARRANGE
-        let oversized = MAX_IMAGE_SIZE.saturating_add(SECTOR_SIZE);
-
-        // ACT
-        let result = compute_layout(oversized);
-
-        // ASSERT
-        assert!(
-            result.is_err(),
-            "volumes above the FAT32 ceiling must be rejected"
-        );
     }
 
     #[test]
