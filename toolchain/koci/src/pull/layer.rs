@@ -78,9 +78,9 @@ pub(crate) async fn entry_sizes(
         progress,
         |_layer_idx, _entry, info| {
             if let scan::EntryInfo::File(path, size, _) = info
-                && !excluded(&path, exclude)
+                && !excluded(path, exclude)
             {
-                sizes.insert(path.to_string_lossy().to_string(), size);
+                sizes.insert(scan::path_string(path), size);
             }
 
             Ok(())
@@ -101,13 +101,14 @@ async fn walk<F>(
     mut on_entry: F,
 ) -> Result<()>
 where
-    F: for<'a> FnMut(
+    F: for<'a, 'b> FnMut(
         usize,
         tar::Entry<&'a mut download::LayerReader>,
-        scan::EntryInfo,
+        scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
-    let (bytes, whiteouts) = fetch::download_all(client, cache, content, layers, progress).await?;
+    let bytes = fetch::download_all(client, cache, content, layers, progress).await?;
+    let whiteouts = fetch::whiteout_map(content, layers, &bytes, progress)?;
     let n = layers.len();
 
     for (layer_idx, layer) in layers.iter().enumerate() {
@@ -137,13 +138,18 @@ fn extract_layer<F>(
     on_entry: &mut F,
 ) -> Result<()>
 where
-    F: FnMut(usize, tar::Entry<&mut download::LayerReader>, scan::EntryInfo) -> Result<()>,
+    F: for<'a, 'b> FnMut(
+        usize,
+        tar::Entry<&'a mut download::LayerReader>,
+        scan::EntryInfo<'b>,
+    ) -> Result<()>,
 {
     let mut archive = Archive::new(reader);
     let entries = archive.entries()?;
+    let mut scratch = PathBuf::new();
     for entry_result in entries {
         let entry = entry_result?;
-        let info = scan::classify_tar_entry(&entry)?;
+        let info = scan::classify_tar_entry(&entry, &mut scratch)?;
         if blocked_by_whiteout(&info, layer_idx, whiteouts) {
             continue;
         }
@@ -155,14 +161,14 @@ where
 
 /// Whether a file entry is deleted by a whiteout recorded in a later layer.
 fn blocked_by_whiteout(
-    info: &scan::EntryInfo,
+    info: &scan::EntryInfo<'_>,
     layer_idx: usize,
     whiteouts: &HashMap<PathBuf, usize>,
 ) -> bool {
     matches!(
         info,
         scan::EntryInfo::File(path, ..)
-            if whiteouts.get(path).is_some_and(|&blocking| blocking > layer_idx)
+            if whiteouts.get(*path).is_some_and(|&blocking| blocking > layer_idx)
     )
 }
 

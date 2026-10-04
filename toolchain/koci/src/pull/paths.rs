@@ -1,16 +1,27 @@
 //! Tar entry path normalization and whiteout naming.
 
+use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 
 use crate::error::{KociError, Result};
 
-/// Normalize a tar entry path, rejecting parent traversal and skipping `.` / root entries.
-pub(crate) fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
-    let mut normalized = PathBuf::new();
+/// File name suffix marking a whiteout entry.
+const WHITEOUT_PREFIX: &str = ".wh.";
+
+/// File name marking an opaque directory whiteout.
+const OPAQUE_MARKER: &str = ".wh..wh..opq";
+
+/// Normalize a tar entry path into `buf`, rejecting parent traversal.
+///
+/// # Errors
+///
+/// Returns an error when the path escapes the extraction root.
+pub(crate) fn normalize_entry_path_into(path: &Path, buf: &mut PathBuf) -> Result<bool> {
+    buf.clear();
 
     for component in path.components() {
         match component {
-            Component::Normal(part) => normalized.push(part),
+            Component::Normal(part) => buf.push(part),
             Component::CurDir | Component::RootDir => {}
             Component::ParentDir => {
                 return Err(KociError::LayerExtractionError(format!(
@@ -29,82 +40,139 @@ pub(crate) fn normalize_entry_path(path: &Path) -> Result<Option<PathBuf>> {
                 }
 
                 #[cfg(not(windows))]
-                normalized.push(prefix.as_os_str());
+                buf.push(prefix.as_os_str());
             }
         }
     }
 
-    if normalized.as_os_str().is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(normalized))
-    }
+    Ok(!buf.as_os_str().is_empty())
 }
 
-/// If `path` is a whiteout entry, return the target path that should be removed.
-pub(crate) fn whiteout_target(path: &Path) -> Option<PathBuf> {
-    let file_name = path.file_name().and_then(|name| name.to_str())?;
+/// If `buf` holds a whiteout entry, rewrite it into the target path that should be hidden.
+pub(crate) fn whiteout_target_into(buf: &mut PathBuf) -> bool {
+    let Some(file_name) = buf.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
 
-    if file_name == ".wh..wh..opq" {
-        return Some(path.parent().unwrap_or_else(|| Path::new("")).to_path_buf());
+    let (parent, stripped) = if file_name == OPAQUE_MARKER {
+        (buf.parent(), None)
+    } else {
+        match file_name.strip_prefix(WHITEOUT_PREFIX) {
+            Some(stripped) => (buf.parent(), Some(stripped)),
+            None => return false,
+        }
+    };
+
+    let parent = parent.unwrap_or_else(|| Path::new("")).to_path_buf();
+    let stripped = stripped.map(str::to_owned);
+
+    buf.clear();
+    if !parent.as_os_str().is_empty() {
+        buf.push(parent);
+    }
+    if let Some(stripped) = stripped {
+        buf.push(stripped);
     }
 
-    let stripped = file_name.strip_prefix(".wh.")?;
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-
-    Some(parent.join(stripped))
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn normalized(path: &str) -> Option<PathBuf> {
+        let mut buf = PathBuf::new();
+        normalize_entry_path_into(Path::new(path), &mut buf)
+            .expect("normalize path")
+            .then_some(buf)
+    }
+
     #[test]
-    fn normalize_entry_path_returns_none_for_current_directory() {
+    fn normalize_entry_path_into_keeps_the_buffer_reusable() {
         // ARRANGE
-        let path = Path::new("./");
+        let mut buf = PathBuf::from("previous/entry");
 
         // ACT
-        let normalized = normalize_entry_path(path).expect("normalize path");
+        let first =
+            normalize_entry_path_into(Path::new("./etc/motd"), &mut buf).expect("normalize");
+        let second = normalize_entry_path_into(Path::new("./"), &mut buf).expect("normalize");
 
         // ASSERT
-        assert!(normalized.is_none());
+        assert!(first, "the first entry must normalize");
+        assert!(!second, "the root entry must be skipped");
+    }
+
+    #[test]
+    fn normalize_entry_path_returns_none_for_current_directory() {
+        // ACT / ASSERT
+        assert!(normalized("./").is_none());
     }
 
     #[test]
     fn normalize_entry_path_rejects_parent_traversal() {
         // ACT
+        let mut buf = PathBuf::new();
         let error =
-            normalize_entry_path(Path::new("../escape")).expect_err("normalize should fail");
+            normalize_entry_path_into(Path::new("../escape"), &mut buf).expect_err("normalize");
 
         // ASSERT
         assert!(matches!(error, KociError::LayerExtractionError(_)));
     }
 
     #[test]
-    fn whiteout_target_returns_none_for_non_whiteout_path() {
+    fn whiteout_target_into_returns_false_for_non_whiteout_path() {
+        // ARRANGE
+        let mut buf = PathBuf::from("etc/file");
+
         // ACT
-        let target = whiteout_target(Path::new("etc/file"));
+        let is_whiteout = whiteout_target_into(&mut buf);
 
         // ASSERT
-        assert!(target.is_none());
+        assert!(!is_whiteout);
+        assert_eq!(buf, PathBuf::from("etc/file"));
     }
 
     #[test]
-    fn whiteout_target_returns_file_target() {
+    fn whiteout_target_into_rewrites_the_file_target() {
+        // ARRANGE
+        let mut buf = PathBuf::from("etc/.wh.obsolete");
+
         // ACT
-        let target = whiteout_target(Path::new("etc/.wh.obsolete"));
+        let is_whiteout = whiteout_target_into(&mut buf);
 
         // ASSERT
-        assert_eq!(target, Some(PathBuf::from("etc/obsolete")));
+        assert!(is_whiteout);
+        assert_eq!(buf, PathBuf::from("etc/obsolete"));
     }
 
     #[test]
-    fn whiteout_target_returns_opaque_directory_target() {
+    fn whiteout_target_into_rewrites_the_opaque_directory_target() {
+        // ARRANGE
+        let mut buf = PathBuf::from("etc/.wh..wh..opq");
+
         // ACT
-        let target = whiteout_target(Path::new("etc/.wh..wh..opq"));
+        let is_whiteout = whiteout_target_into(&mut buf);
 
         // ASSERT
-        assert_eq!(target, Some(PathBuf::from("etc")));
+        assert!(is_whiteout);
+        assert_eq!(buf, PathBuf::from("etc"));
+    }
+
+    #[test]
+    fn whiteout_target_into_handles_root_level_entries() {
+        // ARRANGE
+        let mut file_buf = PathBuf::from(".wh.vmlinuz");
+        let mut opaque_buf = PathBuf::from(".wh..wh..opq");
+
+        // ACT
+        let file_whiteout = whiteout_target_into(&mut file_buf);
+        let opaque_whiteout = whiteout_target_into(&mut opaque_buf);
+
+        // ASSERT
+        assert!(file_whiteout);
+        assert_eq!(file_buf, PathBuf::from("vmlinuz"));
+        assert!(opaque_whiteout);
+        assert!(opaque_buf.as_os_str().is_empty());
     }
 }

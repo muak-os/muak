@@ -15,12 +15,13 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant, SystemTime};
 
     use koci::annotations;
     use koci::error::KociError;
     use koci::merge;
-    use koci::progress::Noop;
+    use koci::progress::{Noop, Progress};
     use koci::pull;
     use koci::pull::cache;
     use koci::push;
@@ -73,6 +74,39 @@ mod tests {
     fn expect_stream_error(reference: &str) -> KociError {
         pull::files(reference, &Arch::Amd64, None, &Noop, |_entry| Ok(()))
             .expect_err("stream should fail")
+    }
+
+    /// Progress observer counting per-layer scan and extraction passes.
+    struct PassCounter {
+        scanning: AtomicUsize,
+        extracting: AtomicUsize,
+    }
+
+    impl PassCounter {
+        fn new() -> Self {
+            Self {
+                scanning: AtomicUsize::new(0),
+                extracting: AtomicUsize::new(0),
+            }
+        }
+
+        fn scans(&self) -> usize {
+            self.scanning.load(Ordering::Relaxed)
+        }
+
+        fn extractions(&self) -> usize {
+            self.extracting.load(Ordering::Relaxed)
+        }
+    }
+
+    impl Progress for PassCounter {
+        fn layer_scanning(&self, _index: usize, _total: usize, _digest: &str) {
+            self.scanning.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn layer_extracting(&self, _index: usize, _total: usize, _digest: &str) {
+            self.extracting.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
@@ -162,9 +196,34 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64);
+        let counter = PassCounter::new();
+        let mut files = Vec::new();
+        pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            &counter,
+            |entry| {
+                let path = entry.path.clone();
+                let mut contents = Vec::new();
+                entry.reader.read_to_end(&mut contents)?;
+                files.push(CollectedFile { path, contents });
+                Ok(())
+            },
+        )
+        .expect("stream files should succeed");
 
         // ASSERT
+        assert_eq!(
+            counter.scans(),
+            0,
+            "single-layer pulls must not scan for whiteouts"
+        );
+        assert_eq!(
+            counter.extractions(),
+            1,
+            "single-layer pulls must decompress the layer exactly once"
+        );
         assert_eq!(files.len(), 2);
         assert_eq!(files.first().unwrap().path, "etc/motd");
         assert_eq!(&files.first().unwrap().contents, b"hello from koci\n");
@@ -959,9 +1018,34 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64);
+        let counter = PassCounter::new();
+        let mut files = Vec::new();
+        pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            &counter,
+            |entry| {
+                let path = entry.path.clone();
+                let mut contents = Vec::new();
+                entry.reader.read_to_end(&mut contents)?;
+                files.push(CollectedFile { path, contents });
+                Ok(())
+            },
+        )
+        .expect("stream files should succeed");
 
         // ASSERT
+        assert_eq!(
+            counter.scans(),
+            2,
+            "multi-layer pulls must scan every layer once for whiteouts"
+        );
+        assert_eq!(
+            counter.extractions(),
+            2,
+            "each layer must be extracted once"
+        );
         assert_eq!(files.len(), 1);
         assert_eq!(files.first().unwrap().path, "etc/message");
         assert_eq!(&files.first().unwrap().contents, b"second\n");

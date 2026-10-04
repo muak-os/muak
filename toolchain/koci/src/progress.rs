@@ -8,6 +8,9 @@ pub trait Progress: Send + Sync {
     /// The platform manifest resolved to `layers` layers.
     fn resolved(&self, _layers: usize) {}
 
+    /// Layer `index` of `total` is being pre-scanned for whiteout markers.
+    fn layer_scanning(&self, _index: usize, _total: usize, _digest: &str) {}
+
     /// Layer `index` of `total` was queued for download.
     fn layer_download_queued(&self, _index: usize, _total: usize, _digest: &str) {}
 
@@ -35,6 +38,10 @@ impl Progress for Stderr {
 
     fn resolved(&self, layers: usize) {
         eprintln!("Resolved {layers} layer(s)");
+    }
+
+    fn layer_scanning(&self, index: usize, total: usize, digest: &str) {
+        eprintln!("Scanning layer {index}/{total}: {digest}");
     }
 
     fn layer_download_queued(&self, index: usize, total: usize, digest: &str) {

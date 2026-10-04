@@ -42,14 +42,14 @@ pub(crate) fn layer_reader<'bytes>(
     }
 }
 
-/// Download every layer blob concurrently, then map whiteout targets to the first layer that must be hidden by them.
+/// Download every layer blob concurrently into the store or memory.
 pub(crate) async fn download_all(
     client: &Client,
     cache: &Store,
     content: &Content,
     layers: &[Descriptor],
     progress: &dyn Progress,
-) -> Result<(Vec<Option<Vec<u8>>>, HashMap<PathBuf, usize>)> {
+) -> Result<Vec<Option<Vec<u8>>>> {
     let n = layers.len();
 
     let mut downloads = JoinSet::new();
@@ -79,18 +79,24 @@ pub(crate) async fn download_all(
         })? = blob?;
     }
 
-    let whiteouts = scan_whiteouts(content, layers, &bytes)?;
-
-    Ok((bytes, whiteouts))
+    Ok(bytes)
 }
 
-fn scan_whiteouts(
+/// Map whiteout targets to the first layer that must hide them.
+pub(crate) fn whiteout_map(
     content: &Content,
     layers: &[Descriptor],
     bytes: &[Option<Vec<u8>>],
+    progress: &dyn Progress,
 ) -> Result<HashMap<PathBuf, usize>> {
+    if layers.len() < 2 {
+        return Ok(HashMap::new());
+    }
+
+    let n = layers.len();
     let mut whiteouts: HashMap<PathBuf, usize> = HashMap::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
+        progress.layer_scanning(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
         let cached = cached_bytes(bytes, layer_idx);
         let mut reader = layer_reader(content, cached.as_deref(), layer)?;
         for whiteout in scan::scan_whiteouts(&mut reader)? {
