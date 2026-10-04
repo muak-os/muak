@@ -164,6 +164,7 @@ release version: lint test
 [group('build')]
 [script]
 catalog *args:
+    printf "{{ cyan }}Updating catalog{{ reset }}\n"
     mkdir -p "{{ absolute_path(out) }}/catalog"
     just _kata compose --force --dir /data --release "{{ tag }}" \
         "$@" --set installer=muak-os/muak@installer@{{ tag }}
