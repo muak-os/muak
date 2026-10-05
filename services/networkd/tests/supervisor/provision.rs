@@ -3,6 +3,7 @@
 use alloc::sync::Arc;
 use core::time::Duration;
 
+use config::system::network;
 use networkd::dns::Resolver;
 use networkd::supervisor;
 use tokio::sync::mpsc;
@@ -11,16 +12,16 @@ use tokio::time::timeout;
 use super::MockNetlinkOps;
 use super::config_bridge;
 
-fn config_static_ipv4() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_static_ipv4() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
@@ -32,14 +33,14 @@ fn config_static_ipv4() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_dhcp() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_dhcp() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: true,
             addresses: vec![],
             gateway: None,
@@ -50,17 +51,17 @@ fn config_dhcp() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_ipv6() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_ipv6() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
+        kind: network::InterfaceKind::Ethernet,
         ipv4: None,
-        ipv6: Some(config::Ipv6InterfaceConfig {
+        ipv6: Some(network::Ipv6InterfaceConfig {
             autoconf: false,
-            addresses: vec![config::Cidr6 {
+            addresses: vec![network::Cidr6 {
                 address: "2001:db8::2".parse().expect("valid ipv6"),
                 prefix: 64,
             }],
@@ -71,16 +72,16 @@ fn config_ipv6() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_slaac() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_slaac() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.ipv6 = true;
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
+        kind: network::InterfaceKind::Ethernet,
         ipv4: None,
-        ipv6: Some(config::Ipv6InterfaceConfig {
+        ipv6: Some(network::Ipv6InterfaceConfig {
             autoconf: true,
             addresses: vec![],
             gateway: None,
@@ -90,16 +91,16 @@ fn config_slaac() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_named() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_named() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "eth0".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(192, 168, 1, 10),
                 prefix: 24,
             }],
@@ -111,13 +112,13 @@ fn config_named() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_none() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_none() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
+        kind: network::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: None,
         bridge: None,
@@ -125,16 +126,16 @@ fn config_none() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_bridge_multiport() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_bridge_multiport() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
@@ -143,12 +144,12 @@ fn config_bridge_multiport() -> Arc<config::NetworkConfig> {
         ipv6: None,
         bridge: None,
     });
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "br0".to_owned(),
-        kind: config::InterfaceKind::Bridge,
+        kind: network::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
-        bridge: Some(config::BridgeConfig {
+        bridge: Some(network::BridgeConfig {
             port: vec!["auto".to_owned(), "eth1".to_owned()],
             stp: false,
         }),
@@ -156,16 +157,16 @@ fn config_bridge_multiport() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_bridge_named_port() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_bridge_named_port() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "eth0".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
@@ -174,12 +175,12 @@ fn config_bridge_named_port() -> Arc<config::NetworkConfig> {
         ipv6: None,
         bridge: None,
     });
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "br0".to_owned(),
-        kind: config::InterfaceKind::Bridge,
+        kind: network::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
-        bridge: Some(config::BridgeConfig {
+        bridge: Some(network::BridgeConfig {
             port: vec!["eth0".to_owned()],
             stp: false,
         }),
@@ -187,16 +188,16 @@ fn config_bridge_named_port() -> Arc<config::NetworkConfig> {
     Arc::new(cfg)
 }
 
-fn config_bridge_empty_port() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_bridge_empty_port() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
@@ -205,12 +206,12 @@ fn config_bridge_empty_port() -> Arc<config::NetworkConfig> {
         ipv6: None,
         bridge: None,
     });
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "br0".to_owned(),
-        kind: config::InterfaceKind::Bridge,
+        kind: network::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
-        bridge: Some(config::BridgeConfig {
+        bridge: Some(network::BridgeConfig {
             port: vec![],
             stp: false,
         }),

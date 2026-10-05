@@ -3,6 +3,7 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 
+use config::system::network;
 use networkd::interface::commands::ApplyMode;
 use tokio::time::sleep;
 
@@ -17,11 +18,11 @@ async fn static_ipv4_multiple_addresses() {
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addrs = vec![
-        config::Cidr4 {
+        network::Cidr4 {
             address: Ipv4Addr::new(10, 0, 0, 2),
             prefix: 24,
         },
-        config::Cidr4 {
+        network::Cidr4 {
             address: Ipv4Addr::new(10, 0, 0, 3),
             prefix: 24,
         },
@@ -66,7 +67,7 @@ async fn static_ipv6_without_gateway_skips_route() {
     let snapshot = make_snapshot(Name::new("eth1").expect("valid name"), idx, [0x02; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr6 {
+    let addr = network::Cidr6 {
         address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2),
         prefix: 64,
     };
@@ -105,11 +106,11 @@ async fn static_ipv6_multiple_addresses() {
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
     let addrs = vec![
-        config::Cidr6 {
+        network::Cidr6 {
             address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
             prefix: 64,
         },
-        config::Cidr6 {
+        network::Cidr6 {
             address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2),
             prefix: 64,
         },
@@ -155,7 +156,7 @@ async fn static_ipv4_then_shutdown_cleans_up() {
     let snapshot = make_snapshot(Name::new("eth3").expect("valid name"), idx, [0x04; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(172, 16, 0, 10),
         prefix: 16,
     };
@@ -192,11 +193,11 @@ async fn static_ipv4_and_ipv6_on_same_interface() {
     let snapshot = make_snapshot(Name::new("eth4").expect("valid name"), idx, [0x05; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let v4_addr = config::Cidr4 {
+    let v4_addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 10, 0, 2),
         prefix: 24,
     };
-    let v6_addr = config::Cidr6 {
+    let v6_addr = network::Cidr6 {
         address: Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2),
         prefix: 64,
     };
@@ -248,7 +249,7 @@ async fn static_ipv4_reaches_configured_from_discovered() {
     let snapshot = make_snapshot(Name::new("eth5").expect("valid name"), idx, [0x06; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 99),
         prefix: 24,
     };
@@ -287,7 +288,7 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     let snapshot = make_snapshot(Name::new("eth6").expect("valid name"), idx, [0x07; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 3, 2),
         prefix: 24,
     };
@@ -311,7 +312,7 @@ async fn link_down_then_static_reconfigure_from_degraded() {
     wait_for_state(&handle, Lifecycle::Degraded).await;
 
     // ACT
-    let new_addr = config::Cidr4 {
+    let new_addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 3, 5),
         prefix: 24,
     };

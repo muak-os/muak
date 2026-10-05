@@ -1,9 +1,11 @@
+//! Host-level settings (name, registry, channel, ports, etc.).
+
 use serde::{Deserialize, Serialize};
 
 /// Host-level configuration for the Muak system.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct HostConfig {
+pub struct Config {
     /// Hostname for this machine.
     pub name: String,
     /// Registry serving the catalog (e.g. `ghcr.io/muak-os`).

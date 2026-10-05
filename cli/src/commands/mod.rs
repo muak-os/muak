@@ -14,7 +14,7 @@ pub mod update;
 pub mod version;
 pub mod vm;
 
-use ::config::ClientConfig;
+use ::config::user::ClientConfig;
 use anyhow::{Result, bail};
 use tonic::transport::Channel;
 
@@ -134,7 +134,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
         Commands::Config {
             action: config::Action::Generate,
         } if !cli.insecure => {
-            print!("{}", ::config::serialize_default());
+            print!("{}", ::config::system::serialize_default());
             Ok(true)
         }
         Commands::Context { action } => {

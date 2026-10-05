@@ -74,8 +74,8 @@ mod tests {
         let raw = cli
             .assert_success_impl(["config", "generate"], true)
             .await?;
-        let mut cfg: config::SystemConfig =
-            config::parse_from_str(&raw).context("online generate must emit a valid config")?;
+        let mut cfg: config::system::Config = config::system::parse_from_str(&raw)
+            .context("online generate must emit a valid config")?;
 
         // ASSERT
         ensure!(
@@ -92,7 +92,7 @@ mod tests {
 
         "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
         cfg.host.registry = common::install_registry();
-        let patched = config::serialize(&cfg).context("serialise generated config")?;
+        let patched = config::system::serialize(&cfg).context("serialise generated config")?;
         let config_file = NamedTempFile::new().context("create config tempfile")?;
         std::fs::write(config_file.path(), patched).context("write config tempfile")?;
 

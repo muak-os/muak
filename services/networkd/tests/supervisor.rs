@@ -21,20 +21,21 @@ mod fixtures;
 
 use alloc::sync::Arc;
 
+use config::system::network;
 use netlib::address::Ops as _;
 
 use self::fixtures::netlink::MockNetlinkOps;
 
-fn make_config() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn make_config() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
@@ -47,16 +48,16 @@ fn make_config() -> Arc<config::NetworkConfig> {
 }
 
 /// Returns a config with a static IPv4 port and a bridge over it.
-fn config_bridge() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_bridge() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "auto".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(10, 0, 0, 2),
                 prefix: 24,
             }],
@@ -65,12 +66,12 @@ fn config_bridge() -> Arc<config::NetworkConfig> {
         ipv6: None,
         bridge: None,
     });
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "br0".to_owned(),
-        kind: config::InterfaceKind::Bridge,
+        kind: network::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
-        bridge: Some(config::BridgeConfig {
+        bridge: Some(network::BridgeConfig {
             port: vec!["auto".to_owned()],
             stp: true,
         }),

@@ -13,6 +13,7 @@ use alloc::sync::Arc;
 use core::pin::Pin;
 
 use commands::Command;
+use config::system::network;
 use dhcp::LeaseTimers;
 use netlib::netlink::Ops;
 use snapshot::Snapshot;
@@ -28,7 +29,7 @@ use crate::slaac::manager::{Manager as SlaacManager, SlaacEvent};
 pub struct Actor<N: Ops> {
     snapshot: Snapshot,
     ops: N,
-    config: Arc<config::NetworkConfig>,
+    config: Arc<network::Config>,
     cmd_rx: mpsc::Receiver<Command>,
     snapshot_tx: watch::Sender<Arc<Snapshot>>,
     dhcp: Option<Manager>,
@@ -55,7 +56,7 @@ enum ActorEvent {
 
 impl<N: Ops> Actor<N> {
     /// Spawns a new per-interface actor.
-    pub fn spawn(snapshot: Snapshot, ops: N, config: Arc<config::NetworkConfig>) -> ActorHandle {
+    pub fn spawn(snapshot: Snapshot, ops: N, config: Arc<network::Config>) -> ActorHandle {
         Self::spawn_with(snapshot, ops, config, SystemDhcpConnector)
     }
 
@@ -63,7 +64,7 @@ impl<N: Ops> Actor<N> {
     pub fn spawn_with<C: DhcpConnector>(
         snapshot: Snapshot,
         ops: N,
-        config: Arc<config::NetworkConfig>,
+        config: Arc<network::Config>,
         connector: C,
     ) -> ActorHandle {
         let (cmd_tx, cmd_rx) = mpsc::channel(32);

@@ -4,7 +4,7 @@ use core::time::Duration;
 
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
-use config::ClientConfig;
+use config::user::ClientConfig;
 use pki::csr;
 use tokio::time::sleep;
 use tonic::transport::Channel;

@@ -77,7 +77,7 @@ pub(crate) async fn diff(channel: Channel, from: Option<String>, to: Option<Stri
         }
     };
 
-    let changes = config::diff(&from, &to).context("Failed to diff configs")?;
+    let changes = config::system::diff(&from, &to).context("Failed to diff configs")?;
 
     if changes.is_empty() {
         println!("{}", ui::style::muted("No differences found."));

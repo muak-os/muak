@@ -23,9 +23,12 @@ impl SecurityService for ServiceImpl {
         let enabled = efi::secure_boot()
             .map_err(|e| Status::internal(format!("Failed to read Secure Boot state: {e}")))?;
 
+        let installed_secureboot = config::system::host()
+            .map_err(|e| Status::internal(e.to_string()))?
+            .secureboot;
         let state = if enabled {
             SecureBootState::Enabled
-        } else if config::host().secureboot
+        } else if installed_secureboot
             && efi::pk()
                 .map_err(|e| Status::internal(format!("Failed to read PK from firmware: {e}")))?
                 .is_some()

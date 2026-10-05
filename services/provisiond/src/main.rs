@@ -26,7 +26,7 @@ use tonic::transport::Server;
 async fn main(notifier: NotifyClient) -> Result<()> {
     config::init().context("Failed to initialize system configuration")?;
 
-    let is_installed = Path::new(config::CONFIG_PATH).exists();
+    let is_installed = Path::new(config::system::CONFIG_PATH).exists();
 
     let stream = tokio_stream::wrappers::UnixListenerStream::new(socket()?);
 

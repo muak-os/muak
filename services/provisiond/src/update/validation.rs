@@ -17,7 +17,7 @@ const CONFIRMATION_WINDOW: Duration = Duration::from_mins(5);
 pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let previous = snapshot::read_config(snapshot_path)?;
     let old_version = previous.host.version.clone();
-    let target_version = config::host().version.clone();
+    let target_version = config::system::host()?.version.clone();
 
     kmsg::info!(
         "Validating update {}: {} -> {}",
@@ -36,7 +36,7 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    if config::isolates(&previous, config::config()) {
+    if config::system::isolates(&previous, config::system::config()?) {
         kmsg::info!(
             "Update {} changed reachability config, waiting for CLI confirmation",
             update_id

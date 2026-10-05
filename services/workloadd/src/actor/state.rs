@@ -154,6 +154,7 @@ fn reset_if_running(
     entry: &mut VmEntry,
     was_running: bool,
     vm_id: &str,
+    auto_restart: bool,
     pending_restarts: &mut Vec<String>,
 ) {
     if !was_running {
@@ -161,7 +162,7 @@ fn reset_if_running(
     }
     entry.state = VmState::Stopped;
     entry.tap_device = None;
-    if config::vm().auto_restart {
+    if auto_restart {
         pending_restarts.push(vm_id.to_owned());
         println!("VM {} was running, will restart", entry.config.name);
     } else {
@@ -177,8 +178,9 @@ impl VmActor {
         netlink_handle: rtnetlink::Handle,
         bridge_name: String,
         kvm_available: bool,
+        auto_restart: bool,
     ) -> Self {
-        let (vms, pending_restarts) = Self::load_persisted_state();
+        let (vms, pending_restarts) = Self::load_persisted_state(auto_restart);
         Self::cleanup_orphaned_disks(&vms);
 
         Self {
@@ -190,7 +192,7 @@ impl VmActor {
         }
     }
 
-    fn load_persisted_state() -> (HashMap<String, VmEntry>, Vec<String>) {
+    fn load_persisted_state(auto_restart: bool) -> (HashMap<String, VmEntry>, Vec<String>) {
         let mut persisted: Vec<(String, VmPersisted)> =
             load_vms().unwrap_or_default().into_iter().collect();
         persisted.sort_by(|left, right| left.0.cmp(&right.0));
@@ -201,7 +203,13 @@ impl VmActor {
         for (vm_id, persisted_vm) in persisted {
             let was_running = VmState::try_from(persisted_vm.state).ok() == Some(VmState::Running);
             let mut entry = VmEntry::from_persisted(persisted_vm);
-            reset_if_running(&mut entry, was_running, &vm_id, &mut pending_restarts);
+            reset_if_running(
+                &mut entry,
+                was_running,
+                &vm_id,
+                auto_restart,
+                &mut pending_restarts,
+            );
             vms.insert(vm_id, entry);
         }
 

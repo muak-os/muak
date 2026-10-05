@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
-use config::SystemConfig;
+use config::system;
 use layout::plans_from_doc;
 use luks2::key::Passphrase;
 use pki::InstallResult;
@@ -37,7 +37,7 @@ const DM_DATA: &str = disk::Role::Data.dm_name();
 /// Installs Muak to the disks assigned in `config`, with the given configuration.
 pub async fn run(
     force: bool,
-    config: &SystemConfig,
+    config: &system::Config,
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
@@ -120,7 +120,7 @@ async fn validate_disks(
     Ok(())
 }
 
-fn generate_sb_hierarchy(config: &SystemConfig) -> Result<Option<Bundle>> {
+fn generate_sb_hierarchy(config: &system::Config) -> Result<Option<Bundle>> {
     if !config.host.secureboot {
         return Ok(None);
     }
@@ -153,7 +153,7 @@ async fn enroll_secureboot_keys(
 
 struct PkiResult {
     client_result: InstallResult,
-    auth_config: config::AuthConfig,
+    auth_config: config::auth::State,
     server_pki: pki::Server,
 }
 
@@ -181,7 +181,7 @@ async fn generate_keys(
 
 async fn build_and_deploy_efi(
     efi_part: &str,
-    config: &SystemConfig,
+    config: &system::Config,
     booted_profile: Profile,
     luks_key: &[u8],
     tpm_available: bool,
@@ -276,7 +276,7 @@ struct PartitionInfo {
 }
 
 async fn partition_disks(
-    config: &SystemConfig,
+    config: &system::Config,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<PartitionInfo> {
     send_progress(progress, &format!("Partitioning {}", config.disk.system)).await;
@@ -286,7 +286,7 @@ async fn partition_disks(
     tokio::task::spawn_blocking(move || partition_disks_blocking(&disk_config)).await?
 }
 
-fn partition_disks_blocking(disk_config: &config::DiskConfig) -> Result<PartitionInfo> {
+fn partition_disks_blocking(disk_config: &system::disk::Config) -> Result<PartitionInfo> {
     let shared_data = !disk_config.is_split();
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
@@ -400,7 +400,7 @@ async fn format_btrfs_volumes(
 
 async fn initialize_state(
     dm_state: &str,
-    config: &SystemConfig,
+    config: &system::Config,
     pki_result: &PkiResult,
     sb_hierarchy: Option<&Bundle>,
     progress: &mpsc::Sender<InstallProgress>,

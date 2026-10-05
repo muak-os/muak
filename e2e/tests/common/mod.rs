@@ -27,7 +27,7 @@ pub fn install_version() -> String {
 ///
 /// Returns an error if the VM fails to boot, apid does not become ready, the config cannot be
 /// generated, the install command fails, or the installed-boot marker is not found.
-pub async fn boot_and_install<F: FnOnce(&mut config::SystemConfig)>(
+pub async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
     artifacts: &Artifacts,
     extra_config: F,
 ) -> Result<(TestFixture, Cli)> {

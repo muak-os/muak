@@ -2,6 +2,7 @@
 
 use core::net::Ipv4Addr;
 
+use config::system::network;
 use networkd::interface::commands::ApplyMode;
 use tokio::time::sleep;
 
@@ -19,7 +20,7 @@ async fn static_ipv4_configures_address_and_gateway() {
     );
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
         prefix: 24,
     };
@@ -63,7 +64,7 @@ async fn static_ipv4_without_gateway_skips_route() {
     );
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(192, 168, 1, 10),
         prefix: 24,
     };
@@ -108,7 +109,7 @@ async fn static_ipv6_configures_address_and_gateway() {
     );
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr6 {
+    let addr = network::Cidr6 {
         address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2),
         prefix: 64,
     };

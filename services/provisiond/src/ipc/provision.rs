@@ -49,7 +49,7 @@ impl ProvisionService for ServiceImpl {
         let config_raw = String::from_utf8(req.config_bytes)
             .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {e}")))?;
 
-        let config: config::SystemConfig = config::parse_from_str(&config_raw)
+        let config: config::system::Config = config::system::parse_from_str(&config_raw)
             .map_err(|e| Status::invalid_argument(format!("Invalid config: {e}")))?;
 
         config
@@ -91,7 +91,7 @@ impl ProvisionService for ServiceImpl {
     ) -> Result<Response<Self::PrepareUpdateStream>, Status> {
         let author = extract_author(&request);
         let req = request.into_inner();
-        let installed = config::config();
+        let installed = config::system::config().map_err(|e| Status::internal(e.to_string()))?;
 
         let (registry, version, extensions, new_config) = if req.config.is_empty() {
             let version = update::resolve_target(
@@ -109,13 +109,13 @@ impl ProvisionService for ServiceImpl {
             let raw = String::from_utf8(req.config)
                 .map_err(|e| Status::invalid_argument(format!("Config is not valid UTF-8: {e}")))?;
 
-            let cfg: config::SystemConfig = config::parse_from_str(&raw)
+            let cfg: config::system::Config = config::system::parse_from_str(&raw)
                 .map_err(|e| Status::invalid_argument(format!("Invalid config: {e}")))?;
 
             cfg.validate_for_update(installed)
                 .map_err(|e| Status::invalid_argument(format!("Config rejected: {e}")))?;
 
-            config::check_no_downgrade(&cfg.host.version, &installed.host.version)
+            config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
                 .map_err(|e| Status::invalid_argument(format!("{e}")))?;
 
             let registry = cfg.host.registry.clone();
@@ -245,8 +245,8 @@ impl ProvisionService for ServiceImpl {
         &self,
         _request: Request<GetConfigRequest>,
     ) -> Result<Response<GetConfigResponse>, Status> {
-        if let Some(config) = config::try_config() {
-            match config::serialize(config) {
+        if let Some(config) = config::system::try_config() {
+            match config::system::serialize(config) {
                 Ok(config_bytes) => Ok(Response::new(GetConfigResponse {
                     config: config_bytes.into_bytes(),
                     error: String::new(),

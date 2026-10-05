@@ -3,6 +3,7 @@
 use core::net::Ipv4Addr;
 use core::time::Duration;
 
+use config::system::network;
 use networkd::interface::commands::ApplyMode;
 use tokio::time::sleep;
 
@@ -15,7 +16,7 @@ async fn link_down_on_configured_transitions_to_degraded() {
     let snapshot = make_snapshot(Name::new("eth0").expect("valid name"), idx, [0xAA; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
         prefix: 24,
     };
@@ -105,7 +106,7 @@ async fn link_down_clears_dhcp_state() {
     let snapshot = make_snapshot(Name::new("eth3").expect("valid name"), idx, [0xDD; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 5),
         prefix: 24,
     };
@@ -142,7 +143,7 @@ async fn multiple_link_down_events_are_idempotent() {
     let snapshot = make_snapshot(Name::new("eth4").expect("valid name"), idx, [0xEE; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 1, 2),
         prefix: 24,
     };
@@ -187,7 +188,7 @@ async fn link_up_after_link_down_publishes_snapshot() {
     let snapshot = make_snapshot(Name::new("eth5").expect("valid name"), idx, [0xFF; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 2, 2),
         prefix: 24,
     };

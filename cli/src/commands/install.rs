@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context as _, Result};
-use config::{ClientConfig, ServerContext};
+use config::user::{ClientConfig, ServerContext};
 use pki::csr;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
@@ -40,7 +40,7 @@ pub async fn handle(
         config_path.display()
     ))?;
 
-    let config = config::parse_from_str(&config_raw)
+    let config = config::system::parse_from_str(&config_raw)
         .context(format!("Invalid config file '{}'", config_path.display()))?;
 
     config.validate_for_install().context(format!(

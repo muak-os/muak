@@ -1,7 +1,7 @@
 //! PKI generation and CSR signing for installation.
 
 use anyhow::{Context as _, Result};
-use config::{AuthConfig, AuthUser, Permission};
+use config::permission::Permission;
 use pki::cert;
 use pki::csr;
 use pki::key::Signer;
@@ -66,7 +66,10 @@ pub fn generate_server_cert(ca: &CaMaterials) -> Result<Server> {
 }
 
 /// Signs the admin CSR with the given CA, returning client materials and initial auth config.
-pub fn sign_admin_csr(csr_pem: &str, ca: &CaMaterials) -> Result<(InstallResult, AuthConfig)> {
+pub fn sign_admin_csr(
+    csr_pem: &str,
+    ca: &CaMaterials,
+) -> Result<(InstallResult, config::auth::State)> {
     let ca_cert = pem::decode_cert(&ca.cert_pem).context("Failed to decode CA certificate")?;
 
     let (admin_cert, admin_fingerprint) =
@@ -75,8 +78,8 @@ pub fn sign_admin_csr(csr_pem: &str, ca: &CaMaterials) -> Result<(InstallResult,
     let admin_cert_pem =
         pem::encode_cert(&admin_cert).context("Failed to encode admin certificate")?;
 
-    let auth_config = AuthConfig {
-        users: vec![AuthUser {
+    let auth_config = config::auth::State {
+        users: vec![config::auth::User {
             fingerprint: admin_fingerprint,
             permissions: vec![Permission::Admin],
         }],

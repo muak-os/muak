@@ -3,6 +3,7 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
+use config::system::network;
 use tokio::sync::oneshot;
 
 use crate::interface::snapshot::Snapshot;
@@ -21,13 +22,13 @@ pub enum Command {
     ConfigureStaticIpv4 {
         mode: ApplyMode,
         index: u32,
-        addresses: Vec<config::Cidr4>,
+        addresses: Vec<network::Cidr4>,
         gateway: Option<Ipv4Addr>,
     },
     ConfigureStaticIpv6 {
         mode: ApplyMode,
         index: u32,
-        addresses: Vec<config::Cidr6>,
+        addresses: Vec<network::Cidr6>,
         gateway: Option<Ipv6Addr>,
     },
     ConfigureBridge {

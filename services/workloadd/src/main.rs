@@ -13,7 +13,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use actor::start_vm_actor;
 use anyhow::{Context as _, Result};
-use config::InterfaceKind;
+use config::system::network::InterfaceKind;
 use granola::runtime::{notify::Health, signal::shutdown, socket::socket};
 use ipc::VmServiceImpl;
 use rustix::process::{WaitOptions, wait};
@@ -73,14 +73,19 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     let (connection, netlink_handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
 
-    let bridge_name = config::network()
+    let bridge_name = config::system::network()
+        .context("Failed to load network configuration")?
         .interfaces
         .iter()
         .find(|i| i.kind == InterfaceKind::Bridge)
         .map(|i| i.name.clone())
         .context("no bridge interface found in network config")?;
 
-    let vm_handle = start_vm_actor(netlink_handle, bridge_name, kvm_available).await;
+    let auto_restart = config::system::vm()
+        .context("Failed to load VM configuration")?
+        .auto_restart;
+
+    let vm_handle = start_vm_actor(netlink_handle, bridge_name, kvm_available, auto_restart).await;
 
     let stream = UnixListenerStream::new(socket()?);
 

@@ -91,11 +91,12 @@ pub async fn start_vm_actor(
     netlink_handle: rtnetlink::Handle,
     bridge_name: String,
     kvm_available: bool,
+    auto_restart: bool,
 ) -> VmActorHandle {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
     tokio::spawn(async move {
-        let mut actor = VmActor::new(netlink_handle, bridge_name, kvm_available);
+        let mut actor = VmActor::new(netlink_handle, bridge_name, kvm_available, auto_restart);
         actor.run(cmd_rx).await;
     });
 

@@ -1,22 +1,15 @@
 //! Immutable host system configuration.
 
-mod disk;
-mod host;
-mod network;
-mod vm;
+pub mod disk;
+pub mod host;
+pub mod network;
+pub mod vm;
 
 use std::io::Write as _;
 use std::path::Path;
 use std::sync::OnceLock;
 
-pub use disk::DiskConfig;
-pub use host::HostConfig;
-pub use network::{
-    BridgeConfig, Cidr4, Cidr6, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig,
-    Ipv6InterfaceConfig, NetworkConfig,
-};
 use serde::{Deserialize, Serialize};
-pub use vm::VmConfig;
 
 use crate::codec::{Codec as _, TomlCodec};
 use crate::error::{ConfigError, Result};
@@ -29,43 +22,43 @@ pub const CONFIG_EXTENSION: &str = "toml";
 /// Schema version of the system config document.
 pub const API_VERSION: &str = "muak.dev/config/v1-beta";
 
-pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
+pub(crate) static CONFIG: OnceLock<Config> = OnceLock::new();
 
 const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 
 /// Top-level system configuration covering host, disk, network, and VM settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SystemConfig {
+pub struct Config {
     /// Schema version of this document.
     pub api_version: String,
     /// Host-level configuration (name, registry, channel, version, ports, etc.).
     #[serde(default)]
-    pub host: HostConfig,
+    pub host: host::Config,
     /// Disk partition layout configuration.
     #[serde(default)]
-    pub disk: DiskConfig,
+    pub disk: disk::Config,
     /// Network configuration (interfaces, DNS, IPv6).
     #[serde(default)]
-    pub network: NetworkConfig,
+    pub network: network::Config,
     /// Virtual machine configuration.
     #[serde(default)]
-    pub vm: VmConfig,
+    pub vm: vm::Config,
 }
 
-impl Default for SystemConfig {
+impl Default for Config {
     fn default() -> Self {
-        toml::from_str(DEFAULT_CONFIG).unwrap_or_else(|_| SystemConfig {
+        toml::from_str(DEFAULT_CONFIG).unwrap_or_else(|_| Config {
             api_version: API_VERSION.to_owned(),
-            host: HostConfig::default(),
-            disk: DiskConfig::default(),
-            network: NetworkConfig::default(),
-            vm: VmConfig::default(),
+            host: host::Config::default(),
+            disk: disk::Config::default(),
+            network: network::Config::default(),
+            vm: vm::Config::default(),
         })
     }
 }
 
-impl SystemConfig {
+impl Config {
     /// Validates that required fields are present and sensible.
     ///
     /// # Errors
@@ -118,7 +111,7 @@ impl SystemConfig {
     ///
     /// Returns [`ConfigError::ValidationError`] when the requested config
     /// changes immutable fields or the base validation fails.
-    pub fn validate_for_update(&self, installed: &SystemConfig) -> Result<()> {
+    pub fn validate_for_update(&self, installed: &Config) -> Result<()> {
         self.validate()?;
         self.disk.validate_immutable(&installed.disk)?;
         if installed.host.secureboot && !self.host.secureboot {
@@ -132,10 +125,53 @@ impl SystemConfig {
     }
 }
 
+/// Returns the global system configuration.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NotInitialized`] when [`init()`] has not been
+/// called.
+pub fn config() -> Result<&'static Config> {
+    try_config().ok_or(ConfigError::NotInitialized)
+}
+
+/// Returns the global host configuration.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NotInitialized`] when [`init()`] has not been called.
+pub fn host() -> Result<&'static host::Config> {
+    config().map(|system| &system.host)
+}
+
+/// Returns the global network configuration.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NotInitialized`] when [`init()`] has not been called.
+pub fn network() -> Result<&'static network::Config> {
+    config().map(|system| &system.network)
+}
+
+/// Returns the global VM configuration.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NotInitialized`] when [`init()`] has not been called.
+pub fn vm() -> Result<&'static vm::Config> {
+    config().map(|system| &system.vm)
+}
+
+/// Returns the global system configuration, or `None` before [`init()`].
+#[must_use]
+pub fn try_config() -> Option<&'static Config> {
+    CONFIG.get()
+}
+
 /// Returns `true` when moving from `previous` to `next` could cut the
 /// operator's access to the machine.
 #[must_use]
-pub fn isolates(previous: &SystemConfig, next: &SystemConfig) -> bool {
+pub fn isolates(previous: &Config, next: &Config) -> bool {
     previous.network != next.network || previous.host.port != next.host.port
 }
 
@@ -155,35 +191,35 @@ pub fn init() -> Result<()> {
     Ok(())
 }
 
-/// Serializes a [`SystemConfig`] to a string.
+/// Serializes a [`Config`] to a string.
 ///
 /// # Errors
 ///
 /// Returns an error when the config cannot be encoded to TOML.
-pub fn serialize(config: &SystemConfig) -> Result<String> {
+pub fn serialize(config: &Config) -> Result<String> {
     TomlCodec::encode(config)
 }
 
 /// Serializes the default system configuration to a string.
 #[must_use]
 pub fn serialize_default() -> String {
-    TomlCodec::encode(&SystemConfig::default()).unwrap_or_default()
+    TomlCodec::encode(&Config::default()).unwrap_or_default()
 }
 
-/// Parses a [`SystemConfig`] from a string, validating it.
+/// Parses a [`Config`] from a string, validating it.
 ///
 /// # Errors
 ///
 /// Returns an error when parsing fails, the schema version is unsupported, or validation fails.
-pub fn parse_from_str(contents: &str) -> Result<SystemConfig> {
+pub fn parse_from_str(contents: &str) -> Result<Config> {
     let config = decode(contents)?;
     config.validate()?;
     Ok(config)
 }
 
-/// Deserializes a [`SystemConfig`], rejecting unsupported schema versions.
-fn decode(contents: &str) -> Result<SystemConfig> {
-    let config: SystemConfig = TomlCodec::decode(contents)?;
+/// Deserializes a [`Config`], rejecting unsupported schema versions.
+fn decode(contents: &str) -> Result<Config> {
+    let config: Config = TomlCodec::decode(contents)?;
     if config.api_version != API_VERSION {
         return Err(ConfigError::UnsupportedVersion {
             found: config.api_version,
@@ -213,7 +249,7 @@ pub fn diff(before: &str, after: &str) -> Result<Vec<(String, String, String)>> 
 /// # Errors
 ///
 /// Returns an error when the file exists but cannot be read or decoded.
-pub fn load_from_path(path: &Path) -> Result<SystemConfig> {
+pub fn load_from_path(path: &Path) -> Result<Config> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
         TomlCodec::decode(&contents)
@@ -293,11 +329,11 @@ mod tests {
     #[test]
     fn host_config_serialization() {
         // ARRANGE
-        let config = SystemConfig::default();
+        let config = Config::default();
 
         // ACT
         let serialized = TomlCodec::encode(&config).unwrap();
-        let deserialized: SystemConfig = TomlCodec::decode(&serialized).unwrap();
+        let deserialized: Config = TomlCodec::decode(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(config.host.port, deserialized.host.port);
@@ -306,7 +342,7 @@ mod tests {
     #[test]
     fn validation_success() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.port = 8080;
         config.host.version = "v1.0.0".to_owned();
         config.disk.system = "/dev/sda".to_owned();
@@ -319,7 +355,7 @@ mod tests {
     #[test]
     fn validation_failure_empty_version_install() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.port = 8080;
         config.disk.system = "/dev/sda".to_owned();
 
@@ -330,7 +366,7 @@ mod tests {
     #[test]
     fn validation_failure_port_zero() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.port = 0;
 
         // ACT & ASSERT
@@ -340,7 +376,7 @@ mod tests {
     #[test]
     fn validation_failure_empty_disk_install() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.port = 8080;
         config.host.version = "v1.0.0".to_owned();
         config.disk.system = String::new();
@@ -352,15 +388,15 @@ mod tests {
     #[test]
     fn parse_from_str_invalid_toml() {
         // ACT & ASSERT
-        let result = TomlCodec::decode::<SystemConfig>("invalid toml");
+        let result = TomlCodec::decode::<Config>("invalid toml");
         result.unwrap_err();
     }
 
     #[test]
     fn serialize_default() {
         // ACT
-        let default_str = TomlCodec::encode(&SystemConfig::default()).unwrap();
-        let config: SystemConfig = TomlCodec::decode(&default_str).unwrap();
+        let default_str = TomlCodec::encode(&Config::default()).unwrap();
+        let config: Config = TomlCodec::decode(&default_str).unwrap();
 
         // ASSERT
         config.validate().unwrap();
@@ -369,7 +405,7 @@ mod tests {
     #[test]
     fn validate_for_update_rejects_system_disk_change() {
         // ARRANGE
-        let mut installed = SystemConfig::default();
+        let mut installed = Config::default();
         installed.host.port = 8080;
         installed.disk.system = "/dev/sda".to_owned();
 
@@ -383,7 +419,7 @@ mod tests {
     #[test]
     fn validate_for_update_rejects_data_disk_change() {
         // ARRANGE
-        let mut installed = SystemConfig::default();
+        let mut installed = Config::default();
         installed.host.port = 8080;
         installed.disk.system = "/dev/sda".to_owned();
         installed.disk.data = Some("/dev/sdb".to_owned());
@@ -398,7 +434,7 @@ mod tests {
     #[test]
     fn validate_for_update_allows_secureboot_false_to_true() {
         // ARRANGE
-        let mut installed = SystemConfig::default();
+        let mut installed = Config::default();
         installed.host.port = 8080;
         installed.host.secureboot = false;
 
@@ -412,7 +448,7 @@ mod tests {
     #[test]
     fn validate_for_update_rejects_secureboot_true_to_false() {
         // ARRANGE
-        let mut installed = SystemConfig::default();
+        let mut installed = Config::default();
         installed.host.port = 8080;
         installed.host.secureboot = true;
 
@@ -426,7 +462,7 @@ mod tests {
     #[test]
     fn validate_for_update_allows_secureboot_unchanged_false() {
         // ARRANGE
-        let mut installed = SystemConfig::default();
+        let mut installed = Config::default();
         installed.host.port = 8080;
         installed.host.secureboot = false;
 
@@ -437,7 +473,7 @@ mod tests {
     #[test]
     fn validate_for_update_allows_secureboot_unchanged_true() {
         // ARRANGE
-        let mut installed = SystemConfig::default();
+        let mut installed = Config::default();
         installed.host.port = 8080;
         installed.host.secureboot = true;
 
@@ -469,7 +505,7 @@ image = "10.0.2.2:5000/installer:latest"
     #[test]
     fn validation_failure_empty_ntp() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.port = 8080;
         config.host.ntp = String::new();
 
@@ -480,7 +516,7 @@ image = "10.0.2.2:5000/installer:latest"
     #[test]
     fn validation_accepts_hypervisor_clock_without_ntp() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.clock = "hypervisor".to_owned();
         config.host.ntp = String::new();
 
@@ -497,7 +533,7 @@ image = "10.0.2.2:5000/installer:latest"
     #[test]
     fn validation_failure_unknown_clock() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.clock = "ptp".to_owned();
 
         // ACT & ASSERT
@@ -507,7 +543,7 @@ image = "10.0.2.2:5000/installer:latest"
     #[test]
     fn validation_failure_empty_name() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.name = String::new();
         config.host.port = 8080;
 
@@ -518,7 +554,7 @@ image = "10.0.2.2:5000/installer:latest"
     #[test]
     fn serialize_round_trip() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.port = 9090;
         config.host.name = "testhost".to_owned();
         config.disk.system = "/dev/nvme0n1".to_owned();
@@ -528,7 +564,7 @@ image = "10.0.2.2:5000/installer:latest"
 
         // ACT
         let serialized = serialize(&config).unwrap();
-        let restored: SystemConfig = TomlCodec::decode(&serialized).unwrap();
+        let restored: Config = TomlCodec::decode(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(restored.api_version, API_VERSION);
@@ -756,8 +792,8 @@ ntp = "pool.ntp.org"
 
     #[test]
     fn default_matches_default_config() {
-        let from: SystemConfig = TomlCodec::decode(DEFAULT_CONFIG).unwrap();
-        let from_default = SystemConfig::default();
+        let from: Config = TomlCodec::decode(DEFAULT_CONFIG).unwrap();
+        let from_default = Config::default();
 
         let encoded = TomlCodec::encode(&from).unwrap();
         let default_str = TomlCodec::encode(&from_default).unwrap();
@@ -770,7 +806,7 @@ ntp = "pool.ntp.org"
     #[test]
     fn host_config_fields() {
         // ARRANGE
-        let mut config = SystemConfig::default();
+        let mut config = Config::default();
         config.host.version = "v1.0.0".to_owned();
         config.host.extensions = vec!["ext1".to_owned()];
         config.host.ntp = "pool.ntp.org".to_owned();
@@ -778,7 +814,7 @@ ntp = "pool.ntp.org"
 
         // ACT
         let serialized = serialize(&config).unwrap();
-        let restored: SystemConfig = TomlCodec::decode(&serialized).unwrap();
+        let restored: Config = TomlCodec::decode(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(restored.host.version, "v1.0.0");
@@ -819,7 +855,7 @@ ntp = "pool.ntp.org"
     #[test]
     fn network_change_isolates() {
         // ARRANGE
-        let previous = SystemConfig::default();
+        let previous = Config::default();
         let mut next = previous.clone();
         next.network.dns = vec!["1.1.1.1".parse().expect("valid ip")];
 
@@ -833,7 +869,7 @@ ntp = "pool.ntp.org"
     #[test]
     fn api_port_change_isolates() {
         // ARRANGE
-        let previous = SystemConfig::default();
+        let previous = Config::default();
         let mut next = previous.clone();
         next.host.port = 8080;
 
@@ -847,7 +883,7 @@ ntp = "pool.ntp.org"
     #[test]
     fn other_changes_do_not_isolate() {
         // ARRANGE
-        let previous = SystemConfig::default();
+        let previous = Config::default();
         let mut next = previous.clone();
         next.host.version = "v2.0.0".to_owned();
         next.host.secureboot = true;
@@ -866,8 +902,8 @@ ntp = "pool.ntp.org"
     #[test]
     fn unchanged_configs_do_not_isolate() {
         // ARRANGE
-        let previous = SystemConfig::default();
-        let next = SystemConfig::default();
+        let previous = Config::default();
+        let next = Config::default();
 
         // ACT & ASSERT
         assert!(!isolates(&previous, &next));

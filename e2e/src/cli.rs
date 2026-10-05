@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use anyhow::{Context as _, Result, bail};
-use config::SystemConfig;
+use config::system;
 use tempfile::{NamedTempFile, TempDir};
 use tokio::process::Command;
 
@@ -34,7 +34,7 @@ impl Cli {
     pub fn config_path(&self) -> PathBuf {
         self.config_dir
             .path()
-            .join(format!("config.{}", config::CONFIG_EXTENSION))
+            .join(format!("config.{}", config::system::CONFIG_EXTENSION))
     }
 
     /// Runs `muakctl` with the given arguments, injecting `--endpoint` and `MUAK_CONFIG`.
@@ -106,17 +106,18 @@ impl Cli {
     ///
     /// Returns an error if `muakctl config generate` fails, the config cannot be parsed or
     /// serialised, or the temporary file cannot be written.
-    pub async fn generate_config<F: FnOnce(&mut SystemConfig)>(
+    pub async fn generate_config<F: FnOnce(&mut system::Config)>(
         &self,
         patch: F,
     ) -> Result<NamedTempFile> {
         let raw = self
             .assert_success_impl(["config", "generate"], false)
             .await?;
-        let mut cfg: SystemConfig =
-            config::parse_from_str(&raw).context("failed to parse generated config")?;
+        let mut cfg: system::Config =
+            config::system::parse_from_str(&raw).context("failed to parse generated config")?;
         patch(&mut cfg);
-        let patched = config::serialize(&cfg).context("failed to serialise patched config")?;
+        let patched =
+            config::system::serialize(&cfg).context("failed to serialise patched config")?;
         let tmp = NamedTempFile::new().context("failed to create config tempfile")?;
         std::fs::write(tmp.path(), patched).context("failed to write config tempfile")?;
         Ok(tmp)

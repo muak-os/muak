@@ -24,6 +24,7 @@ use std::os::fd::{FromRawFd as _, IntoRawFd as _, OwnedFd};
 use std::sync::{Mutex, MutexGuard};
 
 use anyhow::Result;
+use config::system::network;
 use netlib::address;
 use netlib::bridge;
 use netlib::interface as net_iface;
@@ -404,8 +405,8 @@ fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
 
 impl netlink::Ops for MockNetlinkOps {}
 
-fn make_config() -> Arc<config::NetworkConfig> {
-    Arc::new(config::NetworkConfig::default())
+fn make_config() -> Arc<network::Config> {
+    Arc::new(network::Config::default())
 }
 
 fn make_snapshot(name: Name, index: u32, mac: [u8; 6]) -> Snapshot {

@@ -2,7 +2,7 @@ mod connector;
 pub mod upload;
 
 use anyhow::{Context as _, Result, bail};
-use config::ServerContext;
+use config::user::ServerContext;
 use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 

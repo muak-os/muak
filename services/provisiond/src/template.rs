@@ -1,7 +1,7 @@
 //! Default config template generation, prefilled from the booted medium.
 
 use anyhow::{Context as _, Result};
-use config::SystemConfig;
+use config::system::Config;
 use tokio::task;
 
 use crate::medium;
@@ -12,12 +12,12 @@ use crate::medium;
 ///
 /// Returns an error when the embedded default config fails to parse or serialize.
 pub fn render(version: String, extensions: &[String]) -> Result<String> {
-    let mut config: SystemConfig = config::parse_from_str(&config::serialize_default())
+    let mut config: Config = config::system::parse_from_str(&config::system::serialize_default())
         .context("embedded default config is invalid")?;
     config.host.version = version;
     config.host.extensions = sorted(extensions);
 
-    Ok(config::serialize(&config)?)
+    Ok(config::system::serialize(&config)?)
 }
 
 /// Generates the default config from the booted medium's metadata.
@@ -62,7 +62,7 @@ mod tests {
         .expect("render");
 
         // ASSERT
-        let config: SystemConfig = config::parse_from_str(&rendered).expect("valid config");
+        let config: Config = config::system::parse_from_str(&rendered).expect("valid config");
         assert_eq!(config.host.version, "v1.2.3");
         assert_eq!(config.host.extensions, ["qemu", "virtio"]);
     }
@@ -77,7 +77,7 @@ mod tests {
         .expect("render");
 
         // ASSERT
-        let config: SystemConfig = config::parse_from_str(&rendered).expect("valid config");
+        let config: Config = config::system::parse_from_str(&rendered).expect("valid config");
         assert_eq!(config.host.extensions, ["qemu", "virtio"]);
     }
 }

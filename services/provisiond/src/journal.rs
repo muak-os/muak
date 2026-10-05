@@ -202,7 +202,8 @@ pub fn list(limit: usize) -> Result<Vec<Entry>> {
 /// Returns an error when the entry or its snapshot cannot be read.
 pub fn snapshot(update_id: &str) -> Result<String> {
     if update_id.is_empty() {
-        return fs::read_to_string(config::CONFIG_PATH).context("Failed to read current config");
+        return fs::read_to_string(config::system::CONFIG_PATH)
+            .context("Failed to read current config");
     }
 
     let dir = find_entry_dir(update_id).context("No journal entry found for update ID")?;

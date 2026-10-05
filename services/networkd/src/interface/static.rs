@@ -3,6 +3,7 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
+use config::system::network;
 use netlib::address::{IpConfig, Ipv6Config};
 use netlib::netlink::Ops;
 
@@ -13,11 +14,11 @@ use crate::interface::state::Lifecycle;
 #[derive(Clone, Copy)]
 enum StaticRequest<'a> {
     Ipv4 {
-        addresses: &'a [config::Cidr4],
+        addresses: &'a [network::Cidr4],
         gateway: Option<Ipv4Addr>,
     },
     Ipv6 {
-        addresses: &'a [config::Cidr6],
+        addresses: &'a [network::Cidr6],
         gateway: Option<Ipv6Addr>,
     },
 }
@@ -36,7 +37,7 @@ impl StaticRequest<'_> {
 pub(super) async fn apply_ipv4<N: Ops>(
     actor: &mut Actor<N>,
     index: u32,
-    addresses: &[config::Cidr4],
+    addresses: &[network::Cidr4],
     gateway: Option<Ipv4Addr>,
     mode: ApplyMode,
 ) {
@@ -48,7 +49,7 @@ pub(super) async fn apply_ipv4<N: Ops>(
 pub(super) async fn apply_ipv6<N: Ops>(
     actor: &mut Actor<N>,
     index: u32,
-    addresses: &[config::Cidr6],
+    addresses: &[network::Cidr6],
     gateway: Option<Ipv6Addr>,
     mode: ApplyMode,
 ) {
@@ -125,7 +126,7 @@ async fn ensure<N: Ops>(
 async fn ensure_ipv4_addresses<N: Ops>(
     actor: &Actor<N>,
     index: u32,
-    addresses: &[config::Cidr4],
+    addresses: &[network::Cidr4],
 ) -> Result<()> {
     for cidr in addresses {
         actor
@@ -141,7 +142,7 @@ async fn ensure_ipv4_addresses<N: Ops>(
 async fn ensure_ipv6_addresses<N: Ops>(
     actor: &Actor<N>,
     index: u32,
-    addresses: &[config::Cidr6],
+    addresses: &[network::Cidr6],
 ) -> Result<()> {
     for cidr in addresses {
         actor

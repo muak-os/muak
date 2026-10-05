@@ -1,6 +1,6 @@
 //! Error types for RBAC operations.
 
-use config::Permission;
+use config::permission::Permission;
 use thiserror::Error;
 
 /// Errors that can occur during RBAC access checks.
@@ -36,6 +36,10 @@ pub enum RbacError {
     /// Insecure access attempted on an installed system.
     #[error("system is installed, insecure access is not allowed")]
     InsecureNotAllowed,
+
+    /// Auth state could not be loaded.
+    #[error("auth state unavailable")]
+    Internal,
 }
 
 impl RbacError {
@@ -47,7 +51,8 @@ impl RbacError {
             Self::CertificateRevoked
             | Self::UnknownCertificate
             | Self::PermissionDenied { .. }
-            | Self::InsecureNotAllowed => 7,
+            | Self::InsecureNotAllowed
+            | Self::Internal => 7,
             Self::UnknownMethod => 12,
         }
     }

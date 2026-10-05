@@ -1,6 +1,12 @@
+//! Error and result types for config operations.
+
 use thiserror::Error;
 
-/// Errors that can occur during config operations.
+/// Error type for config operations.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "The public error type name intentionally includes the crate name"
+)]
 #[derive(Error, Debug)]
 pub enum ConfigError {
     /// Failed to read the config file from disk.

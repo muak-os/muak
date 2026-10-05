@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use config::ClientConfig;
+use config::user::ClientConfig;
 use tonic::transport::Channel;
 
 use crate::client::provision_service::{

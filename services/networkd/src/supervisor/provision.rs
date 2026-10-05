@@ -4,7 +4,9 @@ use alloc::borrow::Cow;
 use alloc::sync::Arc;
 
 use anyhow::Result;
-use config::{BridgeConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
+use config::system::network::{
+    BridgeConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
+};
 use netlib::interface::Name;
 use netlib::netlink::Ops;
 use tokio::sync::oneshot;

@@ -8,6 +8,7 @@ use core::time::Duration;
 use std::os::fd::OwnedFd;
 
 use anyhow::{Result, bail};
+use config::system::network;
 use netlib::slaac::address::generate;
 use netlib::slaac::icmpv6::{
     ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
@@ -62,7 +63,7 @@ pub struct Manager {
     ifindex: u32,
     socket: AsyncFd<OwnedFd>,
     solicited: bool,
-    config: Arc<config::NetworkConfig>,
+    config: Arc<network::Config>,
 
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
@@ -79,7 +80,7 @@ impl Manager {
     pub async fn new(
         interface: String,
         mac: [u8; 6],
-        config: Arc<config::NetworkConfig>,
+        config: Arc<network::Config>,
     ) -> Result<Self> {
         let iface_clone = interface.clone();
         let (socket_fd, ifindex) = spawn_blocking(move || -> Result<_> {

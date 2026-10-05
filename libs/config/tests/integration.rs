@@ -2,7 +2,9 @@
 mod tests {
     use std::fs;
 
-    use config::*;
+    use config::auth::{self, State, User};
+    use config::permission::Permission;
+    use config::system::{self, Config};
     use tempfile::TempDir;
 
     #[test]
@@ -34,7 +36,7 @@ mod tests {
         fs::write(&config_path, config_content).unwrap();
 
         // ACT
-        let config = parse_from_str(config_content).unwrap();
+        let config = system::parse_from_str(config_content).unwrap();
 
         // ASSERT
         assert_eq!(config.disk.system, "test_disk");
@@ -45,10 +47,10 @@ mod tests {
     #[test]
     fn load_from_path_fallback_to_default() {
         // ARRANGE
-        let default_str = serialize_default();
+        let default_str = system::serialize_default();
 
         // ACT
-        let config = parse_from_str(&default_str).unwrap();
+        let config = system::parse_from_str(&default_str).unwrap();
 
         // ASSERT
         config.validate().unwrap();
@@ -64,7 +66,7 @@ mod tests {
         fs::write(&path, content).unwrap();
 
         // ACT
-        let config = load_from_path(&path).unwrap();
+        let config = system::load_from_path(&path).unwrap();
 
         // ASSERT
         assert_eq!(config.host.name, "frompath");
@@ -74,13 +76,13 @@ mod tests {
     #[test]
     fn serialize_and_parse_round_trip() {
         // ARRANGE
-        let mut original = SystemConfig::default();
+        let mut original = Config::default();
         original.host.port = 4321;
         original.host.name = "roundtrip".to_owned();
 
         // ACT
-        let serialized = serialize(&original).unwrap();
-        let restored = parse_from_str(&serialized).unwrap();
+        let serialized = system::serialize(&original).unwrap();
+        let restored = system::parse_from_str(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(restored.host.port, 4321);
@@ -90,19 +92,19 @@ mod tests {
     #[test]
     fn serialize_default_is_valid() {
         // ACT
-        let serialized = serialize_default();
+        let serialized = system::serialize_default();
 
         // ASSERT
         assert_ne!(serialized, "");
-        let config = parse_from_str(&serialized).unwrap();
+        let config = system::parse_from_str(&serialized).unwrap();
         config.validate().unwrap();
     }
 
     #[test]
     fn auth_serialize_and_parse_round_trip() {
         // ARRANGE
-        let config = AuthConfig {
-            users: vec![AuthUser {
+        let config = State {
+            users: vec![User {
                 fingerprint: "integration_fp".to_owned(),
                 permissions: vec![Permission::Admin],
             }],
@@ -110,8 +112,8 @@ mod tests {
         };
 
         // ACT
-        let serialized = serialize_auth(&config).unwrap();
-        let restored = parse_auth(&serialized).unwrap();
+        let serialized = auth::serialize(&config).unwrap();
+        let restored = auth::parse(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(restored.users.len(), 1);
@@ -125,7 +127,7 @@ mod tests {
     #[test]
     fn auth_load_from_path_nonexistent_returns_default() {
         // ACT
-        let config = load_auth_from_path(std::path::Path::new("/no/such/file.toml")).unwrap();
+        let config = auth::load_from_path(std::path::Path::new("/no/such/file.toml")).unwrap();
 
         // ASSERT
         assert!(config.users.is_empty());
@@ -143,7 +145,7 @@ mod tests {
         .unwrap();
 
         // ACT
-        let config = load_auth_from_path(&path).unwrap();
+        let config = auth::load_from_path(&path).unwrap();
 
         // ASSERT
         assert_eq!(config.users.len(), 1);
@@ -156,6 +158,6 @@ mod tests {
     #[test]
     fn try_config_returns_none_before_init() {
         // ACT & ASSERT
-        assert!(try_config().is_none());
+        assert!(system::try_config().is_none());
     }
 }

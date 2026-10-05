@@ -4,6 +4,7 @@ use core::net::Ipv4Addr;
 use core::time::Duration;
 use std::time::SystemTime;
 
+use config::system::network;
 use netlib::address::IpConfig;
 use netlib::link::State;
 use networkd::dhcp::{Lease, State as DhcpState};
@@ -143,7 +144,7 @@ async fn bridge_without_lease_returns_error() {
     let snapshot = make_snapshot(Name::new("eth2").expect("valid name"), idx, [0xCC; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
         prefix: 24,
     };

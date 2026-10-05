@@ -1,3 +1,5 @@
+//! Disk partition layout configuration.
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ConfigError, Result};
@@ -5,14 +7,14 @@ use crate::error::{ConfigError, Result};
 /// Disk assignment configuration for system and data partitions.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct DiskConfig {
+pub struct Config {
     /// Path to the system disk device (e.g. `/dev/sda`).
     pub system: String,
     /// Optional path to a separate data disk device.
     pub data: Option<String>,
 }
 
-impl DiskConfig {
+impl Config {
     /// Returns the effective data disk path, falling back to `system` when `data` is unset.
     #[must_use]
     pub fn data_disk(&self) -> &str {
@@ -37,7 +39,7 @@ impl DiskConfig {
         Ok(())
     }
 
-    pub(super) fn validate_immutable(&self, installed: &DiskConfig) -> Result<()> {
+    pub(super) fn validate_immutable(&self, installed: &Config) -> Result<()> {
         if self.system != installed.system {
             return Err(ConfigError::ValidationError(format!(
                 "disk.system cannot be changed after install (installed: '{}', requested: '{}')",
@@ -62,7 +64,7 @@ mod tests {
     #[test]
     fn data_disk_fallback() {
         // ARRANGE
-        let disk = DiskConfig {
+        let disk = Config {
             system: "/dev/sda".to_owned(),
             ..Default::default()
         };
@@ -75,7 +77,7 @@ mod tests {
     #[test]
     fn data_disk_split() {
         // ARRANGE
-        let disk = DiskConfig {
+        let disk = Config {
             system: "/dev/sda".to_owned(),
             data: Some("/dev/sdb".to_owned()),
         };
@@ -88,7 +90,7 @@ mod tests {
     #[test]
     fn empty_data_string_falls_back_to_system() {
         // ARRANGE
-        let disk = DiskConfig {
+        let disk = Config {
             system: "/dev/sda".to_owned(),
             data: Some(String::new()),
         };
@@ -100,17 +102,17 @@ mod tests {
 
     #[test]
     fn validate_for_install_rejects_empty_system() {
-        assert!(DiskConfig::default().validate_for_install().is_err());
+        assert!(Config::default().validate_for_install().is_err());
     }
 
     #[test]
     fn validate_immutable_rejects_system_disk_change() {
         // ARRANGE
-        let installed = DiskConfig {
+        let installed = Config {
             system: "/dev/sda".to_owned(),
             data: None,
         };
-        let requested = DiskConfig {
+        let requested = Config {
             system: "/dev/sdb".to_owned(),
             data: None,
         };
@@ -122,11 +124,11 @@ mod tests {
     #[test]
     fn validate_immutable_rejects_data_disk_change() {
         // ARRANGE
-        let installed = DiskConfig {
+        let installed = Config {
             system: "/dev/sda".to_owned(),
             data: Some("/dev/sdb".to_owned()),
         };
-        let requested = DiskConfig {
+        let requested = Config {
             system: "/dev/sda".to_owned(),
             data: Some("/dev/sdc".to_owned()),
         };

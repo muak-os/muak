@@ -5,7 +5,8 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use config::{AUTH_EXTENSION, AuthConfig, CONFIG_EXTENSION, SystemConfig};
+use config::auth::AUTH_EXTENSION;
+use config::system::CONFIG_EXTENSION;
 use rustix::fs::sync;
 use rustix::mount::{MountFlags, mount};
 use sbolt::keys::hierarchy;
@@ -21,8 +22,8 @@ const MOUNT_POINT: &str = "/run/mnt/state";
 /// Mounts the STATE partition and writes all initial configuration and secrets to it.
 pub fn init(
     device: &str,
-    config: &SystemConfig,
-    auth_config: &AuthConfig,
+    config: &config::system::Config,
+    auth_config: &config::auth::State,
     server_pki: &Server,
     sb_hierarchy: Option<&hierarchy::Bundle>,
 ) -> Result<()> {
@@ -32,15 +33,15 @@ pub fn init(
     mount(device, MOUNT_POINT, "btrfs", MountFlags::empty(), None)
         .context("Failed to mount STATE partition")?;
 
-    let config_bytes = config::serialize(config).context("Failed to serialize config")?;
-    config::write_atomic(
+    let config_bytes = config::system::serialize(config).context("Failed to serialize config")?;
+    config::system::write_atomic(
         Path::new(&format!("{MOUNT_POINT}/config.{CONFIG_EXTENSION}")),
         config_bytes.as_bytes(),
     )
     .context("Failed to write config")?;
 
     let auth_bytes =
-        config::serialize_auth(auth_config).context("Failed to serialize auth config")?;
+        config::auth::serialize(auth_config).context("Failed to serialize auth config")?;
     std::fs::write(format!("{MOUNT_POINT}/auth.{AUTH_EXTENSION}"), auth_bytes)
         .context("Failed to write auth config")?;
 

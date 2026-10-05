@@ -3,6 +3,7 @@
 use core::net::Ipv4Addr;
 use core::time::Duration;
 
+use config::system::network;
 use networkd::interface::commands::ApplyMode;
 use tokio::time::sleep;
 
@@ -40,7 +41,7 @@ async fn link_down_on_dhcp_configured_transitions_to_degraded() {
     let snapshot = make_snapshot(Name::new("eth1").expect("valid name"), idx, [0xBB; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
         prefix: 24,
     };

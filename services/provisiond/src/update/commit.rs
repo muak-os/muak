@@ -43,7 +43,7 @@ pub async fn apply() -> Result<()> {
     };
 
     // Enroll PK if missing (signing keys are on STATE from prepare phase)
-    if config::host().secureboot {
+    if config::system::host()?.secureboot {
         let pk_missing = pk().context("Failed to read PK from firmware")?.is_none();
         if pk_missing {
             let dir = Path::new(SECRETS_DIR).join("secureboot");

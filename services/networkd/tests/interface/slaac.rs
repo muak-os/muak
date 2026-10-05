@@ -2,6 +2,7 @@
 
 use core::time::Duration;
 
+use config::system::network;
 use networkd::interface::commands::ApplyMode;
 use tokio::time::sleep;
 
@@ -55,7 +56,7 @@ async fn slaac_then_static_ipv4_both_work() {
 
     sleep(Duration::from_millis(50)).await;
 
-    let addr = config::Cidr4 {
+    let addr = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
         prefix: 24,
     };

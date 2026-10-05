@@ -102,7 +102,7 @@ pub(super) fn read_ntp_server(poll: &mut PollState) -> Option<String> {
         return poll.ntp_cache.clone();
     }
 
-    let server = config::load_from_path(Path::new(CONFIG_PATH))
+    let server = config::system::load_from_path(Path::new(CONFIG_PATH))
         .ok()
         .map(|cfg| cfg.host.ntp)
         .filter(|server| !server.is_empty());
@@ -189,7 +189,7 @@ fn config_wants_secureboot(poll: &mut PollState) -> bool {
     }
     poll.secureboot_stamp = Some(stamp);
     poll.secureboot_cache =
-        config::load_from_path(Path::new(CONFIG_PATH)).is_ok_and(|cfg| cfg.host.secureboot);
+        config::system::load_from_path(Path::new(CONFIG_PATH)).is_ok_and(|cfg| cfg.host.secureboot);
 
     poll.secureboot_cache
 }

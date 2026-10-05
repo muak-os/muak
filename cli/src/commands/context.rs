@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
-use config::{ClientConfig, ServerContext};
+use config::user::{ClientConfig, ServerContext};
 
 use crate::ui;
 

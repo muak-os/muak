@@ -11,7 +11,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
-use config::{CONFIG_PATH, SystemConfig};
+use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
 use sbolt::efi::{secure_boot, setup_mode};
 use sbolt::keys::hierarchy::Bundle;
@@ -69,11 +69,11 @@ pub async fn prepare(
     registry: &str,
     version: &str,
     extensions: &[String],
-    new_config: Option<SystemConfig>,
+    new_config: Option<system::Config>,
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    verify_system_disk(&config::config().disk.system)?;
+    verify_system_disk(&config::system::config()?.disk.system)?;
 
     streaming::send_progress(
         &progress,
@@ -98,8 +98,8 @@ pub async fn prepare(
         }
     }
 
-    let needs_sb =
-        config::host().secureboot || new_config.as_ref().is_some_and(|cfg| cfg.host.secureboot);
+    let needs_sb = config::system::host()?.secureboot
+        || new_config.as_ref().is_some_and(|cfg| cfg.host.secureboot);
     let sb_hierarchy = if needs_sb {
         Some(resolve_sb_hierarchy()?)
     } else {
@@ -260,7 +260,7 @@ pub async fn resolve_target(
     requested: &str,
 ) -> Result<String> {
     if !requested.is_empty() {
-        config::check_no_downgrade(requested, current)?;
+        config::version::check_no_downgrade(requested, current)?;
         return Ok(requested.to_owned());
     }
 
@@ -272,7 +272,8 @@ pub async fn resolve_target(
     .await
     .context("Channel resolution task failed")??;
     if !current.is_empty() {
-        config::check_no_downgrade(&candidate, current).context("Channel release rejected")?;
+        config::version::check_no_downgrade(&candidate, current)
+            .context("Channel release rejected")?;
     }
 
     Ok(candidate)
@@ -299,38 +300,40 @@ fn create_staging_dir() -> Result<PathBuf> {
 
 pub(super) fn update_config_version(update_id: &str, version: &str, author: &str) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
-    let mut config: SystemConfig =
-        config::parse_from_str(&contents).context("Failed to parse config")?;
+    let mut config: system::Config =
+        config::system::parse_from_str(&contents).context("Failed to parse config")?;
 
     version.clone_into(&mut config.host.version);
 
-    let updated_config = config::serialize(&config).context("Failed to serialize config")?;
+    let updated_config =
+        config::system::serialize(&config).context("Failed to serialize config")?;
     let entry = Entry::new(update_id, author, ChangeKind::Update);
 
     journal::append(&entry, &updated_config).context("Failed to append config journal entry")?;
 
-    config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
+    config::system::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
         .context("Failed to write updated config")
 }
 
 pub(super) fn update_config(
     update_id: &str,
-    new_config: &SystemConfig,
+    new_config: &system::Config,
     author: &str,
 ) -> Result<()> {
     let contents = std::fs::read_to_string(CONFIG_PATH).context("Failed to read config")?;
-    let config: SystemConfig =
-        config::parse_from_str(&contents).context("Failed to parse config")?;
+    let config: system::Config =
+        config::system::parse_from_str(&contents).context("Failed to parse config")?;
 
     let mut merged = new_config.clone();
     merged.disk = config.disk.clone();
 
-    let updated_config = config::serialize(&merged).context("Failed to serialize config")?;
+    let updated_config =
+        config::system::serialize(&merged).context("Failed to serialize config")?;
     let entry = Entry::new(update_id, author, ChangeKind::Update);
 
     journal::append(&entry, &updated_config).context("Failed to append config journal entry")?;
 
-    config::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
+    config::system::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
         .context("Failed to write updated config")
 }
 

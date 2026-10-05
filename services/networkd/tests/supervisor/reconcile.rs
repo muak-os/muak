@@ -3,6 +3,7 @@
 use alloc::sync::Arc;
 use core::time::Duration;
 
+use config::system::network;
 use netlib::interface::Name;
 use netlib::monitor::Event;
 use networkd::dns::Resolver;
@@ -12,16 +13,16 @@ use tokio::time::sleep;
 use super::*;
 
 /// Returns a named static IPv4 test config for supervisor reconciliation.
-fn config_static_named() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_static_named() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "eth0".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: false,
-            addresses: vec![config::Cidr4 {
+            addresses: vec![network::Cidr4 {
                 address: core::net::Ipv4Addr::new(192, 168, 10, 2),
                 prefix: 24,
             }],
@@ -34,17 +35,17 @@ fn config_static_named() -> Arc<config::NetworkConfig> {
 }
 
 /// Returns a named static IPv6 test config for supervisor reconciliation.
-fn config_static_ipv6_named() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_static_ipv6_named() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "eth0".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
+        kind: network::InterfaceKind::Ethernet,
         ipv4: None,
-        ipv6: Some(config::Ipv6InterfaceConfig {
+        ipv6: Some(network::Ipv6InterfaceConfig {
             autoconf: false,
-            addresses: vec![config::Cidr6 {
+            addresses: vec![network::Cidr6 {
                 address: "2001:db8::2".parse().expect("valid ipv6"),
                 prefix: 64,
             }],
@@ -56,14 +57,14 @@ fn config_static_ipv6_named() -> Arc<config::NetworkConfig> {
 }
 
 /// Returns a DHCP test config for supervisor reconciliation.
-fn config_dhcp_named() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_dhcp_named() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "eth0".to_owned(),
-        kind: config::InterfaceKind::Ethernet,
-        ipv4: Some(config::Ipv4InterfaceConfig {
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: Some(network::Ipv4InterfaceConfig {
             dhcp: true,
             addresses: vec![],
             gateway: None,
@@ -75,16 +76,16 @@ fn config_dhcp_named() -> Arc<config::NetworkConfig> {
 }
 
 /// Returns a bridge config that targets an unresolved named port.
-fn config_bridge_missing_port() -> Arc<config::NetworkConfig> {
-    let mut cfg = config::NetworkConfig::default();
+fn config_bridge_missing_port() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
-    cfg.interfaces.push(config::InterfaceConfig {
+    cfg.interfaces.push(network::InterfaceConfig {
         name: "br0".to_owned(),
-        kind: config::InterfaceKind::Bridge,
+        kind: network::InterfaceKind::Bridge,
         ipv4: None,
         ipv6: None,
-        bridge: Some(config::BridgeConfig {
+        bridge: Some(network::BridgeConfig {
             port: vec!["eth9".to_owned()],
             stp: false,
         }),

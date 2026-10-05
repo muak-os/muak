@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result};
-use config::{CONFIG_EXTENSION, CONFIG_PATH};
+use config::system::{CONFIG_EXTENSION, CONFIG_PATH};
 
 use super::UPDATE_DIR;
 use crate::journal::{self, Entry};
@@ -59,20 +59,20 @@ pub fn path(update_id: &str) -> PathBuf {
 }
 
 /// Reads and parses the config snapshot file.
-pub fn read_config(snapshot_path: &Path) -> Result<config::SystemConfig> {
+pub fn read_config(snapshot_path: &Path) -> Result<config::system::Config> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
 
-    config::parse_from_str(&contents).context("Failed to parse config snapshot")
+    config::system::parse_from_str(&contents).context("Failed to parse config snapshot")
 }
 
 /// Restores the system config from a snapshot file, overwriting the current,
 /// and records the rollback. Returns `false` when the journal write failed.
 pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<bool> {
     let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    config::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
+    config::system::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
         .context("Failed to restore config from snapshot")?;
 
-    let failed_version = config::host().version.clone();
+    let failed_version = config::system::host()?.version.clone();
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
         .rolled_back(&failed_version, reason);
 
@@ -140,9 +140,9 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().expect("temp dir");
         let snapshot_path = dir.path().join("update-1.toml");
-        let mut config = config::SystemConfig::default();
+        let mut config = config::system::Config::default();
         config.host.version = "v1.2.3".to_owned();
-        let contents = config::serialize(&config).expect("serialize config");
+        let contents = config::system::serialize(&config).expect("serialize config");
         fs::write(&snapshot_path, contents).expect("write snapshot");
 
         // ACT

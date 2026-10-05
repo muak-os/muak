@@ -31,9 +31,10 @@ const STEADY_STATE_INTERVAL: Duration = Duration::from_hours(1);
 async fn main(notifier: NotifyClient) -> Result<()> {
     config::init().context("Failed to initialize system configuration")?;
 
-    let source =
-        Source::from_config(&config::host().clock).context("Invalid host.clock configuration")?;
-    let server = &config::host().ntp;
+    let host = config::system::host().context("Failed to load host configuration")?;
+
+    let source = Source::from_config(&host.clock).context("Invalid host.clock configuration")?;
+    let server = &host.ntp;
     if source.needs_ntp() && server.is_empty() {
         bail!("host.ntp is not configured");
     }

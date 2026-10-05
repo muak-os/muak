@@ -1,3 +1,5 @@
+//! Network interfaces, DNS, and IPv6 configuration.
+
 use alloc::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -7,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Network configuration covering DNS, IPv6 toggle, and interfaces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct NetworkConfig {
+pub struct Config {
     /// Whether IPv6 networking is enabled.
     pub ipv6: bool,
     /// DNS server addresses for name resolution.
@@ -16,7 +18,7 @@ pub struct NetworkConfig {
     pub interfaces: Vec<InterfaceConfig>,
 }
 
-impl NetworkConfig {
+impl Config {
     /// Returns an iterator over the IPv4 DNS addresses.
     pub fn ipv4_dns(&self) -> impl Iterator<Item = Ipv4Addr> + '_ {
         self.dns.iter().filter_map(|addr| match *addr {
@@ -214,7 +216,6 @@ pub struct BridgeConfig {
 mod tests {
     use super::*;
     use crate::codec::{Codec as _, TomlCodec};
-    use crate::system::SystemConfig;
 
     #[test]
     fn cidr4_parse_valid() {
@@ -298,7 +299,7 @@ dns = ["9.9.9.9", "2620:fe::fe"]
 "#;
 
         // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let config: crate::system::Config = TomlCodec::decode(toml_str).unwrap();
         let v4: Vec<Ipv4Addr> = config.network.ipv4_dns().collect();
         let v6: Vec<Ipv6Addr> = config.network.ipv6_dns().collect();
 
@@ -319,7 +320,7 @@ dns = ["not-an-ip"]
 "#;
 
         // ACT & ASSERT
-        TomlCodec::decode::<SystemConfig>(toml_str).unwrap_err();
+        TomlCodec::decode::<crate::system::Config>(toml_str).unwrap_err();
     }
 
     #[test]
@@ -336,7 +337,7 @@ ipv4.gateway = "192.168.1.1"
 "#;
 
         // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let config: crate::system::Config = TomlCodec::decode(toml_str).unwrap();
         let iface = config.network.interfaces.first().unwrap();
         let ipv4 = iface.ipv4.as_ref().unwrap();
 
@@ -369,7 +370,7 @@ ipv4.dhcp = true
 "#;
 
         // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let config: crate::system::Config = TomlCodec::decode(toml_str).unwrap();
         let ipv4 = config
             .network
             .interfaces
@@ -468,7 +469,7 @@ ipv6.gateway = "2001:db8::1"
 "#;
 
         // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let config: crate::system::Config = TomlCodec::decode(toml_str).unwrap();
         let iface = config.network.interfaces.first().unwrap();
         let ipv6 = iface.ipv6.as_ref().unwrap();
 
@@ -503,7 +504,7 @@ ipv6.autoconf = true
 "#;
 
         // ACT
-        let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
+        let config: crate::system::Config = TomlCodec::decode(toml_str).unwrap();
         let iface = config.network.interfaces.first().unwrap();
 
         // ASSERT

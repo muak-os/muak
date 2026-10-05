@@ -1,10 +1,11 @@
 //! Periodic reconciliation of configured network intent.
 
 use anyhow::Result;
-use config::{BridgeConfig, InterfaceConfig, InterfaceKind};
+use config::system::network;
 use netlib::interface::Name;
 use netlib::link::State;
 use netlib::netlink::Ops;
+use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
 
 use super::NetworkSupervisor;
 use super::provision;
@@ -166,7 +167,7 @@ async fn ipv4<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     iface_name: &Name,
     index: u32,
-    ipv4_cfg: &config::Ipv4InterfaceConfig,
+    ipv4_cfg: &network::Ipv4InterfaceConfig,
 ) -> Result<()> {
     let actor_handle = supervisor
         .interfaces
@@ -209,7 +210,7 @@ async fn ipv6<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     iface_name: &Name,
     index: u32,
-    ipv6_cfg: &config::Ipv6InterfaceConfig,
+    ipv6_cfg: &network::Ipv6InterfaceConfig,
 ) -> Result<()> {
     let actor_handle = supervisor
         .interfaces

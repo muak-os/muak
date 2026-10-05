@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
 
     config::init().context("Failed to initialize system configuration")?;
 
-    let installed = Path::new(config::CONFIG_PATH).exists();
+    let installed = Path::new(config::system::CONFIG_PATH).exists();
 
     if installed {
         kmsg::info!("Running from INSTALLED DISK");
@@ -33,7 +33,10 @@ async fn main() -> Result<()> {
         kmsg::info!("!!! CURRENTLY IN MAINTENANCE MODE !!!");
     }
 
-    let port_str = config::host().port.to_string();
+    let port_str = config::system::host()
+        .context("Failed to load host configuration")?
+        .port
+        .to_string();
     let mut env: HashMap<&str, &str> = HashMap::new();
     env.insert("PORT", &port_str);
     env.insert("MAINTENANCE", if installed { "false" } else { "true" });

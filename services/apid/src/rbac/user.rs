@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use config::Permission;
+use config::permission::Permission;
 
 /// Represents an authenticated user with their permissions.
 ///
@@ -48,9 +48,9 @@ impl AuthenticatedUser {
     }
 }
 
-/// Converts from `config::AuthUser` to our `AuthenticatedUser`.
-impl From<&config::AuthUser> for AuthenticatedUser {
-    fn from(user: &config::AuthUser) -> Self {
+/// Converts from `config::auth::User` to our `AuthenticatedUser`.
+impl From<&config::auth::User> for AuthenticatedUser {
+    fn from(user: &config::auth::User) -> Self {
         Self {
             permissions: user.permissions.iter().copied().collect(),
         }

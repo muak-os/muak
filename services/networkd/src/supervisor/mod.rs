@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use commands::SupervisorCommand;
+use config::system::network;
 use netlib::interface::Name;
 use netlib::monitor::{self, Event};
 use netlib::netlink::{Ops, Rtnl};
@@ -31,7 +32,7 @@ use crate::supervisor::state::NetworkState;
 
 struct NetworkSupervisor<N: Ops> {
     ops: N,
-    config: Arc<config::NetworkConfig>,
+    config: Arc<network::Config>,
     state: NetworkSnapshot,
     interfaces: HashMap<Name, ActorHandle>,
     watch_tx: watch::Sender<NetworkSnapshot>,
@@ -56,7 +57,7 @@ const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 impl<N: Ops> NetworkSupervisor<N> {
     fn new(
         ops: N,
-        config: Arc<config::NetworkConfig>,
+        config: Arc<network::Config>,
         watch_tx: watch::Sender<NetworkSnapshot>,
         dns: Resolver,
     ) -> Self {
@@ -247,7 +248,7 @@ pub fn start() -> Result<NetworkActorHandle> {
 
     let ops = Rtnl::new(handle.clone());
     let event_rx = start_events_monitor();
-    let config = Arc::new(config::network().clone());
+    let config = Arc::new(config::system::network()?.clone());
 
     start_with(ops, event_rx, config, Resolver::default())
 }
@@ -260,7 +261,7 @@ pub fn start() -> Result<NetworkActorHandle> {
 pub fn start_with<N: Ops>(
     ops: N,
     event_rx: Option<mpsc::Receiver<Event>>,
-    config: Arc<config::NetworkConfig>,
+    config: Arc<network::Config>,
     dns: Resolver,
 ) -> Result<NetworkActorHandle> {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
@@ -276,7 +277,7 @@ fn run<N: Ops>(
     cmd_rx: mpsc::Receiver<SupervisorCommand>,
     event_rx: Option<mpsc::Receiver<Event>>,
     watch_tx: watch::Sender<NetworkSnapshot>,
-    config: Arc<config::NetworkConfig>,
+    config: Arc<network::Config>,
     dns: Resolver,
 ) {
     tokio::spawn(supervisor_loop(
@@ -289,7 +290,7 @@ async fn supervisor_loop<N: Ops>(
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
     mut event_rx: Option<mpsc::Receiver<Event>>,
     watch_tx: watch::Sender<NetworkSnapshot>,
-    config: Arc<config::NetworkConfig>,
+    config: Arc<network::Config>,
     dns: Resolver,
 ) {
     let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx, dns);

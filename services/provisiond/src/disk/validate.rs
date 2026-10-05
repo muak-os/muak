@@ -59,7 +59,7 @@ fn disk_size(disk: &str) -> Result<u64> {
 
 /// Validates that the system and data disks are suitable install targets.
 pub fn install_target(system_disk: &str, data_disk: &str, force: bool) -> Result<()> {
-    if !force && Path::new(config::CONFIG_PATH).exists() {
+    if !force && Path::new(config::system::CONFIG_PATH).exists() {
         bail!(
             "Cannot install from an already-installed system. Boot from live ISO or use --force."
         );

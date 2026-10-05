@@ -7,9 +7,9 @@ use std::sync::{OnceLock, RwLock};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Permission;
 use crate::codec::{Codec as _, TomlCodec};
-use crate::error::Result;
+use crate::error::{ConfigError, Result};
+use crate::permission::Permission;
 
 /// Path to the auth state file on disk.
 pub const AUTH_PATH: &str = "/run/state/auth.toml";
@@ -18,7 +18,7 @@ pub const AUTH_EXTENSION: &str = "toml";
 
 /// Cached auth state with mtime-based invalidation.
 struct AuthCache {
-    data: RwLock<Arc<AuthConfig>>,
+    data: RwLock<Arc<State>>,
     mtime: AtomicU64,
 }
 
@@ -27,16 +27,16 @@ static AUTH_CACHE: OnceLock<AuthCache> = OnceLock::new();
 /// Authentication and authorization configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct AuthConfig {
+pub struct State {
     /// Registered users with their permissions.
-    pub users: Vec<AuthUser>,
+    pub users: Vec<User>,
     /// Revoked certificate fingerprints.
     pub revoked: Vec<String>,
 }
 
 /// An authorized user identified by certificate fingerprint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthUser {
+pub struct User {
     /// Certificate fingerprint identifying this user.
     pub fingerprint: String,
     /// Permissions granted to this user.
@@ -44,14 +44,18 @@ pub struct AuthUser {
 }
 
 /// Initializes the auth cache. Called once at startup by [`crate::init()`].
-pub(crate) fn init() -> Result<()> {
+///
+/// # Errors
+///
+/// Returns an error when the auth state file exists but cannot be parsed.
+pub fn init() -> Result<()> {
     let path = Path::new(AUTH_PATH);
     let (config, mtime) = if path.exists() {
         let config = load_from_path(path)?;
         let mtime = file_mtime(AUTH_PATH);
         (config, mtime)
     } else {
-        (AuthConfig::default(), 0)
+        (State::default(), 0)
     };
 
     let cache = AuthCache {
@@ -63,8 +67,17 @@ pub(crate) fn init() -> Result<()> {
     Ok(())
 }
 
-/// Returns the current auth config, or `None` if [`crate::init()`] hasn't been called.
-pub fn try_auth() -> Option<Arc<AuthConfig>> {
+/// Returns the current auth state.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NotInitialized`] when [`crate::init()`] has not been called.
+pub fn current() -> Result<Arc<State>> {
+    try_current().ok_or(ConfigError::NotInitialized)
+}
+
+/// Returns the current auth state, or `None` if [`crate::init()`] hasn't been called.
+pub fn try_current() -> Option<Arc<State>> {
     let cache = AUTH_CACHE.get()?;
 
     let current_mtime = file_mtime(AUTH_PATH);
@@ -84,21 +97,21 @@ pub fn try_auth() -> Option<Arc<AuthConfig>> {
     Some(Arc::clone(&data))
 }
 
-/// Serializes an [`AuthConfig`] to a string.
+/// Serializes an [`State`] to a string.
 ///
 /// # Errors
 ///
 /// Returns an error when the config cannot be encoded to TOML.
-pub fn serialize(config: &AuthConfig) -> Result<String> {
+pub fn serialize(config: &State) -> Result<String> {
     TomlCodec::encode(config)
 }
 
-/// Parses an [`AuthConfig`] from a string.
+/// Parses an [`State`] from a string.
 ///
 /// # Errors
 ///
-/// Returns an error when the contents are not valid TOML for [`AuthConfig`].
-pub fn parse(contents: &str) -> Result<AuthConfig> {
+/// Returns an error when the contents are not valid TOML for [`State`].
+pub fn parse(contents: &str) -> Result<State> {
     TomlCodec::decode(contents)
 }
 
@@ -107,26 +120,27 @@ pub fn parse(contents: &str) -> Result<AuthConfig> {
 /// # Errors
 ///
 /// Returns an error when the file exists but cannot be read or parsed.
-pub fn load_from_path(path: &Path) -> Result<AuthConfig> {
+pub fn load_from_path(path: &Path) -> Result<State> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
         TomlCodec::decode(&contents)
     } else {
-        Ok(AuthConfig::default())
+        Ok(State::default())
     }
 }
 
 /// Loads auth config + mtime from the canonical path.
 /// Falls back to default on error (logging a warning via eprintln).
-fn load_with_mtime() -> (AuthConfig, u64) {
+fn load_with_mtime() -> (State, u64) {
     let config = match load_from_path(Path::new(AUTH_PATH)) {
         Ok(parsed) => parsed,
         Err(e) => {
             eprintln!("config: failed to reload {AUTH_PATH}: {e}");
-            AuthConfig::default()
+            State::default()
         }
     };
     let mtime = file_mtime(AUTH_PATH);
+
     (config, mtime)
 }
 
@@ -146,14 +160,14 @@ mod tests {
     use super::*;
     use crate::codec::TomlCodec;
 
-    fn parse(contents: &str) -> crate::Result<AuthConfig> {
+    fn parse(contents: &str) -> crate::Result<State> {
         TomlCodec::decode(contents)
     }
 
     #[test]
     fn auth_config_defaults() {
         // ARRANGE & ACT
-        let config = AuthConfig::default();
+        let config = State::default();
 
         // ASSERT
         assert!(config.users.is_empty());
@@ -163,8 +177,8 @@ mod tests {
     #[test]
     fn auth_round_trip() {
         // ARRANGE
-        let config = AuthConfig {
-            users: vec![AuthUser {
+        let config = State {
+            users: vec![User {
                 fingerprint: "abc123".to_owned(),
                 permissions: vec![Permission::Admin],
             }],
@@ -190,13 +204,13 @@ mod tests {
     #[test]
     fn auth_multiple_users_and_permissions() {
         // ARRANGE
-        let config = AuthConfig {
+        let config = State {
             users: vec![
-                AuthUser {
+                User {
                     fingerprint: "fp1".to_owned(),
                     permissions: vec![Permission::Admin, Permission::VmRead],
                 },
-                AuthUser {
+                User {
                     fingerprint: "fp2".to_owned(),
                     permissions: vec![Permission::SystemRead],
                 },
@@ -230,7 +244,7 @@ mod tests {
     #[test]
     fn serialize_empty_config() {
         // ARRANGE
-        let config = AuthConfig::default();
+        let config = State::default();
 
         // ACT
         let serialized = serialize(&config).unwrap();
@@ -326,7 +340,7 @@ mod tests {
     #[test]
     fn try_auth_returns_none_before_init() {
         // ARRANGE & ACT & ASSERT
-        drop(try_auth());
+        drop(try_current());
     }
 
     #[test]

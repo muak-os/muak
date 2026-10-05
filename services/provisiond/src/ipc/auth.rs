@@ -90,7 +90,7 @@ impl AuthService for ServiceImpl {
     ) -> Result<Response<GetCsrStatusResponse>, Status> {
         let fingerprint = request.into_inner().fingerprint;
 
-        if let Some(auth) = config::try_auth()
+        if let Some(auth) = config::auth::try_current()
             && auth.revoked.contains(&fingerprint)
         {
             return Ok(Response::new(GetCsrStatusResponse {
@@ -103,7 +103,7 @@ impl AuthService for ServiceImpl {
 
         if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
             let server_name =
-                config::try_config().map_or_default(|config| config.host.name.clone());
+                config::system::try_config().map_or_default(|config| config.host.name.clone());
 
             return Ok(Response::new(GetCsrStatusResponse {
                 status: CsrStatus::Approved.into(),
@@ -169,10 +169,10 @@ impl AuthService for ServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to store certificate: {e}")))?;
 
-        let parsed_permissions: Vec<config::Permission> = {
+        let parsed_permissions: Vec<config::permission::Permission> = {
             let mut perms = Vec::new();
             for pattern in &permissions {
-                match config::Permission::expand_pattern(pattern) {
+                match config::permission::Permission::expand_pattern(pattern) {
                     Ok(expanded) => perms.extend(expanded),
                     Err(e) => return Err(Status::invalid_argument(e)),
                 }
@@ -215,7 +215,7 @@ impl AuthService for ServiceImpl {
         &self,
         _request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
-        let auth = config::try_auth().ok_or_else(|| {
+        let auth = config::auth::try_current().ok_or_else(|| {
             Status::failed_precondition("System not installed - auth config not available")
         })?;
 
@@ -318,7 +318,7 @@ fn sign_pending_csr(csr_pem: &str) -> Result<(String, String)> {
 
 /// Checks if a fingerprint is already authorized.
 fn is_user_authorized(fingerprint: &str) -> bool {
-    config::try_auth().is_some_and(|auth| {
+    config::auth::try_current().is_some_and(|auth| {
         auth.users
             .iter()
             .any(|user| user.fingerprint == fingerprint)
@@ -346,23 +346,27 @@ fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
 }
 
 /// Adds a user to the auth config and writes it to disk.
-fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> Result<()> {
-    let mut auth = config::try_auth().map_or_default(|auth| (*auth).clone());
+fn add_user_to_auth(
+    fingerprint: &str,
+    permissions: Vec<config::permission::Permission>,
+) -> Result<()> {
+    let mut auth = config::auth::try_current().map_or_default(|auth| (*auth).clone());
 
-    auth.users.push(config::AuthUser {
+    auth.users.push(config::auth::User {
         fingerprint: fingerprint.to_owned(),
         permissions,
     });
 
-    let auth_str = config::serialize_auth(&auth)?;
-    config::write_atomic(Path::new(config::AUTH_PATH), auth_str.as_bytes())?;
+    let auth_str = config::auth::serialize(&auth)?;
+    config::system::write_atomic(Path::new(config::auth::AUTH_PATH), auth_str.as_bytes())?;
 
     Ok(())
 }
 
 /// Revokes a user by adding their fingerprint to the revoked list.
 fn revoke_user(fingerprint: &str) -> Result<()> {
-    let mut auth = config::try_auth().map_or_default(|auth| config::AuthConfig::clone(&auth));
+    let mut auth =
+        config::auth::try_current().map_or_default(|auth| config::auth::State::clone(&auth));
 
     auth.users.retain(|user| user.fingerprint != fingerprint);
 
@@ -370,8 +374,8 @@ fn revoke_user(fingerprint: &str) -> Result<()> {
         auth.revoked.push(fingerprint.to_owned());
     }
 
-    let auth_str = config::serialize_auth(&auth)?;
-    config::write_atomic(Path::new(config::AUTH_PATH), auth_str.as_bytes())?;
+    let auth_str = config::auth::serialize(&auth)?;
+    config::system::write_atomic(Path::new(config::auth::AUTH_PATH), auth_str.as_bytes())?;
 
     Ok(())
 }

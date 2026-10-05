@@ -3,6 +3,7 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 
+use config::system::network;
 use netlib::address;
 use netlib::address::IpConfig;
 use networkd::dhcp::Lease;
@@ -56,7 +57,7 @@ async fn reconcile_static_ipv4_reapplies_kernel_state() {
     let snapshot = make_snapshot(Name::new("eth0").expect("valid name"), idx, [0xAA; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let address = config::Cidr4 {
+    let address = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 2),
         prefix: 24,
     };
@@ -111,7 +112,7 @@ async fn reconcile_dhcp_with_cached_lease_reapplies_address() {
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth1", [0xBB; 6], true);
 
-    let address = config::Cidr4 {
+    let address = network::Cidr4 {
         address: Ipv4Addr::new(10, 0, 0, 10),
         prefix: 24,
     };
@@ -183,7 +184,7 @@ async fn reconcile_static_ipv6_reapplies_kernel_state() {
     let snapshot = make_snapshot(Name::new("eth2").expect("valid name"), idx, [0xCC; 6]);
     let handle = Actor::spawn(snapshot, mock.clone(), make_config());
 
-    let address = config::Cidr6 {
+    let address = network::Cidr6 {
         address: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2),
         prefix: 64,
     };
