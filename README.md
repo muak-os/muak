@@ -2,7 +2,7 @@
 
 Muak is an operating system built from scratch to run Virtual Machines using hypervisors such as QEMU, Firecracker and cloud-hypervisor. It is created from the ground up for that sole purpose, ensuring maximum performance, stability, and ease of use for virtualization.
 
-It is the most lightweight Linux distribution you'll probably use while still being fully functional for running VMs.
+It is the most lightweight operating system you'll probably use while still being fully functional for running VMs.
 
 ## Features
 
@@ -16,7 +16,7 @@ It is the most lightweight Linux distribution you'll probably use while still be
 
 There are three prerequisites to run Muak that most modern systems meet:
 
-- System architecture is either `x86_64`, `arm64` or `riscv64` 
+- System architecture is either `x86_64` or `arm64`
 - UEFI firmware (can be provided by Muak itself for SBCs) with virtualization support enabled
 - A full disk reserved for the installation
 
