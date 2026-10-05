@@ -267,7 +267,7 @@ mod tests {
         let due = queue.take_due(|_| true);
 
         // ASSERT
-        assert!(due.is_empty());
+        assert_eq!(due, Vec::<alloc::string::String>::new());
     }
 
     #[test]
@@ -281,7 +281,7 @@ mod tests {
         let due = queue.take_due(|_| true);
 
         // ASSERT
-        assert!(due.is_empty());
+        assert_eq!(due, Vec::<alloc::string::String>::new());
         assert_eq!(queue.pending.len(), 1);
     }
 
@@ -319,7 +319,7 @@ mod tests {
         let due = queue.take_due(|_| false);
 
         // ASSERT
-        assert!(due.is_empty());
+        assert_eq!(due, Vec::<alloc::string::String>::new());
         assert_eq!(queue.pending.len(), 1);
     }
 }

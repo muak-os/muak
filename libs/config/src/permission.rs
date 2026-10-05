@@ -64,7 +64,7 @@ pub enum Permission {
 
 impl std::fmt::Display for Permission {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+        let text = match *self {
             Self::Admin => "admin",
             Self::VmRead => "vm:read",
             Self::VmCreate => "vm:create",
@@ -78,7 +78,7 @@ impl std::fmt::Display for Permission {
             Self::ProcessRead => "process:read",
             Self::SecurityRead => "security:read",
         };
-        write!(f, "{s}")
+        write!(f, "{text}")
     }
 }
 
@@ -99,7 +99,7 @@ impl FromStr for Permission {
             "system:update" => Ok(Self::SystemUpdate),
             "process:read" => Ok(Self::ProcessRead),
             "security:read" => Ok(Self::SecurityRead),
-            _ => Err(format!("Unknown permission: {}", s)),
+            _ => Err(format!("Unknown permission: {s}")),
         }
     }
 }
@@ -129,9 +129,14 @@ impl Permission {
     }
 
     /// Expands a permission pattern (wildcard) to concrete permissions.
+    ///
+    /// # Errors
+    ///
+    /// Returns the parse error when the pattern is neither a valid
+    /// permission nor a `<category>:*` wildcard for a known category.
     pub fn expand_pattern(pattern: &str) -> Result<Vec<Permission>, String> {
         let Some(category) = pattern.strip_suffix(":*") else {
-            return pattern.parse().map(|p| vec![p]);
+            return pattern.parse().map(|perm| vec![perm]);
         };
         let perms = Self::all_in_category(category);
         if perms.is_empty() {
@@ -145,10 +150,10 @@ impl Permission {
         }
     }
 
-    /// Returns the category prefix for this permission (e.g., "vm" for VmRead).
+    /// Returns the category prefix for this permission (e.g., "vm" for `VmRead`).
     #[must_use]
     pub fn category(&self) -> Option<&'static str> {
-        match self {
+        match *self {
             Self::Admin => None,
             Self::VmRead
             | Self::VmCreate
@@ -165,27 +170,28 @@ impl Permission {
 }
 
 /// Collapses a list of permissions, replacing complete categories with wildcards.
+#[must_use]
 pub fn collapse(permissions: &[Permission]) -> Vec<String> {
     let perm_set: HashSet<Permission> = permissions.iter().copied().collect();
     let mut result = Vec::new();
     let mut handled = HashSet::new();
 
     if perm_set.contains(&Permission::Admin) {
-        return vec!["admin".to_string()];
+        return vec!["admin".to_owned()];
     }
 
     for category in CATEGORIES {
         let category_perms = Permission::all_in_category(category);
-        if category_perms.iter().all(|p| perm_set.contains(p)) {
-            result.push(format!("{}:*", category));
+        if category_perms.iter().all(|perm| perm_set.contains(perm)) {
+            result.push(format!("{category}:*"));
             handled.extend(category_perms.iter().copied());
         }
     }
 
     let mut remaining: Vec<_> = permissions
         .iter()
-        .filter(|p| !handled.contains(p))
-        .map(|p| p.to_string())
+        .filter(|perm| !handled.contains(*perm))
+        .map(alloc::string::ToString::to_string)
         .collect();
     remaining.sort();
     remaining.dedup();
@@ -236,7 +242,7 @@ mod tests {
             Permission::SecurityRead
         );
 
-        assert!("invalid".parse::<Permission>().is_err());
+        "invalid".parse::<Permission>().unwrap_err();
     }
 
     #[test]
@@ -270,7 +276,7 @@ mod tests {
         assert_eq!(security_perms.len(), 1);
         assert!(security_perms.contains(&Permission::SecurityRead));
 
-        assert!(Permission::all_in_category("unknown").is_empty());
+        assert_eq!(Permission::all_in_category("unknown"), []);
     }
 
     #[test]
@@ -286,11 +292,11 @@ mod tests {
         assert_eq!(vm_perms.len(), 6);
         assert_eq!(system_perms.len(), 2);
         assert_eq!(auth_perms.len(), 1);
-        assert_eq!(auth_perms[0], Permission::AuthManage);
+        assert_eq!(auth_perms.first(), Some(&Permission::AuthManage));
         assert_eq!(process_perms.len(), 1);
-        assert_eq!(process_perms[0], Permission::ProcessRead);
+        assert_eq!(process_perms.first(), Some(&Permission::ProcessRead));
         assert_eq!(security_perms.len(), 1);
-        assert_eq!(security_perms[0], Permission::SecurityRead);
+        assert_eq!(security_perms.first(), Some(&Permission::SecurityRead));
     }
 
     #[test]
@@ -361,9 +367,9 @@ mod tests {
         let collapsed = collapse(&perms);
 
         // ASSERT
-        assert!(collapsed.contains(&"vm:read".to_string()));
-        assert!(collapsed.contains(&"vm:create".to_string()));
-        assert!(!collapsed.contains(&"vm:*".to_string()));
+        assert!(collapsed.contains(&"vm:read".to_owned()));
+        assert!(collapsed.contains(&"vm:create".to_owned()));
+        assert!(!collapsed.contains(&"vm:*".to_owned()));
     }
 
     #[test]
@@ -383,9 +389,9 @@ mod tests {
         let collapsed = collapse(&perms);
 
         // ASSERT
-        assert!(collapsed.contains(&"vm:*".to_string()));
-        assert!(collapsed.contains(&"system:read".to_string()));
-        assert!(!collapsed.contains(&"system:*".to_string()));
+        assert!(collapsed.contains(&"vm:*".to_owned()));
+        assert!(collapsed.contains(&"system:read".to_owned()));
+        assert!(!collapsed.contains(&"system:*".to_owned()));
     }
 
     #[test]
@@ -406,7 +412,7 @@ mod tests {
         let collapsed = collapse(&[]);
 
         // ASSERT
-        assert!(collapsed.is_empty());
+        assert_eq!(collapsed, Vec::<alloc::string::String>::new());
     }
 
     #[test]

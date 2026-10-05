@@ -96,7 +96,7 @@ mod tests {
         assert!(process_output.status.success());
         let stdout = String::from_utf8_lossy(&process_output.stdout);
         assert!(stdout.contains("Usage: ramune <COMMAND>"));
-        assert!(process_output.stderr.is_empty());
+        assert_eq!(process_output.stderr, b"");
     }
 
     #[test]
@@ -111,7 +111,7 @@ mod tests {
         assert!(process_output.status.success());
         let stdout = String::from_utf8_lossy(&process_output.stdout);
         assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
-        assert!(process_output.stderr.is_empty());
+        assert_eq!(process_output.stderr, b"");
     }
 
     #[test]

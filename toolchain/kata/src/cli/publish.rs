@@ -59,7 +59,7 @@ mod tests {
             panic!("expected publish command");
         };
         assert_eq!(publish.release, kata::version::LINE);
-        assert!(publish.channel.is_empty());
+        assert_eq!(publish.channel, Vec::<alloc::string::String>::new());
         assert!(!publish.force);
     }
 

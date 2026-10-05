@@ -675,7 +675,7 @@ mod tests {
 
         // ASSERT
         result.expect_err("large byte value should fail");
-        assert!(encoded.is_empty());
+        assert_eq!(encoded, b"");
     }
 
     #[test]

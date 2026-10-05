@@ -3,10 +3,6 @@
 use tokio::signal::unix::{SignalKind, signal};
 
 /// Returns a future that resolves when SIGTERM or SIGINT is received.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "tokio::select! macro internals use a remainder when shuffling branch order"
-)]
 pub async fn shutdown() {
     let Ok(mut sigterm) = signal(SignalKind::terminate()) else {
         return;

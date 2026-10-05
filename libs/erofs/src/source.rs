@@ -73,8 +73,7 @@ fn recurse(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<
 fn normalize_rel(path: &Path, prefix: &Path) -> String {
     let relative = path
         .strip_prefix(prefix)
-        .map(|pref| pref.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_or_default(|pref| pref.to_string_lossy().to_string());
     if relative.is_empty() {
         "/".to_owned()
     } else {

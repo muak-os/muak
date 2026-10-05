@@ -107,8 +107,8 @@ mod tests {
         let dns = Resolver::default();
 
         // ASSERT
-        assert!(dns.v4.is_empty());
-        assert!(dns.v6.is_empty());
+        assert_eq!(dns.v4, Vec::<std::net::Ipv4Addr>::new());
+        assert_eq!(dns.v6, Vec::<std::net::Ipv6Addr>::new());
         assert_eq!(dns.resolv_conf, PathBuf::from(RESOLV_CONF_PATH));
     }
 

@@ -102,8 +102,7 @@ fn build_entries(
         };
         let name = std::path::Path::new(child_rel)
             .file_name()
-            .map(|n| n.to_string_lossy().as_bytes().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().as_bytes().to_vec());
         entries.push(Entry {
             name,
             nid: child.nid,

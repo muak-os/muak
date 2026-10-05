@@ -67,7 +67,10 @@ mod tests {
         // ASSERT
         assert!(parsed.overlay().is_none());
         assert_eq!(parsed.kernel().source(), "muak-os/linux");
-        assert!(parsed.customization().extensions().is_empty());
+        assert_eq!(
+            parsed.customization().extensions(),
+            Vec::<alloc::string::String>::new()
+        );
     }
 
     #[test]

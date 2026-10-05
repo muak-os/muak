@@ -33,8 +33,7 @@ fn ca_cert_path() -> PathBuf {
 fn epoch_seconds_string(timestamp: std::time::SystemTime) -> String {
     timestamp
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_default()
+        .map_or_default(|duration| duration.as_secs().to_string())
 }
 
 fn ca_key_path() -> PathBuf {
@@ -103,9 +102,8 @@ impl AuthService for ServiceImpl {
         }
 
         if let Ok((ca_pem, cert_pem)) = load_staging_cert(&fingerprint) {
-            let server_name = config::try_config()
-                .map(|config| config.host.name.clone())
-                .unwrap_or_default();
+            let server_name =
+                config::try_config().map_or_default(|config| config.host.name.clone());
 
             return Ok(Response::new(GetCsrStatusResponse {
                 status: CsrStatus::Approved.into(),
@@ -293,8 +291,7 @@ async fn list_pending_csrs() -> Result<Vec<PendingCsr>> {
             let submitted_at = metadata
                 .created()
                 .or_else(|_| metadata.modified())
-                .map(epoch_seconds_string)
-                .unwrap_or_default();
+                .map_or_default(epoch_seconds_string);
 
             csrs.push(PendingCsr {
                 fingerprint: stem.to_owned(),
@@ -350,9 +347,7 @@ fn load_staging_cert(fingerprint: &str) -> Result<(String, String)> {
 
 /// Adds a user to the auth config and writes it to disk.
 fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> Result<()> {
-    let mut auth = config::try_auth()
-        .map(|auth| (*auth).clone())
-        .unwrap_or_default();
+    let mut auth = config::try_auth().map_or_default(|auth| (*auth).clone());
 
     auth.users.push(config::AuthUser {
         fingerprint: fingerprint.to_owned(),
@@ -367,9 +362,7 @@ fn add_user_to_auth(fingerprint: &str, permissions: Vec<config::Permission>) -> 
 
 /// Revokes a user by adding their fingerprint to the revoked list.
 fn revoke_user(fingerprint: &str) -> Result<()> {
-    let mut auth = config::try_auth()
-        .map(|auth| config::AuthConfig::clone(&auth))
-        .unwrap_or_default();
+    let mut auth = config::try_auth().map_or_default(|auth| config::AuthConfig::clone(&auth));
 
     auth.users.retain(|user| user.fingerprint != fingerprint);
 

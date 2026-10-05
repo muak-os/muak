@@ -100,7 +100,7 @@ mod tests {
         let image = run_mumi(dir.path(), None, 3);
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
         assert!(image.len().is_multiple_of(4096));
     }
 
@@ -115,7 +115,7 @@ mod tests {
         let image = run_mumi(dir.path(), None, 3);
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
         let image = run_mumi(dir.path(), Some(&fc_path), 3);
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
         assert!(image.len().is_multiple_of(4096));
     }
 

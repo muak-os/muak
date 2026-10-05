@@ -153,7 +153,7 @@ mod tests {
         write_gap(&mut output, 0).unwrap();
 
         // ASSERT
-        assert!(output.is_empty());
+        assert_eq!(output, b"");
     }
 
     #[test]
@@ -166,7 +166,7 @@ mod tests {
         copy_exact(&mut reader, &mut output, 0, ".empty", &mut |_| {}).unwrap();
 
         // ASSERT
-        assert!(output.is_empty());
+        assert_eq!(output, b"");
     }
 
     #[test]

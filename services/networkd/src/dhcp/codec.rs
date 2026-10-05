@@ -214,7 +214,7 @@ mod tests {
         assert!(opts.server_id.is_none());
         assert!(opts.subnet_mask.is_none());
         assert!(opts.router.is_none());
-        assert!(opts.dns_servers.is_empty());
+        assert_eq!(opts.dns_servers, Vec::<std::net::Ipv4Addr>::new());
         assert!(opts.lease_time.is_none());
     }
 
@@ -289,7 +289,7 @@ mod tests {
         let opts = parse_options(&data);
 
         // ASSERT
-        assert!(opts.dns_servers.is_empty());
+        assert_eq!(opts.dns_servers, Vec::<std::net::Ipv4Addr>::new());
     }
 
     #[test]
@@ -534,7 +534,7 @@ mod tests {
             Duration::from_secs(u64::from(DEFAULT_LEASE_SECS))
         );
         assert!(lease.gateway.is_none());
-        assert!(lease.dns_servers.is_empty());
+        assert_eq!(lease.dns_servers, Vec::<std::net::Ipv4Addr>::new());
     }
 
     #[test]

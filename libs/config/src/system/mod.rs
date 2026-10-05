@@ -18,7 +18,7 @@ pub use network::{
 use serde::{Deserialize, Serialize};
 pub use vm::VmConfig;
 
-use crate::codec::{Codec, TomlCodec};
+use crate::codec::{Codec as _, TomlCodec};
 use crate::error::{ConfigError, Result};
 
 /// Path to the system config file on disk.
@@ -27,10 +27,6 @@ pub const CONFIG_PATH: &str = "/run/state/config.toml";
 pub const CONFIG_EXTENSION: &str = "toml";
 
 /// Schema version of the system config document.
-///
-/// `v1-beta` is additive-only while the format settles: fields may be added,
-/// never removed or repurposed. Breaking changes require a new version, which
-/// is a new acceptance gate, not an in-place migration.
 pub const API_VERSION: &str = "muak.dev/config/v1-beta";
 
 pub(crate) static CONFIG: OnceLock<SystemConfig> = OnceLock::new();
@@ -59,31 +55,42 @@ pub struct SystemConfig {
 
 impl Default for SystemConfig {
     fn default() -> Self {
-        toml::from_str(DEFAULT_CONFIG).expect("embedded default.toml is invalid")
+        toml::from_str(DEFAULT_CONFIG).unwrap_or_else(|_| SystemConfig {
+            api_version: API_VERSION.to_owned(),
+            host: HostConfig::default(),
+            disk: DiskConfig::default(),
+            network: NetworkConfig::default(),
+            vm: VmConfig::default(),
+        })
     }
 }
 
 impl SystemConfig {
     /// Validates that required fields are present and sensible.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::ValidationError`] when a required field is
+    /// missing or has an unsupported value.
     pub fn validate(&self) -> Result<()> {
         if self.host.name.is_empty() {
             return Err(ConfigError::ValidationError(
-                "host.name must be specified".to_string(),
+                "host.name must be specified".to_owned(),
             ));
         }
         if self.host.port == 0 {
             return Err(ConfigError::ValidationError(
-                "host.port must be greater than 0".to_string(),
+                "host.port must be greater than 0".to_owned(),
             ));
         }
         if !matches!(self.host.clock.as_str(), "" | "auto" | "hypervisor" | "ntp") {
             return Err(ConfigError::ValidationError(
-                "host.clock must be one of \"auto\", \"hypervisor\" or \"ntp\"".to_string(),
+                "host.clock must be one of \"auto\", \"hypervisor\" or \"ntp\"".to_owned(),
             ));
         }
         if self.host.ntp.is_empty() && self.host.clock != "hypervisor" {
             return Err(ConfigError::ValidationError(
-                "host.ntp must be specified".to_string(),
+                "host.ntp must be specified".to_owned(),
             ));
         }
 
@@ -91,24 +98,33 @@ impl SystemConfig {
     }
 
     /// Validates that the config is complete enough for installation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::ValidationError`] when required installation fields are missing.
     pub fn validate_for_install(&self) -> Result<()> {
         self.validate()?;
         if self.host.version.is_empty() {
             return Err(ConfigError::ValidationError(
-                "host.version must be set".to_string(),
+                "host.version must be set".to_owned(),
             ));
         }
         self.disk.validate_for_install()
     }
 
     /// Validates that the config is acceptable for an update operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::ValidationError`] when the requested config
+    /// changes immutable fields or the base validation fails.
     pub fn validate_for_update(&self, installed: &SystemConfig) -> Result<()> {
         self.validate()?;
         self.disk.validate_immutable(&installed.disk)?;
         if installed.host.secureboot && !self.host.secureboot {
             return Err(ConfigError::ValidationError(
                 "host.secureboot cannot be disabled after Secure Boot keys have been enrolled"
-                    .to_string(),
+                    .to_owned(),
             ));
         }
 
@@ -124,27 +140,41 @@ pub fn isolates(previous: &SystemConfig, next: &SystemConfig) -> bool {
 }
 
 /// Initializes the host config.
+///
+/// # Errors
+///
+/// Returns an error when loading or validating the config from
+/// [`CONFIG_PATH`] fails, or when the config was already initialized.
 pub fn init() -> Result<()> {
     let config = load_from_path(Path::new(CONFIG_PATH))?;
     config.validate()?;
     CONFIG
         .set(config)
-        .map_err(|_| ConfigError::AlreadyInitialized)?;
+        .map_err(|_existing| ConfigError::AlreadyInitialized)?;
 
     Ok(())
 }
 
 /// Serializes a [`SystemConfig`] to a string.
+///
+/// # Errors
+///
+/// Returns an error when the config cannot be encoded to TOML.
 pub fn serialize(config: &SystemConfig) -> Result<String> {
     TomlCodec::encode(config)
 }
 
 /// Serializes the default system configuration to a string.
+#[must_use]
 pub fn serialize_default() -> String {
-    TomlCodec::encode(&SystemConfig::default()).expect("Failed to serialize default config")
+    TomlCodec::encode(&SystemConfig::default()).unwrap_or_default()
 }
 
 /// Parses a [`SystemConfig`] from a string, validating it.
+///
+/// # Errors
+///
+/// Returns an error when parsing fails, the schema version is unsupported, or validation fails.
 pub fn parse_from_str(contents: &str) -> Result<SystemConfig> {
     let config = decode(contents)?;
     config.validate()?;
@@ -165,16 +195,24 @@ fn decode(contents: &str) -> Result<SystemConfig> {
 }
 
 /// Diffs two config strings, returning `(field_path, before, after)` for each changed field.
-pub fn diff(a: &str, b: &str) -> Result<Vec<(String, String, String)>> {
-    let a = toml::Value::try_from(decode(a)?)?;
-    let b = toml::Value::try_from(decode(b)?)?;
+///
+/// # Errors
+///
+/// Returns an error when either document cannot be decoded or uses an unsupported schema version.
+pub fn diff(before: &str, after: &str) -> Result<Vec<(String, String, String)>> {
+    let before = toml::Value::try_from(decode(before)?)?;
+    let after = toml::Value::try_from(decode(after)?)?;
     let mut changes = Vec::new();
-    diff_values(&mut changes, "", &a, &b);
+    diff_values(&mut changes, "", &before, &after);
 
     Ok(changes)
 }
 
 /// Loads system config from a file, falling back to defaults if not found.
+///
+/// # Errors
+///
+/// Returns an error when the file exists but cannot be read or decoded.
 pub fn load_from_path(path: &Path) -> Result<SystemConfig> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
@@ -204,33 +242,43 @@ pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {
 
 fn join_path(prefix: &str, key: &str) -> String {
     if prefix.is_empty() {
-        key.to_string()
+        key.to_owned()
     } else {
-        format!("{}.{}", prefix, key)
+        format!("{prefix}.{key}")
     }
 }
 
 fn diff_values(
     changes: &mut Vec<(String, String, String)>,
     prefix: &str,
-    a: &toml::Value,
-    b: &toml::Value,
+    before: &toml::Value,
+    after: &toml::Value,
 ) {
-    let (toml::Value::Table(fa), toml::Value::Table(fb)) = (a, b) else {
-        if a != b {
-            changes.push((prefix.to_string(), a.to_string(), b.to_string()));
+    match (before.as_table(), after.as_table()) {
+        (Some(before_table), Some(after_table)) => {
+            for (key, before_value) in before_table {
+                let path = join_path(prefix, key.as_str());
+                match after_table.get(key.as_str()) {
+                    Some(after_value) => diff_values(changes, &path, before_value, after_value),
+                    None => changes.push((path, before_value.to_string(), String::new())),
+                }
+            }
+            for (key, after_value) in after_table
+                .iter()
+                .filter(|entry| !before_table.contains_key(entry.0.as_str()))
+            {
+                changes.push((
+                    join_path(prefix, key),
+                    String::new(),
+                    after_value.to_string(),
+                ));
+            }
         }
-        return;
-    };
-    for (key, va) in fa {
-        let path = join_path(prefix, key);
-        match fb.get(key) {
-            Some(vb) => diff_values(changes, &path, va, vb),
-            None => changes.push((path, va.to_string(), String::new())),
+        _ => {
+            if before != after {
+                changes.push((prefix.to_owned(), before.to_string(), after.to_string()));
+            }
         }
-    }
-    for (key, vb) in fb.iter().filter(|(k, _)| !fa.contains_key(*k)) {
-        changes.push((join_path(prefix, key), String::new(), vb.to_string()));
     }
 }
 
@@ -260,12 +308,12 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
-        config.host.version = "v1.0.0".to_string();
-        config.disk.system = "/dev/sda".to_string();
+        config.host.version = "v1.0.0".to_owned();
+        config.disk.system = "/dev/sda".to_owned();
 
         // ACT & ASSERT
-        assert!(config.validate().is_ok());
-        assert!(config.validate_for_install().is_ok());
+        config.validate().unwrap();
+        config.validate_for_install().unwrap();
     }
 
     #[test]
@@ -273,7 +321,7 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
-        config.disk.system = "/dev/sda".to_string();
+        config.disk.system = "/dev/sda".to_owned();
 
         // ACT & ASSERT
         assert!(config.validate_for_install().is_err());
@@ -294,7 +342,7 @@ mod tests {
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 8080;
-        config.host.version = "v1.0.0".to_string();
+        config.host.version = "v1.0.0".to_owned();
         config.disk.system = String::new();
 
         // ACT & ASSERT
@@ -305,7 +353,7 @@ mod tests {
     fn parse_from_str_invalid_toml() {
         // ACT & ASSERT
         let result = TomlCodec::decode::<SystemConfig>("invalid toml");
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -315,7 +363,7 @@ mod tests {
         let config: SystemConfig = TomlCodec::decode(&default_str).unwrap();
 
         // ASSERT
-        assert!(config.validate().is_ok());
+        config.validate().unwrap();
     }
 
     #[test]
@@ -323,10 +371,10 @@ mod tests {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
-        installed.disk.system = "/dev/sda".to_string();
+        installed.disk.system = "/dev/sda".to_owned();
 
         let mut requested = installed.clone();
-        requested.disk.system = "/dev/sdb".to_string();
+        requested.disk.system = "/dev/sdb".to_owned();
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -337,11 +385,11 @@ mod tests {
         // ARRANGE
         let mut installed = SystemConfig::default();
         installed.host.port = 8080;
-        installed.disk.system = "/dev/sda".to_string();
-        installed.disk.data = Some("/dev/sdb".to_string());
+        installed.disk.system = "/dev/sda".to_owned();
+        installed.disk.data = Some("/dev/sdb".to_owned());
 
         let mut requested = installed.clone();
-        requested.disk.data = Some("/dev/sdc".to_string());
+        requested.disk.data = Some("/dev/sdc".to_owned());
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -358,7 +406,7 @@ mod tests {
         requested.host.secureboot = true;
 
         // ACT & ASSERT
-        assert!(requested.validate_for_update(&installed).is_ok());
+        requested.validate_for_update(&installed).unwrap();
     }
 
     #[test]
@@ -383,7 +431,7 @@ mod tests {
         installed.host.secureboot = false;
 
         // ACT & ASSERT
-        assert!(installed.clone().validate_for_update(&installed).is_ok());
+        installed.clone().validate_for_update(&installed).unwrap();
     }
 
     #[test]
@@ -394,7 +442,7 @@ mod tests {
         installed.host.secureboot = true;
 
         // ACT & ASSERT
-        assert!(installed.clone().validate_for_update(&installed).is_ok());
+        installed.clone().validate_for_update(&installed).unwrap();
     }
 
     #[test]
@@ -415,7 +463,7 @@ image = "10.0.2.2:5000/installer:latest"
         let result = parse_from_str(&toml_str);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -433,7 +481,7 @@ image = "10.0.2.2:5000/installer:latest"
     fn validation_accepts_hypervisor_clock_without_ntp() {
         // ARRANGE
         let mut config = SystemConfig::default();
-        config.host.clock = "hypervisor".to_string();
+        config.host.clock = "hypervisor".to_owned();
         config.host.ntp = String::new();
 
         // ACT
@@ -450,7 +498,7 @@ image = "10.0.2.2:5000/installer:latest"
     fn validation_failure_unknown_clock() {
         // ARRANGE
         let mut config = SystemConfig::default();
-        config.host.clock = "ptp".to_string();
+        config.host.clock = "ptp".to_owned();
 
         // ACT & ASSERT
         assert!(config.validate().is_err());
@@ -472,15 +520,15 @@ image = "10.0.2.2:5000/installer:latest"
         // ARRANGE
         let mut config = SystemConfig::default();
         config.host.port = 9090;
-        config.host.name = "testhost".to_string();
-        config.disk.system = "/dev/nvme0n1".to_string();
+        config.host.name = "testhost".to_owned();
+        config.disk.system = "/dev/nvme0n1".to_owned();
         config.network.ipv6 = true;
         config.network.dns = vec!["9.9.9.9".parse().unwrap()];
         config.vm.auto_restart = true;
 
         // ACT
-        let s = serialize(&config).unwrap();
-        let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
+        let serialized = serialize(&config).unwrap();
+        let restored: SystemConfig = TomlCodec::decode(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(restored.api_version, API_VERSION);
@@ -521,19 +569,19 @@ ntp = "pool.ntp.org"
         let result = parse_from_str("[[[ invalid");
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
     fn parse_from_str_validation_error() {
         // ARRANGE
-        let str = with_version("[host]\nport = 0\n");
+        let invalid = with_version("[host]\nport = 0\n");
 
         // ACT
-        let result = parse_from_str(&str);
+        let result = parse_from_str(&invalid);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -562,7 +610,7 @@ ntp = "pool.ntp.org"
         let config = load_from_path(path).unwrap();
 
         // ASSERT
-        assert!(config.validate().is_ok());
+        config.validate().unwrap();
     }
 
     #[test]
@@ -595,65 +643,83 @@ ntp = "pool.ntp.org"
         let changes = diff(&config, &config).unwrap();
 
         // ASSERT
-        assert!(changes.is_empty());
+        assert_eq!(
+            changes,
+            Vec::<(
+                alloc::string::String,
+                alloc::string::String,
+                alloc::string::String
+            )>::new()
+        );
     }
 
     #[test]
     fn diff_changed_scalar() {
         // ARRANGE
-        let a = with_version("[host]\nname = \"alpha\"\nport = 8080\n");
-        let b = with_version("[host]\nname = \"beta\"\nport = 8080\n");
+        let before = with_version("[host]\nname = \"alpha\"\nport = 8080\n");
+        let after = with_version("[host]\nname = \"beta\"\nport = 8080\n");
 
         // ACT
-        let changes = diff(&a, &b).unwrap();
+        let changes = diff(&before, &after).unwrap();
 
         // ASSERT
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].0, "host.name");
-        assert!(changes[0].1.contains("alpha"));
-        assert!(changes[0].2.contains("beta"));
+        assert_eq!(
+            changes.first().map(|change| change.0.as_str()),
+            Some("host.name")
+        );
+        assert!(
+            changes
+                .first()
+                .is_some_and(|change| change.1.contains("alpha"))
+        );
+        assert!(
+            changes
+                .first()
+                .is_some_and(|change| change.2.contains("beta"))
+        );
     }
 
     #[test]
     fn diff_added_key() {
         // ARRANGE
-        let a = with_version("[host]\nport = 1\n\n[network]\nipv6 = false\n");
-        let b = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
+        let before = with_version("[host]\nport = 1\n\n[network]\nipv6 = false\n");
+        let after = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
 
         // ACT
-        let changes = diff(&a, &b).unwrap();
+        let changes = diff(&before, &after).unwrap();
 
         // ASSERT
-        let found = changes.iter().any(|(k, before, after)| {
-            k == "network.ipv6" && before.contains("false") && after.contains("true")
+        let found = changes.iter().any(|change| {
+            change.0 == "network.ipv6" && change.1.contains("false") && change.2.contains("true")
         });
-        assert!(found, "expected network.ipv6 change, got: {:?}", changes);
+        assert!(found, "expected network.ipv6 change, got: {changes:?}");
     }
 
     #[test]
     fn diff_removed_key() {
         // ARRANGE
-        let a = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
-        let b = with_version("[host]\nport = 1\n\n[network]\nipv6 = false\n");
+        let before = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
+        let after = with_version("[host]\nport = 1\n\n[network]\nipv6 = false\n");
 
         // ACT
-        let changes = diff(&a, &b).unwrap();
+        let changes = diff(&before, &after).unwrap();
 
         // ASSERT
-        let found = changes.iter().any(|(k, before, after)| {
-            k == "network.ipv6" && before.contains("true") && after.contains("false")
+        let found = changes.iter().any(|change| {
+            change.0 == "network.ipv6" && change.1.contains("true") && change.2.contains("false")
         });
-        assert!(found, "expected network.ipv6 change, got: {:?}", changes);
+        assert!(found, "expected network.ipv6 change, got: {changes:?}");
     }
 
     #[test]
     fn diff_section_added_shows_field_changes_against_defaults() {
         // ARRANGE
-        let a = with_version("[host]\nport = 1\n");
-        let b = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
+        let before = with_version("[host]\nport = 1\n");
+        let after = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
 
         // ACT
-        let changes = diff(&a, &b).unwrap();
+        let changes = diff(&before, &after).unwrap();
 
         // ASSERT
         assert_eq!(
@@ -670,11 +736,11 @@ ntp = "pool.ntp.org"
     #[test]
     fn diff_section_removed_shows_field_changes_against_defaults() {
         // ARRANGE
-        let a = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
-        let b = with_version("[host]\nport = 1\n");
+        let before = with_version("[host]\nport = 1\n\n[network]\nipv6 = true\n");
+        let after = with_version("[host]\nport = 1\n");
 
         // ACT
-        let changes = diff(&a, &b).unwrap();
+        let changes = diff(&before, &after).unwrap();
 
         // ASSERT
         assert_eq!(
@@ -693,10 +759,10 @@ ntp = "pool.ntp.org"
         let from: SystemConfig = TomlCodec::decode(DEFAULT_CONFIG).unwrap();
         let from_default = SystemConfig::default();
 
-        let str = TomlCodec::encode(&from).unwrap();
+        let encoded = TomlCodec::encode(&from).unwrap();
         let default_str = TomlCodec::encode(&from_default).unwrap();
         assert_eq!(
-            str, default_str,
+            encoded, default_str,
             "Default impl has drifted from default config"
         );
     }
@@ -705,14 +771,14 @@ ntp = "pool.ntp.org"
     fn host_config_fields() {
         // ARRANGE
         let mut config = SystemConfig::default();
-        config.host.version = "v1.0.0".to_string();
-        config.host.extensions = vec!["ext1".to_string()];
-        config.host.ntp = "pool.ntp.org".to_string();
+        config.host.version = "v1.0.0".to_owned();
+        config.host.extensions = vec!["ext1".to_owned()];
+        config.host.ntp = "pool.ntp.org".to_owned();
         config.host.secureboot = true;
 
         // ACT
-        let s = serialize(&config).unwrap();
-        let restored: SystemConfig = TomlCodec::decode(&s).unwrap();
+        let serialized = serialize(&config).unwrap();
+        let restored: SystemConfig = TomlCodec::decode(&serialized).unwrap();
 
         // ASSERT
         assert_eq!(restored.host.version, "v1.0.0");
@@ -783,7 +849,7 @@ ntp = "pool.ntp.org"
         // ARRANGE
         let previous = SystemConfig::default();
         let mut next = previous.clone();
-        next.host.version = "v2.0.0".to_string();
+        next.host.version = "v2.0.0".to_owned();
         next.host.secureboot = true;
         next.vm.auto_restart = false;
 

@@ -190,7 +190,7 @@ mod tests {
         let addrs = parse_fib_trie_for_iface(content, "eth0");
 
         // ASSERT
-        assert!(addrs.is_empty());
+        assert_eq!(addrs, Vec::<alloc::string::String>::new());
     }
 
     #[test]
@@ -199,6 +199,9 @@ mod tests {
         let content = "Local:\n  +-- 127.0.0.1/8\n       /32 host LOCAL\n";
 
         // ACT / ASSERT
-        assert!(parse_fib_trie_for_iface(content, "eth0").is_empty());
+        assert_eq!(
+            parse_fib_trie_for_iface(content, "eth0"),
+            Vec::<alloc::string::String>::new()
+        );
     }
 }

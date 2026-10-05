@@ -77,8 +77,8 @@ mod tests {
         let cert_pem = cert.to_pem(LineEnding::LF)?;
 
         // ASSERT
-        assert!(!key_pem.is_empty());
-        assert!(!csr_pem.is_empty());
+        assert_ne!(key_pem, "");
+        assert_ne!(csr_pem, "");
         assert_eq!(csr_fp.len(), 64);
         assert_eq!(cert_fp.len(), 64);
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
@@ -316,7 +316,7 @@ mod tests {
         let algorithm_identifier = signer.signature_algorithm_identifier()?;
 
         // ASSERT
-        assert!(!public_key_document.as_bytes().is_empty());
+        assert_ne!(public_key_document.as_bytes(), []);
         assert_eq!(algorithm_identifier.oid, ECDSA_WITH_SHA_256);
 
         Ok(())
@@ -333,8 +333,8 @@ mod tests {
             .map_err(|_sign_error| PkiError::KeyGeneration)?;
 
         // ASSERT
-        assert!(!signature.0.is_empty());
-        assert!(!signature.to_bitstring()?.raw_bytes().is_empty());
+        assert_ne!(signature.0, b"");
+        assert_ne!(signature.to_bitstring()?.raw_bytes(), []);
 
         Ok(())
     }
@@ -519,8 +519,8 @@ mod tests {
         let serial = serial::generate()?;
 
         // ASSERT
-        assert!(!spki.subject_public_key.raw_bytes().is_empty());
-        assert!(!serial.as_bytes().is_empty());
+        assert_ne!(spki.subject_public_key.raw_bytes(), []);
+        assert_ne!(serial.as_bytes(), []);
 
         Ok(())
     }

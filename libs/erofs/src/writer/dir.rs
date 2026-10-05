@@ -66,8 +66,7 @@ pub(super) fn sorted_entries(
         };
         let name = Path::new(child_rel)
             .file_name()
-            .map(|name| name.to_string_lossy().as_bytes().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().as_bytes().to_vec());
         entries.push(Entry {
             name,
             nid: child.nid,

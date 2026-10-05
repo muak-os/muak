@@ -1,4 +1,4 @@
-use std::fmt;
+use alloc::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
@@ -19,16 +19,16 @@ pub struct NetworkConfig {
 impl NetworkConfig {
     /// Returns an iterator over the IPv4 DNS addresses.
     pub fn ipv4_dns(&self) -> impl Iterator<Item = Ipv4Addr> + '_ {
-        self.dns.iter().filter_map(|a| match a {
-            IpAddr::V4(v) => Some(*v),
+        self.dns.iter().filter_map(|addr| match *addr {
+            IpAddr::V4(v4) => Some(v4),
             IpAddr::V6(_) => None,
         })
     }
 
     /// Returns an iterator over the IPv6 DNS addresses.
     pub fn ipv6_dns(&self) -> impl Iterator<Item = Ipv6Addr> + '_ {
-        self.dns.iter().filter_map(|a| match a {
-            IpAddr::V6(v) => Some(*v),
+        self.dns.iter().filter_map(|addr| match *addr {
+            IpAddr::V6(v6) => Some(v6),
             IpAddr::V4(_) => None,
         })
     }
@@ -79,16 +79,17 @@ impl FromStr for Cidr4 {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let (addr_part, prefix_part) = s
             .split_once('/')
-            .ok_or_else(|| format!("missing '/' in CIDR address: '{}'", s))?;
+            .ok_or_else(|| format!("missing '/' in CIDR address: '{s}'"))?;
         let address = addr_part
             .parse::<Ipv4Addr>()
-            .map_err(|e| format!("invalid IPv4 address '{}': {}", addr_part, e))?;
+            .map_err(|e| format!("invalid IPv4 address '{addr_part}': {e}"))?;
         let prefix = prefix_part
             .parse::<u8>()
-            .map_err(|e| format!("invalid prefix length '{}': {}", prefix_part, e))?;
+            .map_err(|e| format!("invalid prefix length '{prefix_part}': {e}"))?;
         if prefix > 32 {
-            return Err(format!("prefix length {} exceeds 32", prefix));
+            return Err(format!("prefix length {prefix} exceeds 32"));
         }
+
         Ok(Self { address, prefix })
     }
 }
@@ -100,15 +101,21 @@ impl fmt::Display for Cidr4 {
 }
 
 impl Serialize for Cidr4 {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
 impl<'de> Deserialize<'de> for Cidr4 {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        s.parse::<Cidr4>().map_err(serde::de::Error::custom)
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+
+        text.parse::<Cidr4>().map_err(serde::de::Error::custom)
     }
 }
 
@@ -127,16 +134,17 @@ impl FromStr for Cidr6 {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let (addr_part, prefix_part) = s
             .split_once('/')
-            .ok_or_else(|| format!("missing '/' in CIDR address: '{}'", s))?;
+            .ok_or_else(|| format!("missing '/' in CIDR address: '{s}'"))?;
         let address = addr_part
             .parse::<Ipv6Addr>()
-            .map_err(|e| format!("invalid IPv6 address '{}': {}", addr_part, e))?;
+            .map_err(|e| format!("invalid IPv6 address '{addr_part}': {e}"))?;
         let prefix = prefix_part
             .parse::<u8>()
-            .map_err(|e| format!("invalid prefix length '{}': {}", prefix_part, e))?;
+            .map_err(|e| format!("invalid prefix length '{prefix_part}': {e}"))?;
         if prefix > 128 {
-            return Err(format!("prefix length {} exceeds 128", prefix));
+            return Err(format!("prefix length {prefix} exceeds 128"));
         }
+
         Ok(Self { address, prefix })
     }
 }
@@ -148,15 +156,21 @@ impl fmt::Display for Cidr6 {
 }
 
 impl Serialize for Cidr6 {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
 impl<'de> Deserialize<'de> for Cidr6 {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        s.parse::<Cidr6>().map_err(serde::de::Error::custom)
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+
+        text.parse::<Cidr6>().map_err(serde::de::Error::custom)
     }
 }
 
@@ -199,7 +213,7 @@ pub struct BridgeConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codec::{Codec, TomlCodec};
+    use crate::codec::{Codec as _, TomlCodec};
     use crate::system::SystemConfig;
 
     #[test]
@@ -226,17 +240,17 @@ mod tests {
 
     #[test]
     fn cidr4_parse_rejects_missing_slash() {
-        assert!("192.168.1.1".parse::<Cidr4>().is_err());
+        "192.168.1.1".parse::<Cidr4>().unwrap_err();
     }
 
     #[test]
     fn cidr4_parse_rejects_invalid_ip() {
-        assert!("999.0.0.1/24".parse::<Cidr4>().is_err());
+        "999.0.0.1/24".parse::<Cidr4>().unwrap_err();
     }
 
     #[test]
     fn cidr4_parse_rejects_prefix_over_32() {
-        assert!("192.168.1.1/33".parse::<Cidr4>().is_err());
+        "192.168.1.1/33".parse::<Cidr4>().unwrap_err();
     }
 
     #[test]
@@ -291,7 +305,7 @@ dns = ["9.9.9.9", "2620:fe::fe"]
         // ASSERT
         assert_eq!(v4.len(), 1);
         assert_eq!(v6.len(), 1);
-        assert_eq!(v4[0], "9.9.9.9".parse::<Ipv4Addr>().unwrap());
+        assert_eq!(v4.first(), Some(&"9.9.9.9".parse::<Ipv4Addr>().unwrap()));
     }
 
     #[test]
@@ -305,7 +319,7 @@ dns = ["not-an-ip"]
 "#;
 
         // ACT & ASSERT
-        assert!(TomlCodec::decode::<SystemConfig>(toml_str).is_err());
+        TomlCodec::decode::<SystemConfig>(toml_str).unwrap_err();
     }
 
     #[test]
@@ -323,13 +337,19 @@ ipv4.gateway = "192.168.1.1"
 
         // ACT
         let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
-        let iface = &config.network.interfaces[0];
+        let iface = config.network.interfaces.first().unwrap();
         let ipv4 = iface.ipv4.as_ref().unwrap();
 
         // ASSERT
         assert_eq!(ipv4.addresses.len(), 2);
-        assert_eq!(ipv4.addresses[0].to_string(), "192.168.1.10/24");
-        assert_eq!(ipv4.addresses[1].to_string(), "10.0.0.1/8");
+        assert_eq!(
+            ipv4.addresses.first().map(Cidr4::to_string).as_deref(),
+            Some("192.168.1.10/24")
+        );
+        assert_eq!(
+            ipv4.addresses.get(1).map(Cidr4::to_string).as_deref(),
+            Some("10.0.0.1/8")
+        );
         assert_eq!(
             ipv4.gateway,
             Some("192.168.1.1".parse::<Ipv4Addr>().unwrap())
@@ -350,11 +370,16 @@ ipv4.dhcp = true
 
         // ACT
         let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
-        let ipv4 = config.network.interfaces[0].ipv4.as_ref().unwrap();
+        let ipv4 = config
+            .network
+            .interfaces
+            .first()
+            .and_then(|iface| iface.ipv4.as_ref())
+            .unwrap();
 
         // ASSERT
         assert!(ipv4.dhcp);
-        assert!(ipv4.addresses.is_empty());
+        assert_eq!(ipv4.addresses, Vec::<Cidr4>::new());
         assert!(ipv4.gateway.is_none());
     }
 
@@ -382,17 +407,17 @@ ipv4.dhcp = true
 
     #[test]
     fn cidr6_parse_rejects_missing_slash() {
-        assert!("2001:db8::1".parse::<Cidr6>().is_err());
+        "2001:db8::1".parse::<Cidr6>().unwrap_err();
     }
 
     #[test]
     fn cidr6_parse_rejects_invalid_ip() {
-        assert!("gggg::1/64".parse::<Cidr6>().is_err());
+        "gggg::1/64".parse::<Cidr6>().unwrap_err();
     }
 
     #[test]
     fn cidr6_parse_rejects_prefix_over_128() {
-        assert!("::1/129".parse::<Cidr6>().is_err());
+        "::1/129".parse::<Cidr6>().unwrap_err();
     }
 
     #[test]
@@ -444,13 +469,19 @@ ipv6.gateway = "2001:db8::1"
 
         // ACT
         let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
-        let iface = &config.network.interfaces[0];
+        let iface = config.network.interfaces.first().unwrap();
         let ipv6 = iface.ipv6.as_ref().unwrap();
 
         // ASSERT
         assert_eq!(ipv6.addresses.len(), 2);
-        assert_eq!(ipv6.addresses[0].to_string(), "2001:db8::1/64");
-        assert_eq!(ipv6.addresses[1].to_string(), "2001:db8::2/64");
+        assert_eq!(
+            ipv6.addresses.first().map(Cidr6::to_string).as_deref(),
+            Some("2001:db8::1/64")
+        );
+        assert_eq!(
+            ipv6.addresses.get(1).map(Cidr6::to_string).as_deref(),
+            Some("2001:db8::2/64")
+        );
         assert_eq!(
             ipv6.gateway,
             Some("2001:db8::1".parse::<Ipv6Addr>().unwrap())
@@ -473,7 +504,7 @@ ipv6.autoconf = true
 
         // ACT
         let config: SystemConfig = TomlCodec::decode(toml_str).unwrap();
-        let iface = &config.network.interfaces[0];
+        let iface = config.network.interfaces.first().unwrap();
 
         // ASSERT
         assert_eq!(iface.name, "auto");

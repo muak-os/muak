@@ -222,7 +222,7 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        assert!(read_all(&mut readers, 0).is_empty());
+        assert_eq!(read_all(&mut readers, 0), b"");
     }
 
     #[test]
@@ -235,7 +235,7 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        assert!(read_all(&mut readers, 0).is_empty());
+        assert_eq!(read_all(&mut readers, 0), b"");
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
         let mut readers = build_readers(dir.path(), &entries).unwrap();
 
         // ASSERT
-        assert!(read_all(&mut readers, 0).is_empty());
+        assert_eq!(read_all(&mut readers, 0), b"");
         assert_eq!(read_all(&mut readers, 1), b"x");
     }
 

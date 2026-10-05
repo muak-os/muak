@@ -78,10 +78,6 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
     }
 
     /// Main event loop. Runs until the system shuts down.
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! macro internals use a remainder when shuffling branch order"
-    )]
     pub async fn run(&mut self) -> Result<()> {
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
@@ -736,7 +732,7 @@ mod tests {
         assert_eq!(sup.service_restart_count("svc"), Some(1));
 
         let not_yet_due = sup.restart_queue.take_due(|_| false);
-        assert!(not_yet_due.is_empty());
+        assert_eq!(not_yet_due, Vec::<alloc::string::String>::new());
 
         let due = sup.restart_queue.take_due(|_| true);
 

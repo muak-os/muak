@@ -62,13 +62,11 @@ impl VmEntry {
             tap_device: self
                 .tap_device
                 .as_ref()
-                .map(|tap| tap.name.clone())
-                .unwrap_or_default(),
+                .map_or_default(|tap| tap.name.clone()),
             mac_address: self
                 .tap_device
                 .as_ref()
-                .map(|tap| tap.mac_address.clone())
-                .unwrap_or_default(),
+                .map_or_default(|tap| tap.mac_address.clone()),
             disk_usage,
         }
     }

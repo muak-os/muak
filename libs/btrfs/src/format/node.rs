@@ -116,7 +116,7 @@ mod tests {
 
         // ASSERT
         assert!(items.is_empty());
-        assert!(data.is_empty());
+        assert_eq!(data, b"");
     }
 
     #[test]

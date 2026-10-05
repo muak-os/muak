@@ -29,7 +29,7 @@ mod tests {
         image::build(&layout, &mut readers, &mut buf).expect("image::build must succeed");
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
         assert_eq!(buf.get(510..512), Some(&[0x55, 0xAA][..]), "boot signature");
         assert_eq!(
             device_data.get(71..82),

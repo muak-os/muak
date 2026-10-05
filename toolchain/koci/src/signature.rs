@@ -642,12 +642,13 @@ mod tests {
         let key = parse_pem_private_key(&pem).expect("private key parsing should succeed");
 
         // ASSERT
-        assert!(
-            !key.verifying_key()
+        assert_ne!(
+            key.verifying_key()
                 .as_affine()
                 .to_sec1_point(false)
-                .as_bytes()
-                .is_empty()
+                .as_bytes(),
+            b"",
+            "public key point must not be empty"
         );
     }
 

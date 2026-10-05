@@ -191,7 +191,7 @@ mod tests {
         let result = run_with_data(data);
 
         // ASSERT
-        assert!(!result.is_empty());
+        assert_ne!(result, b"");
         assert!(result.windows(b"init".len()).any(|w| w == b"init"));
     }
 
@@ -201,7 +201,7 @@ mod tests {
         let result = run_with_data(b"");
 
         // ASSERT
-        assert!(!result.is_empty());
+        assert_ne!(result, b"");
     }
 
     #[test]
@@ -236,7 +236,7 @@ mod tests {
         write_trailer(&mut buf).expect("write_trailer");
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
     }
 
     #[test]

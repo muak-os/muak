@@ -35,12 +35,10 @@ fn sorted_children(inodes: &[InodeLayout], dir_idx: usize) -> Vec<String> {
     children.sort_by(|left, right| {
         let left_name = Path::new(left)
             .file_name()
-            .map(|file_name| file_name.to_string_lossy())
-            .unwrap_or_default();
+            .map_or_default(|file_name| file_name.to_string_lossy());
         let right_name = Path::new(right)
             .file_name()
-            .map(|file_name| file_name.to_string_lossy())
-            .unwrap_or_default();
+            .map_or_default(|file_name| file_name.to_string_lossy());
         left_name.as_ref().cmp(right_name.as_ref())
     });
     children
@@ -86,7 +84,7 @@ mod tests {
         let order = bfs_order(&inodes, &path_to_idx);
 
         // ASSERT
-        assert!(order.is_empty());
+        assert_eq!(order, Vec::<usize>::new());
     }
 
     #[test]
@@ -120,6 +118,6 @@ mod tests {
         let order = bfs_order(&[inode], &path_to_idx);
 
         // ASSERT
-        assert!(order.is_empty());
+        assert_eq!(order, Vec::<usize>::new());
     }
 }

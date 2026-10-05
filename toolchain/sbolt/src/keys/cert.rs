@@ -178,8 +178,8 @@ mod tests {
         let spki = get_spki_from_signer(&signer).expect("get SPKI");
 
         // ASSERT
-        assert!(!serial.as_bytes().is_empty());
-        assert!(!spki.subject_public_key.raw_bytes().is_empty());
+        assert_ne!(serial.as_bytes(), []);
+        assert_ne!(spki.subject_public_key.raw_bytes(), []);
     }
 
     #[test]

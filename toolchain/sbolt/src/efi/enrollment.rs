@@ -140,6 +140,7 @@ mod tests {
     use core::cell::RefCell;
 
     use super::*;
+    use crate::efi::variables;
 
     /// In-memory firmware variable backend for enrollment tests.
     #[derive(Default)]
@@ -288,7 +289,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(database.len(), 1);
-        assert!(!database.to_bytes().is_empty());
+        assert_ne!(database.to_bytes(), b"");
     }
 
     #[test]
@@ -368,7 +369,10 @@ mod tests {
 
         // ASSERT
         result.expect_err("unavailable backend should fail");
-        assert!(backend.writes().is_empty());
+        assert_eq!(
+            backend.writes(),
+            Vec::<(variables::Id, alloc::vec::Vec<u8>)>::new()
+        );
     }
 
     #[test]
@@ -384,7 +388,10 @@ mod tests {
 
         // ASSERT
         result.expect_err("non-setup mode should fail");
-        assert!(backend.writes().is_empty());
+        assert_eq!(
+            backend.writes(),
+            Vec::<(variables::Id, alloc::vec::Vec<u8>)>::new()
+        );
     }
 
     #[test]

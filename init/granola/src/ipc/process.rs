@@ -45,11 +45,7 @@ async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
     let cmdline = tokio::fs::read_to_string(&cmdline_path).await?;
 
     let parts: Vec<&str> = cmdline.trim_end_matches('\0').split('\0').collect();
-    let command = parts
-        .first()
-        .copied()
-        .map(str::to_owned)
-        .unwrap_or_default();
+    let command = parts.first().copied().map_or_default(str::to_owned);
     let args: Vec<String> = parts.iter().skip(1).copied().map(str::to_owned).collect();
 
     let stat_path = format!("/proc/{pid}/stat");

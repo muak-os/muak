@@ -262,7 +262,7 @@ mod tests {
         let image = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
         assert!(image.len().is_multiple_of(4096));
     }
 
@@ -281,7 +281,7 @@ mod tests {
         let image = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
     }
 
     #[test]
@@ -294,7 +294,7 @@ mod tests {
         let image = mkfs_from_dir(dir.path(), &compress_config(0));
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
         assert!(image.len().is_multiple_of(4096));
     }
 
@@ -357,7 +357,7 @@ mod tests {
         let image = mkfs_from_dir(dir.path(), &compress_config(0));
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
         assert!(image.len().is_multiple_of(4096));
     }
 
@@ -441,7 +441,7 @@ mod tests {
         let image = mkfs_from_dir(dir.path(), &config);
 
         // ASSERT
-        assert!(!image.is_empty());
+        assert_ne!(image, b"");
         assert!(
             image
                 .len()

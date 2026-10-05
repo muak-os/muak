@@ -403,7 +403,7 @@ mod tests {
             .iter()
             .find(|inode| inode.rel_path == "/f")
             .expect("found");
-        assert!(!file.xattr_payload.is_empty());
+        assert_ne!(file.xattr_payload, b"");
     }
 
     #[test]

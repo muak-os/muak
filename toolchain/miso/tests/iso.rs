@@ -226,6 +226,6 @@ mod tests {
         let iso = build_iso(1024);
 
         // ASSERT
-        assert!(!iso.is_empty());
+        assert_ne!(iso, b"");
     }
 }

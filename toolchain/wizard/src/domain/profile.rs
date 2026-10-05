@@ -221,7 +221,7 @@ extensions = ["qemu"]
         // ASSERT
         assert!(doc.overlay().is_none());
         assert_eq!(doc.kernel().source(), "muak-os/linux");
-        assert!(doc.customization().extensions().is_empty());
+        assert_eq!(doc.customization().extensions(), Vec::<String>::new());
     }
 
     #[test]

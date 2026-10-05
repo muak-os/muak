@@ -64,12 +64,12 @@ pub fn check_compatibility(cli: &str, server: &str) -> CompatibilityStatus {
         return CompatibilityStatus::Compatible;
     }
 
-    if cli.major != server.major {
-        CompatibilityStatus::MajorMismatch {
+    if cli.major == server.major {
+        CompatibilityStatus::MinorDrift {
             cli_newer: cli > server,
         }
     } else {
-        CompatibilityStatus::MinorDrift {
+        CompatibilityStatus::MajorMismatch {
             cli_newer: cli > server,
         }
     }
@@ -83,25 +83,29 @@ mod tests {
     fn parse_release_accepts_pinned_and_plain_versions() {
         // ACT / ASSERT
         assert_eq!(
-            parse_release("v1.2.3").map(|v| v.to_string()).ok(),
+            parse_release("v1.2.3")
+                .map(|release| release.to_string())
+                .ok(),
             Some("1.2.3".to_owned())
         );
         assert_eq!(
-            parse_release("1.2.3").map(|v| v.to_string()).ok(),
+            parse_release("1.2.3")
+                .map(|release| release.to_string())
+                .ok(),
             Some("1.2.3".to_owned())
         );
-        assert!(parse_release("v1.2.3-beta").is_ok());
-        assert!(parse_release("v1.2.3-rc.10+build").is_ok());
+        parse_release("v1.2.3-beta").unwrap();
+        parse_release("v1.2.3-rc.10+build").unwrap();
     }
 
     #[test]
     fn parse_release_rejects_malformed_releases() {
         // ACT / ASSERT
-        assert!(parse_release("").is_err());
-        assert!(parse_release("v1.2").is_err());
-        assert!(parse_release("v1.2.x").is_err());
-        assert!(parse_release("latest").is_err());
-        assert!(parse_release("stable").is_err());
+        parse_release("").unwrap_err();
+        parse_release("v1.2").unwrap_err();
+        parse_release("v1.2.x").unwrap_err();
+        parse_release("latest").unwrap_err();
+        parse_release("stable").unwrap_err();
     }
 
     #[test]
@@ -111,17 +115,17 @@ mod tests {
         assert!(check_no_downgrade("v1.0.0", "v2.0.0").is_err());
         assert!(check_no_downgrade("v1.2.3", "v1.2.4").is_err());
 
-        assert!(check_no_downgrade("v1.2.3", "v1.2.3").is_ok());
-        assert!(check_no_downgrade("v1.3.0", "v1.2.9").is_ok());
-        assert!(check_no_downgrade("v2.0.0", "v1.99.99").is_ok());
+        check_no_downgrade("v1.2.3", "v1.2.3").unwrap();
+        check_no_downgrade("v1.3.0", "v1.2.9").unwrap();
+        check_no_downgrade("v2.0.0", "v1.99.99").unwrap();
     }
 
     #[test]
     fn pre_release_is_older_than_its_release() {
         // ACT / ASSERT
         assert!(check_no_downgrade("v1.0.0-beta", "v1.0.0").is_err());
-        assert!(check_no_downgrade("v1.0.0", "v1.0.0-rc1").is_ok());
-        assert!(check_no_downgrade("v1.2.0-beta", "v1.1.0").is_ok());
+        check_no_downgrade("v1.0.0", "v1.0.0-rc1").unwrap();
+        check_no_downgrade("v1.2.0-beta", "v1.1.0").unwrap();
     }
 
     #[test]

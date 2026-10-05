@@ -1,5 +1,7 @@
 //! Role-Based Access Control (RBAC) for the API gateway.
 
+extern crate alloc;
+
 pub mod error;
 mod user;
 
@@ -137,7 +139,11 @@ mod tests {
         let count = KNOWN_METHODS.len();
 
         // ASSERT
-        assert!(!KNOWN_METHODS.is_empty());
+        assert_ne!(
+            KNOWN_METHODS,
+            Vec::<&str>::new(),
+            "KNOWN_METHODS must list every permitted RPC"
+        );
         assert!(count > 0);
     }
 
@@ -162,7 +168,7 @@ mod tests {
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Reboot"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
-        assert!(!MAINTENANCE_METHODS.is_empty());
+        assert_ne!(MAINTENANCE_METHODS, Vec::<&str>::new());
         for method in MAINTENANCE_METHODS {
             assert!(
                 KNOWN_METHODS.contains(method),

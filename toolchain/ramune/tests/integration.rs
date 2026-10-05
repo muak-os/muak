@@ -16,7 +16,7 @@ mod tests {
         archive::cpio(&mut [], &mut buf).unwrap();
 
         // ASSERT
-        assert!(buf.is_empty());
+        assert_eq!(buf, b"");
     }
 
     #[test]

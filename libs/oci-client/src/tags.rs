@@ -98,8 +98,8 @@ mod tests {
         let null = parse_tags(br#"{"name":"muak/linux","tags":null}"#).expect("valid tags list");
 
         // ASSERT
-        assert!(missing.is_empty());
-        assert!(null.is_empty());
+        assert_eq!(missing, Vec::<alloc::string::String>::new());
+        assert_eq!(null, Vec::<alloc::string::String>::new());
     }
 
     #[test]

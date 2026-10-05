@@ -16,10 +16,6 @@ mod tests {
     use super::*;
 
     /// Triggers an update then abandons the CLI before it can contact provisiond.
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! macro uses % internally"
-    )]
     #[tokio::test]
     async fn update_rollback_on_cli_contact_timeout() -> Result<()> {
         // ARRANGE

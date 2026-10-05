@@ -1,13 +1,14 @@
 //! Mutable authentication and authorization state.
 
+use alloc::sync::Arc;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
 
 use serde::{Deserialize, Serialize};
 
 use crate::Permission;
-use crate::codec::{Codec, TomlCodec};
+use crate::codec::{Codec as _, TomlCodec};
 use crate::error::Result;
 
 /// Path to the auth state file on disk.
@@ -43,8 +44,6 @@ pub struct AuthUser {
 }
 
 /// Initializes the auth cache. Called once at startup by [`crate::init()`].
-///
-/// Returns an error if `auth.toml` exists but cannot be parsed.
 pub(crate) fn init() -> Result<()> {
     let path = Path::new(AUTH_PATH);
     let (config, mtime) = if path.exists() {
@@ -59,33 +58,9 @@ pub(crate) fn init() -> Result<()> {
         data: RwLock::new(Arc::new(config)),
         mtime: AtomicU64::new(mtime),
     };
-    let _ = AUTH_CACHE.set(cache);
+    drop(AUTH_CACHE.set(cache));
+
     Ok(())
-}
-
-/// Returns the current auth config, reloading from disk if the file changed.
-///
-/// # Panics
-///
-/// Panics if [`crate::init()`] has not been called.
-pub fn auth() -> Arc<AuthConfig> {
-    let cache = AUTH_CACHE.get().expect("Auth not initialized");
-
-    let current_mtime = file_mtime(AUTH_PATH);
-    let cached_mtime = cache.mtime.load(Ordering::Relaxed);
-
-    if current_mtime != cached_mtime {
-        let (config, mtime) = load_with_mtime();
-        let new = Arc::new(config);
-        if let Ok(mut data) = cache.data.write() {
-            *data = Arc::clone(&new);
-            cache.mtime.store(mtime, Ordering::Relaxed);
-        }
-        return new;
-    }
-
-    let data = cache.data.read().expect("auth lock poisoned");
-    Arc::clone(&data)
 }
 
 /// Returns the current auth config, or `None` if [`crate::init()`] hasn't been called.
@@ -110,16 +85,28 @@ pub fn try_auth() -> Option<Arc<AuthConfig>> {
 }
 
 /// Serializes an [`AuthConfig`] to a string.
+///
+/// # Errors
+///
+/// Returns an error when the config cannot be encoded to TOML.
 pub fn serialize(config: &AuthConfig) -> Result<String> {
     TomlCodec::encode(config)
 }
 
 /// Parses an [`AuthConfig`] from a string.
+///
+/// # Errors
+///
+/// Returns an error when the contents are not valid TOML for [`AuthConfig`].
 pub fn parse(contents: &str) -> Result<AuthConfig> {
     TomlCodec::decode(contents)
 }
 
 /// Loads auth config from disk, returning defaults if the file doesn't exist.
+///
+/// # Errors
+///
+/// Returns an error when the file exists but cannot be read or parsed.
 pub fn load_from_path(path: &Path) -> Result<AuthConfig> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
@@ -133,9 +120,9 @@ pub fn load_from_path(path: &Path) -> Result<AuthConfig> {
 /// Falls back to default on error (logging a warning via eprintln).
 fn load_with_mtime() -> (AuthConfig, u64) {
     let config = match load_from_path(Path::new(AUTH_PATH)) {
-        Ok(c) => c,
+        Ok(parsed) => parsed,
         Err(e) => {
-            eprintln!("config: failed to reload {}: {}", AUTH_PATH, e);
+            eprintln!("config: failed to reload {AUTH_PATH}: {e}");
             AuthConfig::default()
         }
     };
@@ -146,18 +133,22 @@ fn load_with_mtime() -> (AuthConfig, u64) {
 /// Returns the mtime of a file as seconds since epoch, or 0 if unavailable.
 fn file_mtime(path: &str) -> u64 {
     std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .map(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
+        .and_then(|metadata| metadata.modified())
+        .map_or(0, |modified| {
+            modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs())
         })
-        .unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::TomlCodec;
+
+    fn parse(contents: &str) -> crate::Result<AuthConfig> {
+        TomlCodec::decode(contents)
+    }
 
     #[test]
     fn auth_config_defaults() {
@@ -166,7 +157,7 @@ mod tests {
 
         // ASSERT
         assert!(config.users.is_empty());
-        assert!(config.revoked.is_empty());
+        assert_eq!(config.revoked, Vec::<String>::new());
     }
 
     #[test]
@@ -174,10 +165,10 @@ mod tests {
         // ARRANGE
         let config = AuthConfig {
             users: vec![AuthUser {
-                fingerprint: "abc123".to_string(),
+                fingerprint: "abc123".to_owned(),
                 permissions: vec![Permission::Admin],
             }],
-            revoked: vec!["revoked_fp".to_string()],
+            revoked: vec!["revoked_fp".to_owned()],
         };
 
         // ACT
@@ -186,7 +177,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(deserialized.users.len(), 1);
-        assert_eq!(deserialized.users[0].fingerprint, "abc123");
+        assert_eq!(
+            deserialized
+                .users
+                .first()
+                .map(|user| user.fingerprint.as_str()),
+            Some("abc123")
+        );
         assert_eq!(deserialized.revoked, vec!["revoked_fp"]);
     }
 
@@ -196,15 +193,15 @@ mod tests {
         let config = AuthConfig {
             users: vec![
                 AuthUser {
-                    fingerprint: "fp1".to_string(),
+                    fingerprint: "fp1".to_owned(),
                     permissions: vec![Permission::Admin, Permission::VmRead],
                 },
                 AuthUser {
-                    fingerprint: "fp2".to_string(),
+                    fingerprint: "fp2".to_owned(),
                     permissions: vec![Permission::SystemRead],
                 },
             ],
-            revoked: vec!["dead_fp".to_string(), "another_dead".to_string()],
+            revoked: vec!["dead_fp".to_owned(), "another_dead".to_owned()],
         };
 
         // ACT
@@ -213,8 +210,20 @@ mod tests {
 
         // ASSERT
         assert_eq!(deserialized.users.len(), 2);
-        assert_eq!(deserialized.users[0].permissions.len(), 2);
-        assert_eq!(deserialized.users[1].fingerprint, "fp2");
+        assert_eq!(
+            deserialized
+                .users
+                .first()
+                .map(|user| user.permissions.len()),
+            Some(2)
+        );
+        assert_eq!(
+            deserialized
+                .users
+                .get(1)
+                .map(|user| user.fingerprint.as_str()),
+            Some("fp2")
+        );
         assert_eq!(deserialized.revoked.len(), 2);
     }
 
@@ -229,7 +238,7 @@ mod tests {
 
         // ASSERT
         assert!(deserialized.users.is_empty());
-        assert!(deserialized.revoked.is_empty());
+        assert_eq!(deserialized.revoked, Vec::<String>::new());
     }
 
     #[test]
@@ -242,7 +251,7 @@ mod tests {
 
         // ASSERT
         assert!(config.users.is_empty());
-        assert!(config.revoked.is_empty());
+        assert_eq!(config.revoked, Vec::<String>::new());
     }
 
     #[test]
@@ -261,7 +270,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(config.users.len(), 1);
-        assert_eq!(config.users[0].fingerprint, "fp1");
+        assert_eq!(
+            config.users.first().map(|user| user.fingerprint.as_str()),
+            Some("fp1")
+        );
     }
 
     #[test]
@@ -275,7 +287,7 @@ mod tests {
         let result = load_from_path(&path);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -313,11 +325,8 @@ mod tests {
 
     #[test]
     fn try_auth_returns_none_before_init() {
-        // ARRANGE & ACT
-        let result = try_auth();
-
-        // ASSERT
-        let _ = result;
+        // ARRANGE & ACT & ASSERT
+        drop(try_auth());
     }
 
     #[test]
@@ -329,6 +338,6 @@ mod tests {
         let result = parse(invalid);
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

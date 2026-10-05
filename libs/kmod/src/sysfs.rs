@@ -172,7 +172,7 @@ mod tests {
         let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(collected.is_empty());
+        assert_eq!(collected, Vec::<alloc::string::String>::new());
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
             collect_modaliases(Path::new("/nonexistent/sys/bus")).expect("collect failed");
 
         // ASSERT
-        assert!(collected.is_empty());
+        assert_eq!(collected, Vec::<alloc::string::String>::new());
     }
 
     #[test]
@@ -305,7 +305,7 @@ mod tests {
         let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(collected.is_empty());
+        assert_eq!(collected, Vec::<alloc::string::String>::new());
     }
 
     #[test]
@@ -320,7 +320,7 @@ mod tests {
         let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert!(collected.is_empty());
+        assert_eq!(collected, Vec::<alloc::string::String>::new());
     }
 
     #[test]

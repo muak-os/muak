@@ -176,8 +176,8 @@ mod tests {
 
         // ASSERT
         assert_eq!(poll.prev_cpu.idle, 0);
-        assert!(poll.scratch.is_empty());
-        assert!(poll.net_scratch.is_empty());
+        assert_eq!(poll.scratch, "");
+        assert_eq!(poll.net_scratch, "");
         assert!(poll.config_stamp.is_none());
         assert!(poll.ntp_cache.is_none());
     }

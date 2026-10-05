@@ -245,7 +245,7 @@ mod tests {
         // ASSERT
         assert!(u8_from_usize(b"selinux".len()).is_some());
         assert!(u16_from_usize(huge_value_len).is_none());
-        assert!(payload.is_empty());
+        assert_eq!(payload, b"");
     }
 
     #[test]

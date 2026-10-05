@@ -324,7 +324,7 @@ mod tests {
             })
             .filter(|name| name.contains(".part."))
             .collect();
-        assert!(leftovers.is_empty());
+        assert_eq!(leftovers, Vec::<alloc::string::String>::new());
     }
 
     #[test]

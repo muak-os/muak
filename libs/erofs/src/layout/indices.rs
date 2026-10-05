@@ -568,7 +568,7 @@ mod tests {
 
         // ASSERT
         let root = inodes.first().expect("root inode");
-        assert!(root.children.is_empty());
+        assert_eq!(root.children, Vec::<alloc::string::String>::new());
         assert_eq!(root.nlink, 1);
     }
 }

@@ -76,6 +76,6 @@ mod tests {
         builder::build(&precomputed, &mut readers, &mut buf).expect("build must succeed");
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
     }
 }

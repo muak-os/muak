@@ -30,8 +30,7 @@ pub async fn generate() -> Result<String> {
         task::spawn_blocking(|| -> anyhow::Result<(String, Vec<String>)> {
             let version = medium::version()?;
             let extensions = medium::profile()
-                .map(|booted| booted.customization().extensions().to_vec())
-                .unwrap_or_default();
+                .map_or_default(|booted| booted.customization().extensions().to_vec());
 
             Ok((version, extensions))
         })

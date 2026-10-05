@@ -489,7 +489,7 @@ mod tests {
         let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
-        assert!(!out.is_empty());
+        assert_ne!(out, b"");
     }
 
     #[test]
@@ -504,7 +504,7 @@ mod tests {
         let out = build_image(files, 36 * 1024 * 1024);
 
         // ASSERT
-        assert!(!out.is_empty());
+        assert_ne!(out, b"");
     }
 
     #[test]

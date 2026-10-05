@@ -67,7 +67,7 @@ mod tests {
         render(&mut buf, visible, 80, 40).unwrap();
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
     }
 
     #[test]
@@ -80,7 +80,7 @@ mod tests {
         render(&mut buf, visible, 80, 40).unwrap();
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
     }
 
     #[test]

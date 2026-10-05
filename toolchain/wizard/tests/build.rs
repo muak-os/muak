@@ -481,7 +481,7 @@ digest = "{unsorted}"
         // ASSERT
         assert_eq!(kernel_out, expected);
         assert_eq!(cmdline_out, CMDLINE);
-        assert!(report.sections.is_empty());
+        assert_eq!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
     }
 
     /// Extracts the `vmlinuz` bytes from the fixture kernel layer archive.
@@ -707,7 +707,7 @@ digest = "{unsorted}"
             "fanned-out initramfs must be byte-identical to the standalone artifact"
         );
         assert!(is_pe(&uki));
-        assert!(!report.sections.is_empty());
+        assert_ne!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
     }
 
     #[test]
@@ -933,7 +933,7 @@ digest = "{unsorted}"
             "signed UKI must be align8(unsigned) + cert table size"
         );
         assert!(is_pe(&signed_uki));
-        assert!(!report.sections.is_empty());
+        assert_ne!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
     }
 
     #[test]
@@ -956,7 +956,7 @@ digest = "{unsorted}"
             (MIN_UKI_BYTES..=MAX_UKI_BYTES).contains(&size),
             "full-size UKI must land inside the FAT32 bounds"
         );
-        assert!(!report.sections.is_empty());
+        assert_ne!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
     }
 
     #[test]

@@ -132,7 +132,7 @@ mod tests {
         .unwrap();
 
         // ASSERT
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
     }
 
     #[test]

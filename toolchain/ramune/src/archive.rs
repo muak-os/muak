@@ -241,7 +241,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(written, 0);
-        assert!(buf.is_empty());
+        assert_eq!(buf, b"");
     }
 
     #[test]

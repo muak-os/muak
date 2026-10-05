@@ -228,7 +228,7 @@ mod tests {
         // ASSERT
         assert!(db.is_empty());
         assert_eq!(db.len(), 0);
-        assert!(db.to_bytes().is_empty());
+        assert_eq!(db.to_bytes(), b"");
     }
 
     #[test]

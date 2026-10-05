@@ -320,7 +320,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(payload.size(), payload.meta().size);
-        assert!(!buf.is_empty());
+        assert_ne!(buf, b"");
         assert_eq!(u64::try_from(buf.len()).unwrap_or(0), payload.size());
     }
 

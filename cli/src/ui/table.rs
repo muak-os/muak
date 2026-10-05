@@ -109,15 +109,18 @@ mod tests {
         let table = Table::new();
 
         // ASSERT
-        assert!(table.headers.is_empty());
-        assert!(table.rows.is_empty());
-        assert!(table.widths.is_empty());
+        assert_eq!(table.headers, Vec::<alloc::string::String>::new());
+        assert_eq!(
+            table.rows,
+            Vec::<alloc::vec::Vec<alloc::string::String>>::new()
+        );
+        assert_eq!(table.widths, Vec::<usize>::new());
     }
 
     #[test]
     fn default_equals_new() {
         let table = Table::default();
-        assert!(table.headers.is_empty());
+        assert_eq!(table.headers, Vec::<alloc::string::String>::new());
     }
 
     #[test]

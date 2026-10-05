@@ -296,6 +296,6 @@ mod tests {
         .expect("skip mismatch");
 
         // ASSERT
-        assert!(sink.is_empty());
+        assert_eq!(sink, b"");
     }
 }

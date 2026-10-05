@@ -181,7 +181,7 @@ mod tests {
         let events = decode_all(&[b"\x1b[Z"]);
 
         // ASSERT
-        assert!(events.is_empty());
+        assert_eq!(events, Vec::<InputEvent>::new());
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
         let events = decode_all(&[b"hello"]);
 
         // ASSERT
-        assert!(events.is_empty());
+        assert_eq!(events, Vec::<InputEvent>::new());
     }
 
     #[test]
@@ -246,7 +246,7 @@ mod tests {
         let events = decode_all(&[b"JKx "]);
 
         // ASSERT
-        assert!(events.is_empty());
+        assert_eq!(events, Vec::<InputEvent>::new());
     }
 
     #[test]
@@ -304,8 +304,8 @@ mod tests {
         let second = decoder.push(b"A");
 
         // ASSERT
-        assert!(first.is_empty());
-        assert!(second.is_empty());
+        assert_eq!(first, Vec::<InputEvent>::new());
+        assert_eq!(second, Vec::<InputEvent>::new());
     }
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
         let second = decoder.push(b"A");
 
         // ASSERT
-        assert!(first.is_empty());
-        assert!(second.is_empty());
+        assert_eq!(first, Vec::<InputEvent>::new());
+        assert_eq!(second, Vec::<InputEvent>::new());
     }
 }

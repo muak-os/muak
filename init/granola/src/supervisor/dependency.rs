@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn empty_map_returns_empty() {
         let map = HashMap::new();
-        assert!(collect_startable(&map).is_empty());
+        assert_eq!(collect_startable(&map), Vec::<alloc::string::String>::new());
     }
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
             "a".to_owned(),
             make_state(make_service("a", &[]), ServiceStatus::Ready),
         );
-        assert!(collect_startable(&map).is_empty());
+        assert_eq!(collect_startable(&map), Vec::<alloc::string::String>::new());
     }
 
     #[test]

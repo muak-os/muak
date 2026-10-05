@@ -1241,8 +1241,8 @@ mod tests {
         assert_eq!(item_payload(&result, 0).len(), 8);
         assert_eq!(item_payload(&result, 2).len(), 8);
         assert_eq!(item_payload(&result, 5).len(), 8);
-        assert!(item_payload(&result, 1).is_empty());
-        assert!(item_payload(&result, 3).is_empty());
+        assert_eq!(item_payload(&result, 1), []);
+        assert_eq!(item_payload(&result, 3), []);
     }
 
     #[test]
@@ -1333,7 +1333,7 @@ mod tests {
         assert_eq!(result.owner, BTRFS_CSUM_TREE_OBJECTID);
         assert_eq!(result.logical_offset, fixture.layout.meta_block(BLK_CSUM));
         assert!(result.items.is_empty());
-        assert!(result.data.is_empty());
+        assert_eq!(result.data, b"");
     }
 
     #[test]
@@ -1421,6 +1421,6 @@ mod tests {
         assert_eq!(result.logical_offset, 1_024);
         assert_eq!(result.owner, 5);
         assert!(result.items.is_empty());
-        assert!(result.data.is_empty());
+        assert_eq!(result.data, b"");
     }
 }

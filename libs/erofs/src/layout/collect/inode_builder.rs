@@ -29,8 +29,7 @@ pub fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<
         let xattr_payload = config
             .file_contexts
             .and_then(|fc| fc.label_for(rel))
-            .map(|label| xattr::selinux_payload(label.as_bytes()))
-            .unwrap_or_default();
+            .map_or_default(|label| xattr::selinux_payload(label.as_bytes()));
         let xattr_ic = xattr::icount(xattr_payload.len());
 
         let size = if entry.file_type == EROFS_FT_DIR {
@@ -78,8 +77,7 @@ pub(super) fn inode_name(rel: &str) -> Result<String> {
     } else {
         Path::new(rel)
             .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default()
+            .map_or_default(|name| name.to_string_lossy().to_string())
     };
 
     if name.len() > dir::EROFS_NAME_LEN {

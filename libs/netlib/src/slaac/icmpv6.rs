@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(ra.router_lifetime, 1800);
         assert_eq!(ra.source, source);
         assert!(ra.prefixes.is_empty());
-        assert!(ra.dns_servers.is_empty());
+        assert_eq!(ra.dns_servers, Vec::<std::net::Ipv6Addr>::new());
     }
 
     #[test]

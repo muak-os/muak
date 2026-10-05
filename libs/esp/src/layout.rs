@@ -115,7 +115,7 @@ mod tests {
         image::build(&layout, &mut readers, &mut output).expect("build must succeed");
 
         // ASSERT
-        assert!(!output.is_empty());
+        assert_ne!(output, b"");
         assert_eq!(
             output.get(510..512),
             Some(&[0x55, 0xAA][..]),
@@ -170,7 +170,7 @@ mod tests {
         image::build(&layout, &mut readers, &mut output).expect("build must succeed");
 
         // ASSERT
-        assert!(!output.is_empty());
+        assert_ne!(output, b"");
         assert_eq!(
             output.get(510..512),
             Some(&[0x55, 0xAA][..]),

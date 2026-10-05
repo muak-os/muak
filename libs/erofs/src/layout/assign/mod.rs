@@ -54,8 +54,7 @@ pub fn nids_and_layouts(
         let slot_offset = meta_offset;
         let nid = meta_offset
             .checked_div(SLOT_SIZE)
-            .map(sizes::truncate_usize_to_u64)
-            .unwrap_or_default();
+            .map_or_default(sizes::truncate_usize_to_u64);
         let Some(inode) = inodes.get(i) else {
             continue;
         };

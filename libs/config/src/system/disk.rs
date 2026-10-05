@@ -14,22 +14,24 @@ pub struct DiskConfig {
 
 impl DiskConfig {
     /// Returns the effective data disk path, falling back to `system` when `data` is unset.
+    #[must_use]
     pub fn data_disk(&self) -> &str {
-        match &self.data {
-            Some(d) if !d.is_empty() => d.as_str(),
+        match self.data.as_deref() {
+            Some(path) if !path.is_empty() => path,
             _ => &self.system,
         }
     }
 
     /// Returns true when the data partition lives on a separate physical disk.
+    #[must_use]
     pub fn is_split(&self) -> bool {
-        matches!(&self.data, Some(d) if !d.is_empty() && d != &self.system)
+        matches!(self.data.as_deref(), Some(path) if !path.is_empty() && self.system != path)
     }
 
     pub(super) fn validate_for_install(&self) -> Result<()> {
         if self.system.is_empty() {
             return Err(ConfigError::ValidationError(
-                "disk.system must be specified for installation".to_string(),
+                "disk.system must be specified for installation".to_owned(),
             ));
         }
         Ok(())
@@ -60,8 +62,8 @@ mod tests {
     #[test]
     fn data_disk_fallback() {
         // ARRANGE
-        let disk = crate::system::disk::DiskConfig {
-            system: "/dev/sda".to_string(),
+        let disk = DiskConfig {
+            system: "/dev/sda".to_owned(),
             ..Default::default()
         };
 
@@ -74,8 +76,8 @@ mod tests {
     fn data_disk_split() {
         // ARRANGE
         let disk = DiskConfig {
-            system: "/dev/sda".to_string(),
-            data: Some("/dev/sdb".to_string()),
+            system: "/dev/sda".to_owned(),
+            data: Some("/dev/sdb".to_owned()),
         };
 
         // ACT & ASSERT
@@ -87,7 +89,7 @@ mod tests {
     fn empty_data_string_falls_back_to_system() {
         // ARRANGE
         let disk = DiskConfig {
-            system: "/dev/sda".to_string(),
+            system: "/dev/sda".to_owned(),
             data: Some(String::new()),
         };
 
@@ -105,11 +107,11 @@ mod tests {
     fn validate_immutable_rejects_system_disk_change() {
         // ARRANGE
         let installed = DiskConfig {
-            system: "/dev/sda".to_string(),
+            system: "/dev/sda".to_owned(),
             data: None,
         };
         let requested = DiskConfig {
-            system: "/dev/sdb".to_string(),
+            system: "/dev/sdb".to_owned(),
             data: None,
         };
 
@@ -121,12 +123,12 @@ mod tests {
     fn validate_immutable_rejects_data_disk_change() {
         // ARRANGE
         let installed = DiskConfig {
-            system: "/dev/sda".to_string(),
-            data: Some("/dev/sdb".to_string()),
+            system: "/dev/sda".to_owned(),
+            data: Some("/dev/sdb".to_owned()),
         };
         let requested = DiskConfig {
-            system: "/dev/sda".to_string(),
-            data: Some("/dev/sdc".to_string()),
+            system: "/dev/sda".to_owned(),
+            data: Some("/dev/sdc".to_owned()),
         };
 
         // ACT & ASSERT

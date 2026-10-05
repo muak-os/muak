@@ -3,11 +3,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
-use base64ct::{Base64, Encoding};
+use anyhow::{Context as _, Result, bail};
+use base64ct::{Base64, Encoding as _};
 use serde::{Deserialize, Serialize};
 
-use crate::codec::{Codec, TomlCodec};
+use crate::codec::{Codec as _, TomlCodec};
 
 const CONFIG_FILE: &str = "config.toml";
 
@@ -66,6 +66,7 @@ impl PendingEnrollment {
 
 fn config_dir() -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME environment variable not set")?;
+
     Ok(PathBuf::from(home).join(".config/muak"))
 }
 
@@ -73,11 +74,16 @@ fn config_file_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("MUAK_CONFIG") {
         return Ok(PathBuf::from(path));
     }
+
     Ok(config_dir()?.join(CONFIG_FILE))
 }
 
 impl ClientConfig {
     /// Load config from disk. Returns empty config if file doesn't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the config file cannot be read or parsed.
     pub fn load() -> Result<Self> {
         let path = config_file_path()?;
 
@@ -86,35 +92,42 @@ impl ClientConfig {
         }
 
         let contents = std::fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read config from {:?}", path))?;
+            .with_context(|| format!("Failed to read config from {}", path.display()))?;
 
         TomlCodec::decode(&contents)
-            .with_context(|| format!("Failed to parse config from {:?}", path))
+            .with_context(|| format!("Failed to parse config from {}", path.display()))
     }
 
     /// Save config to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the config directory cannot be created, or the
+    /// config cannot be serialized or written.
     pub fn save(&self) -> Result<()> {
         let path = config_file_path()?;
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory {:?}", parent))?;
+                .with_context(|| format!("Failed to create config dir {}", parent.display()))?;
         }
 
         let contents = TomlCodec::encode(self).context("Failed to serialize config")?;
 
         std::fs::write(&path, contents)
-            .with_context(|| format!("Failed to write config to {:?}", path))
+            .with_context(|| format!("Failed to write config to {}", path.display()))
     }
 
     /// Get the currently active context name and data.
+    #[must_use]
     pub fn current_context(&self) -> Option<(&str, &ServerContext)> {
-        self.context
-            .as_ref()
-            .and_then(|name| self.contexts.get(name).map(|ctx| (name.as_str(), ctx)))
+        let name = self.context.as_ref()?;
+
+        self.contexts.get(name).map(|ctx| (name.as_str(), ctx))
     }
 
     /// Get a context by name.
+    #[must_use]
     pub fn get_context(&self, name: &str) -> Option<&ServerContext> {
         self.contexts.get(name)
     }
@@ -123,13 +136,18 @@ impl ClientConfig {
     pub fn add_context(&mut self, name: &str, ctx: ServerContext) -> String {
         let actual_name = resolve_name_collision(&self.contexts, name);
         self.contexts.insert(actual_name.clone(), ctx);
+
         actual_name
     }
 
     /// Remove a context by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the context does not exist.
     pub fn remove_context(&mut self, name: &str) -> Result<()> {
         if !self.contexts.contains_key(name) {
-            bail!("Context '{}' not found", name);
+            bail!("Context '{name}' not found");
         }
 
         self.contexts.remove(name);
@@ -142,25 +160,31 @@ impl ClientConfig {
     }
 
     /// Set the current context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the context does not exist.
     pub fn set_current(&mut self, name: &str) -> Result<()> {
         if !self.contexts.contains_key(name) {
             bail!(
-                "Context '{}' not found. Run 'muakctl context list' to see available contexts.",
-                name
+                "Context '{name}' not found. Run 'muakctl context list' to see available contexts."
             );
         }
-        self.context = Some(name.to_string());
+        self.context = Some(name.to_owned());
+
         Ok(())
     }
 
     /// List all context names.
     pub fn list_contexts(&self) -> Vec<&str> {
         let mut names: Vec<_> = self.contexts.keys().map(String::as_str).collect();
-        names.sort();
+        names.sort_unstable();
+
         names
     }
 
     /// Check if credentials exist for the given endpoint.
+    #[must_use]
     pub fn has_credentials_for_endpoint(&self, endpoint: &str) -> bool {
         self.contexts
             .values()
@@ -176,16 +200,17 @@ impl ClientConfig {
         server_fingerprint: &str,
     ) {
         self.pending.insert(
-            endpoint.to_string(),
+            endpoint.to_owned(),
             PendingEnrollment {
-                fingerprint: fingerprint.to_string(),
+                fingerprint: fingerprint.to_owned(),
                 key: Base64::encode_string(key_pem.as_bytes()),
-                server_fingerprint: server_fingerprint.to_string(),
+                server_fingerprint: server_fingerprint.to_owned(),
             },
         );
     }
 
     /// Gets a pending enrollment for the given endpoint.
+    #[must_use]
     pub fn get_pending(&self, endpoint: &str) -> Option<&PendingEnrollment> {
         self.pending.get(endpoint)
     }
@@ -203,6 +228,7 @@ impl ClientConfig {
         let name = self.add_context(server_name, ctx);
         self.pending.remove(endpoint);
         self.context = Some(name.clone());
+
         name
     }
 
@@ -214,9 +240,10 @@ impl ClientConfig {
 
 impl ServerContext {
     /// Create a new context from PEM strings.
+    #[must_use]
     pub fn from_pem(endpoint: &str, ca: &str, crt: &str, key: &[u8]) -> Self {
         Self {
-            endpoint: endpoint.to_string(),
+            endpoint: endpoint.to_owned(),
             ca: Some(Base64::encode_string(ca.as_bytes())),
             crt: Some(Base64::encode_string(crt.as_bytes())),
             key: Some(Base64::encode_string(key)),
@@ -224,10 +251,15 @@ impl ServerContext {
     }
 
     /// Decode credentials from base64.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a stored credential is not valid base64.
     pub fn credentials(&self) -> Result<Option<Credentials>> {
-        let (ca, crt, key) = match (&self.ca, &self.crt, &self.key) {
-            (Some(ca), Some(crt), Some(key)) => (ca, crt, key),
-            _ => return Ok(None),
+        let (Some(ca), Some(crt), Some(key)) =
+            (self.ca.as_deref(), self.crt.as_deref(), self.key.as_deref())
+        else {
+            return Ok(None);
         };
 
         let ca_bytes = Base64::decode_vec(ca).context("Failed to decode CA certificate")?;
@@ -238,6 +270,7 @@ impl ServerContext {
     }
 
     /// Check if this context has credentials.
+    #[must_use]
     pub fn has_credentials(&self) -> bool {
         self.ca.is_some() && self.crt.is_some() && self.key.is_some()
     }
@@ -245,7 +278,7 @@ impl ServerContext {
 
 fn resolve_name_collision(existing: &HashMap<String, ServerContext>, base_name: &str) -> String {
     if !existing.contains_key(base_name) {
-        return base_name.to_string();
+        return base_name.to_owned();
     }
 
     format!(
@@ -253,8 +286,7 @@ fn resolve_name_collision(existing: &HashMap<String, ServerContext>, base_name: 
         base_name,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_secs()
+            .map_or(0, |elapsed| elapsed.as_secs())
     )
 }
 
@@ -277,7 +309,7 @@ mod tests {
         // ARRANGE
         let mut config = ClientConfig::default();
         let ctx = ServerContext {
-            endpoint: "localhost:50051".to_string(),
+            endpoint: "localhost:50051".to_owned(),
             ca: None,
             crt: None,
             key: None,
@@ -296,7 +328,7 @@ mod tests {
         // ARRANGE
         let mut config = ClientConfig::default();
         let ctx = ServerContext {
-            endpoint: "localhost:50051".to_string(),
+            endpoint: "localhost:50051".to_owned(),
             ca: None,
             crt: None,
             key: None,
@@ -304,7 +336,7 @@ mod tests {
 
         // ACT
         config.add_context("test", ctx);
-        assert!(config.set_current("test").is_ok());
+        config.set_current("test").unwrap();
 
         // ASSERT
         assert_eq!(config.context.as_deref(), Some("test"));
@@ -324,7 +356,7 @@ mod tests {
         // ARRANGE
         let mut config = ClientConfig::default();
         let ctx = ServerContext {
-            endpoint: "localhost:50051".to_string(),
+            endpoint: "localhost:50051".to_owned(),
             ca: None,
             crt: None,
             key: None,
@@ -334,7 +366,7 @@ mod tests {
         config.set_current("test").unwrap();
 
         // ACT
-        assert!(config.remove_context("test").is_ok());
+        config.remove_context("test").unwrap();
 
         // ASSERT
         assert!(config.contexts.is_empty());
@@ -362,7 +394,7 @@ mod tests {
         let mut config = ClientConfig::default();
 
         let ctx1 = ServerContext {
-            endpoint: "server1:50051".to_string(),
+            endpoint: "server1:50051".to_owned(),
             ca: None,
             crt: None,
             key: None,
@@ -403,7 +435,7 @@ mod tests {
         config.add_context(
             "zebra",
             ServerContext {
-                endpoint: "z:50051".to_string(),
+                endpoint: "z:50051".to_owned(),
                 ca: None,
                 crt: None,
                 key: None,
@@ -412,7 +444,7 @@ mod tests {
         config.add_context(
             "alpha",
             ServerContext {
-                endpoint: "a:50051".to_string(),
+                endpoint: "a:50051".to_owned(),
                 ca: None,
                 crt: None,
                 key: None,
@@ -431,10 +463,12 @@ mod tests {
         // ARRANGE
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let path_str = path.to_str().unwrap().to_string();
+        let path_str = path.to_str().unwrap().to_owned();
 
         // SAFETY: single-threaded test; no other threads read env at this point
-        unsafe { std::env::set_var("MUAK_CONFIG", &path_str) };
+        unsafe {
+            std::env::set_var("MUAK_CONFIG", &path_str);
+        }
 
         let config = ClientConfig::load().unwrap();
         assert!(config.contexts.is_empty());
@@ -455,7 +489,9 @@ mod tests {
         assert!(loaded.contexts.contains_key("prod"));
 
         // SAFETY: single-threaded test; no other threads read env at this point
-        unsafe { std::env::remove_var("MUAK_CONFIG") };
+        unsafe {
+            std::env::remove_var("MUAK_CONFIG");
+        }
     }
 
     #[test]
@@ -469,7 +505,7 @@ mod tests {
         config.add_context(
             "srv",
             ServerContext {
-                endpoint: "srv:50051".to_string(),
+                endpoint: "srv:50051".to_owned(),
                 ca: None,
                 crt: None,
                 key: None,
@@ -495,7 +531,7 @@ mod tests {
         config.add_context(
             "a",
             ServerContext {
-                endpoint: "a:50051".to_string(),
+                endpoint: "a:50051".to_owned(),
                 ca: None,
                 crt: None,
                 key: None,
@@ -504,7 +540,7 @@ mod tests {
         config.add_context(
             "b",
             ServerContext {
-                endpoint: "b:50051".to_string(),
+                endpoint: "b:50051".to_owned(),
                 ca: None,
                 crt: None,
                 key: None,
@@ -524,7 +560,7 @@ mod tests {
     fn credentials_none_when_fields_missing() {
         // ARRANGE
         let ctx = ServerContext {
-            endpoint: "x:50051".to_string(),
+            endpoint: "x:50051".to_owned(),
             ca: None,
             crt: None,
             key: None,
@@ -550,9 +586,9 @@ mod tests {
         assert_eq!(name, "server");
 
         map.insert(
-            "server".to_string(),
+            "server".to_owned(),
             ServerContext {
-                endpoint: "x:50051".to_string(),
+                endpoint: "x:50051".to_owned(),
                 ca: None,
                 crt: None,
                 key: None,
@@ -585,7 +621,7 @@ mod tests {
             config.complete_enrollment("https://server:443", "myserver", "ca", "cert", b"key");
 
         // ASSERT
-        assert_eq!(config.context.as_deref(), Some(&name as &str));
+        assert_eq!(config.context.as_deref(), Some(name.as_str()));
         assert!(config.get_pending("https://server:443").is_none());
         assert!(config.contexts.contains_key(&name));
     }
@@ -616,16 +652,20 @@ mod tests {
         std::fs::write(&path, "not valid toml ][[[").unwrap();
 
         // SAFETY: single-threaded test; no other threads read env at this point
-        unsafe { std::env::set_var("MUAK_CONFIG", path.to_str().unwrap()) };
+        unsafe {
+            std::env::set_var("MUAK_CONFIG", path.to_str().unwrap());
+        }
 
         // ACT
         let result = ClientConfig::load();
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
 
         // SAFETY: same as above
-        unsafe { std::env::remove_var("MUAK_CONFIG") };
+        unsafe {
+            std::env::remove_var("MUAK_CONFIG");
+        }
     }
 
     #[test]
@@ -646,15 +686,15 @@ mod tests {
     fn pending_key_pem_rejects_invalid_encoding() {
         // ARRANGE
         let pending = PendingEnrollment {
-            fingerprint: "fp".to_string(),
-            key: "not valid base64!!!".to_string(),
-            server_fingerprint: "sfp".to_string(),
+            fingerprint: "fp".to_owned(),
+            key: "not valid base64!!!".to_owned(),
+            server_fingerprint: "sfp".to_owned(),
         };
 
         // ACT
         let result = pending.key_pem();
 
         // ASSERT
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

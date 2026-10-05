@@ -448,7 +448,7 @@ mod tests {
                     .expect("entry digest")
             })
             .collect();
-        assert!(!digests.is_empty());
+        assert_ne!(digests, Vec::<&str>::new());
         assert!(
             !digests
                 .iter()
@@ -1205,7 +1205,7 @@ mod tests {
         let files = collect_files(&registry.reference("repo", "test"), Arch::Amd64);
 
         // ASSERT
-        assert!(files.is_empty());
+        assert_eq!(files, Vec::<CollectedFile>::new());
     }
 
     #[test]
