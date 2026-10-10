@@ -5,6 +5,7 @@ use core::time::Duration;
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::http::StatusCode;
+use hyper::http::header::RANGE;
 use hyper::{Request, Response};
 use oci::digest::Verifier;
 use tokio::time::timeout;
@@ -152,6 +153,56 @@ pub async fn put(
     let response = send(client, url, req).await?;
 
     ensure_success(url, response)
+}
+
+/// Execute an authorized PATCH with a raw body, returning the response on 2xx.
+///
+/// # Errors
+///
+/// Returns an error when the request fails or the registry answers non-2xx.
+pub async fn patch(
+    client: &Transport,
+    url: &str,
+    authorization: Option<&str>,
+    content_type: &str,
+    content_range: &str,
+    content_length: usize,
+    body: Bytes,
+) -> Result<Response<Incoming>> {
+    let req = request::patch_request(
+        url,
+        authorization,
+        content_type,
+        content_range,
+        content_length,
+        body,
+    )?;
+    let response = send(client, url, req).await?;
+
+    ensure_success(url, response)
+}
+
+/// The `Range` response header as an inclusive `(start, end)` byte pair.
+///
+/// # Errors
+///
+/// Returns an error when the header is missing or malformed.
+pub fn confirmed_range(response: &Response<Incoming>) -> Result<(u64, u64)> {
+    let value = response
+        .headers()
+        .get(RANGE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            ClientError::Push("chunk upload response carried no Range header".to_owned())
+        })?;
+    let stripped = value
+        .strip_prefix("0-")
+        .ok_or_else(|| ClientError::Push(format!("bad upload Range header: {value}")))?;
+    let end = stripped
+        .parse::<u64>()
+        .map_err(|error| ClientError::Push(format!("bad upload Range header: {value}: {error}")))?;
+
+    Ok((0, end))
 }
 
 /// Whether the response is a partial body (`206 Partial Content`).

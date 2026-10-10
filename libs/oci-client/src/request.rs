@@ -54,6 +54,22 @@ pub(crate) fn put_request(
     finish_request(builder, authorization, Full::new(body))
 }
 
+pub(crate) fn patch_request(
+    url: &str,
+    authorization: Option<&str>,
+    content_type: &str,
+    content_range: &str,
+    content_length: usize,
+    body: Bytes,
+) -> Result<Request<Full<Bytes>>> {
+    let builder = base_request(Method::PATCH, url)
+        .header("Content-Type", content_type)
+        .header("Content-Range", content_range)
+        .header("Content-Length", content_length);
+
+    finish_request(builder, authorization, Full::new(body))
+}
+
 fn base_request(method: Method, url: &str) -> Builder {
     Request::builder()
         .method(method)
