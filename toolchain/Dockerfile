@@ -45,6 +45,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   cargo install --locked cargo-chef
 
+COPY rust-toolchain.toml .
+RUN rustup toolchain install --profile minimal
+
 # ─────────────────────────────────────────────────────────────────────────────
 FROM deps AS planner
 
