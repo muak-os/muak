@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::error::{OciError, Result};
 use crate::media::OCI_MANIFEST_MEDIA_TYPE;
-use crate::model::{Descriptor, Manifest};
+use crate::model::{Descriptor, Manifest, Platform};
 
 /// Parse manifest JSON into a [`Manifest`].
 ///
@@ -28,16 +28,32 @@ pub fn select_platform<'a>(
     manifests
         .iter()
         .find(|descriptor| {
-            descriptor.platform.as_ref().is_some_and(|platform| {
-                platform.architecture.as_deref() == Some(target_arch)
-                    && platform.os.as_deref() == Some("linux")
-            })
+            descriptor
+                .platform
+                .as_ref()
+                .is_some_and(|platform| platform_matches(platform, target_arch))
         })
         .ok_or_else(|| {
             OciError::InvalidFormat(format!(
                 "No linux/{target_arch} manifest found in manifest list"
             ))
         })
+}
+
+/// Whether `platform` targets the Linux `target_arch` platform.
+#[must_use]
+pub fn platform_matches(platform: &Platform, target_arch: &str) -> bool {
+    platform.architecture.as_deref() == Some(target_arch) && platform.os.as_deref() == Some("linux")
+}
+
+/// Parse the platform fields of an image config blob.
+///
+/// # Errors
+///
+/// Returns an error when the JSON does not describe an image config.
+pub fn config_platform(config_json: &str) -> Result<Platform> {
+    serde_json::from_str(config_json)
+        .map_err(|error| OciError::Parse(format!("Failed to parse image config: {error}")))
 }
 
 /// Set one manifest annotation, preserving the others, and serialize the manifest with its content type.
@@ -215,6 +231,80 @@ mod tests {
 
         // ASSERT
         assert!(matches!(result, Err(OciError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn parse_manifest_captures_config_descriptor() {
+        // ARRANGE
+        let manifest_json = r#"{
+            "schemaVersion": 2,
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": "sha256:cfg"
+            },
+            "layers": []
+        }"#;
+
+        // ACT
+        let manifest = parse(manifest_json).expect("parse manifest");
+
+        // ASSERT
+        assert_eq!(
+            manifest
+                .config
+                .as_ref()
+                .map(|config| config.digest.as_str()),
+            Some("sha256:cfg")
+        );
+    }
+
+    #[test]
+    fn platform_matches_accepts_target_linux() {
+        // ARRANGE
+        let platform = Platform {
+            architecture: Some("arm64".to_owned()),
+            os: Some("linux".to_owned()),
+        };
+
+        // ACT / ASSERT
+        assert!(platform_matches(&platform, "arm64"));
+        assert!(!platform_matches(&platform, "amd64"));
+    }
+
+    #[test]
+    fn platform_matches_rejects_other_os_and_missing_fields() {
+        // ARRANGE
+        let darwin = Platform {
+            architecture: Some("amd64".to_owned()),
+            os: Some("darwin".to_owned()),
+        };
+        let unknown = Platform::default();
+
+        // ACT / ASSERT
+        assert!(!platform_matches(&darwin, "amd64"));
+        assert!(!platform_matches(&unknown, "amd64"));
+    }
+
+    #[test]
+    fn config_platform_reads_architecture_and_os() {
+        // ARRANGE
+        let config_json = r#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers"}}"#;
+
+        // ACT
+        let platform = config_platform(config_json).expect("parse config platform");
+
+        // ASSERT
+        assert_eq!(platform.architecture.as_deref(), Some("amd64"));
+        assert_eq!(platform.os.as_deref(), Some("linux"));
+    }
+
+    #[test]
+    fn config_platform_rejects_invalid_json() {
+        // ARRANGE / ACT
+        let result = config_platform("not json");
+
+        // ASSERT
+        assert!(matches!(result, Err(OciError::Parse(_))));
     }
 
     #[test]

@@ -13,6 +13,9 @@ pub struct Manifest {
     /// Per-platform manifests when this manifest is an index.
     #[serde(default)]
     pub manifests: Vec<Descriptor>,
+    /// Image config descriptor, absent for indexes.
+    #[serde(default)]
+    pub config: Option<Descriptor>,
     /// Free-form annotations attached to the manifest.
     #[serde(default)]
     pub annotations: Option<HashMap<String, String>>,
