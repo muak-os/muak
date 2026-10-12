@@ -7,7 +7,7 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use oci::arch::Arch;
 
-mod annotate;
+mod convert;
 mod copy;
 mod digest;
 mod merge;
@@ -29,9 +29,9 @@ struct Args {
 enum Command {
     Pull(pull::Args),
     Sign(sign::Args),
-    Annotate(annotate::Args),
     Merge(merge::Args),
     Push(push::Args),
+    Convert(convert::Args),
     Copy(copy::Args),
     Digest(digest::Args),
 }
@@ -75,9 +75,9 @@ fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Pull(args) => pull::run(args),
         Command::Sign(args) => sign::run(args),
-        Command::Annotate(args) => annotate::run(args),
         Command::Merge(args) => merge::run(args),
         Command::Push(args) => push::run(args),
+        Command::Convert(args) => convert::run(&args),
         Command::Copy(args) => copy::run(args),
         Command::Digest(args) => digest::run(args),
     }

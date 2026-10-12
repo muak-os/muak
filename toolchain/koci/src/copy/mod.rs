@@ -97,10 +97,16 @@ async fn collect_tree(
     let mut blobs = BTreeSet::new();
 
     let root_digest = record_manifest(&mut manifests, &root)?;
-    let mut pending: Vec<(String, usize)> = tree::children(&root)?
-        .into_iter()
-        .map(|digest| (digest, MAX_INDEX_DEPTH))
-        .collect();
+    let mut pending: Vec<(String, usize)> = Vec::new();
+    if tree::is_index(&tree::media_type(&root)?) {
+        pending.extend(
+            tree::children(&root)?
+                .into_iter()
+                .map(|digest| (digest, MAX_INDEX_DEPTH)),
+        );
+    } else {
+        blobs.extend(tree::blob_digests(&root)?);
+    }
 
     while let Some((digest, remaining)) = pending.pop() {
         if remaining == 0 {

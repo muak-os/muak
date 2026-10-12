@@ -44,17 +44,32 @@ pub(crate) fn generate_test_keys() -> Result<TestKeys, Box<dyn Error>> {
     })
 }
 
+const FIXTURE_ARCH: &str = "amd64";
+
 pub(crate) fn manifest_json(
     layer_digest: &str,
     layer_size: usize,
 ) -> Result<Vec<u8>, serde_json::Error> {
-    manifest_with_layers_json(&[(layer_digest, layer_size, GZIP_LAYER_MEDIA_TYPE)])
+    manifest_json_for_arch(layer_digest, layer_size, FIXTURE_ARCH)
+}
+
+/// Build a manifest JSON whose config reports `architecture`.
+pub(crate) fn manifest_json_for_arch(
+    layer_digest: &str,
+    layer_size: usize,
+    architecture: &str,
+) -> Result<Vec<u8>, serde_json::Error> {
+    manifest_with_layers_and_annotations_json(
+        &[(layer_digest, layer_size, GZIP_LAYER_MEDIA_TYPE)],
+        &[],
+        architecture,
+    )
 }
 
 pub(crate) fn manifest_with_layers_json(
     layers: &[(&str, usize, &str)],
 ) -> Result<Vec<u8>, serde_json::Error> {
-    manifest_with_layers_and_annotations_json(layers, &[])
+    manifest_with_layers_and_annotations_json(layers, &[], FIXTURE_ARCH)
 }
 
 /// Build a manifest JSON for a single gzip layer with pre-set annotations.
@@ -63,23 +78,62 @@ pub(crate) fn annotated_manifest_json(
     layer_size: usize,
     annotations: &[(&str, &str)],
 ) -> Result<Vec<u8>, serde_json::Error> {
+    annotated_manifest_json_for_arch(layer_digest, layer_size, annotations, FIXTURE_ARCH)
+}
+
+/// Build an annotated manifest JSON whose config reports `architecture`.
+pub(crate) fn annotated_manifest_json_for_arch(
+    layer_digest: &str,
+    layer_size: usize,
+    annotations: &[(&str, &str)],
+    architecture: &str,
+) -> Result<Vec<u8>, serde_json::Error> {
     manifest_with_layers_and_annotations_json(
         &[(layer_digest, layer_size, GZIP_LAYER_MEDIA_TYPE)],
         annotations,
+        architecture,
     )
+}
+
+/// Image config blob for `architecture`, served for single-arch pull fixtures.
+pub(crate) fn config_blob_for(architecture: &str) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "architecture": architecture,
+        "os": "linux",
+    }))
+    .expect("serialize config blob")
+}
+
+/// Digest of [`config_blob_for`], matching the bytes the mock registry serves.
+pub(crate) fn config_digest_for(architecture: &str) -> String {
+    format!(
+        "sha256:{}",
+        oci::digest::sha256_hex(&config_blob_for(architecture))
+    )
+}
+
+/// Image config blob reporting [`FIXTURE_ARCH`].
+pub(crate) fn config_blob() -> Vec<u8> {
+    config_blob_for(FIXTURE_ARCH)
+}
+
+/// Digest of [`config_blob`].
+pub(crate) fn config_digest() -> String {
+    config_digest_for(FIXTURE_ARCH)
 }
 
 fn manifest_with_layers_and_annotations_json(
     layers: &[(&str, usize, &str)],
     annotations: &[(&str, &str)],
+    architecture: &str,
 ) -> Result<Vec<u8>, serde_json::Error> {
     let mut manifest = json!({
         "schemaVersion": 2,
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
         "config": {
             "mediaType": "application/vnd.oci.image.config.v1+json",
-            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "size": 1,
+            "digest": config_digest_for(architecture),
+            "size": config_blob_for(architecture).len(),
         },
         "layers": layers.iter().map(|&(digest, size, media_type)| {
             json!({

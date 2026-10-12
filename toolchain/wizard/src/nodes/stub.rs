@@ -5,7 +5,7 @@ use koci::pull;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind, entry_sizes};
+use crate::nodes::{NodeDescriptor, NodeKind, measured_size};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -33,14 +33,11 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
     Vec::new()
 }
 
-/// Exact stub size from the manifest sizes annotation.
+/// Exact stub size, measured from the image's eStargz TOC.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
-    let size = entry_sizes(build.stub(), build.arch())?
-        .get(STUB_PATH)
-        .copied()
-        .ok_or_else(|| WizardError::BuildError(format!("missing stub size for {STUB_PATH}")))?;
+    let size = measured_size(build.stub(), build.arch(), STUB_PATH)?;
 
     let binding = graph
         .node(id)?

@@ -68,19 +68,35 @@ enum Placement {
 }
 
 /// Classifies every `(path, size)` entry into an overlay asset, rejecting
-/// stray or malformed entries. The result is sorted canonically by name.
+/// stray or malformed entries. Assets keep the image's physical entry order
+/// and the entries must arrive sorted by path, so a single demux pass can
+/// stream them without re-walks.
 ///
 /// # Errors
 ///
 /// Returns an error when an entry references a non-EFI partition type, a blob
-/// directory holds more than one file, or a path sits outside `partitions/`
-/// and `blob/`.
-pub(crate) fn classify(overlay: &Overlay, entries: Vec<(String, u64)>) -> Result<Vec<Asset>> {
+/// directory holds more than one file, a path sits outside `partitions/` and
+/// `blob/`, or the entries are not sorted by path.
+pub(crate) fn classify(
+    overlay: &Overlay,
+    entries: Vec<(String, u64)>,
+) -> Result<(Vec<Asset>, bool)> {
     let mut found: Vec<Asset> = Vec::new();
     let mut blob_dirs: HashSet<u64> = HashSet::new();
     let mut failure: Option<WizardError> = None;
 
+    let mut sorted = true;
+    let mut last: Option<String> = None;
+
     for (path, size) in entries {
+        if last
+            .as_ref()
+            .is_some_and(|before| before.as_str() > path.as_str())
+        {
+            sorted = false;
+        }
+        last = Some(path.clone());
+
         if failure.is_none()
             && let Err(error) = classify_one(overlay, &path, size, &mut found, &mut blob_dirs)
         {
@@ -91,27 +107,19 @@ pub(crate) fn classify(overlay: &Overlay, entries: Vec<(String, u64)>) -> Result
     if let Some(error) = failure {
         return Err(error);
     }
-    found.sort_by(|left, right| left.name().cmp(right.name()));
-    if found
-        .windows(2)
-        .any(|pair| matches!(pair, [left, right] if left.name() == right.name()))
-    {
+
+    let duplicate = found.windows(2).any(|pair| {
+        pair.first()
+            .zip(pair.get(1))
+            .is_some_and(|(left, right)| left.entry() == right.entry())
+    });
+    if duplicate {
         return Err(WizardError::BuildError(
             "overlay holds two assets with the same canonical name".to_owned(),
         ));
     }
 
-    Ok(found)
-}
-
-/// Returns the canonical stream name for an OCI entry path, or `None` when the
-/// entry is not an overlay asset (e.g. outside the overlay name prefix).
-#[must_use]
-pub(crate) fn entry_name(overlay: &Overlay, path: &str) -> Option<String> {
-    match placement(overlay, path) {
-        Ok(Some(Placement::Esp { file } | Placement::Blob { file, .. })) => Some(file),
-        _ => None,
-    }
+    Ok((found, sorted))
 }
 
 fn classify_one(
@@ -121,7 +129,12 @@ fn classify_one(
     found: &mut Vec<Asset>,
     blob_dirs: &mut HashSet<u64>,
 ) -> Result<()> {
-    let Some(placement) = placement(overlay, path)? else {
+    let Ok(all) = placement(overlay, path) else {
+        return Err(WizardError::BuildError(format!(
+            "overlay asset outside partitions/ or blob/: {path}"
+        )));
+    };
+    let Some(placement) = all else {
         return Ok(());
     };
     match placement {
@@ -159,9 +172,7 @@ fn placement(overlay: &Overlay, path: &str) -> Result<Option<Placement>> {
     }
     if let Some(rest) = rel.strip_prefix("partitions/") {
         let Some((type_guid, file)) = rest.split_once('/') else {
-            return Err(WizardError::BuildError(format!(
-                "partition entry missing file path: {path}"
-            )));
+            return Ok(None);
         };
         if !esp::guid::is_esp(type_guid) {
             return Err(WizardError::BuildError(format!(
@@ -333,14 +344,15 @@ mod tests {
         .expect("classify must resolve");
 
         // ASSERT
-        assert_eq!(result.len(), 2);
+        assert!(result.1, "canonical assets must arrive sorted");
+        assert_eq!(result.0.len(), 2);
         assert!(matches!(
-            result.first(),
-            Some(Asset::EspFile { path, .. }) if path == "config.txt"
+            result.0.first(),
+            Some(Asset::RawBlob { source, .. }) if source == "u-boot.bin"
         ));
         assert!(matches!(
-            result.get(1),
-            Some(Asset::RawBlob { source, offset, .. }) if source == "u-boot.bin" && *offset == 32768
+            result.0.get(1),
+            Some(Asset::EspFile { path, .. }) if path == "config.txt"
         ));
     }
 }

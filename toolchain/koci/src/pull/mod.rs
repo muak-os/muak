@@ -25,6 +25,7 @@ pub mod paths;
 pub(crate) mod resolve;
 pub(crate) mod scan;
 pub mod session;
+pub mod toc;
 
 /// Fetch the manifest annotations of the platform manifest matching `arch`.
 ///

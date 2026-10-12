@@ -92,7 +92,6 @@ fn allocate<'name, 'writer>(
         table.push_stream(
             readers,
             OutputStream {
-                name,
                 size: stream.size,
                 writer,
             },
@@ -109,7 +108,7 @@ fn missing_writer(artifact: Artifact) -> WizardError {
 /// Construction-time ownership ledger for pipe and fused endpoints.
 struct PortTable<'name, 'writer> {
     inputs: Vec<Vec<Option<InputStream<'name>>>>,
-    outputs: Vec<Option<OutputStream<'name, 'writer>>>,
+    outputs: Vec<Option<OutputStream<'writer>>>,
 }
 
 impl<'name, 'writer> PortTable<'name, 'writer> {
@@ -123,7 +122,7 @@ impl<'name, 'writer> PortTable<'name, 'writer> {
     fn push_stream(
         &mut self,
         readers: Vec<Option<InputStream<'name>>>,
-        output: OutputStream<'name, 'writer>,
+        output: OutputStream<'writer>,
     ) {
         self.inputs.push(readers);
         self.outputs.push(Some(output));
@@ -139,7 +138,7 @@ impl<'name, 'writer> PortTable<'name, 'writer> {
             })
     }
 
-    fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'name, 'writer>> {
+    fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'writer>> {
         self.outputs
             .get_mut(stream.0)
             .and_then(Option::take)
@@ -341,27 +340,22 @@ mod tests {
     }
 
     #[test]
-    fn stream_names_reach_endpoints() {
+    fn stream_names_reach_input_endpoints() {
         // ARRANGE
-        let mut graph = fused_graph();
+        let mut graph = piped_graph();
         let stream_id = graph.streams().iter().next().expect("stream").id;
         graph.stream_mut(stream_id).expect("stream").name = "kernel".to_owned();
-        let mut writer = Vec::new();
-        let mut writers = TargetWriters::new(vec![(Artifact::Kernel, &mut writer)]);
 
         // ACT
-        let table = allocate(&graph, &mut writers).expect("allocate");
+        let table = allocate(&graph, &mut TargetWriters::new(Vec::new())).expect("allocate");
 
         // ASSERT
-        assert_eq!(
-            table
-                .outputs
-                .get(stream_id.0)
-                .expect("slot")
-                .as_ref()
-                .expect("output")
-                .name,
-            "kernel"
-        );
+        let input = table
+            .inputs
+            .get(stream_id.0)
+            .and_then(|readers| readers.first())
+            .and_then(Option::as_ref)
+            .expect("input");
+        assert_eq!(input.name, "kernel");
     }
 }

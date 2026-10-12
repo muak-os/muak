@@ -12,6 +12,8 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::thread;
 
+use crate::common::fixtures::{config_blob, config_digest};
+
 pub type RouteKey = (String, String);
 pub type Routes = HashMap<RouteKey, HttpResponse>;
 
@@ -186,7 +188,7 @@ fn handle_connection(
     let response = routes
         .get(&(request.method.clone(), request.path.clone()))
         .cloned()
-        .unwrap_or_else(not_found_response);
+        .unwrap_or_else(|| default_response(&request.path));
 
     requests
         .lock()
@@ -319,6 +321,15 @@ fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> Result<(),
     stream.write_all(headers.as_bytes())?;
     stream.write_all(&response.body)?;
     stream.flush()
+}
+
+fn default_response(path: &str) -> HttpResponse {
+    let digest = config_digest();
+    if path.ends_with(&format!("/blobs/{digest}")) {
+        return HttpResponse::octet_stream(config_blob());
+    }
+
+    not_found_response()
 }
 
 fn not_found_response() -> HttpResponse {

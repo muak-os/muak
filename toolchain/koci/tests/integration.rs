@@ -116,15 +116,6 @@ mod tests {
         annotations::sign(reference, private_key_pem, SIG_ANNOTATION).expect_err("sign should fail")
     }
 
-    fn sizes_annotation_path(request: &RecordedRequest, size: u8) -> Option<String> {
-        let manifest: Value = serde_json::from_slice(&request.body).ok()?;
-        let sizes = manifest
-            .get("annotations")?
-            .get(SIZES_ANNOTATION)?
-            .as_str()?;
-        (sizes == format!(r#"{{"vmlinuz":{size}}}"#).as_str()).then(|| request.path.clone())
-    }
-
     fn assert_signed_manifest_has_signature(registry: &MockRegistry, path: &str) {
         let request = required_request(registry, "PUT", path);
         let manifest: Value =
@@ -162,20 +153,24 @@ mod tests {
     }
 
     fn archived_paths(bytes: &[u8]) -> Vec<String> {
-        let mut archive = tar::Archive::new(bytes);
-        let mut names = Vec::new();
-        for entry in archive.entries().expect("iterate layer entries") {
-            names.push(
+        let stream = flate2::read::MultiGzDecoder::new(bytes);
+        let mut archive = tar::Archive::new(stream);
+        let entries: Vec<_> = archive
+            .entries()
+            .expect("iterate layer entries")
+            .filter_map(std::result::Result::ok)
+            .collect();
+        entries
+            .iter()
+            .filter(|entry| entry.header().entry_type().is_file())
+            .map(|entry| {
                 entry
-                    .expect("read layer entry")
                     .path()
                     .expect("entry path")
                     .to_string_lossy()
-                    .to_string(),
-            );
-        }
-
-        names
+                    .to_string()
+            })
+            .collect()
     }
 
     #[test]
@@ -313,6 +308,34 @@ mod tests {
 
         // ASSERT
         assert!(matches!(error, KociError::Oci(OciError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn stream_files_rejects_manifest_of_the_wrong_platform() {
+        // ARRANGE
+        let layer = layer_archive(&[("etc/arch", b"amd64 only\n")]).expect("build layer");
+        let layer_digest = sha256_digest(&layer);
+        let manifest = manifest_json_for_arch(&layer_digest, layer.len(), "amd64")
+            .expect("build manifest json");
+        let registry = MockRegistry::start(HashMap::from([get(
+            "/v2/repo/manifests/test",
+            HttpResponse::json(manifest),
+        )]))
+        .expect("start mock registry");
+
+        // ACT
+        let error = pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Arm64,
+            None,
+            &Noop,
+            |_entry| Ok(()),
+        )
+        .expect_err("wrong-platform manifest must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains("linux/amd64"));
+        assert!(error.to_string().contains("linux/arm64"));
     }
 
     #[test]
@@ -592,7 +615,10 @@ mod tests {
         assert_descriptor_matches_upload(layer, layer_upload);
 
         let layer_names = archived_paths(&layer_upload.body);
-        assert_eq!(layer_names, vec!["catalog.toml"]);
+        assert_eq!(
+            layer_names,
+            vec![".no.prefetch.landmark", "catalog.toml", "stargz.index.json"]
+        );
     }
 
     #[test]
@@ -942,8 +968,9 @@ mod tests {
             (selected_manifest_digest, "arm64", "linux"),
         ])
         .expect("build index json");
-        let selected_manifest = manifest_json(&selected_layer_digest, selected_layer.len())
-            .expect("build manifest json");
+        let selected_manifest =
+            manifest_json_for_arch(&selected_layer_digest, selected_layer.len(), "arm64")
+                .expect("build manifest json");
         let other_manifest = minimal_manifest_json().expect("build fallback manifest json");
         let registry = MockRegistry::start(HashMap::from([
             get("/v2/repo/manifests/test", HttpResponse::index(index)),
@@ -1117,6 +1144,9 @@ mod tests {
     #[test]
     fn parallel_downloads_respect_the_configured_limit() {
         // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
         let delay = Duration::from_millis(300);
         let names = ["a", "b", "c", "d"];
         let layers = names
@@ -1197,7 +1227,7 @@ mod tests {
         // ARRANGE
         let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
-            HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
+            HttpResponse::json(manifest_with_layers_json(&[]).expect("build manifest json")),
         )]))
         .expect("start mock registry");
 
@@ -1285,10 +1315,11 @@ mod tests {
             &[(SIZES_ANNOTATION, r#"{"vmlinuz-amd64":1}"#)],
         )
         .expect("build amd64 manifest json");
-        let arm64_manifest = annotated_manifest_json(
+        let arm64_manifest = annotated_manifest_json_for_arch(
             arm64_digest,
             2,
             &[(SIZES_ANNOTATION, r#"{"vmlinuz-arm64":2}"#)],
+            "arm64",
         )
         .expect("build arm64 manifest json");
 
@@ -1322,7 +1353,7 @@ mod tests {
         // ARRANGE
         let registry = MockRegistry::start(HashMap::from([get(
             "/v2/repo/manifests/test",
-            HttpResponse::json(minimal_manifest_json().expect("build manifest json")),
+            HttpResponse::json(manifest_with_layers_json(&[]).expect("build manifest json")),
         )]))
         .expect("start mock registry");
 
@@ -1462,230 +1493,6 @@ mod tests {
             String::from_utf8_lossy(&output.stderr).contains("Failed to read key from"),
             "stderr: {}",
             String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    #[test]
-    fn annotate_single_manifest_measures_pushed_blobs() {
-        // ARRANGE
-        let layer = layer_archive(&[("vmlinuz", b"kernel-bytes\n"), ("cmdline", b"args\n")])
-            .expect("build layer archive");
-        let layer_digest = sha256_digest(&layer);
-        let manifest =
-            annotated_manifest_json(&layer_digest, layer.len(), &[(SIG_ANNOTATION, "AA")])
-                .expect("build annotated manifest json");
-        let tag_path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(HashMap::from([
-            get(tag_path, HttpResponse::json(manifest)),
-            get(
-                format!("/v2/repo/blobs/{layer_digest}"),
-                HttpResponse::octet_stream(layer),
-            ),
-            put(tag_path, HttpResponse::ok()),
-        ]))
-        .expect("start mock registry");
-
-        // ACT
-        annotations::sizes(&registry.reference("repo", "test"), SIZES_ANNOTATION, &[])
-            .expect("annotate image");
-
-        // ASSERT
-        let request = required_request(&registry, "PUT", tag_path);
-        let annotated: Value =
-            serde_json::from_slice(&request.body).expect("parse annotated manifest body");
-        let annotations = annotated
-            .get("annotations")
-            .expect("annotated manifest must keep annotations");
-        assert_eq!(
-            annotations.get("dev.muak.sig").and_then(Value::as_str),
-            Some("AA"),
-            "unrelated annotations must be preserved"
-        );
-        assert_eq!(
-            annotations.get("dev.muak.sizes").and_then(Value::as_str),
-            Some(r#"{"cmdline":5,"vmlinuz":13}"#),
-        );
-        assert_eq!(
-            annotated
-                .get("layers")
-                .and_then(Value::as_array)
-                .and_then(|layers| layers.first())
-                .and_then(|layer| layer.get("digest"))
-                .and_then(Value::as_str),
-            Some(layer_digest.as_str()),
-            "layer digests must be untouched"
-        );
-    }
-
-    #[test]
-    fn annotate_excludes_entry_prefixes() {
-        // ARRANGE
-        let layer = layer_archive(&[
-            ("vmlinuz", b"kernel-bytes\n"),
-            ("lib/modules/x.ko", b"module\n"),
-        ])
-        .expect("build layer archive");
-        let layer_digest = sha256_digest(&layer);
-        let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
-        let tag_path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(HashMap::from([
-            get(tag_path, HttpResponse::json(manifest)),
-            get(
-                format!("/v2/repo/blobs/{layer_digest}"),
-                HttpResponse::octet_stream(layer),
-            ),
-            put(tag_path, HttpResponse::ok()),
-        ]))
-        .expect("start mock registry");
-
-        // ACT
-        annotations::sizes(
-            &registry.reference("repo", "test"),
-            SIZES_ANNOTATION,
-            &["lib/modules".to_owned()],
-        )
-        .expect("annotate image");
-
-        // ASSERT
-        let request = required_request(&registry, "PUT", tag_path);
-        let annotated: Value =
-            serde_json::from_slice(&request.body).expect("parse annotated manifest body");
-        assert_eq!(
-            annotated
-                .get("annotations")
-                .and_then(|annotations| annotations.get("dev.muak.sizes"))
-                .and_then(Value::as_str),
-            Some(r#"{"vmlinuz":13}"#),
-        );
-    }
-
-    #[test]
-    fn annotate_annotates_every_platform_manifest_of_an_index() {
-        // ARRANGE
-        let first_layer = layer_archive(&[("vmlinuz", b"first\n")]).expect("build first layer");
-        let second_layer = layer_archive(&[("vmlinuz", b"second\n")]).expect("build second layer");
-        let first_digest = sha256_digest(&first_layer);
-        let second_digest = sha256_digest(&second_layer);
-        let first_platform =
-            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        let second_platform =
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        let index = index_for_arches_json(&[
-            (first_platform, "amd64", "linux"),
-            (second_platform, "arm64", "linux"),
-        ])
-        .expect("build index json");
-        let tag_path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(HashMap::from([
-            get(tag_path, HttpResponse::index(index)),
-            get(
-                format!("/v2/repo/manifests/{first_platform}"),
-                HttpResponse::json(manifest_json(&first_digest, first_layer.len()).expect("m")),
-            ),
-            get(
-                format!("/v2/repo/manifests/{second_platform}"),
-                HttpResponse::json(manifest_json(&second_digest, second_layer.len()).expect("m")),
-            ),
-            get(
-                format!("/v2/repo/blobs/{first_digest}"),
-                HttpResponse::octet_stream(first_layer),
-            ),
-            get(
-                format!("/v2/repo/blobs/{second_digest}"),
-                HttpResponse::octet_stream(second_layer),
-            ),
-        ]))
-        .expect("start mock registry");
-
-        // ACT
-        annotations::sizes(&registry.reference("repo", "test"), SIZES_ANNOTATION, &[])
-            .expect("annotate image");
-
-        // ASSERT
-        let puts = registry.puts().expect("read mock registry request log");
-
-        let mut pushed_paths = Vec::new();
-        for (old_digest, size) in [(first_platform, 6), (second_platform, 7)] {
-            assert!(
-                puts.iter()
-                    .all(|request| request.path != format!("/v2/repo/manifests/{old_digest}")),
-                "mutated manifests must not be pushed under their original digest",
-            );
-
-            let path = puts
-                .iter()
-                .find_map(|request| sizes_annotation_path(request, size))
-                .expect("platform manifest pushed with its sizes annotation");
-            pushed_paths.push(path);
-        }
-
-        let index_put = required_request(&registry, "PUT", tag_path);
-        let pushed_index: Value =
-            serde_json::from_slice(&index_put.body).expect("parse pushed index body");
-        let referenced: Vec<&str> = pushed_index
-            .get("manifests")
-            .and_then(Value::as_array)
-            .expect("index manifests array")
-            .iter()
-            .map(|entry| {
-                entry
-                    .get("digest")
-                    .and_then(Value::as_str)
-                    .expect("entry digest")
-            })
-            .collect();
-        assert_eq!(referenced.len(), pushed_paths.len());
-        for (digest, path) in referenced.iter().zip(&pushed_paths) {
-            assert_eq!(
-                format!("/v2/repo/manifests/{digest}"),
-                *path,
-                "index must reference the digests the platform manifests were pushed under",
-            );
-        }
-    }
-
-    #[test]
-    fn cli_annotate_writes_sizes_annotation() {
-        // ARRANGE
-        let layer = layer_archive(&[("stub.efi", b"pe-binary\n")]).expect("build layer archive");
-        let layer_digest = sha256_digest(&layer);
-        let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
-        let tag_path = "/v2/repo/manifests/test";
-        let registry = MockRegistry::start(HashMap::from([
-            get(tag_path, HttpResponse::json(manifest)),
-            get(
-                format!("/v2/repo/blobs/{layer_digest}"),
-                HttpResponse::octet_stream(layer),
-            ),
-            put(tag_path, HttpResponse::ok()),
-        ]))
-        .expect("start mock registry");
-
-        // ACT
-        let output = Command::new(koci_bin())
-            .arg("annotate")
-            .arg("--image")
-            .arg(registry.reference("repo", "test"))
-            .arg("--annotation")
-            .arg("dev.muak.sizes")
-            .output()
-            .expect("run koci annotate");
-
-        // ASSERT
-        assert!(
-            output.status.success(),
-            "stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let request = required_request(&registry, "PUT", tag_path);
-        let annotated: Value =
-            serde_json::from_slice(&request.body).expect("parse annotated manifest body");
-        assert_eq!(
-            annotated
-                .get("annotations")
-                .and_then(|annotations| annotations.get("dev.muak.sizes"))
-                .and_then(Value::as_str),
-            Some(r#"{"stub.efi":10}"#),
         );
     }
 

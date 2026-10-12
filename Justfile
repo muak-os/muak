@@ -55,7 +55,7 @@ reset := '\e[0m'
 
 # Full local development build (build → installer → sign → catalog → iso)
 [group('build')]
-dev: (build "--release" "") installer annotate sign catalog (artifacts "iso")
+dev: (build "--release" "") installer convert sign catalog (artifacts "iso")
   @printf "{{ green }}Development build complete. Toolchain used: {{ bold }}{{ toolchain }}{{ reset }}\n"
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
@@ -235,17 +235,15 @@ mirror image tag upstream="ghcr.io/muak-os":
             --source "{{ upstream }}/{{ image }}:{{ tag }}" \
             --destination "{{ registry }}/{{ image }}:{{ tag }}"
 
-# Annotate an OCI image in the registry with per-entry sizes.
+# Convert an OCI image's layers to eStargz, in place.
 [group('oci')]
 [arg("image", long="image")]
-annotate image=(registry + "/installer:" + tag):
-    @printf "{{ cyan }}Annotating OCI image {{ image }}{{ reset }}\n"
+convert image=(registry + "/installer:" + tag):
+    @printf "{{ cyan }}Converting OCI image {{ image }}{{ reset }}\n"
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         {{ toolchain }} \
-        /koci annotate \
-            --image "{{ image }}" \
-            --annotation dev.muak.sizes
+        /koci convert "{{ image }}"
 
 # Sign an OCI image in the registry (default to installer image)
 [group('oci')]

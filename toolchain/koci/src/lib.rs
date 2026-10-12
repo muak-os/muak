@@ -4,9 +4,11 @@
 
 extern crate alloc;
 
-#[cfg(any(feature = "sign", feature = "annotate"))]
+#[cfg(feature = "sign")]
 pub mod annotations;
 pub mod arch;
+#[cfg(feature = "convert")]
+pub mod convert;
 #[cfg(feature = "copy")]
 pub mod copy;
 pub mod error;
@@ -23,3 +25,5 @@ pub mod registry;
 mod runtime;
 #[cfg(any(feature = "pull", feature = "sign"))]
 pub mod signature;
+#[cfg(feature = "stargz")]
+pub mod stargz;

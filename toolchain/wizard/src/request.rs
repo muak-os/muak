@@ -12,7 +12,7 @@ use crate::domain::overlay;
 use crate::domain::profile::Profile;
 use crate::domain::resolution::Resolution;
 use crate::error::{Result, WizardError};
-use crate::nodes::{disk_layout_annotation, entry_sizes};
+use crate::nodes::{disk_layout_annotation, measured_sizes};
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
@@ -171,16 +171,23 @@ impl<'a> Request<'a> {
 ///
 /// # Errors
 ///
-/// Returns an error when the sizes annotation is missing or malformed or an
-/// entry references a malformed placement.
+/// Returns an error when the overlay image cannot be measured, an entry
+/// references a malformed placement, or the image's entries are not sorted
+/// by path (publish overlay images canonically with `koci push`).
 fn discover_assets(resolution: &mut Resolution) -> Result<()> {
     let Some(overlay) = resolution.build().overlay() else {
         return Ok(());
     };
-    let entries: Vec<(String, u64)> = entry_sizes(&overlay.source, overlay.arch)?
-        .into_iter()
-        .collect();
-    resolution.set_overlay_assets(Some(overlay::classify(overlay, entries)?));
+    let entries = measured_sizes(&overlay.source, overlay.arch)?;
+    let (assets, sorted) = overlay::classify(overlay, entries)?;
+    if !sorted {
+        return Err(WizardError::BuildError(format!(
+            "overlay image {} stores its entries unsorted; publish it with \
+             koci push or a tool allowing for eStargz images.",
+            overlay.source
+        )));
+    }
+    resolution.set_overlay_assets(Some(assets));
 
     Ok(())
 }

@@ -6,7 +6,6 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
-use oci::model::Descriptor;
 use oci::reference::Image;
 
 use super::blobinfo;
@@ -64,25 +63,6 @@ impl Store {
         if let Some(path) = self.blob_path(digest) {
             atomic_write(&path, data);
         }
-    }
-
-    /// Return the layer list recorded for a resolved manifest digest.
-    pub(crate) fn manifest_layers(
-        &self,
-        image: &Image,
-        manifest_digest: &str,
-    ) -> Option<Vec<Descriptor>> {
-        blobinfo::manifest_layers(self.root.as_deref(), image, manifest_digest)
-    }
-
-    /// Record the layer list of a resolved manifest digest.
-    pub(crate) fn put_manifest_layers(
-        &self,
-        image: &Image,
-        manifest_digest: &str,
-        layers: &[Descriptor],
-    ) {
-        blobinfo::put_manifest_layers(self.root.as_deref(), image, manifest_digest, layers);
     }
 
     /// Where this repository stands on a layer blob, honoring the negative TTL.
@@ -324,7 +304,7 @@ mod tests {
             })
             .filter(|name| name.contains(".part."))
             .collect();
-        assert_eq!(leftovers, Vec::<alloc::string::String>::new());
+        assert_eq!(leftovers, Vec::<String>::new());
     }
 
     #[test]

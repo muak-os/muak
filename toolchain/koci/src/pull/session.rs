@@ -37,19 +37,31 @@ pub fn open(
     arch: &Arch,
     verification: Option<&Verification<'_>>,
 ) -> Result<Session> {
-    runtime::runtime()?.block_on(async {
-        let client = registry::connect(reference, Access::Pull).await?;
-        let cache = Store::new();
-        let layers = resolve::layers(&client, &cache, arch, verification).await?;
+    runtime::runtime()?.block_on(open_async(reference, arch, verification))
+}
 
-        Ok(Session {
-            client,
-            cache,
-            content: Content::new(),
-            layers,
-            reference: reference.to_owned(),
-            arch: arch.as_str().to_owned(),
-        })
+/// Async variant of [`open`] for callers already inside an async context.
+///
+/// # Errors
+///
+/// Returns an error when the reference cannot be parsed, the registry
+/// handshake fails, or signature verification fails.
+pub(crate) async fn open_async(
+    reference: &str,
+    arch: &Arch,
+    verification: Option<&Verification<'_>>,
+) -> Result<Session> {
+    let client = registry::connect(reference, Access::Pull).await?;
+    let cache = Store::new();
+    let layers = resolve::layers(&client, &cache, arch, verification).await?;
+
+    Ok(Session {
+        client,
+        cache,
+        content: Content::new(),
+        layers,
+        reference: reference.to_owned(),
+        arch: arch.as_str().to_owned(),
     })
 }
 

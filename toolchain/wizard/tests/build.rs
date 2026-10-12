@@ -19,7 +19,7 @@ mod tests {
 
     use crate::common::Harness;
     use crate::common::fixtures::{
-        FixtureImage, build_image, install_image, random_bytes, sha256_digest,
+        FixtureImage, build_image, build_legacy_image, install_image, random_bytes, sha256_digest,
     };
     use crate::common::pe::generate_stub;
     use crate::common::server::Routes;
@@ -230,7 +230,7 @@ digest = "{unsorted}"
                     OVERLAY_B,
                 ),
             ]),
-            overlay_unsorted: build_image(&[
+            overlay_unsorted: build_legacy_image(&[
                 (
                     "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
                     OVERLAY_B,
@@ -487,7 +487,7 @@ digest = "{unsorted}"
     /// Extracts the `vmlinuz` bytes from the fixture kernel layer archive.
     fn kernel_bytes(image: &FixtureImage) -> Vec<u8> {
         let mut decoder =
-            flate2::read::GzDecoder::new(image.layers.first().expect("layer").1.as_slice());
+            flate2::read::MultiGzDecoder::new(image.layers.first().expect("layer").1.as_slice());
         let mut raw = Vec::new();
         decoder.read_to_end(&mut raw).expect("decompress layer");
         let mut archive = tar::Archive::new(raw.as_slice());
@@ -802,41 +802,24 @@ digest = "{unsorted}"
     }
 
     #[test]
-    fn unsorted_overlay_image_falls_back_to_per_asset_walks() {
+    fn unsorted_overlay_image_is_rejected() {
         // ARRANGE
         let _env = env();
         let mut tar_out = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        let error = Request::new(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Overlays, &mut tar_out)
             .expect("overlays target")
             .build(&unsorted_overlay_profile())
-            .expect("build unsorted overlays");
+            .expect_err("unsorted overlay builds must fail");
 
         // ASSERT
-        let members = read_tar_members(&tar_out);
-        let names: Vec<String> = members
-            .iter()
-            .map(|member| member.0.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(
-            names,
-            ["a.txt", "b.bin"],
-            "canonical order kept by the fallback"
-        );
+        let message = error.to_string();
         assert!(
-            members
-                .iter()
-                .find(|member| member.0.to_string_lossy() == "a.txt")
-                .is_some_and(|member| member.1 == OVERLAY_A)
-        );
-        assert!(
-            members
-                .iter()
-                .find(|member| member.0.to_string_lossy() == "b.bin")
-                .is_some_and(|member| member.1 == OVERLAY_B)
+            message.contains("eStargz footer") || message.contains("sorted"),
+            "resolve should reject the unsorted overlay image: {message}"
         );
     }
 

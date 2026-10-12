@@ -159,10 +159,7 @@ fn stream_name(layer: &Layer, meta: &mumi::payload::Meta) -> String {
     )
 }
 
-fn ensure_size_matches(
-    planned: &mumi::payload::Planned,
-    output: &OutputStream<'_, '_>,
-) -> Result<()> {
+fn ensure_size_matches(planned: &mumi::payload::Planned, output: &OutputStream<'_>) -> Result<()> {
     if planned.size() != output.size {
         return Err(WizardError::BuildError(format!(
             "layer payload size drift: measured {} but promised {}",
@@ -269,10 +266,9 @@ mod tests {
         .remove(0)
     }
 
-    fn output(name: &'static str, size: u64) -> OutputStream<'static, 'static> {
+    fn output(_name: &'static str, size: u64) -> OutputStream<'static> {
         let (writer, _reader) = std::os::unix::net::UnixStream::pair().expect("pipe pair");
         OutputStream {
-            name,
             size,
             writer: OutputWriter::Pipe(writer),
         }

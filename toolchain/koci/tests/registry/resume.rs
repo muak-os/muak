@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use crate::fixtures::{config_blob, config_digest};
+
 /// A registry that truncates the first blob transfer and resumes later
 /// requests with an HTTP Range response.
 pub(crate) struct ResumeServer {
@@ -143,6 +145,16 @@ fn answer_one(
             "HTTP/1.1 200 OK",
             "application/vnd.oci.image.manifest.v1+json",
             manifest,
+        );
+    } else if request
+        .path
+        .ends_with(&format!("/blobs/{}", config_digest()))
+    {
+        respond(
+            &mut stream,
+            "HTTP/1.1 200 OK",
+            "application/vnd.oci.image.config.v1+json",
+            &config_blob(),
         );
     } else if let Some(offset) = request.range_offset() {
         resumed_offset.store(offset, Ordering::SeqCst);

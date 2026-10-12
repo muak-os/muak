@@ -3,7 +3,7 @@
 use std::fs::File;
 use std::io::Read;
 
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use oci::digest::Verifier;
 use oci::reference::Image;
 use oci_client::blob::build_url;
@@ -37,8 +37,8 @@ impl Read for BlobSource<'_> {
 pub enum LayerReader<'bytes> {
     /// A plain (uncompressed) layer.
     Plain(BlobSource<'bytes>),
-    /// A gzip layer decoded on the fly.
-    Gzipped(GzDecoder<BlobSource<'bytes>>),
+    /// A gzip layer decoded on the fly, members concatenated.
+    Gzipped(MultiGzDecoder<BlobSource<'bytes>>),
 }
 
 impl Read for LayerReader<'_> {
@@ -81,7 +81,7 @@ pub(crate) fn decompress<'bytes>(
     media_type: Option<&str>,
 ) -> Result<LayerReader<'bytes>> {
     match codec(media_type)? {
-        Codec::Gzip => Ok(LayerReader::Gzipped(GzDecoder::new(source))),
+        Codec::Gzip => Ok(LayerReader::Gzipped(MultiGzDecoder::new(source))),
         Codec::Plain => Ok(LayerReader::Plain(source)),
     }
 }

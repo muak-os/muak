@@ -33,6 +33,7 @@ signature = { workspace = true, optional = true }
 # Encoding
 bytes = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 # Error handling
@@ -45,9 +46,9 @@ oci-client = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["annotate", "copy", "anyhow", "clap", "merge", "pull", "push", "sign"]
-annotate = ["dep:bytes", "json", "pull"]
+cli = ["convert", "copy", "anyhow", "clap", "merge", "pull", "push", "sign"]
 copy = ["dep:bytes", "json", "registry"]
+convert = ["pull", "push"]
 merge = ["dep:bytes", "json", "registry"]
 pull = [
     "dep:base64ct",
@@ -57,9 +58,11 @@ pull = [
     "dep:tar",
     "json",
     "registry",
+    "stargz",
 ]
-push = ["dep:bytes", "dep:tar", "json", "registry"]
+push = ["dep:bytes", "dep:tar", "json", "registry", "stargz"]
 registry = ["oci-client/https", "runtime"]
+stargz = ["dep:flate2", "dep:serde", "dep:serde_json", "dep:sha2", "dep:tar"]
 sign = [
     "dep:base64ct",
     "dep:bytes",

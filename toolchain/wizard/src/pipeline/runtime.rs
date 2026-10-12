@@ -14,13 +14,12 @@ pub(crate) struct InputStream<'a> {
 }
 
 /// A live output end with the stream's fixed size.
-pub(crate) struct OutputStream<'name, 'writer> {
-    pub(crate) name: &'name str,
+pub(crate) struct OutputStream<'writer> {
     pub(crate) size: u64,
     pub(crate) writer: OutputWriter<'writer>,
 }
 
-impl Write for OutputStream<'_, '_> {
+impl Write for OutputStream<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.writer.write(buf)
     }
@@ -79,14 +78,14 @@ impl Write for OutputWriter<'_> {
 /// The owned endpoints of one prepared node, addressed by the node module's port constants.
 pub(crate) struct NodePorts<'name, 'writer> {
     inputs: Vec<(PortId, InputStream<'name>)>,
-    outputs: Vec<(PortId, OutputStream<'name, 'writer>)>,
+    outputs: Vec<(PortId, OutputStream<'writer>)>,
 }
 
 impl<'name, 'writer> NodePorts<'name, 'writer> {
     /// Builds the node's endpoints in planner binding order.
     pub(crate) fn new(
         inputs: Vec<(PortId, InputStream<'name>)>,
-        outputs: Vec<(PortId, OutputStream<'name, 'writer>)>,
+        outputs: Vec<(PortId, OutputStream<'writer>)>,
     ) -> Self {
         Self { inputs, outputs }
     }
@@ -97,7 +96,7 @@ impl<'name, 'writer> NodePorts<'name, 'writer> {
     }
 
     /// Takes the output handle bound to `port`.
-    pub(crate) fn output(&mut self, port: PortId) -> Result<OutputStream<'name, 'writer>> {
+    pub(crate) fn output(&mut self, port: PortId) -> Result<OutputStream<'writer>> {
         Self::take(&mut self.outputs, port)
     }
 
@@ -116,7 +115,7 @@ impl<'name, 'writer> NodePorts<'name, 'writer> {
         &mut self,
         first: PortId,
         expected: Option<usize>,
-    ) -> Result<Vec<OutputStream<'name, 'writer>>> {
+    ) -> Result<Vec<OutputStream<'writer>>> {
         Self::take_from(&mut self.outputs, first, expected)
             .map(|endpoints| endpoints.into_iter().map(|(_, output)| output).collect())
     }
@@ -126,7 +125,7 @@ impl<'name, 'writer> NodePorts<'name, 'writer> {
         &mut self,
         first: PortId,
         expected: Option<usize>,
-    ) -> Result<Vec<(PortId, OutputStream<'name, 'writer>)>> {
+    ) -> Result<Vec<(PortId, OutputStream<'writer>)>> {
         Self::take_from(&mut self.outputs, first, expected)
     }
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use bytes::Bytes;
 use oci::arch::Arch;
 use oci::digest::sha256_hex;
-use oci::media::{OCI_CONFIG_MEDIA_TYPE, OCI_LAYER_MEDIA_TYPE, OCI_MANIFEST_MEDIA_TYPE};
+use oci::media::{OCI_CONFIG_MEDIA_TYPE, OCI_LAYER_GZIP_MEDIA_TYPE, OCI_MANIFEST_MEDIA_TYPE};
 use oci_client::auth::Access;
 use oci_client::blob;
 use oci_client::client::Client;
@@ -14,9 +14,19 @@ use oci_client::manifest;
 use crate::error::{KociError, Result};
 use crate::registry;
 use crate::runtime;
+use crate::stargz::{self, LayerBlob};
 
 mod entry;
 mod layer;
+
+/// Rejects invalid and duplicate archive paths before any registry call.
+///
+/// # Errors
+///
+/// Returns an error for empty, absolute, parent-traversing, or duplicate paths.
+pub(crate) fn validate(entries: &[Entry]) -> Result<()> {
+    entry::validate(entries)
+}
 
 /// One file packed into a pushed image, created via [`parse_entry`].
 #[derive(Debug, Clone)]
@@ -63,6 +73,36 @@ pub fn files(image: &str, tags: &[String], arch: &Arch, entries: &[Entry]) -> Re
     runtime::runtime()?.block_on(push_files(image, tags, arch, entries))
 }
 
+/// Packs entries into an eStargz layer, uploading the config and layer blobs.
+/// Returns the platform manifest bytes without pushing them to any tag.
+///
+/// # Errors
+///
+/// Returns an error when a source cannot be read, an entry is invalid, or a
+/// registry upload fails.
+pub(crate) async fn pack(
+    client: &Client,
+    arch: Arch,
+    entries: &[Entry],
+) -> Result<(Vec<u8>, String)> {
+    let layer = layer::build(entries)?;
+    let config = config_blob(arch, &layer.uncompressed)?;
+    put_blob(client, &config.digest, config.bytes.clone()).await?;
+    put_blob(client, &layer.digest, Bytes::from(layer.bytes.clone())).await?;
+    let bytes = manifest_bytes(&config, &layer)?;
+    let digest = format!("sha256:{}", sha256_hex(&bytes));
+
+    Ok((bytes.to_vec(), digest))
+}
+
+pub(crate) fn config_blob(arch: Arch, uncompressed: &str) -> Result<Blob> {
+    blob_from_json(&serde_json::json!({
+        "architecture": arch.as_str(),
+        "os": "linux",
+        "rootfs": { "type": "layers", "diff_ids": [uncompressed] },
+    }))
+}
+
 async fn push_files(
     image: &str,
     tags: &[String],
@@ -71,22 +111,29 @@ async fn push_files(
 ) -> Result<Pushed> {
     let client = registry::connect(image, Access::PullPush).await?;
     let tags = effective_tags(&client, tags)?;
-    entry::validate(entries)?;
+    validate(entries)?;
 
-    let layer = layer::build(entries)?;
-    let config = config_blob(*arch, &layer)?;
-    put_blob(&client, &config.digest, config.bytes.clone()).await?;
-    put_blob(&client, &layer.digest, layer.bytes.clone()).await?;
-
-    let bytes = manifest_bytes(&config, &layer)?;
+    let (bytes, _digest) = pack(&client, *arch, entries).await?;
     for tag in &tags {
-        manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
+        manifest::put(
+            &client,
+            tag,
+            OCI_MANIFEST_MEDIA_TYPE,
+            Bytes::from(bytes.clone()),
+        )
+        .await?;
         eprintln!("Pushed manifest to {image}:{tag}");
     }
 
     Ok(Pushed {
         digest: format!("sha256:{}", sha256_hex(&bytes)),
     })
+}
+
+/// Convert a byte length into a descriptor size.
+pub(crate) fn blob_size(len: usize) -> Result<u64> {
+    u64::try_from(len)
+        .map_err(|error| KociError::PushError(format!("blob size out of range: {error}")))
 }
 
 async fn put_blob(client: &Client, digest: &str, bytes: Bytes) -> Result<()> {
@@ -114,14 +161,6 @@ fn effective_tags(client: &Client, tags: &[String]) -> Result<Vec<String>> {
     Ok(vec![client.image().manifest_ref.clone()])
 }
 
-fn config_blob(arch: Arch, layer: &Blob) -> Result<Blob> {
-    blob_from_json(&serde_json::json!({
-        "architecture": arch.as_str(),
-        "os": "linux",
-        "rootfs": { "type": "layers", "diff_ids": [layer.digest] },
-    }))
-}
-
 fn blob_from_json(value: &serde_json::Value) -> Result<Blob> {
     let bytes = Bytes::from(serde_json::to_vec(value)?);
     let digest = format!("sha256:{}", sha256_hex(&bytes));
@@ -133,18 +172,21 @@ fn blob_from_json(value: &serde_json::Value) -> Result<Blob> {
     })
 }
 
-/// Convert a byte length into a descriptor size.
-pub(crate) fn blob_size(len: usize) -> Result<u64> {
-    u64::try_from(len)
-        .map_err(|error| KociError::PushError(format!("blob size out of range: {error}")))
-}
-
-fn manifest_bytes(config: &Blob, layer: &Blob) -> Result<Bytes> {
+fn manifest_bytes(config: &Blob, layer: &LayerBlob) -> Result<Bytes> {
+    let annotations = serde_json::json!({
+        stargz::toc::TOC_DIGEST_ANNOTATION: layer.toc_digest,
+        stargz::toc::UNCOMPRESSED_SIZE_ANNOTATION: layer.uncompressed_size.to_string(),
+    });
     let body = serde_json::json!({
         "schemaVersion": 2,
         "mediaType": OCI_MANIFEST_MEDIA_TYPE,
         "config": descriptor(OCI_CONFIG_MEDIA_TYPE, config),
-        "layers": [descriptor(OCI_LAYER_MEDIA_TYPE, layer)],
+        "layers": [{
+            "mediaType": OCI_LAYER_GZIP_MEDIA_TYPE,
+            "digest": layer.digest,
+            "size": layer.size,
+            "annotations": annotations,
+        }],
     });
 
     Ok(Bytes::from(serde_json::to_vec(&body)?))
@@ -299,10 +341,13 @@ mod tests {
             size: 3,
             bytes: Bytes::new(),
         };
-        let layer = Blob {
+        let layer = LayerBlob {
             digest: "sha256:bbb".to_owned(),
             size: 5,
-            bytes: Bytes::new(),
+            bytes: Vec::new(),
+            uncompressed: "sha256:ccc".to_owned(),
+            uncompressed_size: 7,
+            toc_digest: "sha256:ddd".to_owned(),
         };
 
         // ACT

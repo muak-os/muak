@@ -545,11 +545,30 @@ fn not_found_response() -> HttpResponse {
 
 /// Response for unrouted request.
 fn default_response(request: &RecordedRequest) -> HttpResponse {
+    if let Some(response) = fixture_config_response(request) {
+        return response;
+    }
+
     if request.method == "PUT" {
         HttpResponse::ok()
     } else {
         not_found_response()
     }
+}
+
+/// Serves the standard fixture image config blob for single-arch manifests.
+fn fixture_config_response(request: &RecordedRequest) -> Option<HttpResponse> {
+    if request.method != "GET" && request.method != "HEAD" {
+        return None;
+    }
+
+    ["amd64", "arm64", "riscv64"].iter().find_map(|arch| {
+        let digest = crate::fixtures::config_digest_for(arch);
+        request
+            .path
+            .ends_with(&format!("/blobs/{digest}"))
+            .then(|| HttpResponse::octet_stream(crate::fixtures::config_blob_for(arch)))
+    })
 }
 
 /// Digest embedded in a manifest path, when the path addresses it by digest.

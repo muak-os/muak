@@ -1,10 +1,9 @@
-//! Blob info cache recording manifest layer lists and per-repository blob locations.
+//! Blob info cache recording per-repository blob locations.
 
 use core::time::Duration;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use oci::model::Descriptor;
 use oci::reference::Image;
 use serde::{Deserialize, Serialize};
 
@@ -20,13 +19,6 @@ pub(crate) enum LayerLocation {
     Missing,
 }
 
-/// Versioned record of a resolved manifest's layer list.
-#[derive(Deserialize, Serialize)]
-struct LayersEntry {
-    version: u32,
-    layers: Vec<Descriptor>,
-}
-
 /// Versioned record of one blob's standing with one repository.
 #[derive(Deserialize, Serialize)]
 struct LocationEntry {
@@ -37,35 +29,6 @@ struct LocationEntry {
     missing: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expires: Option<u64>,
-}
-
-/// Return the recorded layer list of a resolved manifest digest.
-pub(crate) fn manifest_layers(
-    root: Option<&Path>,
-    image: &Image,
-    manifest_digest: &str,
-) -> Option<Vec<Descriptor>> {
-    let path = entry_path(root, image, "layers", manifest_digest)?;
-    let text = std::fs::read_to_string(path).ok()?;
-    let entry = serde_json::from_str::<LayersEntry>(&text).ok()?;
-
-    (entry.version == VERSION).then_some(entry.layers)
-}
-
-/// Record the layer list of a resolved manifest digest.
-pub(crate) fn put_manifest_layers(
-    root: Option<&Path>,
-    image: &Image,
-    manifest_digest: &str,
-    layers: &[Descriptor],
-) {
-    write_entry(
-        entry_path(root, image, "layers", manifest_digest),
-        &LayersEntry {
-            version: VERSION,
-            layers: layers.to_vec(),
-        },
-    );
 }
 
 /// Where this repository stands on a layer blob, honoring the negative TTL.
@@ -163,61 +126,6 @@ mod tests {
         Image::parse("127.0.0.1:5000/org/image:latest")
     }
 
-    fn descriptor(digest: &str, size: u64) -> Descriptor {
-        Descriptor {
-            media_type: Some("application/vnd.oci.image.layer.v1.tar".to_owned()),
-            digest: digest.to_owned(),
-            size,
-            platform: None,
-        }
-    }
-
-    #[test]
-    fn manifest_layers_roundtrip() {
-        // ARRANGE
-        let tmp = TempDir::new().expect("temp dir");
-        let image = test_image();
-        let layers = [descriptor("sha256:aaa", 12), descriptor("sha256:bbb", 34)];
-
-        // ACT
-        put_manifest_layers(Some(tmp.path()), &image, "sha256:ccc", &layers);
-        let got = manifest_layers(Some(tmp.path()), &image, "sha256:ccc");
-
-        // ASSERT
-        assert_eq!(got, Some(layers.to_vec()));
-    }
-
-    #[test]
-    fn manifest_layers_fall_back_cleanly_on_corrupt_entries() {
-        // ARRANGE
-        let tmp = TempDir::new().expect("temp dir");
-        let image = test_image();
-        let entry = entry_path(Some(tmp.path()), &image, "layers", "sha256:aaa").expect("path");
-        std::fs::create_dir_all(entry.parent().expect("entry dir")).expect("create entry dir");
-        std::fs::write(&entry, "{not json").expect("write corrupt entry");
-
-        // ACT
-        let corrupt = manifest_layers(Some(tmp.path()), &image, "sha256:aaa");
-        let absent = manifest_layers(Some(tmp.path()), &image, "sha256:missing");
-
-        // ASSERT
-        assert!(corrupt.is_none(), "corrupt entries must read as a miss");
-        assert!(absent.is_none());
-    }
-
-    #[test]
-    fn manifest_layers_fall_back_cleanly_on_version_mismatch() {
-        // ARRANGE
-        let tmp = TempDir::new().expect("temp dir");
-        let image = test_image();
-        let entry = entry_path(Some(tmp.path()), &image, "layers", "sha256:aaa").expect("path");
-        std::fs::create_dir_all(entry.parent().expect("entry dir")).expect("create entry dir");
-        std::fs::write(&entry, r#"{"version":999,"layers":[]}"#).expect("write future entry");
-
-        // ACT / ASSERT
-        assert!(manifest_layers(Some(tmp.path()), &image, "sha256:aaa").is_none());
-    }
-
     #[test]
     fn layer_locations_roundtrip_present_entries() {
         // ARRANGE
@@ -263,12 +171,10 @@ mod tests {
         let image = test_image();
 
         // ACT
-        put_manifest_layers(None, &image, "sha256:aaa", &[]);
         put_blob_present(None, &image, "sha256:aaa", 1);
         put_blob_missing(None, &image, "sha256:aaa", Duration::from_mins(1));
 
         // ASSERT
-        assert!(manifest_layers(None, &image, "sha256:aaa").is_none());
         assert!(layer_location(None, &image, "sha256:aaa").is_none());
     }
 }

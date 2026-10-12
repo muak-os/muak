@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use super::entries::FileEntry;
 use super::paths::{normalize_entry_path_into, whiteout_target_into};
 use crate::error::{KociError, Result};
+use crate::stargz;
 
 /// Outcome of classifying a tar entry, borrowing the caller's reused path buffer.
 #[derive(Clone, Copy)]
@@ -53,6 +54,10 @@ pub(crate) fn classify_tar_entry<'a>(
             "Unsupported OCI layer entry type for {}",
             scratch.display()
         )));
+    }
+
+    if stargz::member::is_bookkeeping(&path_string(scratch)) {
+        return Ok(EntryInfo::Skip);
     }
 
     Ok(EntryInfo::File(

@@ -1,7 +1,5 @@
 //! Build pipeline node runners.
 
-use alloc::collections::BTreeMap;
-
 pub(crate) mod initramfs;
 pub(crate) mod installer;
 pub(crate) mod kernel;
@@ -23,9 +21,6 @@ use crate::pipeline::execute::NodeReport;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
-
-/// Manifest annotation carrying the per-file sizes of a producer image.
-const SIZES_ANNOTATION: &str = "dev.muak.sizes";
 
 /// Manifest annotation carrying the disk layout required by a board image.
 pub(crate) const DISK_ANNOTATION: &str = "dev.muak.disk";
@@ -84,17 +79,34 @@ pub(crate) fn produces(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortI
     (descriptor(kind).produces)(kind, ctx)
 }
 
-/// Byte size of every file entry of an image, from its sizes manifest annotation.
+/// Byte sizes of an image's regular-file entries, measured from its eStargz
+/// TOC without decoding the layer payload.
 ///
 /// # Errors
 ///
-/// Returns an error when the annotations cannot be fetched or the sizes
-/// annotation is missing or malformed.
-pub(crate) fn entry_sizes(reference: &str, arch: Arch) -> Result<BTreeMap<String, u64>> {
-    let annotations = pull::annotations(reference, &arch, None)
-        .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
+/// Returns an error when the manifest cannot be resolved, signature
+/// verification fails, or a layer carries no footer.
+pub(crate) fn measured_sizes(reference: &str, arch: Arch) -> Result<Vec<(String, u64)>> {
+    pull::toc::entries(reference, &arch, None)
+        .map(|entries| {
+            entries
+                .into_iter()
+                .map(|entry| (entry.path, entry.size))
+                .collect()
+        })
+        .map_err(|e| WizardError::BuildError(format!("measure {reference} entries: {e}")))
+}
 
-    parse_sizes(reference, &annotations)
+/// The byte size of one file entry of an image, measured from its eStargz TOC.
+///
+/// # Errors
+///
+/// Returns an error when the manifest cannot be resolved or the entry is missing.
+pub(crate) fn measured_size(reference: &str, arch: Arch, path: &str) -> Result<u64> {
+    measured_sizes(reference, arch)?
+        .iter()
+        .find_map(|entry| (entry.0.as_str() == path).then_some(entry.1))
+        .ok_or_else(|| WizardError::BuildError(format!("missing entry {path} in {reference}")))
 }
 
 /// Fetches the disk layout requirement of an image, if annotated.
@@ -109,35 +121,8 @@ pub(crate) fn disk_layout_annotation(reference: &str, arch: Arch) -> Result<Opti
     Ok(annotations.get(DISK_ANNOTATION).cloned())
 }
 
-fn parse_sizes(
-    reference: &str,
-    annotations: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, u64>> {
-    let Some(raw) = annotations.get(SIZES_ANNOTATION) else {
-        let available = annotations.keys().cloned().collect::<Vec<_>>().join(", ");
-        let available = if available.is_empty() {
-            "none".to_owned()
-        } else {
-            available
-        };
-
-        return Err(WizardError::BuildError(format!(
-            "missing {SIZES_ANNOTATION} annotation on {reference} (present: {available})"
-        )));
-    };
-
-    serde_json::from_str(raw).map_err(|e| {
-        WizardError::BuildError(format!(
-            "malformed {SIZES_ANNOTATION} annotation on {reference}: expected a JSON object \
-             mapping entry paths to byte sizes: {e}"
-        ))
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use alloc::collections::BTreeMap;
-
     use koci::arch::Arch;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
@@ -146,63 +131,6 @@ mod tests {
     use crate::codec::Codec;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::ResolvedBuild;
-
-    fn sizes_annotation(value: &str) -> BTreeMap<String, String> {
-        BTreeMap::from([(SIZES_ANNOTATION.to_owned(), value.to_owned())])
-    }
-
-    #[test]
-    fn parse_sizes_reads_entry_sizes() {
-        // ARRANGE
-        let annotations = sizes_annotation(r#"{"vmlinuz":12,"cmdline":3}"#);
-
-        // ACT
-        let sizes = parse_sizes("reg.io/img:tag", &annotations).expect("parse sizes");
-
-        // ASSERT
-        assert_eq!(sizes.get("vmlinuz"), Some(&12));
-        assert_eq!(sizes.get("cmdline"), Some(&3));
-    }
-
-    #[test]
-    fn parse_sizes_rejects_missing_annotation_and_lists_present_keys() {
-        // ARRANGE
-        let annotations = BTreeMap::from([("dev.muak.sig".to_owned(), "AA".to_owned())]);
-
-        // ACT
-        let error = parse_sizes("reg.io/img:tag", &annotations).expect_err("missing must fail");
-
-        // ASSERT
-        assert!(error.to_string().contains(SIZES_ANNOTATION));
-        assert!(error.to_string().contains("dev.muak.sig"));
-    }
-
-    #[test]
-    fn parse_sizes_reports_missing_annotation_without_present_keys() {
-        // ARRANGE / ACT
-        let error = parse_sizes("reg.io/img:tag", &BTreeMap::new()).expect_err("missing must fail");
-
-        // ASSERT
-        assert!(error.to_string().contains("(present: none)"));
-    }
-
-    #[test]
-    fn parse_sizes_rejects_malformed_json() {
-        // ARRANGE
-        let annotations = sizes_annotation("not json");
-
-        // ACT / ASSERT
-        parse_sizes("reg.io/img:tag", &annotations).expect_err("malformed must fail");
-    }
-
-    #[test]
-    fn parse_sizes_rejects_non_numeric_size() {
-        // ARRANGE
-        let annotations = sizes_annotation(r#"{"vmlinuz":"big"}"#);
-
-        // ACT / ASSERT
-        parse_sizes("reg.io/img:tag", &annotations).expect_err("non-numeric must fail");
-    }
 
     fn build_plan() -> ResolvedBuild {
         ResolvedBuild::new(

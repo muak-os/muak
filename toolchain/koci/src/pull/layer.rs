@@ -1,10 +1,6 @@
 //! OCI layer downloading, decompression, and tar entry iteration.
 
-#[cfg(feature = "annotate")]
-use alloc::collections::BTreeMap;
 use std::collections::HashMap;
-#[cfg(feature = "annotate")]
-use std::path::Path;
 use std::path::PathBuf;
 
 use oci::model::Descriptor;
@@ -19,41 +15,6 @@ use super::parallel;
 use super::scan;
 use crate::error::Result;
 use crate::progress::Progress;
-
-/// Collect the byte size of every live file entry, keyed by normalized path.
-///
-/// # Errors
-///
-/// Returns an error if a layer cannot be downloaded or decompressed.
-#[cfg(feature = "annotate")]
-pub(crate) async fn entry_sizes(
-    client: &Client,
-    layers: &[Descriptor],
-    exclude: &[String],
-    progress: &dyn Progress,
-) -> Result<BTreeMap<String, u64>> {
-    let mut sizes = BTreeMap::new();
-
-    walk(
-        client,
-        &Store::new(),
-        &Content::new(),
-        layers,
-        progress,
-        |_layer_idx, _entry, info| {
-            if let scan::EntryInfo::File(path, size, _) = info
-                && !excluded(path, exclude)
-            {
-                sizes.insert(scan::path_string(path), size);
-            }
-
-            Ok(())
-        },
-    )
-    .await?;
-
-    Ok(sizes)
-}
 
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
 pub(crate) async fn walk<F>(
@@ -134,46 +95,4 @@ fn blocked_by_whiteout(
         scan::EntryInfo::File(path, ..)
             if whiteouts.get(*path).is_some_and(|&blocking| blocking > layer_idx)
     )
-}
-
-/// Whether a normalized entry path matches an exclusion prefix at a path segment boundary.
-#[cfg(feature = "annotate")]
-fn excluded(path: &Path, exclude: &[String]) -> bool {
-    let text = path.to_string_lossy();
-
-    exclude.iter().any(|prefix| {
-        text == prefix.as_str()
-            || text
-                .strip_prefix(prefix.as_str())
-                .is_some_and(|rest| rest.starts_with('/'))
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn excluded_matches_exact_path_and_directory_prefixes() {
-        // ARRANGE
-        let exclude = ["lib/modules".to_owned(), "etc/motd".to_owned()];
-
-        // ACT / ASSERT
-        assert!(excluded(Path::new("lib/modules"), &exclude));
-        assert!(excluded(
-            Path::new("lib/modules/7.2.0/kernel/x.ko"),
-            &exclude
-        ));
-        assert!(excluded(Path::new("etc/motd"), &exclude));
-    }
-
-    #[test]
-    fn excluded_requires_segment_boundary() {
-        // ARRANGE
-        let exclude = ["lib/modules".to_owned()];
-
-        // ACT / ASSERT
-        assert!(!excluded(Path::new("lib/modules.builtin"), &exclude));
-        assert!(!excluded(Path::new("vmlinuz"), &exclude));
-    }
 }
