@@ -46,9 +46,8 @@ oci-client = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["convert", "copy", "anyhow", "clap", "merge", "pull", "push", "sign"]
+cli = ["copy", "anyhow", "clap", "merge", "pull", "push", "sign"]
 copy = ["dep:bytes", "json", "registry"]
-convert = ["pull", "push"]
 merge = ["dep:bytes", "json", "registry"]
 pull = [
     "dep:base64ct",

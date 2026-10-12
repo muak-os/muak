@@ -26,45 +26,6 @@ pub struct Session {
     arch: String,
 }
 
-/// Open a pull session for `reference`, resolving the platform manifest once.
-///
-/// # Errors
-///
-/// Returns an error when the reference cannot be parsed, the registry
-/// handshake fails, or signature verification fails.
-pub fn open(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-) -> Result<Session> {
-    runtime::runtime()?.block_on(open_async(reference, arch, verification))
-}
-
-/// Async variant of [`open`] for callers already inside an async context.
-///
-/// # Errors
-///
-/// Returns an error when the reference cannot be parsed, the registry
-/// handshake fails, or signature verification fails.
-pub(crate) async fn open_async(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-) -> Result<Session> {
-    let client = registry::connect(reference, Access::Pull).await?;
-    let cache = Store::new();
-    let layers = resolve::layers(&client, &cache, arch, verification).await?;
-
-    Ok(Session {
-        client,
-        cache,
-        content: Content::new(),
-        layers,
-        reference: reference.to_owned(),
-        arch: arch.as_str().to_owned(),
-    })
-}
-
 impl Session {
     /// The resolved layer descriptors of the platform manifest, not yet downloaded.
     #[must_use]
@@ -115,4 +76,31 @@ impl Session {
     pub(crate) fn content(&self) -> &Content {
         &self.content
     }
+}
+
+/// Open a pull session for `reference`, resolving the platform manifest once.
+///
+/// # Errors
+///
+/// Returns an error when the reference cannot be parsed, the registry
+/// handshake fails, or signature verification fails.
+pub fn open(
+    reference: &str,
+    arch: &Arch,
+    verification: Option<&Verification<'_>>,
+) -> Result<Session> {
+    runtime::runtime()?.block_on(async {
+        let client = registry::connect(reference, Access::Pull).await?;
+        let cache = Store::new();
+        let layers = resolve::layers(&client, &cache, arch, verification).await?;
+
+        Ok(Session {
+            client,
+            cache,
+            content: Content::new(),
+            layers,
+            reference: reference.to_owned(),
+            arch: arch.as_str().to_owned(),
+        })
+    })
 }

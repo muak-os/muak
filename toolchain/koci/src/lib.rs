@@ -7,8 +7,6 @@ extern crate alloc;
 #[cfg(feature = "sign")]
 pub mod annotations;
 pub mod arch;
-#[cfg(feature = "convert")]
-pub mod convert;
 #[cfg(feature = "copy")]
 pub mod copy;
 pub mod error;

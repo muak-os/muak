@@ -7,7 +7,6 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use oci::arch::Arch;
 
-mod convert;
 mod copy;
 mod digest;
 mod merge;
@@ -31,7 +30,6 @@ enum Command {
     Sign(sign::Args),
     Merge(merge::Args),
     Push(push::Args),
-    Convert(convert::Args),
     Copy(copy::Args),
     Digest(digest::Args),
 }
@@ -77,7 +75,6 @@ fn run_command(command: Command) -> Result<()> {
         Command::Sign(args) => sign::run(args),
         Command::Merge(args) => merge::run(args),
         Command::Push(args) => push::run(args),
-        Command::Convert(args) => convert::run(&args),
         Command::Copy(args) => copy::run(args),
         Command::Digest(args) => digest::run(args),
     }
