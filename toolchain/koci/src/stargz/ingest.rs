@@ -2,7 +2,6 @@
 
 use std::io::Read;
 
-use sha2::{Digest as _, Sha256};
 use tar::Archive;
 
 use super::toc::Record;
@@ -17,29 +16,29 @@ use crate::error::{KociError, Result};
 /// encoded.
 pub fn from_tar<R: Read>(reader: R) -> Result<LayerBlob> {
     let mut bytes = Vec::new();
-    let mut tar_digest = Sha256::new();
+    let mut uncompressed = encode::Uncompressed::new();
     let mut toc = Vec::new();
 
     toc.push(member::stream(
         &mut bytes,
-        &mut tar_digest,
+        &mut uncompressed,
         &member::no_prefetch_landmark(),
     )?);
 
     let mut archive = Archive::new(reader);
     for entry in archive.entries().map_err(KociError::IoError)? {
         let mut entry = entry.map_err(KociError::IoError)?;
-        if let Some(record) = repack(&mut bytes, &mut tar_digest, &mut entry)? {
+        if let Some(record) = repack(&mut bytes, &mut uncompressed, &mut entry)? {
             toc.push(record);
         }
     }
 
-    assemble(bytes, &mut tar_digest, &toc)
+    assemble(bytes, uncompressed, &toc)
 }
 
 fn repack<R: Read>(
     bytes: &mut Vec<u8>,
-    tar: &mut Sha256,
+    uncompressed: &mut encode::Uncompressed,
     entry: &mut tar::Entry<'_, R>,
 ) -> Result<Option<Record>> {
     let source_type = entry.header().entry_type();
@@ -71,9 +70,16 @@ fn repack<R: Read>(
     let record = if regular {
         let mut reader: &mut dyn Read = entry;
 
-        encode::emit(bytes, tar, &prefix, &header, &name, Some(&mut reader))?
+        encode::emit(
+            bytes,
+            uncompressed,
+            &prefix,
+            &header,
+            &name,
+            Some(&mut reader),
+        )?
     } else {
-        encode::emit(bytes, tar, &prefix, &header, &name, None)?
+        encode::emit(bytes, uncompressed, &prefix, &header, &name, None)?
     };
 
     Ok(Some(record))

@@ -9,8 +9,8 @@ pub mod toc;
 use std::path::PathBuf;
 
 use oci::digest::sha256_hex;
-use sha2::{Digest as _, Sha256};
 
+use self::encode::Uncompressed;
 use self::toc::{Record, footer};
 use crate::error::Result;
 
@@ -60,32 +60,32 @@ pub struct LayerBlob {
 pub fn layer(entries: &[Entry]) -> Result<LayerBlob> {
     let plan = member::plan(entries)?;
     let mut bytes = Vec::new();
-    let mut tar_digest = Sha256::new();
+    let mut uncompressed = Uncompressed::new();
     let mut toc: Vec<Record> = Vec::new();
 
     for current in &plan {
-        toc.push(member::stream(&mut bytes, &mut tar_digest, current)?);
+        toc.push(member::stream(&mut bytes, &mut uncompressed, current)?);
     }
 
-    assemble(bytes, &mut tar_digest, &toc)
+    assemble(bytes, uncompressed, &toc)
 }
 
 /// Finalizes a blob by appending the TOC member and the stargz footer.
 pub(crate) fn assemble(
     mut bytes: Vec<u8>,
-    tar_digest: &mut Sha256,
+    mut uncompressed: Uncompressed,
     toc: &[Record],
 ) -> Result<LayerBlob> {
     let offset = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let (toc_member, toc_digest) = member::toc_member(toc)?;
-    member::stream(&mut bytes, tar_digest, &toc_member)?;
-    let uncompressed_size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    member::stream(&mut bytes, &mut uncompressed, &toc_member)?;
     bytes.extend_from_slice(&footer(offset));
+    let (uncompressed, uncompressed_size) = uncompressed.finish();
 
     Ok(LayerBlob {
         digest: format!("sha256:{}", sha256_hex(&bytes)),
         size: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-        uncompressed: format!("sha256:{}", sha256_hex(&tar_digest.clone().finalize())),
+        uncompressed,
         uncompressed_size,
         toc_digest,
         bytes,
@@ -122,6 +122,38 @@ mod layer_tests {
         assert!(
             names.contains(&"catalog.toml".to_owned()),
             "missing member: {names:?}"
+        );
+    }
+
+    #[test]
+    fn layer_uncompressed_digest_matches_decompressed_bytes() {
+        // ARRANGE
+        use std::io::Read as _;
+
+        let dir = tempfile::TempDir::new().expect("temp");
+        let source = dir.path().join("payload.bin");
+        std::fs::write(&source, b"hello eStargz").expect("write");
+        let entries = vec![Entry {
+            path: "payload.bin".to_owned(),
+            mode: 0o644,
+            source: Source::File(source),
+        }];
+
+        // ACT
+        let blob = layer(&entries).expect("layer");
+        let mut decompressed = Vec::new();
+        flate2::read::MultiGzDecoder::new(blob.bytes.as_slice())
+            .read_to_end(&mut decompressed)
+            .expect("gunzip");
+
+        // ASSERT
+        assert_eq!(
+            blob.uncompressed,
+            format!("sha256:{}", sha256_hex(&decompressed))
+        );
+        assert_eq!(
+            blob.uncompressed_size,
+            u64::try_from(decompressed.len()).expect("length")
         );
     }
 }

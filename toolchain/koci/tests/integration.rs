@@ -615,6 +615,21 @@ mod tests {
             .expect("layer descriptor");
         assert_descriptor_matches_upload(layer, layer_upload);
 
+        let config_json: Value =
+            serde_json::from_slice(&config_upload.body).expect("parse config json");
+        let diff_id = config_json
+            .get("rootfs")
+            .and_then(|rootfs| rootfs.get("diff_ids"))
+            .and_then(Value::as_array)
+            .and_then(|diff_ids| diff_ids.first())
+            .and_then(Value::as_str)
+            .expect("config diff id");
+        let mut decompressed = Vec::new();
+        flate2::read::MultiGzDecoder::new(layer_upload.body.as_slice())
+            .read_to_end(&mut decompressed)
+            .expect("gunzip layer");
+        assert_eq!(diff_id, sha256_digest(&decompressed));
+
         let layer_names = archived_paths(&layer_upload.body);
         assert_eq!(
             layer_names,

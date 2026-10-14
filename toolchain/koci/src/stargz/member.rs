@@ -2,7 +2,6 @@
 
 use std::fs::File;
 
-use sha2::Sha256;
 use tar::Header;
 
 use super::encode;
@@ -110,7 +109,11 @@ pub(crate) fn no_prefetch_landmark() -> Member {
 }
 
 /// Streams one member and returns its TOC metadata.
-pub(crate) fn stream(bytes: &mut Vec<u8>, tar: &mut Sha256, member: &Member) -> Result<Record> {
+pub(crate) fn stream(
+    bytes: &mut Vec<u8>,
+    uncompressed: &mut encode::Uncompressed,
+    member: &Member,
+) -> Result<Record> {
     let (size, mode) = layout(member)?;
     let name = member.toc_name().to_owned();
 
@@ -125,16 +128,16 @@ pub(crate) fn stream(bytes: &mut Vec<u8>, tar: &mut Sha256, member: &Member) -> 
     header.set_cksum();
 
     match *member {
-        Member::Dir { .. } => encode::emit(bytes, tar, &[], &header, &name, None),
+        Member::Dir { .. } => encode::emit(bytes, uncompressed, &[], &header, &name, None),
         Member::Mem { ref data, .. } => {
             let mut slice = data.as_slice();
 
-            encode::emit(bytes, tar, &[], &header, &name, Some(&mut slice))
+            encode::emit(bytes, uncompressed, &[], &header, &name, Some(&mut slice))
         }
         Member::File { ref file, .. } => {
             let mut reader = file;
 
-            encode::emit(bytes, tar, &[], &header, &name, Some(&mut reader))
+            encode::emit(bytes, uncompressed, &[], &header, &name, Some(&mut reader))
         }
     }
 }
@@ -210,8 +213,6 @@ fn stage_member(source: &Source, name: &str, mode: u32) -> Result<Member> {
 
 #[cfg(test)]
 mod tests {
-    use sha2::Digest as _;
-
     use super::*;
 
     #[test]
@@ -246,10 +247,10 @@ mod tests {
             file: std::fs::File::open(&source).expect("open"),
         };
         let mut bytes = Vec::new();
-        let mut tar_digest = Sha256::new();
+        let mut uncompressed = encode::Uncompressed::new();
 
         // ACT
-        let entry = stream(&mut bytes, &mut tar_digest, &member).expect("stream");
+        let entry = stream(&mut bytes, &mut uncompressed, &member).expect("stream");
         let names: Vec<String> =
             tar::Archive::new(flate2::read::MultiGzDecoder::new(bytes.as_slice()))
                 .entries()

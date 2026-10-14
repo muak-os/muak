@@ -58,10 +58,16 @@ impl Verifier {
     }
 }
 
+/// Encode raw digest bytes as lowercase hexadecimal.
+#[must_use]
+pub fn hex(bytes: &[u8]) -> String {
+    base16ct::lower::encode_string(bytes)
+}
+
 /// Compute the SHA-256 hex digest of the given bytes.
 #[must_use]
 pub fn sha256_hex(data: &[u8]) -> String {
-    base16ct::lower::encode_string(Sha256::digest(data).as_ref())
+    hex(Sha256::digest(data).as_ref())
 }
 
 #[cfg(test)]

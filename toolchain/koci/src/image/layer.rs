@@ -146,4 +146,33 @@ mod tests {
         ));
         assert!(matches!(rewrap(b"", None), Err(KociError::PushError(_))));
     }
+
+    #[test]
+    fn rewrap_diff_id_matches_the_decompressed_layer() {
+        // ARRANGE
+        use std::io::Read as _;
+
+        let tar = tar_with(&[("etc/hostname", b"muak")]);
+
+        // ACT
+        let prepared = rewrap(&tar, Some(OCI_LAYER_MEDIA_TYPE)).expect("rewrap");
+        let mut decompressed = Vec::new();
+        MultiGzDecoder::new(prepared.bytes.as_slice())
+            .read_to_end(&mut decompressed)
+            .expect("gunzip");
+
+        // ASSERT
+        let size = prepared
+            .descriptor
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.get(UNCOMPRESSED_SIZE_ANNOTATION))
+            .and_then(|value| value.parse::<u64>().ok());
+        assert_eq!(
+            size,
+            Some(u64::try_from(decompressed.len()).expect("length"))
+        );
+        let expected = format!("sha256:{}", oci::digest::sha256_hex(&decompressed));
+        assert_eq!(prepared.diff_id.as_deref(), Some(expected.as_str()));
+    }
 }
