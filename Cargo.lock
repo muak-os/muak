@@ -1332,7 +1332,6 @@ dependencies = [
  "protox",
  "rustls",
  "serde",
- "tempfile",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
