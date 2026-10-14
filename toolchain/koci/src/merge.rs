@@ -135,6 +135,7 @@ async fn resolve_descriptor(client: &Client, source: &Source) -> Result<Descript
             architecture: Some(source.arch.as_str().to_owned()),
             os: Some("linux".to_owned()),
         }),
+        annotations: None,
     })
 }
 
@@ -285,6 +286,7 @@ mod tests {
                 architecture: Some("amd64".to_owned()),
                 os: Some("linux".to_owned()),
             }),
+            annotations: None,
         }];
 
         // ACT

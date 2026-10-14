@@ -101,6 +101,7 @@ mod tests {
                 architecture: architecture.map(str::to_owned),
                 os: os.map(str::to_owned),
             }),
+            annotations: None,
         }
     }
 
@@ -165,6 +166,7 @@ mod tests {
                 digest: "sha256:no-platform".to_owned(),
                 size: 0,
                 platform: None,
+                annotations: None,
             },
             descriptor("sha256:match", Some("amd64"), Some("linux")),
         ];

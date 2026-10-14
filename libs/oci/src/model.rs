@@ -35,6 +35,9 @@ pub struct Descriptor {
     /// Platform the blob targets, for index descriptors.
     #[serde(default)]
     pub platform: Option<Platform>,
+    /// Free-form annotations attached to the descriptor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<HashMap<String, String>>,
 }
 
 /// Platform information for multi-architecture images.
