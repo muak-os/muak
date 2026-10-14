@@ -5,30 +5,19 @@ use std::path::PathBuf;
 use bytes::Bytes;
 use oci::arch::Arch;
 use oci::digest::sha256_hex;
-use oci::media::{OCI_CONFIG_MEDIA_TYPE, OCI_LAYER_GZIP_MEDIA_TYPE, OCI_MANIFEST_MEDIA_TYPE};
+use oci::media::OCI_MANIFEST_MEDIA_TYPE;
 use oci_client::auth::Access;
-use oci_client::blob;
 use oci_client::client::Client;
-use oci_client::manifest;
 
-use crate::error::{KociError, Result};
+use crate::error::Result;
+use crate::image::{config, manifest, upload};
 use crate::registry;
 use crate::runtime;
-use crate::stargz::{self, LayerBlob};
 
 mod entry;
 mod layer;
 
-/// Rejects invalid and duplicate archive paths before any registry call.
-///
-/// # Errors
-///
-/// Returns an error for empty, absolute, parent-traversing, or duplicate paths.
-pub(crate) fn validate(entries: &[Entry]) -> Result<()> {
-    entry::validate(entries)
-}
-
-/// One file packed into a pushed image, created via [`parse_entry`].
+/// One file packed into a pushed image, created via [`Entry::parse`].
 #[derive(Debug, Clone)]
 pub struct Entry {
     /// Path of the file inside the image layer (relative, e.g. `catalog.toml`).
@@ -44,37 +33,18 @@ pub struct Pushed {
     pub digest: String,
 }
 
-/// An assembled blob with its digest and byte length.
-#[derive(Debug)]
-pub(crate) struct Blob {
-    /// `sha256:...` digest of the blob bytes.
-    pub(crate) digest: String,
-    /// Byte length of the blob.
-    pub(crate) size: u64,
-    /// The blob bytes.
-    pub(crate) bytes: Bytes,
-}
-
-/// Parse a `PATH[:ARCHIVE_PATH]` entry specification such as `catalog.toml`.
-///
-/// # Errors
-///
-/// Returns an error when the source path or the derived archive path is empty.
-pub fn parse_entry(spec: &str) -> Result<Entry> {
-    entry::parse(spec)
-}
-
 /// Pack `entries` into one uncompressed tar layer and push a scratch image.
 ///
 /// # Errors
 ///
-/// Returns an error when entries are invalid, the session cannot be established, or any registry operation fails.
+/// Returns an error when entries are invalid, the session cannot be established,
+/// or any registry operation fails.
 pub fn files(image: &str, tags: &[String], arch: &Arch, entries: &[Entry]) -> Result<Pushed> {
     runtime::runtime()?.block_on(push_files(image, tags, arch, entries))
 }
 
 /// Packs entries into an eStargz layer, uploading the config and layer blobs.
-/// Returns the platform manifest bytes without pushing them to any tag.
+/// Returns the platform manifest bytes and digest without pushing any tag.
 ///
 /// # Errors
 ///
@@ -86,22 +56,13 @@ pub(crate) async fn pack(
     entries: &[Entry],
 ) -> Result<(Bytes, String)> {
     let layer = layer::build(entries)?;
-    let config = config_blob(arch, &layer.uncompressed)?;
-    let manifest = manifest_bytes(&config, &layer)?;
-    let digest = format!("sha256:{}", sha256_hex(&manifest));
+    let config = config::scratch(arch, &layer.uncompressed)?;
+    upload::put_blob(client, &config.digest, config.bytes.clone()).await?;
+    upload::put_blob(client, &layer.digest, Bytes::from(layer.bytes.clone())).await?;
+    let bytes = manifest::build(&config, &[manifest::layer_descriptor(&layer)], None)?;
+    let digest = format!("sha256:{}", sha256_hex(&bytes));
 
-    put_blob(client, &config.digest, config.bytes).await?;
-    put_blob(client, &layer.digest, Bytes::from(layer.bytes)).await?;
-
-    Ok((manifest, digest))
-}
-
-pub(crate) fn config_blob(arch: Arch, uncompressed: &str) -> Result<Blob> {
-    blob_from_json(&serde_json::json!({
-        "architecture": arch.as_str(),
-        "os": "linux",
-        "rootfs": { "type": "layers", "diff_ids": [uncompressed] },
-    }))
+    Ok((bytes, digest))
 }
 
 async fn push_files(
@@ -111,82 +72,16 @@ async fn push_files(
     entries: &[Entry],
 ) -> Result<Pushed> {
     let client = registry::connect(image, Access::PullPush).await?;
-    let tags = effective_tags(&client, tags)?;
-    validate(entries)?;
+    let tags = upload::effective_tags(&client, tags)?;
+    Entry::validate(entries)?;
 
     let (bytes, digest) = pack(&client, *arch, entries).await?;
     for tag in &tags {
-        manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
+        oci_client::manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
         eprintln!("Pushed manifest to {image}:{tag}");
     }
 
     Ok(Pushed { digest })
-}
-
-/// Convert a byte length into a descriptor size.
-pub(crate) fn blob_size(len: usize) -> Result<u64> {
-    u64::try_from(len)
-        .map_err(|error| KociError::PushError(format!("blob size out of range: {error}")))
-}
-
-async fn put_blob(client: &Client, digest: &str, bytes: Bytes) -> Result<()> {
-    if blob::exists(client, digest).await? {
-        eprintln!("Blob {digest} already in registry; skipping upload");
-
-        return Ok(());
-    }
-
-    blob::upload(client, digest, bytes).await?;
-
-    Ok(())
-}
-
-fn effective_tags(client: &Client, tags: &[String]) -> Result<Vec<String>> {
-    if !tags.is_empty() {
-        return Ok(tags.to_vec());
-    }
-    if client.image().manifest_ref.starts_with("sha256:") {
-        return Err(KociError::PushError(
-            "digest reference carries no tag to push; pass --tag".to_owned(),
-        ));
-    }
-
-    Ok(vec![client.image().manifest_ref.clone()])
-}
-
-fn blob_from_json(value: &serde_json::Value) -> Result<Blob> {
-    let bytes = Bytes::from(serde_json::to_vec(value)?);
-    let digest = format!("sha256:{}", sha256_hex(&bytes));
-
-    Ok(Blob {
-        digest,
-        size: blob_size(bytes.len())?,
-        bytes,
-    })
-}
-
-fn manifest_bytes(config: &Blob, layer: &LayerBlob) -> Result<Bytes> {
-    let annotations = serde_json::json!({
-        stargz::toc::TOC_DIGEST_ANNOTATION: layer.toc_digest,
-        stargz::toc::UNCOMPRESSED_SIZE_ANNOTATION: layer.uncompressed_size.to_string(),
-    });
-    let body = serde_json::json!({
-        "schemaVersion": 2,
-        "mediaType": OCI_MANIFEST_MEDIA_TYPE,
-        "config": descriptor(OCI_CONFIG_MEDIA_TYPE, config),
-        "layers": [{
-            "mediaType": OCI_LAYER_GZIP_MEDIA_TYPE,
-            "digest": layer.digest,
-            "size": layer.size,
-            "annotations": annotations,
-        }],
-    });
-
-    Ok(Bytes::from(serde_json::to_vec(&body)?))
-}
-
-fn descriptor(media_type: &str, blob: &Blob) -> serde_json::Value {
-    serde_json::json!({ "mediaType": media_type, "digest": blob.digest, "size": blob.size })
 }
 
 #[cfg(test)]
@@ -202,6 +97,8 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::image::Blob;
+    use crate::stargz::LayerBlob;
 
     struct TestServer {
         address: String,
@@ -278,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_entry_reads_explicit_and_default_archive_paths() {
+    fn parse_reads_explicit_and_default_archive_paths() {
         // ARRANGE
         let workspace = TempDir::new().expect("create temp dir");
         let source = workspace.path().join("catalog.toml");
@@ -287,8 +184,8 @@ mod tests {
         let default = source.display().to_string();
 
         // ACT
-        let with_path = parse_entry(&explicit).expect("parse explicit spec");
-        let with_default = parse_entry(&default).expect("parse default spec");
+        let with_path = Entry::parse(&explicit).expect("parse explicit spec");
+        let with_default = Entry::parse(&default).expect("parse default spec");
 
         // ASSERT
         assert_eq!(with_path.path, "docs/catalog.toml");
@@ -297,13 +194,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_entry_rejects_empty_and_unnameable_sources() {
+    fn parse_rejects_empty_and_unnameable_sources() {
         // ARRANGE / ACT / ASSERT
-        let error = parse_entry(":docs/catalog.toml").expect_err("empty source should fail");
-        assert!(matches!(error, KociError::PushError(_)));
+        let error = Entry::parse(":docs/catalog.toml").expect_err("empty source should fail");
+        assert!(matches!(error, crate::error::KociError::PushError(_)));
 
-        let error = parse_entry("/").expect_err("unnameable source should fail");
-        assert!(matches!(error, KociError::PushError(_)));
+        let error = Entry::parse("/").expect_err("unnameable source should fail");
+        assert!(matches!(error, crate::error::KociError::PushError(_)));
     }
 
     #[test]
@@ -321,13 +218,13 @@ mod tests {
         };
 
         // ACT / ASSERT
-        assert!(entry::validate(&[absolute]).is_err());
-        assert!(entry::validate(&[traversing]).is_err());
-        assert!(entry::validate(&[entry.clone(), entry]).is_err());
+        assert!(Entry::validate(&[absolute]).is_err());
+        assert!(Entry::validate(&[traversing]).is_err());
+        assert!(Entry::validate(&[entry.clone(), entry]).is_err());
     }
 
     #[test]
-    fn manifest_bytes_lists_config_and_layer_descriptors() {
+    fn manifest_lists_config_and_layer_descriptors() {
         // ARRANGE
         let config = Blob {
             digest: "sha256:aaa".to_owned(),
@@ -344,7 +241,8 @@ mod tests {
         };
 
         // ACT
-        let bytes = manifest_bytes(&config, &layer).expect("build manifest");
+        let bytes = manifest::build(&config, &[manifest::layer_descriptor(&layer)], None)
+            .expect("build manifest");
 
         // ASSERT
         let parsed: serde_json::Value =
@@ -416,7 +314,7 @@ mod tests {
         // ASSERT
         assert!(matches!(
             error,
-            KociError::Client(oci_client::error::ClientError::Push(_))
+            crate::error::KociError::Client(oci_client::error::ClientError::Push(_))
         ));
     }
 }

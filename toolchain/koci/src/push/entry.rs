@@ -5,54 +5,59 @@ use std::path::{Path, PathBuf};
 use super::Entry;
 use crate::error::{KociError, Result};
 
-/// Parse a `PATH[:ARCHIVE_PATH]` entry specification such as `catalog.toml`.
-///
-/// # Errors
-///
-/// Returns an error when the source path or the archive path ends up empty.
-pub(crate) fn parse(spec: &str) -> Result<Entry> {
-    let (source, archive_path) = match spec.split_once(':') {
-        Some((source, archive_path)) => (source, archive_path),
-        None => (spec, ""),
-    };
-    if source.is_empty() {
-        return Err(spec_error(spec, "source path is empty"));
+impl Entry {
+    /// Parse a `PATH[:ARCHIVE_PATH]` entry specification such as `catalog.toml`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the source path or the archive path ends up empty.
+    pub fn parse(spec: &str) -> Result<Self> {
+        let (source, archive_path) = match spec.split_once(':') {
+            Some((source, archive_path)) => (source, archive_path),
+            None => (spec, ""),
+        };
+        if source.is_empty() {
+            return Err(spec_error(spec, "source path is empty"));
+        }
+
+        let path = match archive_path {
+            "" => file_name_of(source, spec)?,
+            path => path.to_owned(),
+        };
+
+        Ok(Self {
+            path,
+            source: PathBuf::from(source),
+        })
     }
 
-    let path = match archive_path {
-        "" => file_name_of(source, spec)?,
-        path => path.to_owned(),
-    };
+    /// Reject invalid and duplicate archive paths before any registry call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty, absolute, parent-traversing, or duplicate paths.
+    pub(super) fn validate(entries: &[Self]) -> Result<()> {
+        for entry in entries {
+            validate_path(&entry.path)?;
+        }
+        if let Some(path) = duplicate(entries) {
+            return Err(KociError::PushError(format!(
+                "duplicate archive path '{path}'"
+            )));
+        }
 
-    Ok(Entry {
-        path,
-        source: PathBuf::from(source),
-    })
+        Ok(())
+    }
 }
 
-/// Reject invalid and duplicate archive paths before any registry call.
-///
-/// # Errors
-///
-/// Returns an error for empty, absolute, parent-traversing, or duplicate paths.
-pub(crate) fn validate(entries: &[Entry]) -> Result<()> {
-    for entry in entries {
-        validate_path(&entry.path)?;
-    }
-    for (position, entry) in entries.iter().enumerate() {
-        if entries
+fn duplicate(entries: &[Entry]) -> Option<&str> {
+    entries.iter().enumerate().find_map(|(position, entry)| {
+        entries
             .iter()
             .take(position)
             .any(|other| other.path == entry.path)
-        {
-            return Err(KociError::PushError(format!(
-                "duplicate archive path '{}'",
-                entry.path
-            )));
-        }
-    }
-
-    Ok(())
+            .then_some(entry.path.as_str())
+    })
 }
 
 fn file_name_of(source: &str, spec: &str) -> Result<String> {
@@ -89,7 +94,7 @@ mod tests {
         let spec = "/etc/muak/catalog.toml";
 
         // ACT
-        let entry = parse(spec).expect("parse spec");
+        let entry = Entry::parse(spec).expect("parse spec");
 
         // ASSERT
         assert_eq!(entry.path, "catalog.toml");
@@ -102,7 +107,7 @@ mod tests {
         let spec = "out/catalog.toml";
 
         // ACT
-        let entry = parse(spec).expect("parse spec");
+        let entry = Entry::parse(spec).expect("parse spec");
 
         // ASSERT
         assert_eq!(entry.path, "catalog.toml");
@@ -111,10 +116,10 @@ mod tests {
     #[test]
     fn parse_rejects_empty_and_unnameable_sources() {
         // ARRANGE / ACT / ASSERT
-        let error = parse_entry_helper(":name.toml");
+        let error = parse_error(":name.toml");
         assert!(matches!(error, KociError::PushError(_)));
 
-        let error = parse_entry_helper("/");
+        let error = parse_error("/");
         assert!(matches!(error, KociError::PushError(_)));
     }
 
@@ -127,10 +132,10 @@ mod tests {
         }];
 
         // ACT / ASSERT
-        assert!(validate(&entries).is_err());
+        assert!(Entry::validate(&entries).is_err());
     }
 
-    fn parse_entry_helper(spec: &str) -> KociError {
-        parse(spec).expect_err("spec should be rejected")
+    fn parse_error(spec: &str) -> KociError {
+        Entry::parse(spec).expect_err("spec should be rejected")
     }
 }

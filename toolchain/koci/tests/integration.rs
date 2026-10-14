@@ -28,6 +28,7 @@ mod tests {
     use koci::pull::demux::Demux;
     use koci::pull::session;
     use koci::push;
+    use koci::repack;
     use oci::arch::Arch;
     use oci::error::OciError;
     use oci_client::error::ClientError;
@@ -618,6 +619,191 @@ mod tests {
         assert_eq!(
             layer_names,
             vec![".no.prefetch.landmark", "catalog.toml", "stargz.index.json"]
+        );
+    }
+
+    #[test]
+    fn repack_rewrites_a_published_image_in_place() {
+        // ARRANGE
+        let layer = layer_archive(&[("etc/hostname", b"muak")]).expect("build layer");
+        let layer_digest = sha256_digest(&layer);
+        let config = serde_json::to_vec(&serde_json::json!({
+            "architecture": "amd64",
+            "os": "linux",
+            "config": {"Labels": {"org.opencontainers.image.title": "installer"}},
+            "rootfs": {"type": "layers", "diff_ids": [sha256_digest(b"original")]},
+        }))
+        .expect("config json");
+        let config_digest = sha256_digest(&config);
+        let manifest = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": config_digest,
+                "size": config.len(),
+            },
+            "layers": [{
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": layer_digest,
+                "size": layer.len(),
+            }],
+        }))
+        .expect("manifest json");
+        let registry = MockRegistry::start(HashMap::from([
+            get(
+                "/v2/repo/manifests/v1",
+                HttpResponse::json(manifest.clone()),
+            ),
+            get(
+                format!("/v2/repo/blobs/{config_digest}"),
+                HttpResponse::octet_stream(config.clone()),
+            ),
+            get(
+                format!("/v2/repo/blobs/{layer_digest}"),
+                HttpResponse::octet_stream(layer.clone()),
+            ),
+            post(
+                "/v2/repo/blobs/uploads/",
+                HttpResponse::accepted("/v2/repo/blobs/uploads/u1"),
+            ),
+            put("/v2/repo/manifests/v1", HttpResponse::ok()),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        let digest =
+            repack::run(&registry.reference("repo", "v1"), &[]).expect("repack should succeed");
+
+        // ASSERT
+        let uploaded = required_request(&registry, "PUT", "/v2/repo/manifests/v1");
+        assert_eq!(digest, sha256_digest(&uploaded.body));
+        let parsed: Value = serde_json::from_slice(&uploaded.body).expect("parse manifest");
+        let config_after = parsed
+            .get("config")
+            .and_then(|config| config.get("digest"))
+            .and_then(Value::as_str)
+            .expect("config digest");
+        assert_ne!(
+            config_after, config_digest,
+            "the config digest must change when diff ids are rewritten"
+        );
+        let layer = parsed
+            .get("layers")
+            .and_then(Value::as_array)
+            .and_then(|layers| layers.first())
+            .expect("layer descriptor");
+        assert!(
+            layer
+                .get("annotations")
+                .and_then(|annotations| {
+                    annotations.get("containerd.io/snapshot/stargz/toc.digest")
+                })
+                .is_some(),
+            "repacked layer must carry a TOC annotation"
+        );
+    }
+
+    #[test]
+    fn repack_rewrites_every_platform_of_an_index() {
+        // ARRANGE
+        let layer = layer_archive(&[("etc/hostname", b"muak")]).expect("build layer");
+        let layer_digest = sha256_digest(&layer);
+        let config = serde_json::to_vec(&serde_json::json!({
+            "architecture": "amd64",
+            "os": "linux",
+            "rootfs": {"type": "layers", "diff_ids": [sha256_digest(b"original")]},
+        }))
+        .expect("config json");
+        let config_digest = sha256_digest(&config);
+        let platform = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": config_digest,
+                "size": config.len(),
+            },
+            "layers": [{
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": layer_digest,
+                "size": layer.len(),
+            }],
+        }))
+        .expect("platform manifest json");
+        let platform_digest = sha256_digest(&platform);
+        let index = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [{
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "digest": platform_digest,
+                "size": platform.len(),
+                "platform": {"architecture": "amd64", "os": "linux"},
+            }],
+        }))
+        .expect("index json");
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/v1", HttpResponse::index(index)),
+            get(
+                format!("/v2/repo/manifests/{platform_digest}"),
+                HttpResponse::json(platform),
+            ),
+            get(
+                format!("/v2/repo/blobs/{config_digest}"),
+                HttpResponse::octet_stream(config),
+            ),
+            get(
+                format!("/v2/repo/blobs/{layer_digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+            post(
+                "/v2/repo/blobs/uploads/",
+                HttpResponse::accepted("/v2/repo/blobs/uploads/u1"),
+            ),
+            put("/v2/repo/manifests/v1", HttpResponse::ok()),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        repack::run(&registry.reference("repo", "v1"), &[]).expect("repack should succeed");
+
+        // ASSERT
+        let index_put = required_request(&registry, "PUT", "/v2/repo/manifests/v1");
+        let published: Value = serde_json::from_slice(&index_put.body).expect("parse index");
+        let line = published
+            .get("manifests")
+            .and_then(Value::as_array)
+            .and_then(|lines| lines.first())
+            .expect("index line");
+        let repacked_digest = line
+            .get("digest")
+            .and_then(Value::as_str)
+            .expect("index line digest");
+        assert_ne!(
+            repacked_digest, platform_digest,
+            "index must point at the repacked platform"
+        );
+
+        let platform_put = registry
+            .puts()
+            .expect("read puts")
+            .into_iter()
+            .find(|request| request.path.starts_with("/v2/repo/manifests/sha256:"))
+            .expect("repacked platform manifest upload");
+        let platform: Value =
+            serde_json::from_slice(&platform_put.body).expect("parse platform manifest");
+        assert!(
+            platform
+                .get("layers")
+                .and_then(Value::as_array)
+                .and_then(|layers| layers.first())
+                .and_then(|layer| layer.get("annotations"))
+                .and_then(|annotations| {
+                    annotations.get("containerd.io/snapshot/stargz/toc.digest")
+                })
+                .is_some(),
+            "repacked platform layer must carry a TOC annotation"
         );
     }
 

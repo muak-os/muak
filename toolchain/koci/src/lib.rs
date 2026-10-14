@@ -10,6 +10,8 @@ pub mod arch;
 #[cfg(feature = "copy")]
 pub mod copy;
 pub mod error;
+#[cfg(feature = "push")]
+mod image;
 #[cfg(feature = "merge")]
 pub mod merge;
 pub mod progress;
@@ -19,6 +21,8 @@ pub mod pull;
 pub mod push;
 #[cfg(feature = "registry")]
 pub mod registry;
+#[cfg(all(feature = "pull", feature = "push"))]
+pub mod repack;
 #[cfg(feature = "runtime")]
 mod runtime;
 #[cfg(any(feature = "pull", feature = "sign"))]

@@ -103,6 +103,9 @@ jobs:
           echo "Release tag '$tag' matches Cargo.toml version 'v${cargo_version}'"
 
       - name: Build ${{ inputs.image }} (${{ matrix.arch }})
+        env:
+          KOCI_REGISTRY_USERNAME: ${{ github.actor }}
+          KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CONTAINER_RUNTIME=docker \
           ARCH=${{ matrix.arch }} \

@@ -235,6 +235,17 @@ mirror image tag upstream="ghcr.io/muak-os":
             --source "{{ upstream }}/{{ image }}:{{ tag }}" \
             --destination "{{ registry }}/{{ image }}:{{ tag }}"
 
+# Repack a published image's layers into eStargz, in place.
+[group('oci')]
+[arg("image", long="image")]
+repack image=(registry + "/installer:" + tag):
+    @printf "{{ cyan }}Repacking OCI image {{ image }}{{ reset }}\n"
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        {{ toolchain }} \
+        /koci repack \
+            --image "{{ image }}"
+
 # Sign an OCI image in the registry (default to installer image)
 [group('oci')]
 [arg("image", long="image")]
@@ -436,6 +447,14 @@ _build-oci name dockerfile *extra:
     if [ "{{ container_runtime }}" = "podman" ] && [ "{{ push }}" = "true" ]; then
         {{ container_runtime }} push "${image}"
         if [ "{{ latest }}" = "true" ]; then {{ container_runtime }} push "{{ registry }}/{{ name }}:latest"; fi
+    fi
+    if [ "{{ push }}" = "true" ]; then
+        {{ container_runtime }} run --rm --network=host \
+            -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+            {{ toolchain }} \
+            /koci repack \
+                --image "${image}" \
+                {{ if latest == "true" { "--tag latest" } else { "" } }}
     fi
 
 [private]

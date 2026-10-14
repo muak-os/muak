@@ -38,7 +38,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
 
     let entries = files
         .iter()
-        .map(|spec| push::parse_entry(spec))
+        .map(|spec| push::Entry::parse(spec))
         .collect::<error::Result<Vec<_>>>()
         .context("Failed to parse files")?;
     let target_arch = arch.unwrap_or(arch::host());

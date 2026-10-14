@@ -1,14 +1,11 @@
 //! eStargz blob members.
 
 use std::fs::File;
-use std::io::{self, Read, Write};
 
-use flate2::Compression;
-use flate2::write::GzEncoder;
-use oci::digest::sha256_hex;
-use sha2::{Digest as _, Sha256};
+use sha2::Sha256;
 use tar::Header;
 
+use super::encode;
 use super::toc::Record;
 use super::{Entry, Source, toc as toc_mod};
 use crate::error::{KociError, Result};
@@ -60,14 +57,7 @@ pub(crate) fn plan(entries: &[Entry]) -> Result<Vec<Member>> {
         members.push(staged);
     }
     members.sort_unstable_by_key(|member| member.toc_name().to_owned());
-    members.insert(
-        0,
-        Member::Mem {
-            path: NO_PREFETCH_LANDMARK.to_owned(),
-            mode: 0o644,
-            data: LANDMARK_CONTENT.to_vec(),
-        },
-    );
+    members.insert(0, no_prefetch_landmark());
 
     Ok(members)
 }
@@ -101,77 +91,52 @@ impl Member {
     fn toc_name(&self) -> &str {
         self.name().strip_suffix('/').unwrap_or(self.name())
     }
+
+    fn entry_type(&self) -> tar::EntryType {
+        match *self {
+            Self::Dir { .. } => tar::EntryType::Directory,
+            Self::Mem { .. } | Self::File { .. } => tar::EntryType::Regular,
+        }
+    }
+}
+
+/// The no-prefetch landmark member written first in every blob.
+pub(crate) fn no_prefetch_landmark() -> Member {
+    Member::Mem {
+        path: NO_PREFETCH_LANDMARK.to_owned(),
+        mode: 0o644,
+        data: LANDMARK_CONTENT.to_vec(),
+    }
 }
 
 /// Streams one member and returns its TOC metadata.
 pub(crate) fn stream(bytes: &mut Vec<u8>, tar: &mut Sha256, member: &Member) -> Result<Record> {
-    let name = member.toc_name().to_owned();
-    let offset = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    let mut payload_digest = Sha256::new();
-    let mut encoded = GzEncoder::new(LayerSink { bytes, digest: tar }, Compression::default());
-
     let (size, mode) = layout(member)?;
+    let name = member.toc_name().to_owned();
 
     let mut header = Header::new_ustar();
     header.set_mtime(0);
     header.set_mode(mode);
     header.set_size(size);
-    if matches!(member, Member::Dir { .. }) {
-        header.set_entry_type(tar::EntryType::Directory);
-    } else {
-        header.set_entry_type(tar::EntryType::Regular);
-    }
+    header.set_entry_type(member.entry_type());
     header
         .set_path(member.name())
         .map_err(|error| KociError::PushError(format!("set path {name}: {error}")))?;
     header.set_cksum();
-    encoded
-        .write_all(header.as_bytes())
-        .map_err(KociError::IoError)?;
 
     match *member {
-        Member::Dir { .. } => {}
+        Member::Dir { .. } => encode::emit(bytes, tar, &[], &header, &name, None),
         Member::Mem { ref data, .. } => {
-            let mut slice: &[u8] = data;
-            stream_payload(&mut encoded, &mut payload_digest, &mut slice)?;
+            let mut slice = data.as_slice();
+
+            encode::emit(bytes, tar, &[], &header, &name, Some(&mut slice))
         }
         Member::File { ref file, .. } => {
             let mut reader = file;
-            stream_payload(&mut encoded, &mut payload_digest, &mut reader)?;
+
+            encode::emit(bytes, tar, &[], &header, &name, Some(&mut reader))
         }
     }
-    pad_member(size, &mut encoded)?;
-
-    let digest = match *member {
-        Member::Dir { .. } => None,
-        Member::Mem { ref data, .. } => Some(format!("sha256:{}", sha256_hex(data))),
-        Member::File { .. } => Some(format!(
-            "sha256:{}",
-            sha256_hex(&payload_digest.clone().finalize())
-        )),
-    };
-    encoded
-        .finish()
-        .map_err(|error| KociError::PushError(format!("gzip member: {error}")))?;
-
-    Ok(Record {
-        name,
-        kind: if matches!(member, Member::Dir { .. }) {
-            "dir"
-        } else {
-            "reg"
-        }
-        .to_owned(),
-        size: if matches!(member, Member::Dir { .. }) {
-            None
-        } else {
-            Some(size)
-        },
-        mode: Some(u64::from(mode)),
-        offset: Some(offset),
-        digest: digest.clone(),
-        chunk_digest: digest,
-    })
 }
 
 /// Builds the in-memory TOC member and its JSON digest.
@@ -243,67 +208,10 @@ fn stage_member(source: &Source, name: &str, mode: u32) -> Result<Member> {
     }
 }
 
-fn stream_payload<R: Read + ?Sized>(
-    encoded: &mut GzEncoder<LayerSink<'_>>,
-    digest: &mut Sha256,
-    payload: &mut R,
-) -> Result<()> {
-    let mut hashed = HashingRead {
-        inner: payload,
-        digest,
-    };
-    io::copy(&mut hashed, encoded).map_err(KociError::IoError)?;
-
-    Ok(())
-}
-
-fn pad_member(size: u64, encoded: &mut GzEncoder<LayerSink<'_>>) -> Result<()> {
-    let aligned = size
-        .checked_next_multiple_of(512)
-        .ok_or_else(|| KociError::PushError("member padding overflows".to_owned()))?;
-    let missing = aligned.saturating_sub(size);
-    let missing = usize::try_from(missing).unwrap_or(0);
-
-    let zeros = vec![0_u8; missing];
-    io::copy(&mut zeros.as_slice(), encoded).map_err(KociError::IoError)?;
-
-    Ok(())
-}
-
-struct LayerSink<'a> {
-    bytes: &'a mut Vec<u8>,
-    digest: &'a mut Sha256,
-}
-
-impl Write for LayerSink<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.digest.update(buf);
-        self.bytes.extend_from_slice(buf);
-
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-struct HashingRead<'a, R: Read> {
-    inner: R,
-    digest: &'a mut Sha256,
-}
-
-impl<R: Read> Read for HashingRead<'_, R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let copied = self.inner.read(buf)?;
-        self.digest.update(buf.get(..copied).unwrap_or(buf));
-
-        Ok(copied)
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use sha2::Digest as _;
+
     use super::*;
 
     #[test]

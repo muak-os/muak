@@ -1,5 +1,8 @@
 //! TOC layout pieces.
 
+use core::hash::BuildHasher;
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
@@ -15,6 +18,12 @@ pub const TOC_DIGEST_ANNOTATION: &str = "containerd.io/snapshot/stargz/toc.diges
 
 /// Layer descriptor annotation carrying the layer's uncompressed byte count.
 pub const UNCOMPRESSED_SIZE_ANNOTATION: &str = "io.containers.estargz.uncompressed-size";
+
+/// Returns whether `annotations` mark a layer as eStargz.
+#[must_use]
+pub fn is_estargz<S: BuildHasher>(annotations: &HashMap<String, String, S>) -> bool {
+    annotations.contains_key(TOC_DIGEST_ANNOTATION)
+}
 
 /// gzip header magic and flags of the footer member.
 const FOOTER_HEAD: [u8; 10] = [0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -141,4 +150,20 @@ fn framed(footer: &[u8]) -> bool {
         .get(..10)
         .is_some_and(|head| head.iter().eq(FOOTER_HEAD.iter()))
         && flags
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_estargz_reads_the_toc_digest_annotation() {
+        // ARRANGE
+        let mut annotated = HashMap::new();
+        annotated.insert(TOC_DIGEST_ANNOTATION.to_owned(), "sha256:x".to_owned());
+
+        // ACT / ASSERT
+        assert!(is_estargz(&annotated));
+        assert!(!is_estargz(&HashMap::new()));
+    }
 }

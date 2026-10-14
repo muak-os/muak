@@ -1,5 +1,8 @@
 //! eStargz-compatible seekable gzip layers with a table of contents.
 
+mod encode;
+mod gnu;
+pub mod ingest;
 pub mod member;
 pub mod toc;
 
@@ -61,13 +64,21 @@ pub fn layer(entries: &[Entry]) -> Result<LayerBlob> {
     let mut toc: Vec<Record> = Vec::new();
 
     for current in &plan {
-        let entry = member::stream(&mut bytes, &mut tar_digest, current)?;
-        toc.push(entry);
+        toc.push(member::stream(&mut bytes, &mut tar_digest, current)?);
     }
 
+    assemble(bytes, &mut tar_digest, &toc)
+}
+
+/// Finalizes a blob by appending the TOC member and the stargz footer.
+pub(crate) fn assemble(
+    mut bytes: Vec<u8>,
+    tar_digest: &mut Sha256,
+    toc: &[Record],
+) -> Result<LayerBlob> {
     let offset = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    let (toc_member, toc_digest) = member::toc_member(&toc)?;
-    member::stream(&mut bytes, &mut tar_digest, &toc_member)?;
+    let (toc_member, toc_digest) = member::toc_member(toc)?;
+    member::stream(&mut bytes, tar_digest, &toc_member)?;
     let uncompressed_size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     bytes.extend_from_slice(&footer(offset));
 

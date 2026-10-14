@@ -6,6 +6,10 @@ pub const OCI_CONFIG_MEDIA_TYPE: &str = "application/vnd.oci.image.config.v1+jso
 pub const OCI_LAYER_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 /// Media type of a gzip-compressed OCI tar layer.
 pub const OCI_LAYER_GZIP_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
+/// Media type of an uncompressed Docker image layer.
+pub const DOCKER_LAYER_MEDIA_TYPE: &str = "application/vnd.docker.image.rootfs.diff.tar";
+/// Media type of a gzip-compressed Docker image layer.
+pub const DOCKER_LAYER_GZIP_MEDIA_TYPE: &str = "application/vnd.docker.image.rootfs.diff.tar.gzip";
 /// Media type of an OCI image manifest.
 pub const OCI_MANIFEST_MEDIA_TYPE: &str = "application/vnd.oci.image.manifest.v1+json";
 /// Media type of a Docker schema 2 image manifest.

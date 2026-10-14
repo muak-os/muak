@@ -5,6 +5,10 @@ use std::io::Read;
 
 use flate2::read::MultiGzDecoder;
 use oci::digest::Verifier;
+use oci::media::{
+    DOCKER_LAYER_GZIP_MEDIA_TYPE, DOCKER_LAYER_MEDIA_TYPE, OCI_LAYER_GZIP_MEDIA_TYPE,
+    OCI_LAYER_MEDIA_TYPE,
+};
 use oci::reference::Image;
 use oci_client::blob::build_url;
 use oci_client::error::ClientError;
@@ -58,15 +62,8 @@ enum Codec {
 
 fn codec(media_type: Option<&str>) -> Result<Codec> {
     match media_type {
-        Some(
-            "application/vnd.oci.image.layer.v1.tar+gzip"
-            | "application/vnd.docker.image.rootfs.diff.tar.gzip",
-        ) => Ok(Codec::Gzip),
-        Some(
-            "application/vnd.oci.image.layer.v1.tar"
-            | "application/vnd.docker.image.rootfs.diff.tar",
-        )
-        | None => Ok(Codec::Plain),
+        Some(OCI_LAYER_GZIP_MEDIA_TYPE | DOCKER_LAYER_GZIP_MEDIA_TYPE) => Ok(Codec::Gzip),
+        Some(OCI_LAYER_MEDIA_TYPE | DOCKER_LAYER_MEDIA_TYPE) | None => Ok(Codec::Plain),
         Some(other) => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
     }
 }

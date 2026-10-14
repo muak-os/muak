@@ -12,6 +12,7 @@ mod digest;
 mod merge;
 mod pull;
 mod push;
+mod repack;
 mod sign;
 
 /// Top-level CLI arguments.
@@ -32,6 +33,7 @@ enum Command {
     Push(push::Args),
     Copy(copy::Args),
     Digest(digest::Args),
+    Repack(repack::Args),
 }
 
 /// Run the CLI from a caller-provided argument iterator.
@@ -77,6 +79,7 @@ fn run_command(command: Command) -> Result<()> {
         Command::Push(args) => push::run(args),
         Command::Copy(args) => copy::run(args),
         Command::Digest(args) => digest::run(args),
+        Command::Repack(args) => repack::run(args),
     }
 }
 
