@@ -86,7 +86,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apid"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "btrfs"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "crc32c",
  "rustix",
@@ -353,7 +353,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "config"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "consoled"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -517,7 +517,7 @@ dependencies = [
 
 [[package]]
 name = "disk"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "parttable",
  "serde",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "e2e"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -596,7 +596,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "erofs"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "crc32c",
  "tempfile",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "esp"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "fatfs",
  "tempfile",
@@ -631,7 +631,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fatfs"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "granola"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "granola-macros"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "kata"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "kmod"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "rustix",
  "tempfile",
@@ -1066,7 +1066,7 @@ dependencies = [
 
 [[package]]
 name = "kmsg"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "rustix",
  "thiserror 2.0.21",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "koci"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "luks2"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "aes",
  "argon2",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "millefeuille"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "btrfs",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "miso"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "esp",
  "parttable",
@@ -1309,7 +1309,7 @@ dependencies = [
 
 [[package]]
 name = "modd"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "granola",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "muakctl"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1348,7 +1348,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "mumi"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "netlib"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "libc",
  "rtnetlink",
@@ -1421,7 +1421,7 @@ dependencies = [
 
 [[package]]
 name = "networkd"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -1468,7 +1468,7 @@ dependencies = [
 
 [[package]]
 name = "oci"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "base16ct",
  "serde",
@@ -1479,7 +1479,7 @@ dependencies = [
 
 [[package]]
 name = "oci-client"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "base64ct",
  "http-body-util",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "parttable"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "crc32fast",
  "esp",
@@ -1669,7 +1669,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pki"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "base16ct",
  "const-oid",
@@ -1822,7 +1822,7 @@ dependencies = [
 
 [[package]]
 name = "provisiond"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "btrfs",
@@ -1892,7 +1892,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "ramune"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -2064,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "sbolt"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "cms",
  "const-oid",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "timed"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -2623,7 +2623,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tpm2"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "getrandom 0.4.3",
  "sha2",
@@ -2728,7 +2728,7 @@ checksum = "0c8352f8c05e47892e7eaf13b34abd76a7f4aeaf817b716e88789381927f199c"
 
 [[package]]
 name = "uki"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "object",
  "sha2",
@@ -2889,7 +2889,7 @@ checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 
 [[package]]
 name = "wizard"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "workloadd"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "anyhow",
  "btrfs",
@@ -2977,7 +2977,7 @@ dependencies = [
 
 [[package]]
 name = "yuki"
-version = "1.0.1-beta"
+version = "1.0.2-beta"
 dependencies = [
  "object",
  "sha2",
