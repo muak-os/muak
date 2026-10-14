@@ -1,8 +1,5 @@
 //! OCI image fixture builders.
 
-use std::collections::HashMap;
-use std::io::Read as _;
-
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde_json::json;
@@ -21,11 +18,6 @@ pub struct FixtureImage {
 /// rewritten as ONE sorted eStargz layer carrying its TOC and footer.
 pub fn build_image(entries: &[(&str, &[u8])]) -> FixtureImage {
     build_layer_image(entries, "application/vnd.oci.image.layer.v1.tar+gzip")
-}
-
-/// Builds a single-platform image served as one plain (uncompressed tar) layer.
-pub fn build_plain_image(entries: &[(&str, &[u8])]) -> FixtureImage {
-    build_layer_image(entries, "application/vnd.oci.image.layer.v1.tar")
 }
 
 /// Builds a legacy single-member gzip tar layer image with no features.
@@ -135,7 +127,8 @@ pub fn sha256_digest(bytes: &[u8]) -> String {
     format!("sha256:{}", hex_encode(Sha256::digest(bytes).as_ref()))
 }
 
-/// Deterministic pseudo-random bytes (xorshift) so fixture images are
+/// Deterministic pseudo-random bytes (xorshift) so fixture images stay
+/// reproducible while differing from each other.
 pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
     let mut state = seed;
     let mut bytes = Vec::with_capacity(len);
@@ -143,7 +136,7 @@ pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
         state ^= state << 13;
         state ^= state >> 7;
         state ^= state << 17;
-        bytes.push((state & 0xff) as u8);
+        bytes.push(u8::try_from(state & 0xff).unwrap_or_default());
     }
 
     bytes
@@ -151,11 +144,10 @@ pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
 
 /// Lowercase hex encoding of `bytes`.
 pub fn hex_encode(bytes: &[u8]) -> String {
-    let lookup = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
-        out.push(lookup[usize::from(byte >> 4)] as char);
-        out.push(lookup[usize::from(byte & 0x0f)] as char);
+        out.push(char::from_digit(u32::from(byte >> 4), 16).unwrap_or('0'));
+        out.push(char::from_digit(u32::from(byte & 0x0f), 16).unwrap_or('0'));
     }
 
     out
