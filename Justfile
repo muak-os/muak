@@ -292,17 +292,17 @@ lint *pkgs: format
     printf "{{ cyan }}Running lints{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            cargo clippy --all-targets -p "$pkg"
+            cargo clippy --all-targets -p "$pkg" -- -D warnings
         done
     else
-        cargo clippy --all-targets
+        cargo clippy --all-targets -- -D warnings
     fi
 
 # Run tests (e.g., just test or just test yuki koci)
 [group('test')]
 [script]
 test *pkgs:
-    just _test-run "cargo nextest run" "Running tests for" {{ pkgs }}
+    RUSTFLAGS="${RUSTFLAGS:-} -D warnings" just _test-run "cargo nextest run" "Running tests for" {{ pkgs }}
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
 [group('test')]
