@@ -84,15 +84,16 @@ pub(crate) async fn pack(
     client: &Client,
     arch: Arch,
     entries: &[Entry],
-) -> Result<(Vec<u8>, String)> {
+) -> Result<(Bytes, String)> {
     let layer = layer::build(entries)?;
     let config = config_blob(arch, &layer.uncompressed)?;
-    put_blob(client, &config.digest, config.bytes.clone()).await?;
-    put_blob(client, &layer.digest, Bytes::from(layer.bytes.clone())).await?;
-    let bytes = manifest_bytes(&config, &layer)?;
-    let digest = format!("sha256:{}", sha256_hex(&bytes));
+    let manifest = manifest_bytes(&config, &layer)?;
+    let digest = format!("sha256:{}", sha256_hex(&manifest));
 
-    Ok((bytes.to_vec(), digest))
+    put_blob(client, &config.digest, config.bytes).await?;
+    put_blob(client, &layer.digest, Bytes::from(layer.bytes)).await?;
+
+    Ok((manifest, digest))
 }
 
 pub(crate) fn config_blob(arch: Arch, uncompressed: &str) -> Result<Blob> {
@@ -113,21 +114,13 @@ async fn push_files(
     let tags = effective_tags(&client, tags)?;
     validate(entries)?;
 
-    let (bytes, _digest) = pack(&client, *arch, entries).await?;
+    let (bytes, digest) = pack(&client, *arch, entries).await?;
     for tag in &tags {
-        manifest::put(
-            &client,
-            tag,
-            OCI_MANIFEST_MEDIA_TYPE,
-            Bytes::from(bytes.clone()),
-        )
-        .await?;
+        manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
         eprintln!("Pushed manifest to {image}:{tag}");
     }
 
-    Ok(Pushed {
-        digest: format!("sha256:{}", sha256_hex(&bytes)),
-    })
+    Ok(Pushed { digest })
 }
 
 /// Convert a byte length into a descriptor size.
