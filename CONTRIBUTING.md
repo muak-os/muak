@@ -38,13 +38,13 @@ EOF
 ```
 
 ```sh
-REGISTRY="localhost:5000" just mirror linux latest
-REGISTRY="localhost:5000" just mirror stub latest
+REGISTRY="localhost:5000" just mirror linux v7.2.11
+REGISTRY="localhost:5000" just mirror stub v1.0.1-beta
 TAG="v0.0.1" REGISTRY="localhost:5000" just build --release
 TAG="v0.0.1" REGISTRY="localhost:5000" just installer
 TAG="v0.0.1" REGISTRY="localhost:5000" just catalog \
-  --set kernels/muak-os/linux=linux@latest \
-  --set stub=muak-os/stub@stub@latest
+  --set kernels/muak-os/linux=linux@v7.2.11 \
+  --set stub=muak-os/stub@stub@v1.0.1-beta
 REGISTRY="localhost:5000" just dev # Uses the default toolchain
 just start
 
