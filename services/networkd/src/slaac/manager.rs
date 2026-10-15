@@ -306,10 +306,9 @@ fn process_initial_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Result
 
 /// Checks all timers and emits at most one event.
 fn process_unsolicited_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Option<SlaacEvent> {
-    kmsg::info!(
+    println!(
         "SLAAC: unsolicited RA from {} on {}",
-        ra.source,
-        manager.interface
+        ra.source, manager.interface
     );
 
     if ra.router_lifetime == 0 {
@@ -429,10 +428,9 @@ fn refresh_address_from_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> b
             && generated == Some(addr.address)
         {
             addr.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
-            kmsg::info!(
+            println!(
                 "SLAAC: refreshed lifetimes for {} on {}",
-                addr.address,
-                manager.interface
+                addr.address, manager.interface
             );
             return true;
         }

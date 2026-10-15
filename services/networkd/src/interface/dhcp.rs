@@ -162,7 +162,7 @@ pub(super) async fn recover_with_lease<N: Ops>(actor: &mut Actor<N>, lease: Leas
 }
 
 pub(super) async fn renew_lease<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &C) {
-    kmsg::info!("DHCP RENEW for {}", actor.snapshot.name);
+    println!("DHCP RENEW for {}", actor.snapshot.name);
     transition(actor, State::Renewing);
     if let Err(e) = do_renew(actor, connector).await {
         kmsg::warn!("DHCP RENEW failed for {}: {}", actor.snapshot.name, e);
@@ -170,7 +170,7 @@ pub(super) async fn renew_lease<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, 
 }
 
 pub(super) async fn rebind_lease<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &C) {
-    kmsg::info!("DHCP REBIND for {}", actor.snapshot.name);
+    println!("DHCP REBIND for {}", actor.snapshot.name);
     transition(actor, State::Rebinding);
     if let Err(e) = do_rebind(actor, connector).await {
         kmsg::warn!("DHCP REBIND failed for {}: {}", actor.snapshot.name, e);
@@ -297,7 +297,7 @@ async fn do_rebind<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &C
 async fn apply_renewed_lease<N: Ops>(actor: &mut Actor<N>, lease: &Lease) -> Result<()> {
     let index = actor.snapshot.index;
     commit_lease(actor, index, lease.clone()).await?;
-    kmsg::info!("DHCP lease renewed for {}", actor.snapshot.name);
+    println!("DHCP lease renewed for {}", actor.snapshot.name);
 
     Ok(())
 }
