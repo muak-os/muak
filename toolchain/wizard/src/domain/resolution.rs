@@ -296,12 +296,12 @@ mod tests {
             Arch::Amd64,
             Kernel::new(
                 "muak-os/linux".into(),
-                "ghcr.io/muak-os/linux:latest".into(),
+                "ghcr.io/muak-os/linux:v1.0.0".into(),
             ),
         )
         .with_sources(
-            "ghcr.io/muak-os/stub:latest".into(),
-            "ghcr.io/muak-os/installer:latest".into(),
+            "ghcr.io/muak-os/stub:v1.0.0".into(),
+            "ghcr.io/muak-os/installer:v1.0.0".into(),
             None,
             vec![],
         );
@@ -321,9 +321,9 @@ mod tests {
         assert_eq!(resolution.resolution_id().to_string().len(), 64);
         assert_eq!(
             resolution.build().installer(),
-            "ghcr.io/muak-os/installer:latest"
+            "ghcr.io/muak-os/installer:v1.0.0"
         );
-        assert_eq!(resolution.build().stub(), "ghcr.io/muak-os/stub:latest");
+        assert_eq!(resolution.build().stub(), "ghcr.io/muak-os/stub:v1.0.0");
     }
 
     #[test]

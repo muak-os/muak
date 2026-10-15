@@ -8,7 +8,7 @@ use e2e::vm::TestFixture;
 use tokio::time::timeout;
 
 pub const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
-pub const DEFAULT_TAG: &str = "latest";
+pub const DEFAULT_TAG: &str = "dev";
 
 /// Registry serving the catalog for the initial install.
 pub fn install_registry() -> String {

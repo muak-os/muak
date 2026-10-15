@@ -17,10 +17,9 @@ alpine_version := "3.24"
 rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
-tag := env_var_or_default("TAG", "latest")
-toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain:latest")
+tag := env_var_or_default("TAG", "dev")
+toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:b5202e06f797ab99a766617238d181fede148fa8f83a15d218b33599752de4fa")
 push := env_var_or_default("PUSH", "true")
-latest := env_var_or_default("LATEST", "false")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
 
@@ -210,17 +209,12 @@ oci *pkgs:
 [group('oci')]
 [script]
 merge image *sources:
-    tags=""
-    if [ "{{ latest }}" = "true" ]; then
-        tags="--tag latest"
-    fi
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         {{ toolchain }} \
         /koci merge \
             --image "{{ registry }}/{{ image }}" \
             --tag "{{ tag }}" \
-            ${tags} \
             {{ sources }}
 
 # Copy an image from the upstream registry, preserving every digest.
@@ -340,7 +334,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
     fi
 
     printf "{{ cyan }}Starting QEMU{{ reset }}\n"
-    printf "{{ green }}Guest install image:{{ reset }} 10.0.2.2:5000/installer:latest\n"
+    printf "{{ green }}Guest install image:{{ reset }} 10.0.2.2:5000/installer:dev\n"
     printf "{{ green }}Guest API:{{ reset }} 127.0.0.1:50051\n"
     printf "{{ green }}Reset VM state:{{ reset }} rm -f /tmp/nvme-disk.img /tmp/OVMF_VARS.fd\n"
 
@@ -435,26 +429,20 @@ _build-oci name dockerfile *extra:
     image="{{ registry }}/{{ name }}:{{ tag }}"
     cache_from=$(just _cache-from "{{ name }}")
     cache_to=$(just _cache-to "{{ name }}")
-    tags="--tag ${image}"
-    if [ "{{ latest }}" = "true" ]; then
-        tags="${tags} --tag {{ registry }}/{{ name }}:latest"
-    fi
-    printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }}, latest={{ latest }})\n"
+    printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }})\n"
     {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
-        ${cache_from} ${cache_to} {{ push_arg }} ${tags} {{ extra }} \
+        ${cache_from} ${cache_to} {{ push_arg }} --tag "${image}" {{ extra }} \
         --file {{ dockerfile }} \
         .
     if [ "{{ container_runtime }}" = "podman" ] && [ "{{ push }}" = "true" ]; then
         {{ container_runtime }} push "${image}"
-        if [ "{{ latest }}" = "true" ]; then {{ container_runtime }} push "{{ registry }}/{{ name }}:latest"; fi
     fi
     if [ "{{ push }}" = "true" ]; then
         {{ container_runtime }} run --rm --network=host \
             -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
             {{ toolchain }} \
             /koci repack \
-                --image "${image}" \
-                {{ if latest == "true" { "--tag latest" } else { "" } }}
+                --image "${image}"
     fi
 
 [private]

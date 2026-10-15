@@ -57,7 +57,7 @@ Every run after that is plain `REGISTRY="10.0.2.2:5000" just dev` to iterate.
 
 ```sh
 REGISTRY="localhost:5000" just oci toolchain
-TOOLCHAIN="localhost:5000/toolchain:latest" REGISTRY="localhost:5000" just dev
+TOOLCHAIN="localhost:5000/toolchain:dev" REGISTRY="localhost:5000" just dev
 ```
 
 ### ARM

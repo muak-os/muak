@@ -2,17 +2,17 @@
 
 ARG ALPINE_VERSION
 
-ARG TOOLCHAIN=ghcr.io/muak-os/toolchain:latest
+ARG TOOLCHAIN
 
-ARG PKG_GRANOLA=ghcr.io/muak-os/pkgs/granola:latest
-ARG PKG_PROVISIOND=ghcr.io/muak-os/pkgs/provisiond:latest
-ARG PKG_MODD=ghcr.io/muak-os/pkgs/modd:latest
-ARG PKG_NETWORKD=ghcr.io/muak-os/pkgs/networkd:latest
-ARG PKG_APID=ghcr.io/muak-os/pkgs/apid:latest
-ARG PKG_WORKLOADD=ghcr.io/muak-os/pkgs/workloadd:latest
-ARG PKG_TIMED=ghcr.io/muak-os/pkgs/timed:latest
-ARG PKG_CONSOLED=ghcr.io/muak-os/pkgs/consoled:latest
-ARG PKG_MILLEFEUILLE=ghcr.io/muak-os/pkgs/millefeuille:latest
+ARG PKG_GRANOLA
+ARG PKG_PROVISIOND
+ARG PKG_MODD
+ARG PKG_NETWORKD
+ARG PKG_APID
+ARG PKG_WORKLOADD
+ARG PKG_TIMED
+ARG PKG_CONSOLED
+ARG PKG_MILLEFEUILLE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Import packages

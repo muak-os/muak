@@ -8,7 +8,6 @@
   - https://github.com/MicrosoftDocs/win32/pull/2075
 
 - Move toolchain to another repo?
-- Remove latest tag support
 
 - Fix secureboot not enrolling properly in edk2 on real hardware.
 - Allow secureboot to go from true to false
@@ -41,7 +40,8 @@
   - Support custom HTTP proxy
   - Support for self-signed certificates
 
-- Sign extensions and verify them for better supply chain security
+- Sign all images in catalog (stub, kernel, sbcs etc)
+  - Sign extensions and verify them for better supply chain security
 - Allow for "community extensions" that are still usable with a warning about security risks
 
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)

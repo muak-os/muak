@@ -25,7 +25,6 @@ jobs:
       image: installer
       recipe: oci installer
       push: true
-      latest: true
       tag: ${{ inputs.tag }}
       sign: true
     secrets:
