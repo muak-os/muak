@@ -56,6 +56,12 @@ pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Resu
 }
 
 fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
+    if !registry::manifest_exists(reference)
+        .map_err(|error| KataError::Registry(error.to_string()))?
+    {
+        return Ok(None);
+    }
+
     let mut bytes: Option<Vec<u8>> = None;
     pull::files(
         reference,
