@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
-use sbolt::efi::{enroll, pk};
+use sbolt::efi::enroll;
 use sbolt::keys::storage::load_hierarchy;
 use uki::measure::{self, MeasuredSection};
 
@@ -44,7 +44,9 @@ pub async fn apply() -> Result<()> {
 
     // Enroll PK if missing (signing keys are on STATE from prepare phase)
     if config::system::host()?.secureboot {
-        let pk_missing = pk().context("Failed to read PK from firmware")?.is_none();
+        let pk_missing = !firmware::secureboot::system()
+            .context("Failed to read PK from firmware")?
+            .pk_present;
         if pk_missing {
             let dir = Path::new(SECRETS_DIR).join("secureboot");
             let hierarchy =

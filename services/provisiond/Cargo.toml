@@ -31,6 +31,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
+firmware = { workspace = true, features = ["linux"] }
 btrfs = { workspace = true }
 disk = { workspace = true }
 esp = { workspace = true }

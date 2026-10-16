@@ -21,6 +21,7 @@ crossterm = { workspace = true }
 anyhow = { workspace = true }
 
 # Internal
+firmware = { workspace = true, features = ["linux"] }
 granola = { workspace = true }
 kmsg = { workspace = true }
 config = { workspace = true }

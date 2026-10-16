@@ -1,6 +1,6 @@
 //! gRPC service implementation for security queries.
 
-use sbolt::efi;
+use firmware::secureboot;
 use tonic::{Request, Response, Status};
 
 use super::proto::security::security_service_server::{SecurityService, SecurityServiceServer};
@@ -20,30 +20,23 @@ impl SecurityService for ServiceImpl {
         &self,
         _request: Request<GetSecurityStateRequest>,
     ) -> Result<Response<GetSecurityStateResponse>, Status> {
-        let enabled = efi::secure_boot()
+        let state = secureboot::system()
             .map_err(|e| Status::internal(format!("Failed to read Secure Boot state: {e}")))?;
 
         let installed_secureboot = config::system::host()
             .map_err(|e| Status::internal(e.to_string()))?
             .secureboot;
-        let state = if enabled {
+        let secure_boot_state = if state.enabled {
             SecureBootState::Enabled
-        } else if installed_secureboot
-            && efi::pk()
-                .map_err(|e| Status::internal(format!("Failed to read PK from firmware: {e}")))?
-                .is_some()
-        {
+        } else if installed_secureboot && state.pk_present {
             SecureBootState::Pending
         } else {
             SecureBootState::Disabled
         };
 
-        let setup_mode = efi::setup_mode()
-            .map_err(|e| Status::internal(format!("Failed to read Setup Mode state: {e}")))?;
-
         Ok(Response::new(GetSecurityStateResponse {
-            secure_boot: state.into(),
-            setup_mode,
+            secure_boot: secure_boot_state.into(),
+            setup_mode: state.setup_mode,
         }))
     }
 }

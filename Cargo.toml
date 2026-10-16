@@ -35,6 +35,7 @@ members = [
     "libs/tpm2",
     "libs/erofs",
     "libs/fatfs",
+    "libs/firmware",
     "libs/granola-macros",
     "libs/netlib",
     "libs/oci",
@@ -71,6 +72,7 @@ btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
+firmware = { path = "libs/firmware" }
 fatfs = { path = "libs/fatfs" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }

@@ -12,7 +12,7 @@ use config::system;
 use layout::plans_from_doc;
 use luks2::key::Passphrase;
 use pki::InstallResult;
-use sbolt::efi::{enroll, setup_mode};
+use sbolt::efi::enroll;
 use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
@@ -125,7 +125,7 @@ fn generate_sb_hierarchy(config: &system::Config) -> Result<Option<Bundle>> {
         return Ok(None);
     }
 
-    let setup_mode = setup_mode().unwrap_or(false);
+    let setup_mode = firmware::secureboot::system().is_ok_and(|state| state.setup_mode);
     if !setup_mode {
         bail!(
             "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \

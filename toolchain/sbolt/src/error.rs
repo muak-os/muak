@@ -29,6 +29,10 @@ pub enum SboltError {
     #[error("efivar operation failed: {0}")]
     EfiVar(String),
 
+    /// Firmware access failed.
+    #[error("firmware: {0}")]
+    Firmware(#[from] firmware::error::FirmwareError),
+
     /// Key storage operation failed.
     #[error("key storage failed: {0}")]
     KeyStorage(String),

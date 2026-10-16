@@ -12,7 +12,7 @@ categories.workspace = true
 
 [features]
 default = ["linux"]
-linux = ["dep:rustix"]
+linux = ["firmware/linux"]
 
 [dependencies]
 # Cryptography
@@ -33,10 +33,10 @@ const-oid = { workspace = true }
 thiserror = { workspace = true }
 
 # Internal
+firmware = { workspace = true, default-features = false }
 uki = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true, optional = true }
 uefi = { workspace = true }
 
 # Utilities

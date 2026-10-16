@@ -6,9 +6,6 @@ use std::path::Path;
 use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SecureBootStatus, SystemStatus, Uptime};
 
 const CONFIG_PATH: &str = "/run/state/config.toml";
-const SECURE_BOOT_EFIVAR: &str =
-    "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c";
-const PK_EFIVAR: &str = "/sys/firmware/efi/efivars/PK-8be4df61-93ca-11d2-aa0d-00e098032b8c";
 
 /// Reads a whole file into `buf` and returns its trimmed content.
 pub(super) fn read_file<'a>(path: &str, buf: &'a mut String) -> Option<&'a str> {
@@ -86,10 +83,11 @@ pub(super) fn read_system_status() -> SystemStatus {
 }
 
 pub(super) fn read_secure_boot(poll: &mut PollState) -> SecureBootStatus {
-    if sb_enabled() {
+    let state = firmware::secureboot::system().unwrap_or_default();
+    if state.enabled {
         return SecureBootStatus::Enabled;
     }
-    if config_wants_secureboot(poll) && Path::new(PK_EFIVAR).exists() {
+    if config_wants_secureboot(poll) && state.pk_present {
         return SecureBootStatus::Pending;
     }
 
@@ -171,13 +169,6 @@ fn field_kb(line: &str, key: &str) -> Option<u64> {
         .next()?
         .parse()
         .ok()
-}
-
-fn sb_enabled() -> bool {
-    fs::read(SECURE_BOOT_EFIVAR)
-        .ok()
-        .and_then(|bytes| bytes.get(4).copied())
-        .is_some_and(|byte| byte == 1)
 }
 
 fn config_wants_secureboot(poll: &mut PollState) -> bool {

@@ -14,5 +14,4 @@ pub mod efi;
 pub mod error;
 pub mod keys;
 mod pkcs7;
-mod platform;
 pub mod signature;

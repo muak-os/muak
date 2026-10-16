@@ -1,0 +1,29 @@
+[package]
+name = "firmware"
+description = "Platform firmware identity, ESRT components, and Secure Boot state"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["linux"]
+linux = ["dep:rustix"]
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, optional = true }
+uefi = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

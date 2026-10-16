@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
-use sbolt::efi::{secure_boot, setup_mode};
 use sbolt::keys::hierarchy::Bundle;
 use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 use tokio::sync::mpsc;
@@ -88,8 +87,9 @@ pub async fn prepare(
     let install_profile = derive_install_profile(extensions)?;
 
     if let Some(ref cfg) = new_config {
-        let secure_boot_active = secure_boot().unwrap_or(false);
-        let setup_mode_active = setup_mode().unwrap_or(false);
+        let state = firmware::secureboot::system().unwrap_or_default();
+        let secure_boot_active = state.enabled;
+        let setup_mode_active = state.setup_mode;
         if cfg.host.secureboot && !secure_boot_active && !setup_mode_active {
             bail!(
                 "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \

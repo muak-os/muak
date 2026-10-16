@@ -2,11 +2,10 @@
 mod tests {
     use core::cell::RefCell;
 
+    use firmware::error::Result as FwResult;
+    use firmware::nvram::{Id, Update, VariableStore};
+    use firmware::secureboot::{self, DB, KEK, PK, SECURE_BOOT, SETUP_MODE};
     use sbolt::efi::enrollment;
-    use sbolt::efi::siglist;
-    use sbolt::efi::status;
-    use sbolt::efi::variables::{self, Backend, Id, Update};
-    use sbolt::error::Result;
     use sbolt::keys::hierarchy::{self, KeyType};
     use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 
@@ -40,8 +39,8 @@ mod tests {
         }
     }
 
-    impl Backend for FakeBackend {
-        fn is_firmware_boot(&self) -> bool {
+    impl VariableStore for FakeBackend {
+        fn is_boot(&self) -> bool {
             self.firmware_boot
         }
 
@@ -49,25 +48,23 @@ mod tests {
             self.available
         }
 
-        fn ensure_ready(&self) -> Result<bool> {
+        fn prepare(&self) -> FwResult<bool> {
             Ok(self.ready)
         }
 
-        fn variable_exists(&self, id: &Id) -> bool {
-            self.variables
-                .iter()
-                .any(|&(stored_id, ref _payload)| stored_id == *id)
+        fn exists(&self, id: &Id) -> bool {
+            self.variables.iter().any(|entry| entry.0 == *id)
         }
 
-        fn read_variable(&self, id: &Id) -> Result<Option<Vec<u8>>> {
+        fn read(&self, id: &Id) -> FwResult<Option<Vec<u8>>> {
             Ok(self
                 .variables
                 .iter()
-                .find(|&&(stored_id, ref _payload)| stored_id == *id)
-                .map(|&(_stored_id, ref payload)| payload.clone()))
+                .find(|entry| entry.0 == *id)
+                .map(|entry| entry.1.clone()))
         }
 
-        fn write_variable(&self, update: Update<'_>) -> Result<()> {
+        fn write(&self, update: Update<'_>) -> FwResult<()> {
             self.writes
                 .borrow_mut()
                 .push((*update.id(), update.payload().to_vec()));
@@ -77,53 +74,32 @@ mod tests {
     }
 
     #[test]
-    fn public_efi_status_reads_from_fake_backend() {
+    fn firmware_status_reads_from_fake_backend() {
         // ARRANGE
         let backend = FakeBackend::ready()
-            .with_variable(variables::SECURE_BOOT, vec![1])
-            .with_variable(variables::SETUP_MODE, vec![0])
-            .with_variable(variables::PK, vec![1]);
+            .with_variable(SECURE_BOOT, vec![1])
+            .with_variable(SETUP_MODE, vec![0])
+            .with_variable(PK, vec![1]);
 
         // ACT
-        let booted = status::is_boot(&backend);
-        let available = status::is_available(&backend);
-        let ready = status::mount(&backend).expect("mount fake backend");
-        let secure_boot = status::secure_boot(&backend).expect("read SecureBoot");
-        let setup_mode = status::setup_mode(&backend).expect("read SetupMode");
+        let booted = backend.is_boot();
+        let available = backend.is_available();
+        let ready = backend.prepare().expect("mount fake backend");
+        let secure_boot = secureboot::enabled(&backend).expect("read SecureBoot");
+        let setup_mode = secureboot::setup_mode(&backend).expect("read SetupMode");
 
         // ASSERT
-        assert!(booted);
-        assert!(available);
-        assert!(ready);
-        assert!(secure_boot);
-        assert!(!setup_mode);
+        assert!(booted, "fake backend must report EFI boot");
+        assert!(available, "fake backend must report availability");
+        assert!(ready, "fake backend must report readiness");
+        assert!(secure_boot, "SecureBoot=1 must report enabled");
+        assert!(!setup_mode, "SetupMode=0 must report disabled");
     }
 
     #[test]
-    fn public_efi_status_reads_signature_databases_from_fake_backend() {
+    fn enrollment_writes_expected_variables() {
         // ARRANGE
-        let owner = uefi::guid!("12345678-1234-1234-1234-123456789abc");
-        let siglist = siglist::build_x509(&owner, b"cert-bytes").expect("build siglist");
-        let backend = FakeBackend::ready()
-            .with_variable(variables::PK, siglist.clone())
-            .with_variable(variables::KEK, siglist.clone())
-            .with_variable(variables::DB, siglist);
-
-        // ACT
-        let pk = status::pk(&backend).expect("read PK");
-        let kek = status::kek(&backend).expect("read KEK");
-        let db = status::db(&backend).expect("read db");
-
-        // ASSERT
-        assert_eq!(pk.map_or(0, |database| database.len()), 1);
-        assert_eq!(kek.map_or(0, |database| database.len()), 1);
-        assert_eq!(db.map_or(0, |database| database.len()), 1);
-    }
-
-    #[test]
-    fn public_efi_enrollment_writes_expected_variables() {
-        // ARRANGE
-        let backend = FakeBackend::ready().with_variable(variables::SETUP_MODE, vec![1]);
+        let backend = FakeBackend::ready().with_variable(SETUP_MODE, vec![1]);
         let hierarchy = hierarchy::Bundle::generate("Integration").expect("generate hierarchy");
 
         // ACT
@@ -131,18 +107,21 @@ mod tests {
         let writes = backend.writes();
 
         // ASSERT
-        assert_eq!(writes.len(), 3);
+        assert_eq!(writes.len(), 3, "db, KEK, and PK must be written");
         assert_eq!(
             writes.first().map(|&(id, ref _payload)| id),
-            Some(variables::DB)
+            Some(DB),
+            "db must be written first"
         );
         assert_eq!(
             writes.get(1).map(|&(id, ref _payload)| id),
-            Some(variables::KEK)
+            Some(KEK),
+            "KEK must be written second"
         );
         assert_eq!(
             writes.get(2).map(|&(id, ref _payload)| id),
-            Some(variables::PK)
+            Some(PK),
+            "PK must be written last"
         );
     }
 
@@ -158,9 +137,16 @@ mod tests {
         let loaded = load_hierarchy(temp_dir.path()).expect("load hierarchy");
 
         // ASSERT
-        assert_eq!(loaded.owner_guid, hierarchy.owner_guid);
-        assert_eq!(loaded.pk.key_type, KeyType::Pk);
-        assert_eq!(loaded.kek.key_type, KeyType::Kek);
-        assert_eq!(loaded.db.key_type, KeyType::Db);
+        assert_eq!(
+            loaded.owner_guid, hierarchy.owner_guid,
+            "owner GUID must round trip"
+        );
+        assert_eq!(loaded.pk.key_type, KeyType::Pk, "PK key type must survive");
+        assert_eq!(
+            loaded.kek.key_type,
+            KeyType::Kek,
+            "KEK key type must survive"
+        );
+        assert_eq!(loaded.db.key_type, KeyType::Db, "db key type must survive");
     }
 }
