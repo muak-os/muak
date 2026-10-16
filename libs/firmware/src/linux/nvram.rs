@@ -88,6 +88,19 @@ impl VariableStore for Linux {
 
         Ok(())
     }
+
+    fn remove(&self, id: &Id) -> Result<()> {
+        let path = variable_path(self, id);
+
+        if !path.exists() {
+            return Ok(());
+        }
+
+        unset_immutable(&path)?;
+        fs::remove_file(path)?;
+
+        Ok(())
+    }
 }
 
 fn variable_path(store: &Linux, id: &Id) -> PathBuf {
@@ -357,6 +370,36 @@ mod tests {
 
         // ASSERT
         assert_eq!(stored, payload);
+    }
+
+    #[test]
+    fn remove_deletes_variable() {
+        // ARRANGE
+        let context = Context::new("remove", true).expect("test context");
+        fs::create_dir_all(&context.store.efivarfs_path).expect("create efivarfs dir");
+        write_var(&context.store.efivarfs_path, &sample(), &[1]).expect("write variable");
+
+        // ACT
+        context.store.remove(&sample()).expect("remove variable");
+
+        // ASSERT
+        assert!(
+            !context.variable_path(&sample()).exists(),
+            "removed variables must not remain on disk"
+        );
+    }
+
+    #[test]
+    fn remove_ignores_missing_variable() {
+        // ARRANGE
+        let context = Context::new("remove-missing", true).expect("test context");
+        fs::create_dir_all(&context.store.efivarfs_path).expect("create efivarfs dir");
+
+        // ACT
+        let result = context.store.remove(&sample());
+
+        // ASSERT
+        result.expect("removing a missing variable must succeed");
     }
 
     #[test]

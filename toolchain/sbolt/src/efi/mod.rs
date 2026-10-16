@@ -18,3 +18,14 @@ use crate::keys::hierarchy;
 pub fn enroll(hierarchy: &hierarchy::Bundle) -> Result<()> {
     enrollment::enroll(&firmware::system(), hierarchy)
 }
+
+/// Remove the complete key hierarchy from UEFI firmware and disable enforcement.
+///
+/// # Errors
+///
+/// Returns an error if firmware variable storage is unavailable, the Platform
+/// Key cannot be deleted, or the firmware still reports an enrolled Platform
+/// Key afterwards.
+pub fn unenroll(hierarchy: &hierarchy::Bundle) -> Result<()> {
+    enrollment::unenroll(&firmware::system(), hierarchy)
+}

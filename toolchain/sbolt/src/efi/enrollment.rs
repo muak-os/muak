@@ -1,4 +1,4 @@
-//! Platform-independent Secure Boot firmware variable enrollment.
+//! Platform-independent Secure Boot firmware variable enrollment and removal.
 
 use der::Encode as _;
 use firmware::nvram::{Id, Update, VariableStore};
@@ -80,7 +80,52 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
     Ok(())
 }
 
-/// Build a signature database containing a certificate.
+/// Remove the complete key hierarchy from UEFI firmware and disable Secure Boot enforcement.
+///
+/// # Errors
+///
+/// Returns an error if firmware variable storage is unavailable, the Platform Key cannot
+/// be deleted, or the firmware still reports an enrolled Platform Key after the removal.
+pub fn unenroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Result<()> {
+    if !store.prepare()? {
+        return Err(SboltError::EfiVar("efivarfs not available".into()));
+    }
+
+    if store.exists(&secureboot::PK) {
+        write_signed_variable(
+            store,
+            secureboot::PK,
+            &[],
+            hierarchy,
+            SigningAuthority::PlatformKey,
+        )
+        .map_err(|e| SboltError::EfiVar(format!("failed to remove PK: {e}")))?;
+    }
+
+    clear_variable(store, &secureboot::DB)?;
+    clear_variable(store, &secureboot::KEK)?;
+
+    verify_cleared(store)
+}
+
+fn clear_variable<S: VariableStore>(store: &S, id: &Id) -> Result<()> {
+    if store.exists(id) {
+        store.remove(id)?;
+    }
+
+    Ok(())
+}
+
+fn verify_cleared<S: VariableStore>(store: &S) -> Result<()> {
+    if secureboot::pk_present(store)? {
+        return Err(SboltError::EfiVar(
+            "firmware still reports an enrolled Platform Key after removal".into(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn certificate_database(
     owner_guid: &uefi::Guid,
     certificate: &Certificate,
@@ -95,7 +140,6 @@ fn certificate_database(
     Ok(sigdb)
 }
 
-/// Write an authenticated firmware variable update.
 fn write_signed_variable<S: VariableStore>(
     store: &S,
     id: Id,
@@ -116,7 +160,6 @@ fn write_signed_variable<S: VariableStore>(
     Ok(store.write(Update::new(id, &payload))?)
 }
 
-/// Return the signer and certificate for an update authority.
 fn signer_and_certificate(
     hierarchy: &hierarchy::Bundle,
     authority: SigningAuthority,
@@ -127,7 +170,6 @@ fn signer_and_certificate(
     }
 }
 
-/// Return attributes for time-based authenticated Secure Boot variables.
 fn authenticated_variable_attributes() -> VariableAttributes {
     VariableAttributes::NON_VOLATILE
         .union(VariableAttributes::BOOTSERVICE_ACCESS)
@@ -146,7 +188,8 @@ mod tests {
     #[derive(Default)]
     struct FakeFirmwareVariablesStore {
         ready: bool,
-        variables: Vec<(Id, Vec<u8>)>,
+        honors_deletes: bool,
+        variables: RefCell<Vec<(Id, Vec<u8>)>>,
         writes: RefCell<Vec<(Id, Vec<u8>)>>,
     }
 
@@ -154,13 +197,14 @@ mod tests {
         fn ready() -> Self {
             Self {
                 ready: true,
-                variables: Vec::new(),
+                honors_deletes: true,
+                variables: RefCell::new(Vec::new()),
                 writes: RefCell::new(Vec::new()),
             }
         }
 
-        fn with_variable(mut self, id: Id, payload: Vec<u8>) -> Self {
-            self.variables.push((id, payload));
+        fn with_variable(self, id: Id, payload: Vec<u8>) -> Self {
+            self.variables.borrow_mut().push((id, payload));
             self
         }
 
@@ -183,23 +227,34 @@ mod tests {
         }
 
         fn exists(&self, id: &Id) -> bool {
-            self.variables
-                .iter()
-                .any(|&(stored_id, ref _payload)| stored_id == *id)
+            self.variables.borrow().iter().any(|entry| entry.0 == *id)
         }
 
         fn read(&self, id: &Id) -> firmware::error::Result<Option<Vec<u8>>> {
             Ok(self
                 .variables
+                .borrow()
                 .iter()
-                .find(|&&(stored_id, ref _payload)| stored_id == *id)
-                .map(|&(_stored_id, ref payload)| payload.clone()))
+                .find(|entry| entry.0 == *id)
+                .map(|entry| entry.1.clone()))
         }
 
         fn write(&self, update: Update<'_>) -> firmware::error::Result<()> {
+            let id = *update.id();
             self.writes
                 .borrow_mut()
-                .push((*update.id(), update.payload().to_vec()));
+                .push((id, update.payload().to_vec()));
+
+            let drop_pk = self.honors_deletes && id == PK;
+            self.variables
+                .borrow_mut()
+                .retain(|entry| !(drop_pk && entry.0 == PK));
+
+            Ok(())
+        }
+
+        fn remove(&self, id: &Id) -> firmware::error::Result<()> {
+            self.variables.borrow_mut().retain(|entry| entry.0 != *id);
 
             Ok(())
         }
@@ -362,6 +417,83 @@ mod tests {
         // ASSERT
         result.expect_err("non-setup mode should fail");
         assert_eq!(store.writes(), Vec::<(Id, alloc::vec::Vec<u8>)>::new());
+    }
+
+    #[test]
+    fn unenroll_removes_pk_then_clears_databases() {
+        // ARRANGE
+        let store = FakeFirmwareVariablesStore::ready()
+            .with_variable(PK, vec![1])
+            .with_variable(KEK, vec![1])
+            .with_variable(DB, vec![1]);
+        let hierarchy = hierarchy::Bundle::generate("Unenroll").expect("generate hierarchy");
+
+        // ACT
+        unenroll(&store, &hierarchy).expect("unenroll hierarchy");
+        let writes = store.writes();
+
+        // ASSERT
+        assert_eq!(
+            writes.len(),
+            1,
+            "only the PK delete is an authenticated write"
+        );
+        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
+        assert!(!store.exists(&PK), "PK must be removed");
+        assert!(!store.exists(&KEK), "KEK must be cleared");
+        assert!(!store.exists(&DB), "db must be cleared");
+    }
+
+    #[test]
+    fn unenroll_is_idempotent_when_keys_are_absent() {
+        // ARRANGE
+        let store = FakeFirmwareVariablesStore::ready();
+        let hierarchy = hierarchy::Bundle::generate("Unenroll Absent").expect("generate hierarchy");
+
+        // ACT
+        let result = unenroll(&store, &hierarchy);
+
+        // ASSERT
+        result.expect("unenrolling an unenrolled store must succeed");
+        assert!(
+            store.writes().is_empty(),
+            "no authenticated write is needed when nothing is enrolled"
+        );
+    }
+
+    #[test]
+    fn unenroll_rejects_firmware_that_keeps_the_platform_key() {
+        // ARRANGE
+        let store = FakeFirmwareVariablesStore::ready().with_variable(PK, vec![1]);
+        let store = FakeFirmwareVariablesStore {
+            honors_deletes: false,
+            ..store
+        };
+        let hierarchy =
+            hierarchy::Bundle::generate("Unenroll Stubborn").expect("generate hierarchy");
+
+        // ACT
+        let result = unenroll(&store, &hierarchy);
+
+        // ASSERT
+        result.expect_err("firmware that keeps the Platform Key must fail verification");
+    }
+
+    #[test]
+    fn unenroll_rejects_unavailable_variable_store() {
+        // ARRANGE
+        let store = FakeFirmwareVariablesStore {
+            ready: false,
+            ..FakeFirmwareVariablesStore::ready()
+        };
+        let hierarchy =
+            hierarchy::Bundle::generate("Unenroll Unavailable").expect("generate hierarchy");
+
+        // ACT
+        let result = unenroll(&store, &hierarchy);
+
+        // ASSERT
+        result.expect_err("unavailable variable store should fail");
     }
 
     #[test]
