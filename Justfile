@@ -168,6 +168,11 @@ catalog *args:
     just _kata compose --force --dir /data --release "{{ tag }}" \
         "$@" --set installer=muak-os/muak@installer@{{ tag }}
     just _kata publish --force --release "{{ tag }}" --dir /data --channel stable
+    # Drop cached tag manifests for every published catalog kind.
+    for kind in "{{ absolute_path(out) }}/catalog"/*; do
+        [ -d "$kind" ] || continue
+        rm -f "{{ absolute_path(out) }}/.cache/refs/{{ registry }}/$(basename "$kind")/{{ tag }}"
+    done
     printf "{{ green }}Catalog published: {{ registry }}/core:{{ tag }}{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
