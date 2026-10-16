@@ -200,10 +200,6 @@ mod tests {
         fn write(&self, _update: Update<'_>) -> Result<()> {
             Ok(())
         }
-
-        fn remove(&self, _id: &Id) -> Result<()> {
-            Ok(())
-        }
     }
 
     impl Platform for Fake {

@@ -19,7 +19,7 @@ pub fn enroll(hierarchy: &hierarchy::Bundle) -> Result<()> {
     enrollment::enroll(&firmware::system(), hierarchy)
 }
 
-/// Remove the complete key hierarchy from UEFI firmware and disable enforcement.
+/// Remove the Platform Key from UEFI firmware and disable enforcement.
 ///
 /// # Errors
 ///
@@ -28,4 +28,13 @@ pub fn enroll(hierarchy: &hierarchy::Bundle) -> Result<()> {
 /// Key afterwards.
 pub fn unenroll(hierarchy: &hierarchy::Bundle) -> Result<()> {
     enrollment::unenroll(&firmware::system(), hierarchy)
+}
+
+/// Remove the complete key hierarchy from UEFI firmware, leaving `dbx` intact.
+///
+/// # Errors
+///
+/// Returns the same errors as [`unenroll`].
+pub fn clear(hierarchy: &hierarchy::Bundle) -> Result<()> {
+    enrollment::clear(&firmware::system(), hierarchy)
 }

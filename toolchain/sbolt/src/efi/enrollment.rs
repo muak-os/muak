@@ -80,7 +80,7 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
     Ok(())
 }
 
-/// Remove the complete key hierarchy from UEFI firmware and disable Secure Boot enforcement.
+/// Remove the Platform Key and leave Secure Boot enforcement.
 ///
 /// # Errors
 ///
@@ -91,32 +91,65 @@ pub fn unenroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> R
         return Err(SboltError::EfiVar("efivarfs not available".into()));
     }
 
-    if store.exists(&secureboot::PK) {
-        write_signed_variable(
-            store,
-            secureboot::PK,
-            &[],
-            hierarchy,
-            SigningAuthority::PlatformKey,
-        )
-        .map_err(|e| SboltError::EfiVar(format!("failed to remove PK: {e}")))?;
-    }
+    delete_signed_variable(
+        store,
+        secureboot::PK,
+        hierarchy,
+        SigningAuthority::PlatformKey,
+    )
+    .map_err(|e| SboltError::EfiVar(format!("failed to remove PK: {e}")))?;
 
-    clear_variable(store, &secureboot::DB)?;
-    clear_variable(store, &secureboot::KEK)?;
-
-    verify_cleared(store)
+    verify_platform_key_absent(store)
 }
 
-fn clear_variable<S: VariableStore>(store: &S, id: &Id) -> Result<()> {
-    if store.exists(id) {
-        store.remove(id)?;
-    }
+/// Remove the complete key hierarchy from UEFI firmware.
+///
+/// # Errors
+///
+/// Returns an error if firmware variable storage is unavailable, the Platform Key cannot
+/// be deleted, or the firmware still reports an enrolled Platform Key after the removal.
+pub fn clear<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Result<()> {
+    unenroll(store, hierarchy)?;
+
+    clear_database(
+        store,
+        secureboot::DB,
+        hierarchy,
+        SigningAuthority::KeyExchangeKey,
+    );
+    clear_database(
+        store,
+        secureboot::KEK,
+        hierarchy,
+        SigningAuthority::PlatformKey,
+    );
 
     Ok(())
 }
 
-fn verify_cleared<S: VariableStore>(store: &S) -> Result<()> {
+fn clear_database<S: VariableStore>(
+    store: &S,
+    id: Id,
+    hierarchy: &hierarchy::Bundle,
+    authority: SigningAuthority,
+) {
+    let _result = delete_signed_variable(store, id, hierarchy, authority);
+}
+
+fn delete_signed_variable<S: VariableStore>(
+    store: &S,
+    id: Id,
+    hierarchy: &hierarchy::Bundle,
+    authority: SigningAuthority,
+) -> Result<()> {
+    if !store.exists(&id) {
+        return Ok(());
+    }
+
+    write_signed_variable(store, id, &[], hierarchy, authority)
+}
+
+fn verify_platform_key_absent<S: VariableStore>(store: &S) -> Result<()> {
     if secureboot::pk_present(store)? {
         return Err(SboltError::EfiVar(
             "firmware still reports an enrolled Platform Key after removal".into(),
@@ -245,16 +278,9 @@ mod tests {
                 .borrow_mut()
                 .push((id, update.payload().to_vec()));
 
-            let drop_pk = self.honors_deletes && id == PK;
             self.variables
                 .borrow_mut()
-                .retain(|entry| !(drop_pk && entry.0 == PK));
-
-            Ok(())
-        }
-
-        fn remove(&self, id: &Id) -> firmware::error::Result<()> {
-            self.variables.borrow_mut().retain(|entry| entry.0 != *id);
+                .retain(|entry| !(self.honors_deletes && entry.0 == id));
 
             Ok(())
         }
@@ -420,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn unenroll_removes_pk_then_clears_databases() {
+    fn unenroll_removes_only_the_platform_key() {
         // ARRANGE
         let store = FakeFirmwareVariablesStore::ready()
             .with_variable(PK, vec![1])
@@ -433,12 +459,31 @@ mod tests {
         let writes = store.writes();
 
         // ASSERT
-        assert_eq!(
-            writes.len(),
-            1,
-            "only the PK delete is an authenticated write"
-        );
+        assert_eq!(writes.len(), 1, "only the Platform Key is deleted");
         assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
+        assert!(!store.exists(&PK), "PK must be removed");
+        assert!(store.exists(&KEK), "KEK must be left in place");
+        assert!(store.exists(&DB), "db must be left in place");
+    }
+
+    #[test]
+    fn clear_removes_the_whole_hierarchy() {
+        // ARRANGE
+        let store = FakeFirmwareVariablesStore::ready()
+            .with_variable(PK, vec![1])
+            .with_variable(KEK, vec![1])
+            .with_variable(DB, vec![1]);
+        let hierarchy = hierarchy::Bundle::generate("Clear").expect("generate hierarchy");
+
+        // ACT
+        clear(&store, &hierarchy).expect("clear hierarchy");
+        let writes = store.writes();
+
+        // ASSERT
+        assert_eq!(writes.len(), 3, "PK, db, and KEK are deleted");
+        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
+        assert_eq!(writes.get(1).map(|&(id, ref _payload)| id), Some(DB));
+        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(KEK));
         assert!(!store.exists(&PK), "PK must be removed");
         assert!(!store.exists(&KEK), "KEK must be cleared");
         assert!(!store.exists(&DB), "db must be cleared");

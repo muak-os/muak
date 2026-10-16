@@ -16,7 +16,6 @@ mod tests {
         ready: bool,
         variables: Vec<(Id, Vec<u8>)>,
         writes: RefCell<Vec<(Id, Vec<u8>)>>,
-        removals: RefCell<Vec<Id>>,
     }
 
     impl FakeBackend {
@@ -27,7 +26,6 @@ mod tests {
                 ready: true,
                 variables: Vec::new(),
                 writes: RefCell::new(Vec::new()),
-                removals: RefCell::new(Vec::new()),
             }
         }
 
@@ -38,10 +36,6 @@ mod tests {
 
         fn writes(&self) -> Vec<(Id, Vec<u8>)> {
             self.writes.borrow().clone()
-        }
-
-        fn removals(&self) -> Vec<Id> {
-            self.removals.borrow().clone()
         }
     }
 
@@ -74,12 +68,6 @@ mod tests {
             self.writes
                 .borrow_mut()
                 .push((*update.id(), update.payload().to_vec()));
-
-            Ok(())
-        }
-
-        fn remove(&self, id: &Id) -> FwResult<()> {
-            self.removals.borrow_mut().push(*id);
 
             Ok(())
         }
@@ -138,20 +126,27 @@ mod tests {
     }
 
     #[test]
-    fn unenrollment_clears_remaining_databases() {
+    fn clear_removes_signature_databases() {
         // ARRANGE
         let backend = FakeBackend::ready()
             .with_variable(DB, vec![1])
             .with_variable(KEK, vec![1]);
         let hierarchy =
-            hierarchy::Bundle::generate("Unenroll Integration").expect("generate hierarchy");
+            hierarchy::Bundle::generate("Clear Integration").expect("generate hierarchy");
 
         // ACT
-        enrollment::unenroll(&backend, &hierarchy).expect("unenroll hierarchy");
-        let removals = backend.removals();
+        enrollment::clear(&backend, &hierarchy).expect("clear hierarchy");
+        let writes = backend.writes();
 
         // ASSERT
-        assert_eq!(removals, vec![DB, KEK], "db and KEK must be removed");
+        assert_eq!(
+            writes
+                .iter()
+                .map(|&(id, ref _payload)| id)
+                .collect::<Vec<_>>(),
+            vec![DB, KEK],
+            "db and KEK must be deleted"
+        );
     }
 
     #[test]

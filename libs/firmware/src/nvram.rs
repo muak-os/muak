@@ -41,13 +41,6 @@ pub trait VariableStore {
     ///
     /// Returns an error if the store cannot write the firmware variable.
     fn write(&self, update: Update<'_>) -> Result<()>;
-
-    /// Deletes a firmware variable, ignoring a missing variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the store cannot delete the firmware variable.
-    fn remove(&self, id: &Id) -> Result<()>;
 }
 
 /// Reads a firmware variable from `store` and decodes it as a UTF-16 string.
