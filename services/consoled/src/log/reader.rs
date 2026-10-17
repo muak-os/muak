@@ -43,7 +43,9 @@ async fn run(file: File, tx: mpsc::Sender<String>) -> Result<()> {
         drain(&mut reader, &tx).await?;
     }
 
-    let async_fd = AsyncFd::new(file)?;
+    // SAFETY: `file` uniquely owns the file descriptor and keeps it open for the
+    // lifetime of the returned `AsyncFd`, so `as_raw_fd` stays valid and unchanged.
+    let async_fd = unsafe { AsyncFd::register(file) }.map_err(io::Error::from)?;
     let mut reader = BufReader::with_capacity(READ_BUFFER, async_fd.get_ref());
 
     loop {

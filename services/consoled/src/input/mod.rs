@@ -37,7 +37,9 @@ const SPLIT_SEQUENCE_TIMEOUT: Duration = Duration::from_millis(50);
 /// Returns an error when the file descriptor cannot be registered for asynchronous notifications.
 pub fn spawn(file: Arc<File>) -> Result<mpsc::Receiver<InputEvent>> {
     let (tx, rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
-    let async_fd = AsyncFd::new(file)?;
+    // SAFETY: the file descriptor behind `file` stays open while the `AsyncFd` holds this
+    // `Arc`, and `as_raw_fd` keeps returning that same descriptor.
+    let async_fd = unsafe { AsyncFd::register(file) }.map_err(io::Error::from)?;
 
     tokio::spawn(async move {
         let _run_result = run(async_fd, tx).await;

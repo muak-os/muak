@@ -110,7 +110,12 @@ impl Socket {
         let if_index = lookup_if_index(owned.as_fd(), interface)?;
         bind_to_interface(owned.as_fd(), if_index)?;
 
-        let fd = AsyncFd::with_interest(owned, Interest::READABLE | Interest::WRITABLE)?;
+        // SAFETY: `owned` uniquely owns the file descriptor and keeps it open for the
+        // lifetime of the returned `AsyncFd`, so `as_raw_fd` stays valid and unchanged.
+        let fd = unsafe {
+            AsyncFd::register_with_interest(owned, Interest::READABLE | Interest::WRITABLE)
+        }
+        .map_err(io::Error::from)?;
         Ok(Self { fd, if_index })
     }
 
@@ -123,7 +128,11 @@ impl Socket {
     /// Wraps an arbitrary owned file descriptor as a [`Socket`].
     #[doc(hidden)]
     pub fn from_fd(fd: OwnedFd, if_index: i32) -> Result<Self> {
-        let async_fd = AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?;
+        // SAFETY: `fd` uniquely owns the file descriptor and keeps it open for the
+        // lifetime of the returned `AsyncFd`, so `as_raw_fd` stays valid and unchanged.
+        let async_fd =
+            unsafe { AsyncFd::register_with_interest(fd, Interest::READABLE | Interest::WRITABLE) }
+                .map_err(io::Error::from)?;
         Ok(Self {
             fd: async_fd,
             if_index,

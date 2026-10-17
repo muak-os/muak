@@ -98,7 +98,9 @@ impl Manager {
         })
         .await??;
 
-        let socket = AsyncFd::new(socket_fd)?;
+        // SAFETY: `socket_fd` uniquely owns the file descriptor and keeps it open for the
+        // lifetime of the returned `AsyncFd`, so `as_raw_fd` stays valid and unchanged.
+        let socket = unsafe { AsyncFd::register(socket_fd) }?;
 
         Ok(Self {
             interface,
