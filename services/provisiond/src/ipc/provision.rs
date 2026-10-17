@@ -385,7 +385,7 @@ impl ProvisionService for ServiceImpl {
             }
             Ok(Err(e)) => Ok(Response::new(FactoryResetResponse {
                 success: false,
-                error: format!("{e}"),
+                error: format!("{e:#}"),
             })),
             Err(e) => Ok(Response::new(FactoryResetResponse {
                 success: false,
