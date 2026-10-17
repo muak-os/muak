@@ -79,10 +79,10 @@ fn draw_separator(w: &mut impl Write, row: u16, separator: &str) -> io::Result<u
 
 #[cfg(test)]
 mod tests {
+    use firmware::secureboot::Status;
+
     use super::*;
-    use crate::state::{
-        CpuUsage, MemoryInfo, NetInterface, SecureBootStatus, SystemStatus, Uptime,
-    };
+    use crate::state::{CpuUsage, MemoryInfo, NetInterface, SystemStatus, Uptime};
 
     fn test_state() -> SystemState {
         SystemState {
@@ -99,7 +99,7 @@ mod tests {
                 used_kb: 2_500_000,
             },
             system_status: SystemStatus::Maintenance,
-            secure_boot: SecureBootStatus::Disabled,
+            secure_boot: Status::Disabled,
             secure_boot_mismatch: None,
             ntp_server: Some("pool.ntp.org".to_owned()),
             interfaces: vec![NetInterface {
@@ -146,7 +146,7 @@ mod tests {
             cpu: CpuUsage::default(),
             memory: MemoryInfo::default(),
             system_status: SystemStatus::Maintenance,
-            secure_boot: SecureBootStatus::Disabled,
+            secure_boot: Status::Disabled,
             secure_boot_mismatch: None,
             ntp_server: None,
             interfaces: Vec::new(),

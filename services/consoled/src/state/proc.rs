@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SecureBootStatus, SystemStatus, Uptime};
+use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SystemStatus, Uptime};
 
 const CONFIG_PATH: &str = "/run/state/config.toml";
 
@@ -84,17 +84,14 @@ pub(super) fn read_system_status() -> SystemStatus {
 
 pub(super) fn read_secure_boot(
     poll: &mut PollState,
-) -> (SecureBootStatus, Option<firmware::secureboot::Mismatch>) {
+) -> (
+    firmware::secureboot::Status,
+    Option<firmware::secureboot::Mismatch>,
+) {
     let state = firmware::secureboot::system().unwrap_or_default();
-
-    let status = match firmware::secureboot::status(&state) {
-        firmware::secureboot::Status::Enabled => SecureBootStatus::Enabled,
-        firmware::secureboot::Status::Pending => SecureBootStatus::Pending,
-        firmware::secureboot::Status::Disabled => SecureBootStatus::Disabled,
-    };
     let mismatch = firmware::secureboot::mismatch(config_wants_secureboot(poll), &state);
 
-    (status, mismatch)
+    (firmware::secureboot::status(&state), mismatch)
 }
 
 pub(super) fn read_ntp_server(poll: &mut PollState) -> Option<String> {
