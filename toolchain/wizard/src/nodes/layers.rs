@@ -117,6 +117,9 @@ fn layer_specs(ctx: &BuildContext<'_, '_>) -> Result<Vec<Layer>> {
         layers.push(extension_layer(extension, ctx.build.arch()));
     }
 
+    // Sort to match `ramune::archive::cpio` order.
+    layers.sort_by_key(|layer| format!("{}{}", layer.output_prefix, layer.name.replace('/', "-")));
+
     Ok(layers)
 }
 
@@ -336,6 +339,55 @@ mod tests {
         assert_eq!(
             stream_name(&extension_layer, &extension_meta),
             "extensions/qemu.erofs"
+        );
+    }
+
+    #[test]
+    fn layer_specs_emit_streams_in_archive_order_with_modules_last() {
+        use crate::codec::Codec;
+        use crate::domain::resolution::{Kernel, ResolvedBuild};
+        use crate::pipeline::context::BuildContext;
+
+        // ARRANGE
+        let build = ResolvedBuild::new(
+            "v1.0.0".to_owned(),
+            Arch::Amd64,
+            Kernel::new(
+                "muak-os/linux".to_owned(),
+                "ghcr.io/muak-os/linux:v1.0.0".to_owned(),
+            ),
+        )
+        .with_sources(
+            "ghcr.io/muak-os/stub:v1.0.0".to_owned(),
+            "ghcr.io/muak-os/installer:v1.0.0".to_owned(),
+            None,
+            vec![
+                Extension::new("qemu".to_owned(), "ext/qemu".to_owned()),
+                Extension::new("cloud-hypervisor".to_owned(), "ext/ch".to_owned()),
+            ],
+        );
+        let ctx = BuildContext {
+            build: &build,
+            profile: b"",
+            signing: None,
+            codec: Codec::Zstd,
+        };
+
+        // ACT
+        let layers = layer_specs(&ctx).expect("layer specs");
+        let keys: Vec<String> = layers
+            .iter()
+            .map(|layer| format!("{}{}", layer.output_prefix, layer.name.replace('/', "-")))
+            .collect();
+
+        // ASSERT
+        assert_eq!(
+            keys,
+            vec![
+                "extensions/cloud-hypervisor".to_owned(),
+                "extensions/qemu".to_owned(),
+                "modules".to_owned(),
+            ]
         );
     }
 }
