@@ -73,7 +73,7 @@ impl Driver {
 
         for disk in &config.disks {
             let disk_arg = format!(
-                "path={}{}",
+                "path={},image_type=raw{}",
                 disk.path.display(),
                 readonly_flag(disk.readonly)
             );
@@ -82,7 +82,7 @@ impl Driver {
 
         if let Some(persistent_disk) = config.persistent_disk.as_ref() {
             cmd.arg("--disk")
-                .arg(format!("path={}", persistent_disk.display()));
+                .arg(format!("path={},image_type=raw", persistent_disk.display()));
         }
 
         let child = cmd.spawn().map_err(|e| {

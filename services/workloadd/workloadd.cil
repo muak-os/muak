@@ -8,6 +8,8 @@
 
 (allow workloadd_t self (tun_socket (create)))
 
+(allow workloadd_t self (tun_socket (relabelfrom)))
+
 ; networkd creates the TAP fd and passes it to cloud-hypervisor over the IPC
 ; socket. The kernel requires relabelfrom on the fd's current label (network_t)
 ; and relabelto on the destination label (workloadd_t) to transfer socket ownership.
