@@ -150,11 +150,7 @@ fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let profile = Profile::from_toml(&bytes)?;
-    config::configure(config::Config {
-        cache_dir: None,
-        registry: registry.to_owned(),
-    })?;
-    let request = Request::new(version).arch(arch);
+    let request = Request::new(version, registry).arch(arch);
     let mut resolved = resolver::plan(&request, &profile)?;
     wizard::request::discover_layout(&mut resolved)?;
 
@@ -188,10 +184,9 @@ fn run_build(args: &BuildArgs) -> Result<()> {
     }
 
     let cache_dir = std::env::var_os("HOME").map(|home| Path::new(&home).join(".cache/muak/koci"));
-    config::configure(config::Config {
-        cache_dir,
-        registry: args.registry.clone(),
-    })?;
+    if let Some(dir) = cache_dir {
+        config::init_cache(dir);
+    }
 
     let bytes = std::fs::read(&args.profile)
         .with_context(|| format!("read profile {}", args.profile.display()))?;
@@ -219,7 +214,7 @@ fn run_build(args: &BuildArgs) -> Result<()> {
         files.push((artifact, file));
     }
 
-    let mut request = Request::new(&args.version).arch(args.arch);
+    let mut request = Request::new(&args.version, &args.registry).arch(args.arch);
     if let Some(compression) = args.compression {
         request = request.codec(compression);
     }

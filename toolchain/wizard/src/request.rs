@@ -21,6 +21,7 @@ use crate::resolver;
 /// A build request expressing what to build and where to write each artifact.
 pub struct Request<'a> {
     version: String,
+    registry: &'a str,
     arch: Option<Arch>,
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
@@ -42,11 +43,12 @@ impl fmt::Debug for Request<'_> {
 }
 
 impl<'a> Request<'a> {
-    /// Creates a new request for the given version.
+    /// Creates a new request for the given version and registry prefix.
     #[must_use]
-    pub fn new<V: Into<String>>(version: V) -> Self {
+    pub fn new<V: Into<String>>(version: V, registry: &'a str) -> Self {
         Self {
             version: version.into(),
+            registry,
             arch: None,
             codec: None,
             signing: None,
@@ -93,6 +95,12 @@ impl<'a> Request<'a> {
     #[must_use]
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    /// Returns the registry prefix used to resolve sources.
+    #[must_use]
+    pub(crate) fn registry(&self) -> &str {
+        self.registry
     }
 
     /// Returns the target CPU architecture (`None` when host arch should be used).
@@ -228,13 +236,28 @@ mod tests {
     }
 
     #[test]
+    fn requests_keep_independent_registries() {
+        // ARRANGE
+        let first = Request::new("v1.0.0", "registry.one");
+        let second = Request::new("v1.0.0", "registry.two");
+
+        // ACT
+        let first_registry = first.registry();
+        let second_registry = second.registry();
+
+        // ASSERT
+        assert_eq!(first_registry, "registry.one");
+        assert_eq!(second_registry, "registry.two");
+    }
+
+    #[test]
     fn builder_rejects_duplicate_artifact() {
         // ARRANGE
         let mut buf1 = Vec::new();
         let mut buf2 = Vec::new();
 
         // ACT
-        let result = Request::new("v1.0.0")
+        let result = Request::new("v1.0.0", "registry.test")
             .artifact(Artifact::Kernel, &mut buf1)
             .expect("first kernel")
             .artifact(Artifact::Kernel, &mut buf2);
@@ -250,7 +273,7 @@ mod tests {
         let mut iso_buf = Vec::new();
 
         // ACT
-        let request = Request::new("v1.0.0")
+        let request = Request::new("v1.0.0", "registry.test")
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel_buf)
             .expect("kernel")
@@ -267,7 +290,7 @@ mod tests {
     fn explicit_codec_without_compressible_artifact_is_rejected() {
         // ARRANGE
         let mut iso = Vec::new();
-        let request = Request::new("v1.0.0")
+        let request = Request::new("v1.0.0", "registry.test")
             .codec(Codec::Gzip)
             .artifact(Artifact::Iso, &mut iso)
             .expect("iso target");
@@ -283,7 +306,7 @@ mod tests {
     fn explicit_codec_with_raw_artifact_is_accepted() {
         // ARRANGE
         let mut raw = Vec::new();
-        let request = Request::new("v1.0.0")
+        let request = Request::new("v1.0.0", "registry.test")
             .codec(Codec::Gzip)
             .artifact(Artifact::Raw, &mut raw)
             .expect("raw target");
@@ -297,11 +320,11 @@ mod tests {
         // ARRANGE
         let mut iso_none = Vec::new();
         let mut iso_default = Vec::new();
-        let none = Request::new("v1.0.0")
+        let none = Request::new("v1.0.0", "registry.test")
             .codec(Codec::None)
             .artifact(Artifact::Iso, &mut iso_none)
             .expect("iso target");
-        let unset = Request::new("v1.0.0")
+        let unset = Request::new("v1.0.0", "registry.test")
             .artifact(Artifact::Iso, &mut iso_default)
             .expect("iso target");
 

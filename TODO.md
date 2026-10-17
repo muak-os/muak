@@ -5,11 +5,7 @@
   - https://github.com/llvm/llvm-project/pull/148045
   - https://github.com/MicrosoftDocs/win32/pull/2075
 
-- Move toolchain to another repo?
-
 - Fix secureboot not enrolling properly in edk2 on real hardware.
-
-- Fix provisiond failing when preparing a second update in one daemon lifetime: `wizard::config::configure()` is a process-global `OnceLock` that errors with "config already configured" on retry — make it reconfigurable (`RwLock`) so failed prepares don't need a reboot before retrying
 
 - Enhance `e2e` tests
   - Support ARM & RISC-V architecture

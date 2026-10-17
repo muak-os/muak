@@ -17,7 +17,6 @@ use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
-use wizard::config::{Config, configure};
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
@@ -196,11 +195,6 @@ async fn build_and_deploy_efi(
 
     let registry = config.host.registry.clone();
     let version = config.host.version.clone();
-    configure(Config {
-        cache_dir: None,
-        registry,
-    })
-    .context("Failed to configure wizard")?;
 
     efi::mount(efi_part)?;
 
@@ -227,7 +221,8 @@ async fn build_and_deploy_efi(
             certificate: &hierarchy.db.certificate,
         });
 
-        let mut request = Request::new(version).artifact(Artifact::Uki, &mut uki_file)?;
+        let mut request =
+            Request::new(version, &registry).artifact(Artifact::Uki, &mut uki_file)?;
         if let Some(writer) = overlay_w.as_mut() {
             request = request.artifact(Artifact::Overlays, writer)?;
         }

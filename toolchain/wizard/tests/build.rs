@@ -309,6 +309,10 @@ digest = "{unsorted}"
         planned.remove(0).size()
     }
 
+    fn request<'a>(version: &str) -> Request<'a> {
+        Request::new(version, env().harness.registry.address())
+    }
+
     fn base_profile() -> Profile {
         Profile::new(
             None,
@@ -469,7 +473,7 @@ digest = "{unsorted}"
         let mut cmdline_out = Vec::new();
 
         // ACT
-        let report = Request::new(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel_out)
             .expect("kernel target")
@@ -549,7 +553,7 @@ digest = "{unsorted}"
         let mut initramfs = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut initramfs)
             .expect("initramfs target")
@@ -585,7 +589,7 @@ digest = "{unsorted}"
         let mut initramfs = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut initramfs)
             .expect("initramfs target")
@@ -607,7 +611,7 @@ digest = "{unsorted}"
         let mut iso = Vec::new();
 
         // ACT
-        let report = Request::new(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -636,7 +640,7 @@ digest = "{unsorted}"
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -664,7 +668,7 @@ digest = "{unsorted}"
         let mut uki = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -682,7 +686,7 @@ digest = "{unsorted}"
         // ARRANGE
         let _env = env();
         let mut alone = Vec::new();
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut alone)
             .expect("initramfs target")
@@ -692,7 +696,7 @@ digest = "{unsorted}"
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Initramfs, &mut combined)
             .expect("initramfs target")
@@ -718,7 +722,7 @@ digest = "{unsorted}"
         let mut uki = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Raw, &mut raw)
             .expect("raw target")
@@ -752,7 +756,7 @@ digest = "{unsorted}"
         let mut raw = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .codec(Codec::Gzip)
             .artifact(Artifact::Raw, &mut raw)
@@ -779,7 +783,7 @@ digest = "{unsorted}"
         let mut raw = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .codec(Codec::None)
             .artifact(Artifact::Raw, &mut raw)
@@ -808,7 +812,7 @@ digest = "{unsorted}"
         let mut tar_out = Vec::new();
 
         // ACT
-        let error = Request::new(RELEASE)
+        let error = request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Overlays, &mut tar_out)
             .expect("overlays target")
@@ -831,7 +835,7 @@ digest = "{unsorted}"
         let mut tar_out = Vec::new();
 
         // ACT
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Iso, &mut iso)
             .expect("iso target")
@@ -886,7 +890,7 @@ digest = "{unsorted}"
             certificate: &certificate,
         };
         let mut unsigned_uki = Vec::new();
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut unsigned_uki)
             .expect("uki target")
@@ -895,7 +899,7 @@ digest = "{unsorted}"
         let mut signed_uki = Vec::new();
 
         // ACT
-        let report = Request::new(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .sign(&pair)
             .artifact(Artifact::Uki, &mut signed_uki)
@@ -926,7 +930,7 @@ digest = "{unsorted}"
         let mut uki = Vec::new();
 
         // ACT
-        let report = Request::new(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Uki, &mut uki)
             .expect("uki target")
@@ -950,14 +954,14 @@ digest = "{unsorted}"
 
         // ACT
         let mut kernel = Vec::new();
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel)
             .expect("kernel target")
             .build(&base_profile())
             .expect("first build");
         let mut kernel = Vec::new();
-        Request::new(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Kernel, &mut kernel)
             .expect("kernel target")

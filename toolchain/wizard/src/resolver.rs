@@ -7,7 +7,6 @@ use kata::schema::parse::{from_toml_tag, validate_release};
 use kata::schema::view::{self, Role};
 use koci::arch::{self, Arch};
 
-use crate::config;
 use crate::domain::identity::{ResolutionId, ResolvedInput};
 use crate::domain::profile::{OverlaySpec, Profile};
 use crate::domain::resolution::{Extension, Kernel, Overlay, Resolution, ResolvedBuild};
@@ -21,16 +20,16 @@ const RESOLUTION_POLICY: &str = "muak/default";
 ///
 /// # Errors
 ///
-/// Returns an error when the release version is invalid, a catalog cannot be fetched
-/// or does not contain a selected entry, or the global configuration has not been set.
+/// Returns an error when the release version is invalid or a catalog cannot be
+/// fetched or does not contain a selected entry.
 pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
-    let config = config::config()?;
+    let registry = request.registry();
     let arch = request.target_arch().unwrap_or_else(arch::host);
     valid_release(request.version())?;
     let release = request.version();
     let profile_id = profile.profile_id()?;
 
-    let core = fetch(Kind::Core, release, &config.registry)?;
+    let core = fetch(Kind::Core, release, registry)?;
     let kernel_entry = core.kernel(profile.kernel().source())?;
     let stub_entry = core.stub()?;
     let installer_entry = core.installer()?;
@@ -43,16 +42,11 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
 
     let kernel = Kernel::new(
         profile.kernel().source().to_owned(),
-        pinned_reference(
-            &config.registry,
-            &kernel_entry.repository,
-            &kernel_entry.digest,
-        ),
+        pinned_reference(registry, &kernel_entry.repository, &kernel_entry.digest),
     );
-    let stub_reference =
-        pinned_reference(&config.registry, &stub_entry.repository, &stub_entry.digest);
+    let stub_reference = pinned_reference(registry, &stub_entry.repository, &stub_entry.digest);
     let installer_reference = pinned_reference(
-        &config.registry,
+        registry,
         &installer_entry.repository,
         &installer_entry.digest,
     );
@@ -60,13 +54,13 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let extensions = if profile.customization().extensions().is_empty() {
         Vec::new()
     } else {
-        let document = fetch(Kind::Extensions, release, &config.registry)?;
-        match_extensions(&document, profile, &config.registry, &mut inputs)?
+        let document = fetch(Kind::Extensions, release, registry)?;
+        match_extensions(&document, profile, registry, &mut inputs)?
     };
     let overlay = match profile.overlay() {
         Some(spec) => {
-            let document = fetch(Kind::Overlays, release, &config.registry)?;
-            match_overlay(&document, spec, arch, &config.registry, &mut inputs)?
+            let document = fetch(Kind::Overlays, release, registry)?;
+            match_overlay(&document, spec, arch, registry, &mut inputs)?
         }
         None => None,
     };

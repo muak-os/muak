@@ -16,7 +16,7 @@ use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
-use wizard::config::{Config, configure};
+use wizard::config::init_cache;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 use wizard::resolver;
@@ -110,11 +110,7 @@ pub async fn prepare(
         None
     };
 
-    configure(Config {
-        cache_dir: Some(cache::DIR.into()),
-        registry: registry.to_owned(),
-    })
-    .context("Failed to configure wizard")?;
+    init_cache(cache::DIR.into());
 
     let assets_dir = staging_dir.join("assets");
     fs::create_dir_all(&assets_dir)
@@ -132,6 +128,7 @@ pub async fn prepare(
         .with_context(|| format!("create initramfs file {}", initramfs_path.display()))?;
 
     let request_version = version.to_owned();
+    let request_registry = registry.to_owned();
 
     tokio::task::spawn_blocking(move || {
         let pair = sb_hierarchy
@@ -141,7 +138,7 @@ pub async fn prepare(
                 certificate: &hierarchy.db.certificate,
             });
 
-        let request = Request::new(request_version)
+        let request = Request::new(request_version, &request_registry)
             .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
             .artifact(Artifact::Kernel, &mut kernel_file)

@@ -9,9 +9,9 @@ use std::sync::OnceLock;
 
 use server::{MockRegistry, Routes};
 use tempfile::TempDir;
-use wizard::config::{Config, configure};
+use wizard::config::init_cache;
 
-/// The per-process harness: one registry, one cache, one wizard config.
+/// The per-process harness: one registry and one cache.
 pub struct Harness {
     pub registry: MockRegistry,
     pub _cache: TempDir,
@@ -19,17 +19,13 @@ pub struct Harness {
 
 impl Harness {
     pub fn start(routes: Routes) -> Result<Self, IoError> {
-        static CONFIGURED: OnceLock<()> = OnceLock::new();
+        static CACHE_INITIALIZED: OnceLock<()> = OnceLock::new();
 
         let registry = MockRegistry::start(routes)?;
         let cache = TempDir::new()?;
 
-        CONFIGURED.get_or_init(|| {
-            configure(Config {
-                cache_dir: Some(cache.path().to_path_buf()),
-                registry: registry.address().to_owned(),
-            })
-            .expect("configure wizard once per test process");
+        CACHE_INITIALIZED.get_or_init(|| {
+            init_cache(cache.path().to_path_buf());
         });
 
         Ok(Self {
