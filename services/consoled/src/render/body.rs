@@ -4,6 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use crossterm::style::Color;
+use firmware::secureboot::Mismatch;
 
 use super::PANEL_BODY_ROWS;
 use super::clear_line;
@@ -34,16 +35,21 @@ pub(super) fn draw(
     Ok(())
 }
 
+const ORANGE: Color = Color::Rgb {
+    r: 255,
+    g: 165,
+    b: 0,
+};
+
 fn build_left(state: &SystemState, col: u16) -> Vec<Line> {
     let (status_label, status_color) = match state.system_status {
         SystemStatus::Installed => ("INSTALLED", Color::Green),
         SystemStatus::Maintenance => ("MAINTENANCE", Color::Red),
     };
 
-    let (sb_label, sb_color) = match state.secure_boot {
-        SecureBootStatus::Enabled => ("Enabled", Color::Green),
-        SecureBootStatus::Pending => ("Pending (firmware reboot required)", Color::Yellow),
-        SecureBootStatus::Disabled => ("Disabled", Color::Red),
+    let (sb_label, sb_color) = match state.secure_boot_mismatch {
+        Some(_) => (short_status(state.secure_boot), ORANGE),
+        None => firmware_label(state.secure_boot),
     };
 
     let mut lines = Vec::new();
@@ -56,9 +62,37 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line> {
     let mut sb_line = Line::new(col);
     sb_line.push(Span::new(Color::White, "SECUREBOOT "));
     sb_line.push(Span::bold(sb_color, sb_label));
+    if let Some(mismatch) = state.secure_boot_mismatch {
+        let note = mismatch_note(mismatch);
+        sb_line.push(Span::new(ORANGE, format!(" ({note})")));
+    }
     lines.push(sb_line);
 
     lines
+}
+
+fn firmware_label(status: SecureBootStatus) -> (&'static str, Color) {
+    match status {
+        SecureBootStatus::Enabled => ("Enabled", Color::Green),
+        SecureBootStatus::Pending => ("Pending (firmware reboot required)", Color::Yellow),
+        SecureBootStatus::Disabled => ("Disabled", Color::Red),
+    }
+}
+
+fn short_status(status: SecureBootStatus) -> &'static str {
+    match status {
+        SecureBootStatus::Enabled => "Enabled",
+        SecureBootStatus::Pending => "Pending",
+        SecureBootStatus::Disabled => "Disabled",
+    }
+}
+
+fn mismatch_note(mismatch: Mismatch) -> &'static str {
+    match mismatch {
+        Mismatch::NotEnrolled => "no keys",
+        Mismatch::KeysRemain => "keys remain",
+        Mismatch::EnforcingWhileDisabled => "still enforced",
+    }
 }
 
 fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
@@ -129,6 +163,7 @@ mod tests {
             memory: MemoryInfo::default(),
             system_status: SystemStatus::Maintenance,
             secure_boot: SecureBootStatus::Disabled,
+            secure_boot_mismatch: None,
             ntp_server: None,
             interfaces: vec![NetInterface {
                 name: "eth0".to_owned(),
@@ -171,6 +206,27 @@ mod tests {
             .iter()
             .any(|span| span.text == "Pending (firmware reboot required)");
         assert!(pending, "expected pending label, got: {:?}", sb_line.spans);
+    }
+
+    #[test]
+    fn build_left_secureboot_mismatch_shows_note() {
+        // ARRANGE
+        let mut state = test_state();
+        state.secure_boot = SecureBootStatus::Enabled;
+        state.secure_boot_mismatch = Some(Mismatch::EnforcingWhileDisabled);
+
+        // ACT
+        let lines = build_left(&state, 0);
+
+        // ASSERT
+        let Some(sb_line) = lines.get(1) else {
+            panic!("expected SECUREBOOT line, got: {lines:?}");
+        };
+        let note = sb_line
+            .spans
+            .iter()
+            .any(|span| span.text == " (still enforced)");
+        assert!(note, "expected mismatch note, got: {:?}", sb_line.spans);
     }
 
     #[test]

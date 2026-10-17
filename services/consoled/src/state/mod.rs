@@ -38,6 +38,7 @@ pub struct SystemState {
     pub memory: MemoryInfo,
     pub system_status: SystemStatus,
     pub secure_boot: SecureBootStatus,
+    pub secure_boot_mismatch: Option<firmware::secureboot::Mismatch>,
     pub ntp_server: Option<String>,
     pub interfaces: Vec<NetInterface>,
     pub gateway: Option<String>,
@@ -83,6 +84,8 @@ pub struct PollState {
     net_scratch: String,
     config_stamp: Option<SystemTime>,
     ntp_cache: Option<String>,
+    secureboot_stamp: Option<SystemTime>,
+    secureboot_cache: bool,
 }
 
 impl MemoryInfo {
@@ -105,6 +108,7 @@ pub fn collect(poll: &mut PollState) -> SystemState {
     let interfaces = read_interfaces(&mut poll.scratch, &mut poll.net_scratch);
     let gateway = netinfo::read_gateway(&mut poll.scratch);
     let dns_servers = read_dns(&mut poll.scratch);
+    let (secure_boot, secure_boot_mismatch) = read_secure_boot(poll);
 
     SystemState {
         hostname,
@@ -113,7 +117,8 @@ pub fn collect(poll: &mut PollState) -> SystemState {
         cpu,
         memory,
         system_status: read_system_status(),
-        secure_boot: read_secure_boot(),
+        secure_boot,
+        secure_boot_mismatch,
         ntp_server,
         interfaces,
         gateway,

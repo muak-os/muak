@@ -100,6 +100,7 @@ mod tests {
             },
             system_status: SystemStatus::Maintenance,
             secure_boot: SecureBootStatus::Disabled,
+            secure_boot_mismatch: None,
             ntp_server: Some("pool.ntp.org".to_owned()),
             interfaces: vec![NetInterface {
                 name: "eth0".to_owned(),
@@ -146,6 +147,7 @@ mod tests {
             memory: MemoryInfo::default(),
             system_status: SystemStatus::Maintenance,
             secure_boot: SecureBootStatus::Disabled,
+            secure_boot_mismatch: None,
             ntp_server: None,
             interfaces: Vec::new(),
             gateway: None,
