@@ -40,9 +40,9 @@ EOF
 ```sh
 REGISTRY="localhost:5000" just mirror linux v7.2.11
 REGISTRY="localhost:5000" just mirror stub v1.0.1-beta
-TAG="v0.0.1" REGISTRY="localhost:5000" just build --release
-TAG="v0.0.1" REGISTRY="localhost:5000" just installer
-TAG="v0.0.1" REGISTRY="localhost:5000" just catalog \
+REGISTRY="localhost:5000" just build --release
+REGISTRY="localhost:5000" just installer
+REGISTRY="localhost:5000" just catalog \
   --set kernels/muak-os/linux=linux@v7.2.11 \
   --set stub=muak-os/stub@stub@v1.0.1-beta
 REGISTRY="localhost:5000" just dev # Uses the default toolchain
@@ -57,7 +57,7 @@ Every run after that is plain `REGISTRY="10.0.2.2:5000" just dev` to iterate.
 
 ```sh
 REGISTRY="localhost:5000" just oci toolchain
-TOOLCHAIN="localhost:5000/toolchain:dev" REGISTRY="localhost:5000" just dev
+TOOLCHAIN="localhost:5000/toolchain:0.0.0-dev" REGISTRY="localhost:5000" just dev
 ```
 
 ### ARM

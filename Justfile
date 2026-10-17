@@ -17,7 +17,7 @@ alpine_version := "3.24"
 rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
-tag := env_var_or_default("TAG", "dev")
+tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:b5202e06f797ab99a766617238d181fede148fa8f83a15d218b33599752de4fa")
 push := env_var_or_default("PUSH", "true")
 signature := env_var_or_default("SIGNATURE", "signature.key")
@@ -339,7 +339,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
     fi
 
     printf "{{ cyan }}Starting QEMU{{ reset }}\n"
-    printf "{{ green }}Guest install image:{{ reset }} 10.0.2.2:5000/installer:dev\n"
+    printf "{{ green }}Guest install image:{{ reset }} 10.0.2.2:5000/installer:{{ tag }}\n"
     printf "{{ green }}Guest API:{{ reset }} 127.0.0.1:50051\n"
     printf "{{ green }}Reset VM state:{{ reset }} rm -f /tmp/nvme-disk.img /tmp/OVMF_VARS.fd\n"
 
