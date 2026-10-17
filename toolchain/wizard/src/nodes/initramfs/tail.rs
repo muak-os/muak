@@ -1,6 +1,7 @@
 //! The initramfs CPIO tail builder.
 
 use alloc::borrow::Cow;
+use alloc::collections::BTreeSet;
 use std::io::Read;
 
 use disk::plan::Document;
@@ -54,14 +55,17 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let metadata_files = metadata_files(ctx)?;
     let mut entries =
         Vec::with_capacity(graph.node(id)?.input_bindings().count().saturating_add(1));
+    let mut layer_names = Vec::new();
     for binding in graph.node(id)?.input_bindings() {
         let stream = graph.stream(binding.stream)?;
+        layer_names.push(stream.name.clone());
         entries.push(Entry {
             path: stream.name.clone(),
             mode: 0o100_644,
             len: stream.size,
         });
     }
+    entries.extend(parent_dir_entries(layer_names.iter().map(String::as_str)));
     if !metadata_files.is_empty() {
         entries.push(metadata_dir_entry());
     }
@@ -94,7 +98,19 @@ fn run(
 ) -> Result<NodeReport> {
     let mut inputs = ports.inputs_from(TAIL_INPUTS_FIRST, None)?;
 
-    let mut pairs: Vec<(Entry, &mut dyn Read)> = Vec::with_capacity(inputs.len().saturating_add(1));
+    let layer_dirs = parent_dir_entries(inputs.iter().map(|input| input.name));
+    let mut dir_empties: Vec<std::io::Empty> =
+        layer_dirs.iter().map(|_| std::io::empty()).collect();
+
+    let mut pairs: Vec<(Entry, &mut dyn Read)> = Vec::with_capacity(
+        inputs
+            .len()
+            .saturating_add(layer_dirs.len())
+            .saturating_add(1),
+    );
+    for (entry, empty) in layer_dirs.into_iter().zip(dir_empties.iter_mut()) {
+        pairs.push((entry, empty));
+    }
     for input in &mut inputs {
         let reader: &mut dyn Read = &mut input.reader;
         pairs.push((
@@ -137,6 +153,34 @@ fn run(
 struct MetadataFile<'data> {
     name: &'static str,
     bytes: Cow<'data, [u8]>,
+}
+
+fn parent_dir_entries<'a>(paths: impl IntoIterator<Item = &'a str>) -> Vec<Entry> {
+    let mut dirs = BTreeSet::new();
+    for path in paths {
+        collect_parent_dirs(path, &mut dirs);
+    }
+
+    dirs.into_iter()
+        .map(|path| Entry {
+            path,
+            mode: 0o040_755,
+            len: 0,
+        })
+        .collect()
+}
+
+fn collect_parent_dirs(path: &str, dirs: &mut BTreeSet<String>) {
+    let mut components = path.split('/').peekable();
+    let mut prefix = String::new();
+    while let Some(component) = components.next() {
+        if components.peek().is_none() {
+            break;
+        }
+        prefix.push_str(component);
+        dirs.insert(format!("{prefix}/"));
+        prefix.push('/');
+    }
 }
 
 fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Result<Vec<MetadataFile<'data>>> {
@@ -183,6 +227,29 @@ fn metadata_file_entry(name: &str, len: u64) -> Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parent_dirs_materialize_nested_layer_paths() {
+        // ARRANGE / ACT
+        let entries = parent_dir_entries(["extensions/cloud-hypervisor.erofs", "modules.erofs"]);
+
+        // ASSERT
+        assert_eq!(entries.len(), 1);
+        let entry = entries.first().expect("parent dir entry");
+        assert_eq!(entry.path, "extensions/");
+        assert_eq!(entry.mode, 0o040_755);
+        assert_eq!(entry.len, 0);
+    }
+
+    #[test]
+    fn parent_dirs_cover_every_ancestor() {
+        // ARRANGE / ACT
+        let entries = parent_dir_entries(["a/b/c.erofs"]);
+        let paths: Vec<&str> = entries.iter().map(|entry| entry.path.as_str()).collect();
+
+        // ASSERT
+        assert_eq!(paths, vec!["a/", "a/b/"]);
+    }
 
     #[test]
     fn derives_stable_archive_names() {
