@@ -4,6 +4,7 @@ mod cache;
 mod commit;
 pub mod kexec;
 pub(crate) mod rollback;
+mod secureboot;
 pub(super) mod snapshot;
 mod validation;
 
@@ -13,8 +14,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
-use sbolt::keys::hierarchy::Bundle;
-use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
 use wizard::config::{Config, configure};
@@ -98,10 +97,15 @@ pub async fn prepare(
         }
     }
 
-    let needs_sb = config::system::host()?.secureboot
-        || new_config.as_ref().is_some_and(|cfg| cfg.host.secureboot);
-    let sb_hierarchy = if needs_sb {
-        Some(resolve_sb_hierarchy()?)
+    let installed_secureboot = config::system::host()?.secureboot;
+    let requested_secureboot = new_config
+        .as_ref()
+        .map_or(installed_secureboot, |cfg| cfg.host.secureboot);
+
+    let sb_hierarchy = if installed_secureboot && !requested_secureboot {
+        secureboot::hierarchy_for_removal()?
+    } else if installed_secureboot || requested_secureboot {
+        Some(secureboot::resolve_hierarchy()?)
     } else {
         None
     };
@@ -239,7 +243,7 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
 
     tokio::spawn(async move {
         if let Err(e) = validation::validate(&update_id, &snapshot_path).await {
-            kmsg::warn!("Pending validation failed: {}", e);
+            kmsg::warn!("Pending validation failed: {:#}", e);
         }
     });
 
@@ -335,18 +339,6 @@ pub(super) fn update_config(
 
     config::system::write_atomic(Path::new(CONFIG_PATH), updated_config.as_bytes())
         .context("Failed to write updated config")
-}
-
-pub(super) fn resolve_sb_hierarchy() -> Result<Bundle> {
-    let dir = Path::new(SECRETS_DIR).join("secureboot");
-    if dir.exists() {
-        load_hierarchy(&dir).context("Failed to load Secure Boot keys")
-    } else {
-        let keys = Bundle::generate("Muak").context("Failed to generate Secure Boot keys")?;
-        save_hierarchy(&keys, &dir).context("Failed to save Secure Boot keys")?;
-
-        Ok(keys)
-    }
 }
 
 pub fn signal_cli_contact() {

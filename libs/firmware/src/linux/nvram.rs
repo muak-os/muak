@@ -120,7 +120,7 @@ fn mount_efivarfs(store: &Linux) -> Result<bool> {
 }
 
 fn unset_immutable(path: &Path) -> Result<()> {
-    let file = open(path, OFlags::RDWR, Mode::empty()).map_err(|e| {
+    let file = open(path, OFlags::RDONLY, Mode::empty()).map_err(|e| {
         FirmwareError::Variable(format!(
             "failed to open efivarfs file: {}",
             IoError::from(e)

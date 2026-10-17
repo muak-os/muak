@@ -3,11 +3,9 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
-use sbolt::efi::enroll;
-use sbolt::keys::storage::load_hierarchy;
 use uki::measure::{self, MeasuredSection};
 
-use super::{SECRETS_DIR, UPDATE_DIR, cache};
+use super::{UPDATE_DIR, cache, secureboot};
 use crate::disk::{Role, find_partition_device};
 use crate::efi;
 use crate::secrets;
@@ -42,17 +40,12 @@ pub async fn apply() -> Result<()> {
         None => None,
     };
 
-    // Enroll PK if missing (signing keys are on STATE from prepare phase)
-    if config::system::host()?.secureboot {
-        let pk_missing = !firmware::secureboot::system()
-            .context("Failed to read PK from firmware")?
-            .pk_present;
-        if pk_missing {
-            let dir = Path::new(SECRETS_DIR).join("secureboot");
-            let hierarchy =
-                load_hierarchy(&dir).context("Failed to load Secure Boot keys for enrollment")?;
-            enroll(&hierarchy).context("Failed to enroll Secure Boot keys into firmware")?;
-        }
+    let secureboot_enabled = config::system::host()?.secureboot;
+
+    if secureboot_enabled {
+        secureboot::enroll_if_missing()?;
+    } else {
+        secureboot::unenroll_if_present()?;
     }
 
     let mut uki_file = std::fs::File::open(&staged)
@@ -75,6 +68,10 @@ pub async fn apply() -> Result<()> {
     efi::unmount();
 
     cache::clean_stale();
+
+    if !secureboot_enabled {
+        secureboot::remove_hierarchy();
+    }
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
         eprintln!("Failed to cleanup update work dir: {e}");

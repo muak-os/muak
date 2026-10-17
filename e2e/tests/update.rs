@@ -194,4 +194,58 @@ mod tests {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn update_config_secureboot_disable() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
+
+        let (registry, version) = (install_registry(), install_version());
+        let update_cfg = cli
+            .generate_config(|cfg| {
+                "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+                cfg.host.registry = registry;
+                cfg.host.version = version;
+                cfg.host.secureboot = false;
+            })
+            .await?;
+
+        // ACT
+        let stdout = timeout(
+            Duration::from_mins(1),
+            assert_success!(
+                cli,
+                [
+                    "update",
+                    "--config",
+                    &update_cfg.path().display().to_string(),
+                ]
+            ),
+        )
+        .await
+        .map_err(|_elapsed| {
+            let serial = fixture.vm.read_serial().unwrap_or_default();
+            let stderr = fixture.vm.read_stderr().unwrap_or_default();
+            anyhow::anyhow!(
+                "update --config timed out\
+                 \n\n--- serial log ---\n{serial}\
+                 \n\n--- stderr ---\n{stderr}"
+            )
+        })?
+        .map_err(|e| anyhow::anyhow!("muakctl update --config failed: {e}"))?;
+
+        // ASSERT
+        ensure!(
+            stdout.contains("committed successfully"),
+            "expected 'committed successfully' in update --config output, got: {stdout}"
+        );
+        let config_out = assert_success!(cli, ["config", "get"]).await?;
+        ensure!(
+            config_out.contains("secureboot = false"),
+            "expected secureboot to be disabled, got: {config_out}"
+        );
+        fixture.vm.assert_serial_contains("muak.update_id=")?;
+        Ok(())
+    }
 }

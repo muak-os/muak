@@ -4,7 +4,7 @@
 (type provisiond_exec_t)
 (call declare_exec (system_t provisiond_exec_t))
 
-(allow system_t self (capability (sys_admin sys_boot mknod)))
+(allow system_t self (capability (sys_admin sys_boot mknod linux_immutable)))
 
 (allow system_t self (netlink_generic_socket (create bind read write)))
 

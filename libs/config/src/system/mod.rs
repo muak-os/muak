@@ -114,12 +114,6 @@ impl Config {
     pub fn validate_for_update(&self, installed: &Config) -> Result<()> {
         self.validate()?;
         self.disk.validate_immutable(&installed.disk)?;
-        if installed.host.secureboot && !self.host.secureboot {
-            return Err(ConfigError::ValidationError(
-                "host.secureboot cannot be disabled after Secure Boot keys have been enrolled"
-                    .to_owned(),
-            ));
-        }
 
         Ok(())
     }
@@ -446,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_for_update_rejects_secureboot_true_to_false() {
+    fn validate_for_update_allows_secureboot_true_to_false() {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
@@ -456,7 +450,7 @@ mod tests {
         requested.host.secureboot = false;
 
         // ACT & ASSERT
-        assert!(requested.validate_for_update(&installed).is_err());
+        requested.validate_for_update(&installed).unwrap();
     }
 
     #[test]

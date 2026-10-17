@@ -42,29 +42,29 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
             update_id
         );
         if let Err(e) = wait_for_confirmation().await {
-            kmsg::warn!("Operator confirmation failed for {}: {}", update_id, e);
+            kmsg::warn!("Operator confirmation failed for {}: {:#}", update_id, e);
             rollback::apply(
                 update_id,
                 snapshot_path,
-                &format!("Operator confirmation failed: {e}"),
+                &format!("Operator confirmation failed: {e:#}"),
             )?;
             return Ok(());
         }
     }
 
     if let Err(e) = health_checks() {
-        kmsg::warn!("Health checks failed for {}: {}", update_id, e);
+        kmsg::warn!("Health checks failed for {}: {:#}", update_id, e);
         rollback::apply(
             update_id,
             snapshot_path,
-            &format!("Health checks failed: {e}"),
+            &format!("Health checks failed: {e:#}"),
         )?;
         return Ok(());
     }
 
     if let Err(e) = commit::apply().await {
-        kmsg::warn!("Commit failed for {}: {}", update_id, e);
-        rollback::apply(update_id, snapshot_path, &format!("Commit failed: {e}"))?;
+        kmsg::warn!("Commit failed for {}: {:#}", update_id, e);
+        rollback::apply(update_id, snapshot_path, &format!("Commit failed: {e:#}"))?;
     }
 
     Ok(())

@@ -1,7 +1,5 @@
 # TODO
 
-- gh release in CI
-
 - Support RISC-V architecture
   - https://github.com/rust-lang/rust/issues/148920
   - https://github.com/llvm/llvm-project/pull/148045
@@ -10,7 +8,6 @@
 - Move toolchain to another repo?
 
 - Fix secureboot not enrolling properly in edk2 on real hardware.
-- Allow secureboot to go from true to false
 
 - Fix provisiond failing when preparing a second update in one daemon lifetime: `wizard::config::configure()` is a process-global `OnceLock` that errors with "config already configured" on retry — make it reconfigurable (`RwLock`) so failed prepares don't need a reboot before retrying
 

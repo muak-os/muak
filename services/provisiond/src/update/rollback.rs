@@ -7,8 +7,7 @@ use anyhow::{Context as _, Result};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
-use super::UPDATE_DIR;
-use super::snapshot;
+use super::{UPDATE_DIR, secureboot, snapshot};
 
 /// Restores the committed config and reboots into the old kernel.
 ///
@@ -18,6 +17,7 @@ use super::snapshot;
 pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     kmsg::info!("Rolling back update {update_id}: {reason}");
 
+    let previous = snapshot::read_config(snapshot_path)?;
     let tracked = snapshot::restore(update_id, snapshot_path, reason)?;
     if tracked {
         if let Err(e) = fs::remove_dir_all(Path::new(UPDATE_DIR)) {
@@ -25,6 +25,10 @@ pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> 
         }
     } else {
         kmsg::warn!("Rollback of {update_id} untracked. Snapshot kept for next-boot retry");
+    }
+
+    if previous.host.secureboot {
+        secureboot::re_enroll_if_missing()?;
     }
 
     sync();
