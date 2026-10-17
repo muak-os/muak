@@ -72,7 +72,7 @@ btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
-firmware = { path = "libs/firmware" }
+firmware = { path = "libs/firmware", default-features = false }
 fatfs = { path = "libs/fatfs" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
