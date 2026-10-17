@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
-use sbolt::efi::{enroll, unenroll};
+use sbolt::efi::enrollment;
 use sbolt::keys::hierarchy::Bundle;
 use sbolt::keys::storage::{load_hierarchy, save_hierarchy};
 
@@ -57,7 +57,8 @@ pub(super) fn enroll_if_missing() -> Result<()> {
     let hierarchy =
         load_hierarchy(&dir()).context("Failed to load Secure Boot keys for enrollment")?;
 
-    enroll(&hierarchy).context("Failed to enroll Secure Boot keys into firmware")
+    enrollment::enroll(&firmware::system(), &hierarchy)
+        .context("Failed to enroll Secure Boot keys into firmware")
 }
 
 // Removes the enrolled Platform Key using the persisted hierarchy.
@@ -72,7 +73,8 @@ pub(super) fn unenroll_if_present() -> Result<()> {
     let hierarchy =
         load_hierarchy(&dir()).context("Failed to load Secure Boot keys for removal")?;
 
-    unenroll(&hierarchy).context("Failed to remove the Secure Boot Platform Key")
+    enrollment::unenroll(&firmware::system(), &hierarchy)
+        .context("Failed to remove the Secure Boot Platform Key")
 }
 
 // Re-enrolls the persisted hierarchy after a rollback returns to Secure Boot.
@@ -89,7 +91,8 @@ pub(super) fn re_enroll_if_missing() -> Result<()> {
 
     let hierarchy = load_hierarchy(&dir).context("Failed to load Secure Boot keys")?;
 
-    enroll(&hierarchy).context("Failed to re-enroll Secure Boot keys")
+    enrollment::enroll(&firmware::system(), &hierarchy)
+        .context("Failed to re-enroll Secure Boot keys")
 }
 
 // Removes the persisted signing material once enforcement is off.

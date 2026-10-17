@@ -12,7 +12,7 @@ use config::system;
 use layout::plans_from_doc;
 use luks2::key::Passphrase;
 use pki::InstallResult;
-use sbolt::efi::enroll;
+use sbolt::efi::enrollment;
 use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
@@ -145,7 +145,8 @@ async fn enroll_secureboot_keys(
 ) -> Result<()> {
     if let Some(hierarchy) = sb_hierarchy {
         send_progress(progress, "Enrolling secureboot keys").await;
-        enroll(hierarchy).context("Failed to enroll Secure Boot keys")?;
+        enrollment::enroll(&firmware::system(), hierarchy)
+            .context("Failed to enroll Secure Boot keys")?;
     }
 
     Ok(())
