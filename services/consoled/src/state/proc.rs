@@ -82,16 +82,14 @@ pub(super) fn read_system_status() -> SystemStatus {
     }
 }
 
-pub(super) fn read_secure_boot(poll: &mut PollState) -> SecureBootStatus {
+pub(super) fn read_secure_boot() -> SecureBootStatus {
     let state = firmware::secureboot::system().unwrap_or_default();
-    if state.enabled {
-        return SecureBootStatus::Enabled;
-    }
-    if config_wants_secureboot(poll) && state.pk_present {
-        return SecureBootStatus::Pending;
-    }
 
-    SecureBootStatus::Disabled
+    match firmware::secureboot::status(&state) {
+        firmware::secureboot::Status::Enabled => SecureBootStatus::Enabled,
+        firmware::secureboot::Status::Pending => SecureBootStatus::Pending,
+        firmware::secureboot::Status::Disabled => SecureBootStatus::Disabled,
+    }
 }
 
 pub(super) fn read_ntp_server(poll: &mut PollState) -> Option<String> {
@@ -169,20 +167,6 @@ fn field_kb(line: &str, key: &str) -> Option<u64> {
         .next()?
         .parse()
         .ok()
-}
-
-fn config_wants_secureboot(poll: &mut PollState) -> bool {
-    let Ok(stamp) = fs::metadata(CONFIG_PATH).and_then(|meta| meta.modified()) else {
-        return false;
-    };
-    if poll.secureboot_stamp == Some(stamp) {
-        return poll.secureboot_cache;
-    }
-    poll.secureboot_stamp = Some(stamp);
-    poll.secureboot_cache =
-        config::system::load_from_path(Path::new(CONFIG_PATH)).is_ok_and(|cfg| cfg.host.secureboot);
-
-    poll.secureboot_cache
 }
 
 #[cfg(test)]

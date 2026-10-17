@@ -14,9 +14,19 @@ enum SecureBootState {
   SECURE_BOOT_STATE_PENDING = 3;
 }
 
+enum SecureBootDeviation {
+  SECURE_BOOT_DEVIATION_UNSPECIFIED = 0;
+  SECURE_BOOT_DEVIATION_NONE = 1;
+  SECURE_BOOT_DEVIATION_CONFIG_ENABLED_NO_KEYS = 2;
+  SECURE_BOOT_DEVIATION_KEYS_REMAIN = 3;
+  SECURE_BOOT_DEVIATION_ENFORCING_WHILE_DISABLED = 4;
+}
+
 message GetSecurityStateRequest {}
 
 message GetSecurityStateResponse {
   SecureBootState secure_boot = 1;
   bool setup_mode = 2;
+  bool config_enabled = 3;
+  SecureBootDeviation deviation = 4;
 }

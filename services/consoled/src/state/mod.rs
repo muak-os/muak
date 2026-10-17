@@ -83,8 +83,6 @@ pub struct PollState {
     net_scratch: String,
     config_stamp: Option<SystemTime>,
     ntp_cache: Option<String>,
-    secureboot_stamp: Option<SystemTime>,
-    secureboot_cache: bool,
 }
 
 impl MemoryInfo {
@@ -115,7 +113,7 @@ pub fn collect(poll: &mut PollState) -> SystemState {
         cpu,
         memory,
         system_status: read_system_status(),
-        secure_boot: read_secure_boot(poll),
+        secure_boot: read_secure_boot(),
         ntp_server,
         interfaces,
         gateway,

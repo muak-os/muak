@@ -84,6 +84,51 @@ pub fn pk_present<S: VariableStore>(store: &S) -> Result<bool> {
     Ok(store.read(&PK)?.is_some_and(|data| !data.is_empty()))
 }
 
+/// Secure Boot enforcement posture reported by firmware.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    /// Firmware is enforcing Secure Boot.
+    Enabled,
+    /// Keys are enrolled but enforcement is not active yet.
+    Pending,
+    /// No keys are enrolled and enforcement is off.
+    Disabled,
+}
+
+/// Disagreement between the configured intent and the firmware state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mismatch {
+    /// Configuration enables Secure Boot but no Platform Key is enrolled.
+    NotEnrolled,
+    /// Configuration disables Secure Boot but a Platform Key is still enrolled.
+    KeysRemain,
+    /// Configuration disables Secure Boot but firmware still enforces it.
+    EnforcingWhileDisabled,
+}
+
+/// Derives the firmware Secure Boot posture from `state`.
+#[must_use]
+pub fn status(state: &State) -> Status {
+    if state.enabled {
+        Status::Enabled
+    } else if state.pk_present {
+        Status::Pending
+    } else {
+        Status::Disabled
+    }
+}
+
+/// Describes how config disagrees with the firmware, if at all.
+#[must_use]
+pub fn mismatch(config_enabled: bool, state: &State) -> Option<Mismatch> {
+    match (config_enabled, status(state)) {
+        (true, Status::Enabled | Status::Pending) | (false, Status::Disabled) => None,
+        (true, Status::Disabled) => Some(Mismatch::NotEnrolled),
+        (false, Status::Pending) => Some(Mismatch::KeysRemain),
+        (false, Status::Enabled) => Some(Mismatch::EnforcingWhileDisabled),
+    }
+}
+
 /// Reads a boolean firmware variable.
 fn boolean<S: VariableStore>(store: &S, id: &Id) -> Result<bool> {
     match store.read(id)? {
@@ -216,5 +261,61 @@ mod tests {
         assert_eq!(PK.vendor_guid(), &EFI_GLOBAL_VARIABLE);
         assert_eq!(DB.name(), "db");
         assert_eq!(DB.vendor_guid(), &EFI_IMAGE_SECURITY_DATABASE);
+    }
+
+    #[test]
+    fn status_follows_firmware_flags() {
+        // ARRANGE
+        let enforcing = State {
+            enabled: true,
+            setup_mode: false,
+            pk_present: true,
+        };
+        let pending = State {
+            enabled: false,
+            setup_mode: false,
+            pk_present: true,
+        };
+        let disabled = State {
+            enabled: false,
+            setup_mode: true,
+            pk_present: false,
+        };
+
+        // ACT & ASSERT
+        assert_eq!(status(&enforcing), Status::Enabled);
+        assert_eq!(status(&pending), Status::Pending);
+        assert_eq!(status(&disabled), Status::Disabled);
+    }
+
+    #[test]
+    fn mismatch_reports_config_and_firmware_disagreement() {
+        // ARRANGE
+        let enforcing = State {
+            enabled: true,
+            setup_mode: false,
+            pk_present: true,
+        };
+        let pending = State {
+            enabled: false,
+            setup_mode: false,
+            pk_present: true,
+        };
+        let disabled = State {
+            enabled: false,
+            setup_mode: true,
+            pk_present: false,
+        };
+
+        // ACT & ASSERT
+        assert_eq!(mismatch(true, &enforcing), None);
+        assert_eq!(mismatch(true, &pending), None);
+        assert_eq!(mismatch(false, &disabled), None);
+        assert_eq!(mismatch(true, &disabled), Some(Mismatch::NotEnrolled));
+        assert_eq!(mismatch(false, &pending), Some(Mismatch::KeysRemain));
+        assert_eq!(
+            mismatch(false, &enforcing),
+            Some(Mismatch::EnforcingWhileDisabled)
+        );
     }
 }
