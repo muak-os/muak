@@ -7,7 +7,6 @@ use hyper::http::StatusCode;
 use serde::Deserialize;
 
 use crate::challenge::Challenge;
-use crate::endpoint;
 use crate::error::{ClientError, Result};
 use crate::http;
 use crate::transport::Transport;
@@ -256,6 +255,7 @@ mod tests {
     use oci::reference::Image;
 
     use super::*;
+    use crate::endpoint;
     use crate::transport::build_client;
 
     const BASIC_CHALLENGE: &str = "WWW-Authenticate: Basic realm=\"registry\"";
