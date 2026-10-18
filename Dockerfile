@@ -86,5 +86,5 @@ FROM scratch
 COPY --link --from=initramfs-builder /initramfs.img /initramfs.img
 
 LABEL org.opencontainers.image.title="installer"
-LABEL org.opencontainers.image.description="Muak boot assets"
+LABEL org.opencontainers.image.description="Muak base initramfs"
 LABEL org.opencontainers.image.source="https://github.com/muak-os/muak"
