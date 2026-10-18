@@ -6,6 +6,7 @@ use hyper::http::header::LOCATION;
 use oci::reference::Image;
 
 use crate::client::Client;
+use crate::endpoint;
 use crate::error::{ClientError, Result};
 use crate::http;
 
@@ -14,7 +15,7 @@ use crate::http;
 pub fn build_url(image: &Image, digest: &str) -> String {
     format!(
         "{}://{}/v2/{}/blobs/{}",
-        image.scheme(),
+        endpoint::scheme(image),
         image.registry,
         image.name,
         digest
@@ -113,14 +114,18 @@ fn response_location<B>(
         ))
     })?;
 
-    Ok(resolve_location(image.scheme(), &image.registry, location))
+    Ok(resolve_location(
+        endpoint::scheme(image),
+        &image.registry,
+        location,
+    ))
 }
 
 async fn start(client: &Client) -> Result<String> {
     let image = client.image();
     let url = format!(
         "{}://{}/v2/{}/blobs/uploads/",
-        image.scheme(),
+        endpoint::scheme(image),
         image.registry,
         image.name
     );
@@ -140,7 +145,11 @@ async fn start(client: &Client) -> Result<String> {
             ClientError::Push(format!("blob upload start carried no Location for {url}"))
         })?;
 
-    Ok(resolve_location(image.scheme(), &image.registry, location))
+    Ok(resolve_location(
+        endpoint::scheme(image),
+        &image.registry,
+        location,
+    ))
 }
 
 async fn finish(client: &Client, location: &str, digest: &str, body: Bytes) -> Result<()> {

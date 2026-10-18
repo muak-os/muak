@@ -7,6 +7,7 @@ use hyper::http::StatusCode;
 use serde::Deserialize;
 
 use crate::challenge::Challenge;
+use crate::endpoint;
 use crate::error::{ClientError, Result};
 use crate::http;
 use crate::transport::Transport;
@@ -346,7 +347,7 @@ mod tests {
 
         authenticate(
             &client,
-            image.scheme(),
+            endpoint::scheme(&image),
             &image.registry,
             &image.name,
             Access::Pull,

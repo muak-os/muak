@@ -5,6 +5,7 @@ use oci::reference::Image;
 use serde::Deserialize;
 
 use crate::client::Client;
+use crate::endpoint;
 use crate::error::{ClientError, Result};
 use crate::http::{collect_body, get};
 
@@ -16,7 +17,7 @@ const TAGS_ACCEPT: &str = "application/json";
 pub fn build_url(image: &Image) -> String {
     format!(
         "{}://{}/v2/{}/tags/list?n={PAGE_SIZE}",
-        image.scheme(),
+        endpoint::scheme(image),
         image.registry,
         image.name,
     )

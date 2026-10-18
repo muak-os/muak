@@ -38,21 +38,6 @@ impl Image {
             manifest_ref,
         }
     }
-
-    /// Determine the URL scheme (`http` or `https`) for the registry.
-    #[must_use]
-    pub fn scheme(&self) -> &'static str {
-        if self.registry.starts_with("192.168.")
-            || self.registry.starts_with("10.")
-            || self.registry.starts_with("172.")
-            || self.registry.starts_with("127.")
-            || self.registry.starts_with("localhost")
-        {
-            "http"
-        } else {
-            "https"
-        }
-    }
 }
 
 fn normalize_registry(registry: &str) -> &str {
@@ -128,7 +113,6 @@ mod tests {
         assert_eq!(img.registry, "192.168.1.100:5000");
         assert_eq!(img.name, "myimage");
         assert_eq!(img.manifest_ref, "tag");
-        assert_eq!(img.scheme(), "http");
     }
 
     #[test]
@@ -249,41 +233,5 @@ mod tests {
         // ASSERT
         assert_eq!(img.name, "org/image@sha256");
         assert_eq!(img.manifest_ref, "");
-    }
-
-    #[test]
-    fn scheme_https_for_docker_io() {
-        // ARRANGE
-        let reference = "alpine:latest";
-
-        // ACT
-        let img = Image::parse(reference);
-
-        // ASSERT
-        assert_eq!(img.scheme(), "https");
-    }
-
-    #[test]
-    fn scheme_http_for_private() {
-        // ARRANGE
-        let reference = "192.168.1.1:5000/image:tag";
-
-        // ACT
-        let img = Image::parse(reference);
-
-        // ASSERT
-        assert_eq!(img.scheme(), "http");
-    }
-
-    #[test]
-    fn scheme_http_for_localhost_registry() {
-        // ARRANGE
-        let reference = "localhost:5000/repo:tag";
-
-        // ACT
-        let img = Image::parse(reference);
-
-        // ASSERT
-        assert_eq!(img.scheme(), "http");
     }
 }

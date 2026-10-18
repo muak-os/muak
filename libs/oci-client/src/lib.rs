@@ -8,6 +8,7 @@ pub mod auth;
 pub mod blob;
 pub mod challenge;
 pub mod client;
+mod endpoint;
 pub mod error;
 pub mod http;
 pub mod manifest;

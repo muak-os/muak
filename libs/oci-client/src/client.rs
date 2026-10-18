@@ -3,6 +3,7 @@
 use oci::reference::Image;
 
 use crate::auth::{Access, Credentials, authenticate};
+use crate::endpoint;
 use crate::error::Result;
 use crate::transport::{Transport, for_host};
 
@@ -33,7 +34,7 @@ impl Client {
         let credentials = credentials.or_else(Credentials::from_env);
         let authorization = authenticate(
             &client,
-            image.scheme(),
+            endpoint::scheme(&image),
             &image.registry,
             &image.name,
             access,

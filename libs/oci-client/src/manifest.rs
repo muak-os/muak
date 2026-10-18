@@ -5,6 +5,7 @@ use oci::media::OCI_MANIFEST_ACCEPT_HEADERS;
 use oci::reference::Image;
 
 use crate::client::Client;
+use crate::endpoint;
 use crate::error::{ClientError, Result};
 use crate::http::{self, collect_body, get};
 
@@ -13,7 +14,7 @@ use crate::http::{self, collect_body, get};
 pub fn build_url(image: &Image, reference: &str) -> String {
     format!(
         "{}://{}/v2/{}/manifests/{}",
-        image.scheme(),
+        endpoint::scheme(image),
         image.registry,
         image.name,
         reference
