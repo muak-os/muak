@@ -46,7 +46,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "1.0.2-beta"
+version = "1.0.3-beta"
 rust-version = "1.98"
 license-file = "LICENSE"
 repository = "https://github.com/muak-os/muak"
