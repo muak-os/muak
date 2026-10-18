@@ -18,7 +18,7 @@ rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tag := env_var_or_default("TAG", "0.0.0-dev")
-toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:b5202e06f797ab99a766617238d181fede148fa8f83a15d218b33599752de4fa")
+toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c18a288141bf4745151ae83d0d5f05d875a102c5348a12d5ab89fa94b4f1c3a0")
 push := env_var_or_default("PUSH", "true")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
