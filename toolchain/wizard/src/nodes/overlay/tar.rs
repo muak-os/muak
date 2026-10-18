@@ -26,7 +26,7 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
-/// One stream per overlay asset, in canonical (path-sorted) order.
+/// One stream per overlay asset, in image entry order.
 fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     let assets = ctx.build.overlay_assets().unwrap_or(&[]);
     let mut dependencies = Vec::with_capacity(assets.len());

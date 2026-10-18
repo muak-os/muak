@@ -174,27 +174,19 @@ impl<'a> Request<'a> {
     }
 }
 
-/// Discovers every overlay asset from the overlay image's `dev.muak.sizes`
-/// annotation and stores them on the resolution.
+/// Discovers every overlay asset from the overlay image's eStargz table of
+/// contents and stores them on the resolution in image entry order.
 ///
 /// # Errors
 ///
-/// Returns an error when the overlay image cannot be measured, an entry
-/// references a malformed placement, or the image's entries are not sorted
-/// by path (publish overlay images canonically with `koci push`).
+/// Returns an error when the overlay image cannot be measured or an entry
+/// references a malformed placement.
 fn discover_assets(resolution: &mut Resolution) -> Result<()> {
     let Some(overlay) = resolution.build().overlay() else {
         return Ok(());
     };
     let entries = measured_sizes(&overlay.source, overlay.arch)?;
-    let (assets, sorted) = overlay::classify(overlay, entries)?;
-    if !sorted {
-        return Err(WizardError::BuildError(format!(
-            "overlay image {} stores its entries unsorted; publish it with \
-             koci push or a tool allowing for eStargz images.",
-            overlay.source
-        )));
-    }
+    let assets = overlay::classify(overlay, entries)?;
     resolution.set_overlay_assets(Some(assets));
 
     Ok(())

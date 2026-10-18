@@ -1,10 +1,7 @@
 //! OCI image fixture builders.
 
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
-use tar::{Builder, Header};
 
 use crate::common::server::{HttpResponse, Routes, get};
 
@@ -20,10 +17,12 @@ pub fn build_image(entries: &[(&str, &[u8])]) -> FixtureImage {
     build_layer_image(entries, "application/vnd.oci.image.layer.v1.tar+gzip")
 }
 
-/// Builds a legacy single-member gzip tar layer image with no features.
-pub fn build_legacy_image(entries: &[(&str, &[u8])]) -> FixtureImage {
-    let layer = layer_archive(entries);
-    build_manifest_image(&layer, "application/vnd.oci.image.layer.v1.tar+gzip")
+/// Builds a single-platform image with one sorted eStargz layer per entry slice.
+pub fn build_layers_image(layers: &[&[(&str, &[u8])]]) -> FixtureImage {
+    let packed: Vec<Vec<u8>> = layers.iter().map(|entries| stargz_layer(entries)).collect();
+    let slices: Vec<&[u8]> = packed.iter().map(Vec::as_slice).collect();
+
+    build_manifest_layers(&slices, "application/vnd.oci.image.layer.v1.tar+gzip")
 }
 
 /// Builds a single-platform image whose layer is the given blob and type.
@@ -49,9 +48,25 @@ pub fn config_digest() -> String {
     sha256_digest(&config_blob())
 }
 
-/// Wraps `layer` into a manifest without any annotations.
+/// Wraps one layer into a manifest without any annotations.
 fn build_manifest_image(layer: &[u8], media_type: &str) -> FixtureImage {
-    let digest = sha256_digest(layer);
+    build_manifest_layers(&[layer], media_type)
+}
+
+/// Wraps `layers` into a manifest without any annotations.
+fn build_manifest_layers(layers: &[&[u8]], media_type: &str) -> FixtureImage {
+    let mut descriptors = Vec::with_capacity(layers.len());
+    let mut blobs = Vec::with_capacity(layers.len());
+    for layer in layers {
+        let digest = sha256_digest(layer);
+        descriptors.push(json!({
+            "mediaType": media_type,
+            "digest": &digest,
+            "size": layer.len(),
+        }));
+        blobs.push((digest, layer.to_vec()));
+    }
+
     let manifest = serde_json::to_vec(&json!({
         "schemaVersion": 2,
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -60,17 +75,13 @@ fn build_manifest_image(layer: &[u8], media_type: &str) -> FixtureImage {
             "digest": config_digest(),
             "size": config_blob().len(),
         },
-        "layers": [{
-            "mediaType": media_type,
-            "digest": digest,
-            "size": layer.len(),
-        }],
+        "layers": descriptors,
     }))
     .expect("serialize manifest");
 
     FixtureImage {
         manifest,
-        layers: vec![(digest, layer.to_vec())],
+        layers: blobs,
     }
 }
 
@@ -103,24 +114,6 @@ pub fn install_image(routes: &mut Routes, repo: &str, tag: &str, image: &Fixture
         );
         routes.insert(key, response);
     }
-}
-
-pub fn layer_archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
-    let encoder = GzEncoder::new(Vec::new(), Compression::default());
-    let mut archive = Builder::new(encoder);
-
-    for &(path, bytes) in entries {
-        let mut header = Header::new_gnu();
-        header.set_size(u64::try_from(bytes.len()).unwrap_or(0));
-        header.set_mode(0o644);
-        header.set_cksum();
-        archive
-            .append_data(&mut header, path, bytes)
-            .expect("append fixture entry");
-    }
-
-    let encoder = archive.into_inner().expect("finish fixture archive");
-    encoder.finish().expect("finish fixture gzip")
 }
 
 pub fn sha256_digest(bytes: &[u8]) -> String {

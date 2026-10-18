@@ -19,7 +19,7 @@ mod tests {
 
     use crate::common::Harness;
     use crate::common::fixtures::{
-        FixtureImage, build_image, build_legacy_image, install_image, random_bytes, sha256_digest,
+        FixtureImage, build_image, build_layers_image, install_image, random_bytes, sha256_digest,
     };
     use crate::common::pe::generate_stub;
     use crate::common::server::Routes;
@@ -32,6 +32,7 @@ mod tests {
     const CMDLINE: &[u8] = b"console=ttyS0 quiet\n";
     const OVERLAY_A: &[u8] = b"muak-overlay-a\n";
     const OVERLAY_B: &[u8] = b"muak-overlay-b\n";
+    const OVERLAY_LARGE_BYTES: usize = 1 << 20;
     const MODULE_DEP: &[u8] = b"kernel/fs/erofs/erofs.ko.zst: kernel/fs/erofs/*.ko.zst\n";
     const MODULE_KO: &[u8] = b"\x28\xb5\x2f\xfdkernel-module-bytes";
 
@@ -46,7 +47,10 @@ mod tests {
         kernel: FixtureImage,
         extension: FixtureImage,
         overlay: FixtureImage,
+        overlay_layers: FixtureImage,
         overlay_unsorted: FixtureImage,
+        overlay_unsorted_a: Vec<u8>,
+        overlay_unsorted_b: Vec<u8>,
     }
 
     struct Env {
@@ -83,6 +87,7 @@ mod tests {
         warm_image(harness, "linux", "latest");
         warm_image(harness, "pkgs/qemu", "latest");
         warm_image(harness, "sbc/raspberrypi", "latest");
+        warm_image(harness, "sbc/layers", "latest");
         warm_image(harness, "sbc/unsorted", "latest");
     }
 
@@ -112,6 +117,7 @@ mod tests {
         install_image(routes, "linux", "latest", &images.kernel);
         install_image(routes, "pkgs/qemu", "latest", &images.extension);
         install_image(routes, "sbc/raspberrypi", "latest", &images.overlay);
+        install_image(routes, "sbc/layers", "latest", &images.overlay_layers);
         install_image(routes, "sbc/unsorted", "latest", &images.overlay_unsorted);
 
         for (repo, tag, image) in build_catalogs(images) {
@@ -123,6 +129,7 @@ mod tests {
             ("linux", &images.kernel),
             ("pkgs/qemu", &images.extension),
             ("sbc/raspberrypi", &images.overlay),
+            ("sbc/layers", &images.overlay_layers),
             ("sbc/unsorted", &images.overlay_unsorted),
         ] {
             install_image(routes, repo, &sha256_digest(&image.manifest), image);
@@ -181,6 +188,13 @@ tag = "latest"
 digest = "{overlay}"
 
 [[overlays]]
+name = "layers"
+source = "muak-os/sbc-layers"
+repository = "sbc/layers"
+tag = "latest"
+digest = "{layers}"
+
+[[overlays]]
 name = "unsorted"
 source = "muak-os/sbc-unsorted"
 repository = "sbc/unsorted"
@@ -188,6 +202,7 @@ tag = "latest"
 digest = "{unsorted}"
 "#,
             overlay = sha256_digest(&images.overlay.manifest),
+            layers = sha256_digest(&images.overlay_layers.manifest),
             unsorted = sha256_digest(&images.overlay_unsorted.manifest),
         );
 
@@ -214,6 +229,8 @@ digest = "{unsorted}"
         let stub = generate_stub();
         let kernel = random_bytes(0x5eed, KERNEL_BYTES);
         let initramfs = random_bytes(0x1a7a, INITRAMFS_BYTES);
+        let overlay_unsorted_b = random_bytes(0x5bc1, OVERLAY_LARGE_BYTES);
+        let overlay_unsorted_a = random_bytes(0x5bc2, OVERLAY_LARGE_BYTES);
 
         TestImages {
             installer: build_image(&installer_entries(&initramfs)),
@@ -230,16 +247,28 @@ digest = "{unsorted}"
                     OVERLAY_B,
                 ),
             ]),
-            overlay_unsorted: build_legacy_image(&[
-                (
-                    "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
-                    OVERLAY_B,
-                ),
-                (
-                    "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+            overlay_layers: build_layers_image(&[
+                &[(
+                    "layers/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
                     OVERLAY_A,
-                ),
+                )][..],
+                &[(
+                    "layers/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
+                    OVERLAY_B,
+                )][..],
             ]),
+            overlay_unsorted: build_layers_image(&[
+                &[(
+                    "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
+                    overlay_unsorted_b.as_slice(),
+                )][..],
+                &[(
+                    "unsorted/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+                    overlay_unsorted_a.as_slice(),
+                )][..],
+            ]),
+            overlay_unsorted_a,
+            overlay_unsorted_b,
         }
     }
 
@@ -332,6 +361,14 @@ digest = "{unsorted}"
     fn overlay_profile() -> Profile {
         Profile::new(
             Some(OverlaySpec::new("rpi_generic".to_owned()).expect("overlay spec")),
+            CustomizationSpec::new(Vec::new()).expect("empty customization"),
+            KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
+        )
+    }
+
+    fn layers_overlay_profile() -> Profile {
+        Profile::new(
+            Some(OverlaySpec::new("layers".to_owned()).expect("overlay spec")),
             CustomizationSpec::new(Vec::new()).expect("empty customization"),
             KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
         )
@@ -806,25 +843,82 @@ digest = "{unsorted}"
     }
 
     #[test]
-    fn unsorted_overlay_image_is_rejected() {
+    fn multilayer_overlay_with_sorted_assets_builds() {
         // ARRANGE
         let _env = env();
         let mut tar_out = Vec::new();
 
         // ACT
-        let error = request(RELEASE)
+        request(RELEASE)
             .arch(Arch::Amd64)
             .artifact(Artifact::Overlays, &mut tar_out)
             .expect("overlays target")
-            .build(&unsorted_overlay_profile())
-            .expect_err("unsorted overlay builds must fail");
+            .build(&layers_overlay_profile())
+            .expect("layered overlay must build");
 
         // ASSERT
-        let message = error.to_string();
+        let members = read_tar_members(&tar_out);
+        let names: Vec<String> = members
+            .iter()
+            .map(|member| member.0.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["a.txt", "b.bin"], "tar entries keep layer order");
         assert!(
-            message.contains("eStargz footer") || message.contains("sorted"),
-            "resolve should reject the unsorted overlay image: {message}"
+            members
+                .iter()
+                .find(|member| member.0.to_string_lossy() == "a.txt")
+                .is_some_and(|member| member.1 == OVERLAY_A)
         );
+        assert!(
+            members
+                .iter()
+                .find(|member| member.0.to_string_lossy() == "b.bin")
+                .is_some_and(|member| member.1 == OVERLAY_B)
+        );
+    }
+
+    #[test]
+    fn unsorted_multilayer_overlay_builds_in_image_order() {
+        // ARRANGE
+        let env = env();
+        let mut iso = Vec::new();
+        let mut tar_out = Vec::new();
+
+        // ACT
+        request(RELEASE)
+            .arch(Arch::Amd64)
+            .artifact(Artifact::Iso, &mut iso)
+            .expect("iso target")
+            .artifact(Artifact::Overlays, &mut tar_out)
+            .expect("overlays target")
+            .build(&unsorted_overlay_profile())
+            .expect("unsorted multilayer overlay must build");
+
+        // ASSERT
+        let members = read_tar_members(&tar_out);
+        let names: Vec<String> = members
+            .iter()
+            .map(|member| member.0.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            ["b.bin", "a.txt"],
+            "tar entries keep layer order, not path order"
+        );
+        assert!(
+            members
+                .iter()
+                .find(|member| member.0.to_string_lossy() == "b.bin")
+                .is_some_and(|member| member.1 == env.images.overlay_unsorted_b)
+        );
+        assert!(
+            members
+                .iter()
+                .find(|member| member.0.to_string_lossy() == "a.txt")
+                .is_some_and(|member| member.1 == env.images.overlay_unsorted_a)
+        );
+        assert!(contains(&iso, &env.images.overlay_unsorted_b));
+        assert!(contains(&iso, &env.images.overlay_unsorted_a));
     }
 
     #[test]
@@ -860,7 +954,7 @@ digest = "{unsorted}"
             .iter()
             .map(|member| member.0.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, ["a.txt", "b.bin"], "tar entries in canonical order");
+        assert_eq!(names, ["a.txt", "b.bin"], "tar entries in image order");
         assert!(
             members
                 .iter()

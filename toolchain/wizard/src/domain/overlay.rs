@@ -67,36 +67,20 @@ enum Placement {
     Blob { offset: u64, file: String },
 }
 
-/// Classifies every `(path, size)` entry into an overlay asset, rejecting
-/// stray or malformed entries. Assets keep the image's physical entry order
-/// and the entries must arrive sorted by path, so a single demux pass can
-/// stream them without re-walks.
+/// Classifies every `(path, size)` entry into an overlay asset keeping the
+/// image's physical entry order.
 ///
 /// # Errors
 ///
 /// Returns an error when an entry references a non-EFI partition type, a blob
 /// directory holds more than one file, a path sits outside `partitions/` and
-/// `blob/`, or the entries are not sorted by path.
-pub(crate) fn classify(
-    overlay: &Overlay,
-    entries: Vec<(String, u64)>,
-) -> Result<(Vec<Asset>, bool)> {
+/// `blob/`, or two assets share an entry path or ESP path.
+pub(crate) fn classify(overlay: &Overlay, entries: Vec<(String, u64)>) -> Result<Vec<Asset>> {
     let mut found: Vec<Asset> = Vec::new();
     let mut blob_dirs: HashSet<u64> = HashSet::new();
     let mut failure: Option<WizardError> = None;
 
-    let mut sorted = true;
-    let mut last: Option<String> = None;
-
     for (path, size) in entries {
-        if last
-            .as_ref()
-            .is_some_and(|before| before.as_str() > path.as_str())
-        {
-            sorted = false;
-        }
-        last = Some(path.clone());
-
         if failure.is_none()
             && let Err(error) = classify_one(overlay, &path, size, &mut found, &mut blob_dirs)
         {
@@ -108,18 +92,40 @@ pub(crate) fn classify(
         return Err(error);
     }
 
-    let duplicate = found.windows(2).any(|pair| {
-        pair.first()
-            .zip(pair.get(1))
-            .is_some_and(|(left, right)| left.entry() == right.entry())
-    });
-    if duplicate {
-        return Err(WizardError::BuildError(
-            "overlay holds two assets with the same canonical name".to_owned(),
-        ));
+    reject_duplicates(&found)?;
+
+    Ok(found)
+}
+
+fn reject_duplicates(found: &[Asset]) -> Result<()> {
+    let mut entries: HashSet<&str> = HashSet::with_capacity(found.len());
+    for asset in found {
+        if !entries.insert(asset.entry()) {
+            return Err(WizardError::BuildError(format!(
+                "overlay holds two assets with the same entry path: {}",
+                asset.entry()
+            )));
+        }
     }
 
-    Ok((found, sorted))
+    let mut esp_paths: HashSet<String> = HashSet::with_capacity(found.len());
+    for asset in found {
+        if let Asset::EspFile { ref path, .. } = *asset {
+            reject_esp_path(&mut esp_paths, path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn reject_esp_path(seen: &mut HashSet<String>, path: &str) -> Result<()> {
+    if !seen.insert(path.to_ascii_lowercase()) {
+        return Err(WizardError::BuildError(format!(
+            "overlay holds two assets with the same ESP path: {path}"
+        )));
+    }
+
+    Ok(())
 }
 
 fn classify_one(
@@ -326,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_sorts_and_tags_uniform_tree() {
+    fn classify_keeps_image_order_and_tags_uniform_tree() {
         // ARRANGE
         let ov = overlay();
 
@@ -344,15 +350,101 @@ mod tests {
         .expect("classify must resolve");
 
         // ASSERT
-        assert!(result.1, "canonical assets must arrive sorted");
-        assert_eq!(result.0.len(), 2);
+        assert_eq!(result.len(), 2);
         assert!(matches!(
-            result.0.first(),
+            result.first(),
             Some(Asset::RawBlob { source, .. }) if source == "u-boot.bin"
         ));
         assert!(matches!(
-            result.0.get(1),
+            result.get(1),
             Some(Asset::EspFile { path, .. }) if path == "config.txt"
         ));
+    }
+
+    #[test]
+    fn classify_keeps_unsorted_entries_in_image_order() {
+        // ARRANGE
+        let ov = overlay();
+
+        // ACT
+        let result = classify(
+            &ov,
+            vec![
+                asset(
+                    "board/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
+                    20,
+                ),
+                asset(
+                    "board/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+                    10,
+                ),
+            ],
+        )
+        .expect("classify must resolve");
+
+        // ASSERT
+        assert_eq!(result.len(), 2);
+        assert!(matches!(
+            result.first(),
+            Some(Asset::EspFile { path, .. }) if path == "b.bin"
+        ));
+        assert!(matches!(
+            result.get(1),
+            Some(Asset::EspFile { path, .. }) if path == "a.txt"
+        ));
+    }
+
+    #[test]
+    fn classify_rejects_non_adjacent_duplicate_entries() {
+        // ARRANGE
+        let ov = overlay();
+
+        // ACT
+        let error = classify(
+            &ov,
+            vec![
+                asset(
+                    "board/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+                    10,
+                ),
+                asset(
+                    "board/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/b.bin",
+                    20,
+                ),
+                asset(
+                    "board/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+                    30,
+                ),
+            ],
+        )
+        .expect_err("duplicate entries must be rejected");
+
+        // ASSERT
+        assert!(error.to_string().contains("same entry path"), "{error}");
+    }
+
+    #[test]
+    fn classify_rejects_case_collapsed_esp_paths() {
+        // ARRANGE
+        let ov = overlay();
+
+        // ACT
+        let error = classify(
+            &ov,
+            vec![
+                asset(
+                    "board/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
+                    10,
+                ),
+                asset(
+                    "board/partitions/c12a7328-f81f-11d2-ba4b-00a0c93ec93b/a.txt",
+                    20,
+                ),
+            ],
+        )
+        .expect_err("collapsed ESP paths must be rejected");
+
+        // ASSERT
+        assert!(error.to_string().contains("same ESP path"), "{error}");
     }
 }
