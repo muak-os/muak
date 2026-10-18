@@ -2,8 +2,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::name;
 use crate::types::FileMeta;
+
+/// A directory entry source: a subdirectory or a file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// Subdirectory, indexed into `ClusterMap::dir_starts`.
+    Directory(usize),
+    /// File, indexed into `ClusterMap::file_starts`.
+    File(usize),
+}
 
 /// Structural index over the file set.
 pub(crate) struct DirIndex<'a> {
@@ -53,14 +61,22 @@ impl<'a> DirIndex<'a> {
             .map_or(&[], Vec::as_slice)
     }
 
-    /// Predicted directory byte sizes, derived analytically.
-    /// set per child.
-    pub(crate) fn sizes(&self, files: &[FileMeta<'a>]) -> Vec<u64> {
-        self.dirs
+    /// Entries of a directory in emission order: subdirectories, then files.
+    pub(crate) fn entries<'b>(
+        &'b self,
+        files: &'a [FileMeta<'a>],
+        dir_index: usize,
+    ) -> impl Iterator<Item = (&'a str, Kind)> + 'b {
+        let subdirs = self
+            .subdirs(dir_index)
             .iter()
-            .enumerate()
-            .map(|(dir_index, _)| self.dir_size(dir_index, files))
-            .collect()
+            .map(move |&child| (Self::name_of(self.path(child)), Kind::Directory(child)));
+        let entries = self.files(dir_index).iter().map(move |&index| {
+            let name = files.get(index).map_or("", |file| Self::name_of(file.path));
+            (name, Kind::File(index))
+        });
+
+        subdirs.chain(entries)
     }
 
     /// Builds the tree from the file set in one pass.
@@ -91,25 +107,6 @@ impl<'a> DirIndex<'a> {
             Some(slash) => path.get(slash.wrapping_add(1)..).unwrap_or(""),
             None => path,
         }
-    }
-
-    fn dir_size(&self, dir_index: usize, files: &[FileMeta<'a>]) -> u64 {
-        let dirs_bytes = self
-            .subdirs(dir_index)
-            .iter()
-            .map(|&child| name::entry_bytes_len(Self::name_of(self.path(child))))
-            .sum::<u64>();
-        let files_bytes = self
-            .files(dir_index)
-            .iter()
-            .filter_map(|&file_index| files.get(file_index))
-            .map(|file| name::entry_bytes_len(Self::name_of(file.path)))
-            .sum::<u64>();
-
-        name::ENTRY_LEN
-            .saturating_mul(2)
-            .saturating_add(dirs_bytes)
-            .saturating_add(files_bytes)
     }
 
     fn parent_path(path: &str) -> &str {
@@ -174,7 +171,6 @@ fn link_children(dirs: &[&'_ str], index: &HashMap<&str, usize>) -> (Vec<Vec<usi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::FileMeta;
 
     #[test]
     fn collect_dedupes_shared_ancestors() {
@@ -227,36 +223,11 @@ mod tests {
 
         // ACT
         let boot_dir = tree.subdirs(1).first().copied().unwrap_or(0);
-        let boot_files = tree.files(boot_dir);
-        let root_files = tree.files(0);
 
         // ASSERT
-        assert_eq!(boot_files, &[0], "BOOTX64.EFI lives in EFI/BOOT");
-        assert_eq!(root_files, &[1], "cfg.txt lives in root");
+        assert_eq!(tree.files(boot_dir), &[0], "BOOTX64.EFI lives in EFI/BOOT");
+        assert_eq!(tree.files(0), &[1], "cfg.txt lives in root");
         assert_eq!(tree.files(1), &[2], "version lives in EFI");
-    }
-
-    #[test]
-    fn sizes_match_the_encoded_entries() {
-        // ARRANGE
-        let files = &[
-            FileMeta::new("EFI/BOOT/BOOTX64.EFI", 11),
-            FileMeta::new("cfg.txt", 6),
-            FileMeta::new("act-led.dtbo", 2),
-        ];
-        let tree = DirIndex::collect(files);
-
-        // ACT
-        let sizes = tree.sizes(files);
-        let size_of = |i: usize| sizes.get(i).copied().unwrap_or(0);
-
-        // ASSERT
-        // Root: dot entries + EFI + cfg.txt + act-led.dtbo (LFN: 1 fragment + 8.3).
-        assert_eq!(size_of(0), 64 + 32 + 32 + 64, "root size");
-        // EFI: dot entries + BOOT.
-        assert_eq!(size_of(1), 96, "EFI size");
-        // EFI/BOOT: dot entries + BOOTX64.EFI.
-        assert_eq!(size_of(2), 96, "EFI/BOOT size");
     }
 
     #[test]
@@ -271,5 +242,54 @@ mod tests {
         // ASSERT
         assert_eq!(tree.path(subdirs.first().copied().unwrap_or(0)), "a");
         assert_eq!(tree.path(subdirs.get(1).copied().unwrap_or(0)), "b");
+    }
+
+    #[test]
+    fn entries_are_emitted_directories_first_then_files() {
+        // ARRANGE
+        let files = &[
+            FileMeta::new("zeta.txt", 1),
+            FileMeta::new("EFI/BOOT/BOOTX64.EFI", 11),
+            FileMeta::new("alpha.txt", 2),
+        ];
+        let tree = DirIndex::collect(files);
+
+        // ACT
+        let entries: Vec<(&str, Kind)> = tree.entries(files, 0).collect();
+
+        // ASSERT
+        assert_eq!(
+            entries,
+            vec![
+                ("EFI", Kind::Directory(1)),
+                ("zeta.txt", Kind::File(0)),
+                ("alpha.txt", Kind::File(2)),
+            ],
+            "subdirectories come first, then files in input order"
+        );
+    }
+
+    #[test]
+    fn entries_expose_the_matching_cluster_map_index() {
+        // ARRANGE
+        let files = &[
+            FileMeta::new("EFI/BOOT/BOOTX64.EFI", 11),
+            FileMeta::new("overlays/act-led.dtbo", 2),
+        ];
+        let tree = DirIndex::collect(files);
+
+        // ACT
+        let entries: Vec<(&str, Kind)> = tree.entries(files, 1).collect();
+
+        // ASSERT
+        assert_eq!(
+            entries,
+            vec![("BOOT", Kind::Directory(2))],
+            "EFI only holds the BOOT subdirectory"
+        );
+        assert_eq!(
+            tree.entries(files, 2).next(),
+            Some(("BOOTX64.EFI", Kind::File(0)))
+        );
     }
 }

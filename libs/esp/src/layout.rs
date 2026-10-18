@@ -1,15 +1,10 @@
 //! Layout computation for ESP partitions.
 
-use fatfs::types::{MAX_IMAGE_SIZE, MIN_IMAGE_SIZE};
+use fatfs::builder::image_size_for;
 
 use crate::FileMeta;
-use crate::error::{EspError, Result};
+use crate::error::Result;
 use crate::path;
-
-const CLUSTER_SIZE: u64 = 4096;
-const SECTOR_SIZE: u64 = 512;
-const RESERVED_SECTORS: u64 = 32;
-const DIRECTORY_OVERHEAD: u64 = 1_u64 << 20;
 
 /// Precomputed layout for an ESP image.
 #[derive(Clone, Debug)]
@@ -24,48 +19,15 @@ pub struct Layout<'a> {
 ///
 /// # Errors
 ///
-/// Returns an error when a path is invalid.
+/// Returns an error when a path is invalid or the payload does not fit in FAT32.
 pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
     path::validate_spec(files.iter().map(|file| file.path))?;
 
     let total_data: u64 = files.iter().map(|file| file.size).sum();
-    let total_size = image_size_for(total_data);
-    if total_size > MAX_IMAGE_SIZE {
-        return Err(EspError::ImageTooLarge {
-            size: total_size,
-            max: MAX_IMAGE_SIZE,
-        });
-    }
-
+    let total_size = image_size_for(total_data)?;
     let files = files.to_vec();
 
     Ok(Layout { files, total_size })
-}
-
-fn image_size_for(total_data: u64) -> u64 {
-    let padded = total_data.saturating_add(DIRECTORY_OVERHEAD);
-    let data_region = next_multiple_of(padded, CLUSTER_SIZE);
-    let reserved = RESERVED_SECTORS.saturating_mul(SECTOR_SIZE);
-    let fat_bytes = fat_bytes_for(data_region);
-    let fats_total = fat_bytes.saturating_mul(2);
-    let total = reserved
-        .saturating_add(fats_total)
-        .saturating_add(data_region);
-
-    next_multiple_of(total.max(MIN_IMAGE_SIZE), SECTOR_SIZE)
-}
-
-fn fat_bytes_for(image_size: u64) -> u64 {
-    let clusters = image_size.saturating_div(CLUSTER_SIZE);
-    let entries = clusters.saturating_mul(4);
-
-    next_multiple_of(entries, SECTOR_SIZE)
-}
-
-fn next_multiple_of(value: u64, step: u64) -> u64 {
-    let quotient = value.div_ceil(step);
-
-    quotient.saturating_mul(step)
 }
 
 #[cfg(test)]
@@ -75,6 +37,8 @@ mod tests {
     use super::*;
     use crate::error::EspError;
     use crate::image;
+
+    const SECTOR_SIZE: u64 = 512;
 
     #[test]
     fn compute_layout_validates_paths() {
@@ -99,28 +63,31 @@ mod tests {
     }
 
     #[test]
-    fn small_payload_builds_bootable_image() {
+    fn compute_layout_keeps_free_space_for_the_boot_partition() {
         // ARRANGE
-        let data = vec![0xAB_u8; 4096];
-        let layout = compute(&[FileMeta::new(
-            "EFI/BOOT/BOOTX64.EFI",
-            u64::try_from(data.len()).unwrap_or(0),
-        )])
-        .expect("layout must compute");
-        let mut output = Vec::new();
-        let mut uki_reader = Cursor::new(data.as_slice());
-        let mut readers: Vec<&mut dyn Read> = vec![&mut uki_reader];
+        let files = &[FileMeta::new("EFI/BOOT/BOOTAA64.EFI", 69 * 1024 * 1024)];
 
         // ACT
-        image::build(&layout, &mut readers, &mut output).expect("build must succeed");
+        let layout = compute(files).expect("layout must compute");
 
         // ASSERT
-        assert_ne!(output, b"");
-        assert_eq!(
-            output.get(510..512),
-            Some(&[0x55, 0xAA][..]),
-            "boot signature must be valid"
+        assert!(
+            layout.total_size >= 69 * 1024 * 1024 + fatfs::builder::FREE_SLACK,
+            "the ESP must keep room for runtime writes, got {}",
+            layout.total_size
         );
+    }
+
+    #[test]
+    fn compute_layout_grows_with_data() {
+        // ARRANGE / ACT
+        let small =
+            compute(&[FileMeta::new("a.txt", 36 * 1024 * 1024)]).expect("small must compute");
+        let large =
+            compute(&[FileMeta::new("a.txt", 72 * 1024 * 1024)]).expect("large must compute");
+
+        // ASSERT
+        assert!(large.total_size > small.total_size);
     }
 
     #[test]
@@ -139,18 +106,6 @@ mod tests {
             result.is_err(),
             "payloads pushing the ESP past the FAT32 ceiling must be rejected"
         );
-    }
-
-    #[test]
-    fn compute_layout_grows_with_data() {
-        // ARRANGE / ACT
-        let small =
-            compute(&[FileMeta::new("a.txt", 36 * 1024 * 1024)]).expect("small must compute");
-        let large =
-            compute(&[FileMeta::new("a.txt", 72 * 1024 * 1024)]).expect("large must compute");
-
-        // ASSERT
-        assert!(large.total_size > small.total_size);
     }
 
     #[test]
