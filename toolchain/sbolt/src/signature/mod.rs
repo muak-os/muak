@@ -403,12 +403,7 @@ mod tests {
     }
 
     fn signer_and_cert() -> (rsa2048::Signer, Certificate) {
-        let (pk_signer, pk_cert) = cert::generate_pk("Test PK").expect("generate PK cert");
-        let (kek_signer, kek_cert) =
-            cert::generate_kek("Test KEK", &pk_signer, &pk_cert).expect("generate KEK cert");
-        let (db_signer, db_cert) =
-            cert::generate_db("Test DB", &kek_signer, &kek_cert).expect("generate DB cert");
-        (db_signer, db_cert)
+        cert::generate_db("Test DB").expect("generate DB cert")
     }
     #[test]
     fn sign_produces_valid_win_certificate() {

@@ -335,9 +335,7 @@ mod tests {
     use crate::keys::cert;
 
     fn signer_and_cert() -> Result<(rsa2048::Signer, Certificate)> {
-        let (pk_signer, pk_cert) = cert::generate_pk("PK")?;
-        let (kek_signer, kek_cert) = cert::generate_kek("KEK", &pk_signer, &pk_cert)?;
-        cert::generate_db("DB", &kek_signer, &kek_cert)
+        cert::generate_db("DB")
     }
 
     #[test]

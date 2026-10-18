@@ -79,17 +79,13 @@ pub fn generate_kek(
     Ok((signer, cert))
 }
 
-/// Generate a Signature Database (db) certificate signed by KEK.
+/// Generate a self-signed Signature Database (db) certificate.
 ///
 /// # Errors
 ///
 /// Returns an error if key generation, subject construction, or certificate
 /// building fails.
-pub fn generate_db(
-    cn: &str,
-    kek_signer: &rsa2048::Signer,
-    kek_cert: &Certificate,
-) -> Result<(rsa2048::Signer, Certificate)> {
+pub fn generate_db(cn: &str) -> Result<(rsa2048::Signer, Certificate)> {
     let signer = rsa2048::Signer::generate()?;
 
     let serial = generate_serial()?;
@@ -100,13 +96,12 @@ pub fn generate_db(
 
     let spki = get_spki_from_signer(&signer)?;
 
-    let profile = SecureBootProfile::db(kek_cert.tbs_certificate().subject().clone(), subject);
-
+    let profile = SecureBootProfile::db(subject);
     let builder = CertificateBuilder::new(profile, serial, validity, spki)
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     let cert = builder
-        .build::<_, rsa2048::Signature>(kek_signer)
+        .build::<_, rsa2048::Signature>(&signer)
         .map_err(|e| SboltError::CertificateCreation(e.to_string()))?;
 
     Ok((signer, cert))
@@ -129,6 +124,9 @@ fn get_spki_from_signer(signer: &rsa2048::Signer) -> Result<SubjectPublicKeyInfo
 
 #[cfg(test)]
 mod tests {
+    use const_oid::db::rfc5280::ID_KP_CODE_SIGNING;
+    use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage};
+
     use super::*;
 
     #[test]
@@ -147,24 +145,56 @@ mod tests {
     }
 
     #[test]
-    fn generate_kek_and_db_certificates_chain_subjects() {
+    fn generate_kek_certificate_is_issued_by_pk() {
         // ARRANGE
         let (pk_signer, pk_cert) = generate_pk("PK").expect("generate PK certificate");
 
         // ACT
         let (_kek_signer, kek_cert) =
             generate_kek("KEK", &pk_signer, &pk_cert).expect("generate KEK certificate");
-        let (_db_signer, db_cert) =
-            generate_db("DB", &pk_signer, &pk_cert).expect("generate db certificate");
 
         // ASSERT
         assert_eq!(
             kek_cert.tbs_certificate().issuer(),
             pk_cert.tbs_certificate().subject()
         );
-        assert_eq!(
-            db_cert.tbs_certificate().issuer(),
-            pk_cert.tbs_certificate().subject()
+    }
+
+    #[test]
+    fn generate_db_certificate_is_a_self_signed_trust_anchor() {
+        // ARRANGE
+        let (_signer, certificate) = generate_db("DB").expect("generate db certificate");
+
+        // ACT
+        let subject = certificate.tbs_certificate().subject();
+        let issuer = certificate.tbs_certificate().issuer();
+        let (_, constraints) = certificate
+            .tbs_certificate()
+            .get_extension::<BasicConstraints>()
+            .expect("read basic constraints")
+            .expect("basic constraints extension");
+
+        // ASSERT
+        assert_eq!(issuer, subject, "db must be self-signed");
+        assert!(constraints.ca, "db must be a CA trust anchor");
+    }
+
+    #[test]
+    fn generate_db_certificate_includes_code_signing_usage() {
+        // ARRANGE
+        let (_signer, certificate) = generate_db("DB").expect("generate db certificate");
+
+        // ACT
+        let (_, usage) = certificate
+            .tbs_certificate()
+            .get_extension::<ExtendedKeyUsage>()
+            .expect("read extended key usage")
+            .expect("extended key usage extension");
+
+        // ASSERT
+        assert!(
+            usage.0.contains(&ID_KP_CODE_SIGNING),
+            "db must allow code signing"
         );
     }
 

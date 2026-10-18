@@ -78,8 +78,7 @@ impl Bundle {
             &pk_cert,
         )?;
 
-        let (db_signer, db_cert) =
-            cert::generate_db(&format!("{org_name} Signing Key"), &kek_signer, &kek_cert)?;
+        let (db_signer, db_cert) = cert::generate_db(&format!("{org_name} Signing Key"))?;
 
         let owner_guid = Self::generate_owner_guid()?;
 

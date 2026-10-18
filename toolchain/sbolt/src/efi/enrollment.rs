@@ -54,12 +54,12 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
 
     write_signed_variable(
         store,
-        secureboot::DB,
-        &db_sigdb.to_bytes(),
+        secureboot::PK,
+        &pk_sigdb.to_bytes(),
         hierarchy,
-        SigningAuthority::KeyExchangeKey,
+        SigningAuthority::PlatformKey,
     )
-    .map_err(|e| SboltError::EfiVar(format!("failed to enroll db: {e}")))?;
+    .map_err(|e| SboltError::EfiVar(format!("failed to enroll PK: {e}")))?;
     write_signed_variable(
         store,
         secureboot::KEK,
@@ -70,14 +70,14 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
     .map_err(|e| SboltError::EfiVar(format!("failed to enroll KEK: {e}")))?;
     write_signed_variable(
         store,
-        secureboot::PK,
-        &pk_sigdb.to_bytes(),
+        secureboot::DB,
+        &db_sigdb.to_bytes(),
         hierarchy,
-        SigningAuthority::PlatformKey,
+        SigningAuthority::KeyExchangeKey,
     )
-    .map_err(|e| SboltError::EfiVar(format!("failed to enroll PK: {e}")))?;
+    .map_err(|e| SboltError::EfiVar(format!("failed to enroll db: {e}")))?;
 
-    Ok(())
+    verify_database(store, hierarchy)
 }
 
 /// Remove the Platform Key and leave Secure Boot enforcement.
@@ -147,6 +147,26 @@ fn delete_signed_variable<S: VariableStore>(
     }
 
     write_signed_variable(store, id, &[], hierarchy, authority)
+}
+
+fn verify_database<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Result<()> {
+    let payload = store
+        .read(&secureboot::DB)?
+        .ok_or_else(|| SboltError::EfiVar("db is absent after enrollment".into()))?;
+    let database = siglist::SignatureDatabase::from_bytes(&payload)?;
+    let certificate = hierarchy
+        .db
+        .certificate
+        .to_der()
+        .map_err(|e| SboltError::EfiVar(format!("encode enrolled db cert: {e}")))?;
+
+    if !database.contains_x509(&certificate)? {
+        return Err(SboltError::EfiVar(
+            "enrolled db does not contain the signing certificate".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn verify_platform_key_absent<S: VariableStore>(store: &S) -> Result<()> {
@@ -222,6 +242,7 @@ mod tests {
     struct FakeFirmwareVariablesStore {
         ready: bool,
         honors_deletes: bool,
+        stores_writes: bool,
         variables: RefCell<Vec<(Id, Vec<u8>)>>,
         writes: RefCell<Vec<(Id, Vec<u8>)>>,
     }
@@ -231,6 +252,7 @@ mod tests {
             Self {
                 ready: true,
                 honors_deletes: true,
+                stores_writes: true,
                 variables: RefCell::new(Vec::new()),
                 writes: RefCell::new(Vec::new()),
             }
@@ -278,16 +300,55 @@ mod tests {
                 .borrow_mut()
                 .push((id, update.payload().to_vec()));
 
-            self.variables
-                .borrow_mut()
-                .retain(|entry| !(self.honors_deletes && entry.0 == id));
+            persist_variable(
+                &self.variables,
+                id,
+                update.payload(),
+                self.honors_deletes,
+                self.stores_writes,
+            );
 
             Ok(())
         }
     }
 
+    fn persist_variable(
+        variables: &RefCell<Vec<(Id, Vec<u8>)>>,
+        id: Id,
+        payload: &[u8],
+        honors_deletes: bool,
+        stores_writes: bool,
+    ) {
+        if !stores_writes {
+            return;
+        }
+
+        let content = signed_content(payload).to_vec();
+        if content.is_empty() && !honors_deletes {
+            return;
+        }
+
+        let mut variables = variables.borrow_mut();
+        variables.retain(|entry| entry.0 != id);
+        if !content.is_empty() {
+            variables.push((id, content));
+        }
+    }
+
+    fn signed_content(payload: &[u8]) -> &[u8] {
+        let certificate_size = payload
+            .get(20..24)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .and_then(|size| usize::try_from(size).ok())
+            .unwrap_or(0);
+        let content_offset = 20_usize.saturating_add(certificate_size);
+
+        payload.get(content_offset..).unwrap_or_default()
+    }
+
     #[test]
-    fn enroll_keys_writes_db_kek_and_pk_in_order() {
+    fn enroll_keys_writes_pk_kek_and_db_in_order() {
         // ARRANGE
         let store = FakeFirmwareVariablesStore::ready().with_variable(SETUP_MODE, vec![1]);
         let hierarchy = hierarchy::Bundle::generate("Enroll Success").expect("generate hierarchy");
@@ -316,13 +377,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(writes.len(), 3);
-        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(DB));
+        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
         assert_eq!(writes.get(1).map(|&(id, ref _payload)| id), Some(KEK));
-        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(PK));
+        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(DB));
         assert!(
             writes
                 .first()
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&db_sigdb.to_bytes()))
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&pk_sigdb.to_bytes()))
         );
         assert!(
             writes
@@ -332,8 +393,25 @@ mod tests {
         assert!(
             writes
                 .get(2)
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&pk_sigdb.to_bytes()))
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&db_sigdb.to_bytes()))
         );
+    }
+
+    #[test]
+    fn enroll_rejects_firmware_that_does_not_persist_the_database() {
+        // ARRANGE
+        let store = FakeFirmwareVariablesStore {
+            stores_writes: false,
+            ..FakeFirmwareVariablesStore::ready().with_variable(SETUP_MODE, vec![1])
+        };
+        let hierarchy =
+            hierarchy::Bundle::generate("Enroll Missing Database").expect("generate hierarchy");
+
+        // ACT
+        let result = enroll(&store, &hierarchy);
+
+        // ASSERT
+        result.expect_err("missing db after enrollment must fail verification");
     }
 
     #[test]

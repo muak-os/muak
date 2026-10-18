@@ -14,7 +14,7 @@ mod tests {
         firmware_boot: bool,
         available: bool,
         ready: bool,
-        variables: Vec<(Id, Vec<u8>)>,
+        variables: RefCell<Vec<(Id, Vec<u8>)>>,
         writes: RefCell<Vec<(Id, Vec<u8>)>>,
     }
 
@@ -24,13 +24,13 @@ mod tests {
                 firmware_boot: true,
                 available: true,
                 ready: true,
-                variables: Vec::new(),
+                variables: RefCell::new(Vec::new()),
                 writes: RefCell::new(Vec::new()),
             }
         }
 
-        fn with_variable(mut self, id: Id, payload: Vec<u8>) -> Self {
-            self.variables.push((id, payload));
+        fn with_variable(self, id: Id, payload: Vec<u8>) -> Self {
+            self.variables.borrow_mut().push((id, payload));
             self
         }
 
@@ -53,24 +53,48 @@ mod tests {
         }
 
         fn exists(&self, id: &Id) -> bool {
-            self.variables.iter().any(|entry| entry.0 == *id)
+            self.variables.borrow().iter().any(|entry| entry.0 == *id)
         }
 
         fn read(&self, id: &Id) -> FwResult<Option<Vec<u8>>> {
             Ok(self
                 .variables
+                .borrow()
                 .iter()
                 .find(|entry| entry.0 == *id)
                 .map(|entry| entry.1.clone()))
         }
 
         fn write(&self, update: Update<'_>) -> FwResult<()> {
+            let id = *update.id();
             self.writes
                 .borrow_mut()
-                .push((*update.id(), update.payload().to_vec()));
+                .push((id, update.payload().to_vec()));
+            persist_variable(&self.variables, id, update.payload());
 
             Ok(())
         }
+    }
+
+    fn persist_variable(variables: &RefCell<Vec<(Id, Vec<u8>)>>, id: Id, payload: &[u8]) {
+        let content = signed_content(payload).to_vec();
+        let mut variables = variables.borrow_mut();
+        variables.retain(|entry| entry.0 != id);
+        if !content.is_empty() {
+            variables.push((id, content));
+        }
+    }
+
+    fn signed_content(payload: &[u8]) -> &[u8] {
+        let certificate_size = payload
+            .get(20..24)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .and_then(|size| usize::try_from(size).ok())
+            .unwrap_or(0);
+        let content_offset = 20_usize.saturating_add(certificate_size);
+
+        payload.get(content_offset..).unwrap_or_default()
     }
 
     #[test]
@@ -107,11 +131,11 @@ mod tests {
         let writes = backend.writes();
 
         // ASSERT
-        assert_eq!(writes.len(), 3, "db, KEK, and PK must be written");
+        assert_eq!(writes.len(), 3, "PK, KEK, and db must be written");
         assert_eq!(
             writes.first().map(|&(id, ref _payload)| id),
-            Some(DB),
-            "db must be written first"
+            Some(PK),
+            "PK must be written first"
         );
         assert_eq!(
             writes.get(1).map(|&(id, ref _payload)| id),
@@ -120,8 +144,8 @@ mod tests {
         );
         assert_eq!(
             writes.get(2).map(|&(id, ref _payload)| id),
-            Some(PK),
-            "PK must be written last"
+            Some(DB),
+            "db must be written last"
         );
     }
 

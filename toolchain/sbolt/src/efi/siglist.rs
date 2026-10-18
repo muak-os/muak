@@ -63,6 +63,54 @@ impl SignatureDatabase {
     pub fn is_empty(&self) -> bool {
         self.lists.is_empty()
     }
+
+    /// Check whether the database contains the exact X.509 certificate bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a signature list header is malformed.
+    pub fn contains_x509(&self, certificate: &[u8]) -> Result<bool> {
+        let x509_guid = EFI_CERT_X509_GUID.to_bytes();
+
+        self.lists
+            .iter()
+            .filter(|list| list.get(..x509_guid.len()) == Some(x509_guid.as_slice()))
+            .try_fold(false, |found, list| {
+                Ok(found || contains_x509_in_list(list, certificate)?)
+            })
+    }
+}
+
+fn contains_x509_in_list(list: &[u8], certificate: &[u8]) -> Result<bool> {
+    let header_size = usize::try_from(read_u32_le(list, 20)?)
+        .map_err(|_size_error| SboltError::EfiVar("header size exceeds usize".into()))?;
+    let signature_size = usize::try_from(read_u32_le(list, 24)?)
+        .map_err(|_size_error| SboltError::EfiVar("signature size exceeds usize".into()))?;
+    let certificate_size = signature_size
+        .checked_sub(SIGNATURE_DATA_HEADER_SIZE)
+        .ok_or_else(|| SboltError::EfiVar("signature data is too small".into()))?;
+    let mut offset = SIGNATURE_LIST_HEADER_SIZE
+        .checked_add(header_size)
+        .ok_or_else(|| SboltError::EfiVar("signature data offset overflow".into()))?;
+
+    while let Some(end) = offset.checked_add(signature_size) {
+        if end > list.len() {
+            return Ok(false);
+        }
+
+        let certificate_start = offset
+            .checked_add(SIGNATURE_DATA_HEADER_SIZE)
+            .ok_or_else(|| SboltError::EfiVar("certificate offset overflow".into()))?;
+        let certificate_end = certificate_start
+            .checked_add(certificate_size)
+            .ok_or_else(|| SboltError::EfiVar("certificate end overflow".into()))?;
+        if list.get(certificate_start..certificate_end) == Some(certificate) {
+            return Ok(true);
+        }
+        offset = end;
+    }
+
+    Ok(false)
 }
 
 fn parse_signature_lists(data: &[u8]) -> Result<Vec<Vec<u8>>> {
@@ -229,6 +277,39 @@ mod tests {
         assert!(db.is_empty());
         assert_eq!(db.len(), 0);
         assert_eq!(db.to_bytes(), b"");
+    }
+
+    #[test]
+    fn contains_x509_matches_the_exact_certificate() {
+        // ARRANGE
+        let siglist = build_x509(&TEST_OWNER, FAKE_CERT).expect("build siglist");
+        let db = SignatureDatabase::from_bytes(&siglist).expect("parse siglist");
+
+        // ACT
+        let present = db.contains_x509(FAKE_CERT).expect("check certificate");
+        let other = db
+            .contains_x509(b"other-cert")
+            .expect("check other certificate");
+
+        // ASSERT
+        assert!(present, "the enrolled certificate must be found");
+        assert!(!other, "a different certificate must not match");
+    }
+
+    #[test]
+    fn contains_x509_skips_non_x509_lists() {
+        // ARRANGE
+        let mut list = build_x509(&TEST_OWNER, FAKE_CERT).expect("build siglist");
+        list.get_mut(..16)
+            .expect("signature type bytes")
+            .copy_from_slice(&[0_u8; 16]);
+        let db = SignatureDatabase::from_bytes(&list).expect("parse siglist");
+
+        // ACT
+        let present = db.contains_x509(FAKE_CERT).expect("check certificate");
+
+        // ASSERT
+        assert!(!present, "non-X509 lists must not count as certificates");
     }
 
     #[test]

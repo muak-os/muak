@@ -1,10 +1,12 @@
 //! X.509 certificate builder profiles for Secure Boot keys.
 
+use const_oid::db::rfc5280::ID_KP_CODE_SIGNING;
 use x509_cert::builder::Result as BuilderResult;
 use x509_cert::builder::profile::BuilderProfile;
 use x509_cert::certificate::TbsCertificate;
 use x509_cert::ext::pkix::{
-    AuthorityKeyIdentifier, BasicConstraints, KeyUsage, KeyUsages, SubjectKeyIdentifier,
+    AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages,
+    SubjectKeyIdentifier,
 };
 use x509_cert::ext::{Extension, ToExtension as _};
 use x509_cert::name::Name;
@@ -16,6 +18,7 @@ pub struct SecureBootProfile {
     pub ca: bool,
     pub path_len: Option<u8>,
     pub key_cert_sign: bool,
+    pub code_signing: bool,
 }
 
 impl SecureBootProfile {
@@ -27,6 +30,7 @@ impl SecureBootProfile {
             ca: true,
             path_len: Some(1),
             key_cert_sign: true,
+            code_signing: false,
         }
     }
 
@@ -38,17 +42,19 @@ impl SecureBootProfile {
             ca: true,
             path_len: Some(0),
             key_cert_sign: true,
+            code_signing: false,
         }
     }
 
-    /// Signature Database key: end-entity signed by KEK.
-    pub fn db(issuer: Name, subject: Name) -> Self {
+    /// Signature Database key: self-signed trust anchor for image signatures.
+    pub fn db(subject: Name) -> Self {
         Self {
-            issuer: Some(issuer),
+            issuer: None,
             subject,
-            ca: false,
-            path_len: None,
-            key_cert_sign: false,
+            ca: true,
+            path_len: Some(0),
+            key_cert_sign: true,
+            code_signing: true,
         }
     }
 }
@@ -96,6 +102,12 @@ impl BuilderProfile for SecureBootProfile {
         };
 
         extensions.push(KeyUsage(usage).to_extension(tbs.subject(), &extensions)?);
+        if self.code_signing {
+            extensions.push(
+                ExtendedKeyUsage(vec![ID_KP_CODE_SIGNING])
+                    .to_extension(tbs.subject(), &extensions)?,
+            );
+        }
         extensions.push(ski.to_extension(tbs.subject(), &extensions)?);
 
         Ok(extensions)
