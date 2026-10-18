@@ -14,10 +14,22 @@ use parttable::gpt::table::Table;
 use crate::error::{MisoError, Result};
 
 /// Fixed disk GUID baked into raw images so builds are reproducible.
-pub const IMAGE_DISK_GUID: [u8; 16] = [0xff; 16];
+///
+/// `sha256("muak/raw/disk")[..16]` with the version 4 and RFC 4122 variant bits set, which renders as
+/// `21B77290-CF7E-4661-929A-094DCB36C99D`. The array holds the on-disk GPT byte order, so the version nibble
+/// lives in byte 7 and the variant bits in byte 8.
+pub const IMAGE_DISK_GUID: [u8; 16] = [
+    0x90, 0x72, 0xb7, 0x21, 0x7e, 0xcf, 0x61, 0x46, 0x92, 0x9a, 0x09, 0x4d, 0xcb, 0x36, 0xc9, 0x9d,
+];
 
 /// Fixed partition GUID baked into raw images so builds are reproducible.
-pub const IMAGE_PARTITION_GUID: [u8; 16] = [0xaa; 16];
+///
+/// `sha256("muak/raw/esp")[..16]` with the version 4 and RFC 4122 variant bits set, which renders as
+/// `E2E39F6A-7932-4C3E-A0EC-B35FF16064CB`. This is the value exposed as the ESP `PARTUUID`, so it must be a
+/// well formed GUID and must not be the all-ones or all-zeros sentinel.
+pub const IMAGE_PARTITION_GUID: [u8; 16] = [
+    0x6a, 0x9f, 0xe3, 0xe2, 0x32, 0x79, 0x3e, 0x4c, 0xa0, 0xec, 0xb3, 0x5f, 0xf1, 0x60, 0x64, 0xcb,
+];
 
 /// A raw boot blob written at a fixed byte offset before the partition table.
 pub struct Blob<'a> {

@@ -21,8 +21,29 @@ mod tests {
         uki
     }
 
+    const GPT_HEADER_OFFSET: usize = 512;
+    const GPT_DISK_GUID_OFFSET: usize = 56;
+
     fn byte_at(data: &[u8], offset: usize) -> u8 {
         data.get(offset).copied().expect("byte must exist")
+    }
+
+    fn guid_at(data: &[u8], offset: usize) -> [u8; 16] {
+        let mut guid = [0_u8; 16];
+        let bytes = data
+            .get(offset..offset.saturating_add(guid.len()))
+            .expect("guid bytes must exist");
+        guid.copy_from_slice(bytes);
+
+        guid
+    }
+
+    fn version(guid: &[u8; 16]) -> u8 {
+        guid.get(7).copied().unwrap_or(0).wrapping_shr(4)
+    }
+
+    fn variant(guid: &[u8; 16]) -> u8 {
+        guid.get(8).copied().unwrap_or(0) & 0xC0
     }
 
     fn build_raw(size: usize) -> Vec<u8> {
@@ -74,6 +95,49 @@ mod tests {
         let gpt = io::read(&mut cursor).expect("valid GPT");
         let part = gpt.partition(1).expect("must have partition");
         assert_eq!(part.type_guid, EFI_GUID);
+    }
+
+    #[test]
+    fn disk_and_partition_guids_are_the_baked_constants() {
+        // ARRANGE
+        let img = build_raw(1024);
+        let mut cursor = Cursor::new(&img);
+
+        // ACT
+        let gpt = io::read(&mut cursor).expect("valid GPT");
+        let part = gpt.partition(1).expect("must have partition");
+        let disk_guid = guid_at(&img, GPT_HEADER_OFFSET.saturating_add(GPT_DISK_GUID_OFFSET));
+
+        // ASSERT
+        assert_eq!(
+            disk_guid,
+            raw::IMAGE_DISK_GUID,
+            "the disk GUID must be baked into the image"
+        );
+        assert_eq!(
+            part.unique_guid,
+            raw::IMAGE_PARTITION_GUID,
+            "the ESP PARTUUID must be baked into the image"
+        );
+    }
+
+    #[test]
+    fn baked_guids_are_valid_version_4() {
+        // ARRANGE
+        let guids = [raw::IMAGE_DISK_GUID, raw::IMAGE_PARTITION_GUID];
+
+        // ACT / ASSERT
+        for guid in guids {
+            assert_eq!(version(&guid), 4, "version nibble must be 4");
+            assert_eq!(variant(&guid), 0x80, "variant must be RFC 4122");
+            assert_ne!(guid, [0_u8; 16], "the nil GUID is a sentinel");
+            assert_ne!(guid, [0xff_u8; 16], "the all-ones GUID is a sentinel");
+        }
+        assert_ne!(
+            raw::IMAGE_DISK_GUID,
+            raw::IMAGE_PARTITION_GUID,
+            "the disk and partition GUIDs must differ"
+        );
     }
 
     #[test]
