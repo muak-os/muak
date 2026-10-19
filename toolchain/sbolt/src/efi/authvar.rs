@@ -10,7 +10,6 @@ use crate::error::{Result, SboltError};
 use crate::keys::rsa2048;
 use crate::pkcs7::build_detached_signed_data;
 
-const AUTHVAR_ATTRIBUTE_SIZE: usize = 4;
 const EFI_TIME_SIZE: usize = 16;
 const WIN_CERT_UEFI_GUID_HEADER_SIZE: usize = 24;
 const WIN_CERT_REVISION_2_0: u16 = 0x0200;
@@ -37,13 +36,11 @@ pub fn sign(
 
     let win_cert = build_win_certificate(&pkcs7_der)?;
 
-    let payload_capacity = AUTHVAR_ATTRIBUTE_SIZE
-        .checked_add(EFI_TIME_SIZE)
-        .and_then(|hdr| hdr.checked_add(win_cert.len()))
+    let payload_capacity = EFI_TIME_SIZE
+        .checked_add(win_cert.len())
         .and_then(|total| total.checked_add(content.len()))
         .ok_or_else(|| SboltError::EfiVar("authvar payload size overflow".into()))?;
     let mut payload = Vec::with_capacity(payload_capacity);
-    payload.extend_from_slice(&attributes.bits().to_le_bytes());
     payload.extend_from_slice(&time_to_bytes(&timestamp));
     payload.extend_from_slice(&win_cert);
     payload.extend_from_slice(content);
@@ -296,16 +293,7 @@ mod tests {
             .expect("sign_efi_variable should succeed");
 
         // ASSERT
-        let got_attrs = u32::from_le_bytes(
-            payload
-                .get(0..4)
-                .expect("attribute bytes")
-                .try_into()
-                .expect("4 bytes"),
-        );
-        assert_eq!(got_attrs, attrs.bits());
-
-        let timestamp_bytes = payload.get(4..20).expect("timestamp bytes");
+        let timestamp_bytes = payload.get(0..16).expect("timestamp bytes");
         assert!(
             timestamp_bytes.iter().any(|&byte| byte != 0),
             "timestamp should not be all zeros"
@@ -321,7 +309,7 @@ mod tests {
 
         let win_cert_size = usize::try_from(u32::from_le_bytes(
             payload
-                .get(20..24)
+                .get(16..20)
                 .expect("certificate size bytes")
                 .try_into()
                 .expect("4 bytes"),
@@ -331,7 +319,7 @@ mod tests {
 
         let revision = u16::from_le_bytes(
             payload
-                .get(24..26)
+                .get(20..22)
                 .expect("revision bytes")
                 .try_into()
                 .expect("2 bytes"),
@@ -340,7 +328,7 @@ mod tests {
 
         let cert_type = u16::from_le_bytes(
             payload
-                .get(26..28)
+                .get(22..24)
                 .expect("certificate type bytes")
                 .try_into()
                 .expect("2 bytes"),
@@ -348,7 +336,7 @@ mod tests {
         assert_eq!(cert_type, 0x0EF1);
 
         assert_eq!(
-            payload.get(28..44).expect("certificate GUID bytes"),
+            payload.get(24..40).expect("certificate GUID bytes"),
             &EFI_CERT_TYPE_PKCS7_GUID.to_bytes()
         );
 
@@ -362,7 +350,7 @@ mod tests {
             "payload must end with the content bytes"
         );
 
-        let expected_len = [4, 16, win_cert_size, content.len()]
+        let expected_len = [16, win_cert_size, content.len()]
             .into_iter()
             .try_fold(0_usize, usize::checked_add)
             .expect("payload length");

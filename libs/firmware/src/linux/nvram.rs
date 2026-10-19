@@ -15,7 +15,7 @@ use super::Linux;
 use crate::error::{FirmwareError, Result};
 use crate::nvram::{Id, Update, VariableStore};
 
-/// Size of the Linux `efivarfs` attribute header prepended to every payload.
+/// Size of the Linux `efivarfs` attribute header written before variable data.
 const ATTRIBUTES_SIZE: usize = 4;
 
 /// Marker file indicating `efivarfs` is mounted and usable.
@@ -83,7 +83,8 @@ impl VariableStore for Linux {
             .truncate(false)
             .open(path)?;
 
-        file.write_all(update.payload())?;
+        file.write_all(&update.attributes().to_le_bytes())?;
+        file.write_all(update.data())?;
         file.flush()?;
 
         Ok(())
@@ -342,21 +343,24 @@ mod tests {
     }
 
     #[test]
-    fn write_stores_payload_at_expected_path() {
+    fn write_stores_attributes_and_data_at_expected_path() {
         // ARRANGE
         let context = Context::new("write", true).expect("test context");
         fs::create_dir_all(&context.store.efivarfs_path).expect("create efivarfs dir");
-        let payload = b"signed-payload";
+        let attributes = 7_u32;
+        let data = b"signed-payload";
+        let mut expected = attributes.to_le_bytes().to_vec();
+        expected.extend_from_slice(data);
 
         // ACT
         context
             .store
-            .write(Update::new(sample(), payload))
+            .write(Update::new(sample(), attributes, data))
             .expect("write variable");
         let stored = fs::read(context.variable_path(&sample())).expect("read variable");
 
         // ASSERT
-        assert_eq!(stored, payload);
+        assert_eq!(stored, expected, "efivarfs header must precede data");
     }
 
     #[test]

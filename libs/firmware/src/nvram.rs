@@ -35,7 +35,7 @@ pub trait VariableStore {
     /// Returns an error if the store cannot read the firmware variable.
     fn read(&self, id: &Id) -> Result<Option<Vec<u8>>>;
 
-    /// Writes a firmware variable update payload.
+    /// Writes a firmware variable update.
     ///
     /// # Errors
     ///
@@ -94,17 +94,22 @@ impl Id {
     }
 }
 
-/// Firmware variable update payload.
+/// Firmware variable update.
 pub struct Update<'a> {
     id: Id,
-    payload: &'a [u8],
+    attributes: u32,
+    data: &'a [u8],
 }
 
 impl<'a> Update<'a> {
     /// Creates a firmware variable update.
     #[must_use]
-    pub const fn new(id: Id, payload: &'a [u8]) -> Self {
-        Self { id, payload }
+    pub const fn new(id: Id, attributes: u32, data: &'a [u8]) -> Self {
+        Self {
+            id,
+            attributes,
+            data,
+        }
     }
 
     /// Returns the target firmware variable identifier.
@@ -113,10 +118,16 @@ impl<'a> Update<'a> {
         &self.id
     }
 
-    /// Returns the encoded update payload.
+    /// Returns the EFI variable attribute bits.
     #[must_use]
-    pub const fn payload(&self) -> &'a [u8] {
-        self.payload
+    pub const fn attributes(&self) -> u32 {
+        self.attributes
+    }
+
+    /// Returns the variable data without the `efivarfs` attribute header.
+    #[must_use]
+    pub const fn data(&self) -> &'a [u8] {
+        self.data
     }
 }
 

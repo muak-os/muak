@@ -67,10 +67,8 @@ mod tests {
 
         fn write(&self, update: Update<'_>) -> FwResult<()> {
             let id = *update.id();
-            self.writes
-                .borrow_mut()
-                .push((id, update.payload().to_vec()));
-            persist_variable(&self.variables, id, update.payload());
+            self.writes.borrow_mut().push((id, update.data().to_vec()));
+            persist_variable(&self.variables, id, update.data());
 
             Ok(())
         }
@@ -87,12 +85,12 @@ mod tests {
 
     fn signed_content(payload: &[u8]) -> &[u8] {
         let certificate_size = payload
-            .get(20..24)
+            .get(16..20)
             .and_then(|bytes| bytes.try_into().ok())
             .map(u32::from_le_bytes)
             .and_then(|size| usize::try_from(size).ok())
             .unwrap_or(0);
-        let content_offset = 20_usize.saturating_add(certificate_size);
+        let content_offset = 16_usize.saturating_add(certificate_size);
 
         payload.get(content_offset..).unwrap_or_default()
     }
