@@ -47,10 +47,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install cargo-delta
+      - name: Install tools
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-delta@0.4.0
+          tool: cargo-delta@0.4.0,just
 
       - name: Determine packages to build
         id: changes
@@ -62,26 +62,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          image_packages() {
-            cargo metadata --no-deps --locked --format-version 1 |
-              jq -r '
-                .workspace_root as $root
-                | .packages[]
-                | select(
-                    (.manifest_path | startswith($root + "/init/"))
-                    or (.manifest_path | startswith($root + "/services/"))
-                  )
-                | [.name, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv
-              ' |
-              while IFS=$'\t' read -r name dir; do
-                if [ -f "$dir/Dockerfile" ]; then
-                  printf '%s\n' "$name"
-                fi
-              done |
-              sort -u
-          }
-
-          all="$(image_packages)"
+          all="$(just --evaluate components | tr ' ' '\n' | sed '/^$/d' | sort -u)"
           packages=""
 
           if [ -n "${MANUAL_PACKAGE}" ]; then

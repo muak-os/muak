@@ -22,6 +22,7 @@ toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c
 push := env_var_or_default("PUSH", "true")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
+components := `sed -n 's/^ARG PKG_//p' Dockerfile | tr '[:upper:]' '[:lower:]' | tr '\n' ' '`
 
 # Architecture
 
@@ -77,7 +78,7 @@ build release="" *pkgs:
 [script]
 installer prod="false":
     printf "{{ cyan }}Building installer{{ reset }}\n"
-    pkgs="granola provisiond modd networkd apid workloadd timed consoled millefeuille"
+    pkgs="{{ components }}"
     extra=()
     if [ "{{ prod }}" = "false" ]; then
         for pkg in $pkgs; do
