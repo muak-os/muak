@@ -9,6 +9,7 @@ target/
 !**/Cargo.lock
 
 !**/*.toml
+!**/*.proto
 !**/*.yml
 !**/*.yaml
 !**/*.md
