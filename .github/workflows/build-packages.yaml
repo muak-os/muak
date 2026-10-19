@@ -34,7 +34,6 @@ on:
         required: false
         type: string
 
-
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -48,140 +47,80 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check for manual package selection
-        id: manual
-        if: github.event_name == 'workflow_dispatch' && inputs.package != ''
-        run: |
-          if [[ "${{ inputs.package }}" == "all" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille"]' >> $GITHUB_OUTPUT
-          else
-            echo "packages=[\"${{ inputs.package }}\"]" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build all packages on tag push
-        id: tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille"]' >> $GITHUB_OUTPUT
-
-      - uses: dorny/paths-filter@v3
-        id: filter
-        if: steps.manual.outputs.packages == '' && steps.tag.outputs.packages == ''
+      - name: Install cargo-delta
+        uses: taiki-e/install-action@v2
         with:
-          filters: |
-            rebuild_all:
-              - 'Justfile'
-              - '.dockerignore'
-            rebuild_rust:
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-            granola:
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/granola-macros/**'
-            modd:
-              - 'services/modd/**'
-              - 'init/granola/**'
-              - 'libs/kmod/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/granola-macros/**'
-            networkd:
-              - 'services/networkd/**'
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/granola-macros/**'
-              - 'libs/netlib/**'
-              - 'api/internal/network.proto'
-            apid:
-              - 'services/apid/**'
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/pki/**'
-              - 'libs/granola-macros/**'
-              - 'api/*.proto'
-              - 'api/internal/network.proto'
-            workloadd:
-              - 'services/workloadd/**'
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/btrfs/**'
-              - 'libs/granola-macros/**'
-              - 'libs/netlib/**'
-              - 'api/internal/network.proto'
-            consoled:
-              - 'services/consoled/**'
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/granola-macros/**'
-            provisiond:
-              - 'services/provisiond/**'
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/pki/**'
-              - 'libs/disk/**'
-              - 'libs/btrfs/**'
-              - 'libs/luks2/**'
-              - 'libs/tpm2/**'
-              - 'libs/erofs/**'
-              - 'libs/esp/**'
-              - 'libs/fatfs/**'
-              - 'libs/granola-macros/**'
-              - 'libs/parttable/**'
-              - 'libs/uki/**'
-              - 'toolchain/kata/**'
-              - 'toolchain/koci/**'
-              - 'toolchain/miso/**'
-              - 'toolchain/mumi/**'
-              - 'toolchain/ramune/**'
-              - 'toolchain/sbolt/**'
-              - 'toolchain/wizard/**'
-              - 'toolchain/yuki/**'
-            timed:
-              - 'services/timed/**'
-              - 'init/granola/**'
-              - 'libs/kmsg/**'
-              - 'libs/config/**'
-              - 'libs/granola-macros/**'
-            millefeuille:
-              - 'init/millefeuille/**'
-              - 'libs/kmsg/**'
-              - 'libs/kmod/**'
-              - 'libs/btrfs/**'
-              - 'libs/disk/**'
-              - 'libs/parttable/**'
-              - 'libs/esp/**'
-              - 'libs/fatfs/**'
-              - 'libs/luks2/**'
-              - 'libs/tpm2/**'
+          tool: cargo-delta@0.4.0
 
       - name: Determine packages to build
         id: changes
+        shell: bash
         env:
-          MANUAL_PACKAGES: ${{ steps.manual.outputs.packages }}
-          TAG_PACKAGES: ${{ steps.tag.outputs.packages }}
-          REBUILD_ALL: ${{ steps.filter.outputs.rebuild_all }}
-          REBUILD_RUST: ${{ steps.filter.outputs.rebuild_rust }}
-          FILTER_CHANGES: ${{ steps.filter.outputs.changes }}
+          MANUAL_PACKAGE: ${{ inputs.package }}
+          EVENT_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [[ -n "${MANUAL_PACKAGES}" ]]; then
-            echo "packages=${MANUAL_PACKAGES}" >> $GITHUB_OUTPUT
-          elif [[ -n "${TAG_PACKAGES}" ]]; then
-            echo "packages=${TAG_PACKAGES}" >> $GITHUB_OUTPUT
-          elif [[ "${REBUILD_ALL}" == "true" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille"]' >> $GITHUB_OUTPUT
-          elif [[ "${REBUILD_RUST}" == "true" ]]; then
-            echo 'packages=["granola","modd","networkd","apid","workloadd","consoled","provisiond","timed","millefeuille"]' >> $GITHUB_OUTPUT
-          elif [[ -n "${FILTER_CHANGES}" && "${FILTER_CHANGES}" != "[]" ]]; then
-            echo "packages=${FILTER_CHANGES}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          image_packages() {
+            cargo metadata --no-deps --locked --format-version 1 |
+              jq -r '
+                .workspace_root as $root
+                | .packages[]
+                | select(
+                    (.manifest_path | startswith($root + "/init/"))
+                    or (.manifest_path | startswith($root + "/services/"))
+                  )
+                | [.name, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv
+              ' |
+              while IFS=$'\t' read -r name dir; do
+                if [ -f "$dir/Dockerfile" ]; then
+                  printf '%s\n' "$name"
+                fi
+              done |
+              sort -u
+          }
+
+          all="$(image_packages)"
+          packages=""
+
+          if [ -n "${MANUAL_PACKAGE}" ]; then
+            if [ "${MANUAL_PACKAGE}" = "all" ]; then
+              packages="$all"
+            else
+              packages="${MANUAL_PACKAGE}"
+            fi
+          elif [ "${EVENT_TAG}" = "true" ]; then
+            packages="$all"
           else
-            echo "packages=[]" >> $GITHUB_OUTPUT
+            base="${BASE_REF}"
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="$(git rev-parse HEAD^ 2>/dev/null || true)"
+            fi
+
+            if [ -z "$base" ]; then
+              packages="$all"
+            else
+              config="${RUNNER_TEMP}/cargo-delta.toml"
+              printf '%s\n' \
+                'trip_wire_patterns = ["api/**", "Justfile", ".dockerignore", "rust-toolchain.toml"]' \
+                '' \
+                '[parser]' \
+                'assume = true' \
+                'assume_patterns = ["*"]' > "$config"
+
+              affected="$(cargo delta -c "$config" impact --base-ref "$base" -f names --affected)"
+              packages="$(comm -12 \
+                <(printf '%s\n' "$all" | sort -u) \
+                <(printf '%s\n' "$affected" | sort -u))"
+            fi
+          fi
+
+          if [ -z "$packages" ]; then
+            echo 'packages=[]' >> "$GITHUB_OUTPUT"
+          else
+            json="$(printf '%s\n' "$packages" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+            echo "packages=${json}" >> "$GITHUB_OUTPUT"
           fi
 
   build:
