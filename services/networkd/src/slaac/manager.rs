@@ -337,10 +337,12 @@ fn process_unsolicited_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Op
     refresh_address_from_ra(manager, ra);
 
     if !ra.dns_servers.is_empty() {
+        let before: Vec<Ipv6Addr> = manager.dns_servers.iter().map(|dns| dns.value).collect();
         refresh_dns_from_ra(manager, ra);
-
-        let servers: Vec<Ipv6Addr> = manager.dns_servers.iter().map(|dns| dns.value).collect();
-        return Some(SlaacEvent::DnsUpdated { servers });
+        let after: Vec<Ipv6Addr> = manager.dns_servers.iter().map(|dns| dns.value).collect();
+        if before != after {
+            return Some(SlaacEvent::DnsUpdated { servers: after });
+        }
     }
 
     None
@@ -392,10 +394,9 @@ fn handle_timer_expiration(manager: &mut Manager) -> Option<SlaacEvent> {
         });
     }
 
+    let before: Vec<Ipv6Addr> = manager.dns_servers.iter().map(|dns| dns.value).collect();
     let had_dns = !manager.dns_servers.is_empty();
-    let before_len = manager.dns_servers.len();
     manager.dns_servers.retain(Expiring::is_valid);
-    let dns_changed = manager.dns_servers.len() != before_len;
 
     if had_dns && manager.dns_servers.is_empty() {
         kmsg::info!(
@@ -409,9 +410,9 @@ fn handle_timer_expiration(manager: &mut Manager) -> Option<SlaacEvent> {
             .collect();
     }
 
-    if dns_changed {
-        let servers: Vec<Ipv6Addr> = manager.dns_servers.iter().map(|dns| dns.value).collect();
-        return Some(SlaacEvent::DnsUpdated { servers });
+    let after: Vec<Ipv6Addr> = manager.dns_servers.iter().map(|dns| dns.value).collect();
+    if before != after {
+        return Some(SlaacEvent::DnsUpdated { servers: after });
     }
 
     None

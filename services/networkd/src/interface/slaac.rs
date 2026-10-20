@@ -150,10 +150,15 @@ async fn on_router_expired<N: Ops>(actor: &mut Actor<N>, router: Ipv6Addr) {
 }
 
 fn on_dns_updated<N: Ops>(actor: &mut Actor<N>, servers: Vec<Ipv6Addr>) {
-    kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
+    let Some(ipv6) = actor.snapshot.ipv6.as_mut() else {
+        return;
+    };
 
-    if let Some(ipv6) = actor.snapshot.ipv6.as_mut() {
-        ipv6.dns = servers;
-        actor.publish_snapshot();
+    if ipv6.dns == servers {
+        return;
     }
+
+    kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
+    ipv6.dns = servers;
+    actor.publish_snapshot();
 }
