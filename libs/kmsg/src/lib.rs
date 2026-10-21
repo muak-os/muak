@@ -148,7 +148,9 @@ pub fn print(message: &str) {
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// let err = "permission denied";
+///
 /// // Using default component
 /// kmsg::error!("Failed to open file: {}", err);
 ///
@@ -169,7 +171,9 @@ macro_rules! error {
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// let key = "registry";
+///
 /// // Using default component
 /// kmsg::warn!("Configuration file not found, using defaults");
 ///
@@ -190,7 +194,10 @@ macro_rules! warn {
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// let port = 8080;
+/// let vm_name = "web";
+///
 /// // Using default component
 /// kmsg::info!("Server started on port {}", port);
 ///
@@ -214,7 +221,10 @@ macro_rules! info {
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// let args = ["--verbose"];
+/// let token = "let";
+///
 /// // Using default component
 /// kmsg::debug!("Entering function with args: {:?}", args);
 ///
