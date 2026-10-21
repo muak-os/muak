@@ -4,7 +4,9 @@ use oci::arch::Arch;
 
 use super::Blob;
 use super::upload::blob_from_json;
-use crate::error::{KociError, Result};
+#[cfg(feature = "pull")]
+use crate::error::KociError;
+use crate::error::Result;
 
 /// Builds the minimal config for a scratch image with a single layer.
 ///
@@ -24,6 +26,7 @@ pub(crate) fn scratch(arch: Arch, diff_id: &str) -> Result<Blob> {
 /// # Errors
 ///
 /// Returns an error when the config is not JSON or carries no string diff ids.
+#[cfg(feature = "pull")]
 pub(crate) fn diff_ids(source: &[u8]) -> Result<Vec<String>> {
     let value: serde_json::Value = serde_json::from_slice(source)?;
     let entries = value
@@ -49,6 +52,7 @@ pub(crate) fn diff_ids(source: &[u8]) -> Result<Vec<String>> {
 /// # Errors
 ///
 /// Returns an error when the config is not JSON or has no `rootfs` object.
+#[cfg(feature = "pull")]
 pub(crate) fn splice(source: &[u8], diff_ids: &[String]) -> Result<Blob> {
     let mut value: serde_json::Value = serde_json::from_slice(source)?;
     let rootfs = value

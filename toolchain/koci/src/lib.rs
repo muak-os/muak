@@ -23,7 +23,7 @@ pub mod push;
 pub mod registry;
 #[cfg(all(feature = "pull", feature = "push"))]
 pub mod repack;
-#[cfg(feature = "runtime")]
+#[cfg(feature = "registry")]
 mod runtime;
 #[cfg(any(feature = "pull", feature = "sign"))]
 pub mod signature;

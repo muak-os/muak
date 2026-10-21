@@ -45,6 +45,7 @@ pub struct Toc {
 
 impl Toc {
     /// Consumes the TOC, returning its entries in blob order.
+    #[cfg(feature = "pull")]
     #[must_use]
     pub(crate) fn into_entries(self) -> Vec<Record> {
         self.entries

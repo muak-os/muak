@@ -1,6 +1,7 @@
 //! Shared OCI image assembly.
 
 pub(crate) mod config;
+#[cfg(feature = "pull")]
 pub(crate) mod layer;
 pub(crate) mod manifest;
 pub(crate) mod upload;
