@@ -1,6 +1,13 @@
 # Muak - A minimal, immutable, API-driven Linux distribution for running VMs
 #
-# Prerequisites: rustup, docker/podman, git
+# Prerequisites:
+#   - just
+#   - rustup
+#   - cargo-nextest, cargo-hack, cargo-llvm-cov, cargo-flamegraph
+#   - git, bash, GNU coreutils, GNU grep, sed, tr
+#   - podman, or docker with the buildx plugin
+#   - qemu-system-x86_64, qemu-img and KVM access (start, e2e)
+#   - Linux perf (flame)
 # Run `just --list` for available recipes
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
@@ -279,30 +286,69 @@ extract image arch=oci_arch output=(out + "/extract"):
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run rustfmt
+# Apply rustfmt changes.
 [group('test')]
 format:
-    @printf "{{ cyan }}Running formatting{{ reset }}\n"
-    cargo fmt
+    @printf "{{ cyan }}Formatting{{ reset }}\n"
+    cargo fmt --all
 
-# Run clippy and rustfmt (e.g., just lint or just lint yuki koci)
+# Check formatting and run clippy (e.g., just lint or just lint yuki koci).
 [group('test')]
 [script]
-lint *pkgs: format
-    printf "{{ cyan }}Running lints{{ reset }}\n"
+lint *pkgs:
+    printf "{{ cyan }}Checking formatting{{ reset }}\n"
+    cargo fmt --all -- --check
+    printf "{{ cyan }}Running clippy{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
             cargo clippy --locked --all-targets -p "$pkg" -- -D warnings
         done
     else
-        cargo clippy --locked --all-targets -- -D warnings
+        cargo clippy --locked --workspace --all-targets -- -D warnings
     fi
 
-# Run tests (e.g., just test or just test yuki koci)
+# Run tests and doctests (e.g., just test or just test yuki koci).
 [group('test')]
 [script]
 test *pkgs:
-    RUSTFLAGS="${RUSTFLAGS:-} -D warnings" just _test-run "cargo nextest run --locked" "Running tests for" {{ pkgs }}
+    export RUSTFLAGS="${RUSTFLAGS:-} -D warnings"
+    printf "{{ cyan }}Running tests{{ reset }}\n"
+    just _test-run "cargo nextest run --locked --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
+    printf "{{ cyan }}Running doctests{{ reset }}\n"
+    if [ -n "{{ pkgs }}" ]; then
+        for pkg in {{ pkgs }}; do
+            cargo test --doc --locked -p "$pkg"
+        done
+    else
+        cargo test --doc --locked --workspace --exclude e2e
+    fi
+
+# Build documentation and deny rustdoc warnings.
+[group('test')]
+[script]
+docs:
+    printf "{{ cyan }}Building documentation{{ reset }}\n"
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --workspace --no-deps
+
+# Check every feature combination compiles (e.g., just features or just features yuki).
+[group('test')]
+[script]
+features *pkgs:
+    printf "{{ cyan }}Checking feature matrix{{ reset }}\n"
+    if [ -n "{{ pkgs }}" ]; then
+        for pkg in {{ pkgs }}; do
+            extra=""
+            case "$pkg" in
+                firmware | sbolt) extra="--exclude-no-default-features" ;;
+            esac
+            cargo hack check --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
+        done
+    else
+        cargo hack check --each-feature --no-dev-deps --keep-going \
+            --workspace --exclude e2e --exclude firmware --exclude sbolt
+        cargo hack check --each-feature --no-dev-deps --keep-going \
+            --exclude-no-default-features -p firmware -p sbolt
+    fi
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
 [group('test')]
