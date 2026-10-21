@@ -46,9 +46,9 @@ jobs:
         arch: ${{ fromJSON(inputs.arch_matrix) }}
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
 
     runs-on: ${{ matrix.runner }}
     steps:
@@ -114,7 +114,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       CONTAINER_RUNTIME: docker
     steps:
