@@ -148,7 +148,7 @@ protox = "0.9"
 
 ## HTTP
 hyper = { version = "1.11", features = ["http2", "server", "client"] }
-hyper-util = { version = "0.1", features = ["tokio", "client", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring"] }
 http-body-util = "0.1"
 
