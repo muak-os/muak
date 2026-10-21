@@ -1,29 +1,6 @@
 name: Build CLI
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "cli/**"
-      - "libs/pki/**"
-      - "libs/config/**"
-      - "api/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Justfile"
-      - "rust-toolchain.toml"
-      - ".dockerignore"
-  pull_request:
-    paths:
-      - "cli/**"
-      - "libs/pki/**"
-      - "libs/config/**"
-      - "api/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Justfile"
-      - "rust-toolchain.toml"
-      - ".dockerignore"
   workflow_call:
     inputs:
       tag:

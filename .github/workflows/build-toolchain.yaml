@@ -1,51 +1,6 @@
 name: Build Toolchain
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "toolchain/miso/**"
-      - "toolchain/kata/**"
-      - "toolchain/koci/**"
-      - "toolchain/mumi/**"
-      - "toolchain/ramune/**"
-      - "toolchain/sbolt/**"
-      - "toolchain/wizard/**"
-      - "toolchain/yuki/**"
-      - "libs/disk/**"
-      - "libs/erofs/**"
-      - "libs/esp/**"
-      - "libs/oci/**"
-      - "libs/oci-client/**"
-      - "libs/parttable/**"
-      - "libs/uki/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Justfile"
-      - "rust-toolchain.toml"
-      - ".dockerignore"
-  pull_request:
-    paths:
-      - "toolchain/miso/**"
-      - "toolchain/kata/**"
-      - "toolchain/koci/**"
-      - "toolchain/mumi/**"
-      - "toolchain/ramune/**"
-      - "toolchain/sbolt/**"
-      - "toolchain/wizard/**"
-      - "toolchain/yuki/**"
-      - "libs/disk/**"
-      - "libs/erofs/**"
-      - "libs/esp/**"
-      - "libs/oci/**"
-      - "libs/oci-client/**"
-      - "libs/parttable/**"
-      - "libs/uki/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Justfile"
-      - "rust-toolchain.toml"
-      - ".dockerignore"
   workflow_call:
     inputs:
       tag:

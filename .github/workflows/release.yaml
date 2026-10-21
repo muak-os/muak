@@ -21,7 +21,11 @@ permissions:
   pull-requests: read
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yaml
+
   toolchain:
+    needs: ci
     uses: ./.github/workflows/build-toolchain.yaml
     with:
       tag: ${{ inputs.tag || '' }}
