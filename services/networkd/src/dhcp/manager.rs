@@ -36,7 +36,7 @@ impl Manager {
     }
 
     /// Runs DORA with backoff, resolving once a lease is acquired or giving up
-    /// with an error after [`ACQUIRE_MAX_ATTEMPTS`] failed attempts.
+    /// with an error after `ACQUIRE_MAX_ATTEMPTS` failed attempts.
     ///
     /// # Errors
     ///

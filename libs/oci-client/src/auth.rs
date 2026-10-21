@@ -51,7 +51,7 @@ impl Credentials {
         }
     }
 
-    /// Read credentials from [`USERNAME_ENV`] and [`PASSWORD_ENV`].
+    /// Read credentials from `KOCI_REGISTRY_USERNAME` and `KOCI_REGISTRY_PASSWORD`.
     #[must_use]
     pub fn from_env() -> Option<Self> {
         Self::from_parts(
