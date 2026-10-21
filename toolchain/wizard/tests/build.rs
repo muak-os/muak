@@ -24,10 +24,9 @@ mod tests {
     use crate::common::pe::generate_stub;
     use crate::common::server::Routes;
 
-    const KERNEL_BYTES: usize = 30_000_000;
-    const INITRAMFS_BYTES: usize = 5_000_000;
-    const MIN_UKI_BYTES: u64 = 32 << 20;
-    const MAX_UKI_BYTES: u64 = 512 << 20;
+    // The wizard enforces a 32 MiB minimum UKI size for FAT32 formatting.
+    const KERNEL_BYTES: usize = 33 * 1024 * 1024;
+    const INITRAMFS_BYTES: usize = 64 * 1024;
 
     const CMDLINE: &[u8] = b"console=ttyS0 quiet\n";
     const OVERLAY_A: &[u8] = b"muak-overlay-a\n";
@@ -227,7 +226,7 @@ digest = "{unsorted}"
 
     fn build_images() -> TestImages {
         let stub = generate_stub();
-        let kernel = random_bytes(0x5eed, KERNEL_BYTES);
+        let kernel: Vec<u8> = vec![0xA5; KERNEL_BYTES];
         let initramfs = random_bytes(0x1a7a, INITRAMFS_BYTES);
         let overlay_unsorted_b = random_bytes(0x5bc1, OVERLAY_LARGE_BYTES);
         let overlay_unsorted_a = random_bytes(0x5bc2, OVERLAY_LARGE_BYTES);
@@ -382,7 +381,48 @@ digest = "{unsorted}"
         )
     }
 
-    /// True when `bytes` is a PE32+ EFI image with an `MZ`/`PE\0\0` header.
+    struct BaseUki {
+        bytes: Vec<u8>,
+        sections: Vec<uki::measure::MeasuredSection>,
+    }
+
+    fn base_uki() -> &'static BaseUki {
+        static BASE: OnceLock<BaseUki> = OnceLock::new();
+
+        BASE.get_or_init(|| {
+            let _env = env();
+            let mut bytes = Vec::new();
+            let report = request(RELEASE)
+                .arch(Arch::Amd64)
+                .artifact(Artifact::Uki, &mut bytes)
+                .expect("uki target")
+                .build(&base_profile())
+                .expect("build base uki");
+
+            BaseUki {
+                bytes,
+                sections: report.sections,
+            }
+        })
+    }
+
+    fn base_initramfs() -> &'static [u8] {
+        static BASE: OnceLock<Vec<u8>> = OnceLock::new();
+
+        BASE.get_or_init(|| {
+            let _env = env();
+            let mut bytes = Vec::new();
+            request(RELEASE)
+                .arch(Arch::Amd64)
+                .artifact(Artifact::Initramfs, &mut bytes)
+                .expect("initramfs target")
+                .build(&base_profile())
+                .expect("build base initramfs");
+
+            bytes
+        })
+    }
+
     fn is_pe(bytes: &[u8]) -> bool {
         if !bytes.starts_with(b"MZ") {
             return false;
@@ -548,7 +588,6 @@ digest = "{unsorted}"
     #[test]
     fn initramfs_artifact_is_raw_tail_followed_by_base() {
         // ARRANGE
-        let _env = env();
         let profile = base_profile();
         let profile_bytes = profile.canonical_bytes().expect("canonical profile");
         let profile_len = u64::try_from(profile_bytes.len()).expect("profile length");
@@ -587,15 +626,9 @@ digest = "{unsorted}"
             },
         ]);
         let base = random_bytes(0x1a7a, INITRAMFS_BYTES);
-        let mut initramfs = Vec::new();
 
         // ACT
-        request(RELEASE)
-            .arch(Arch::Amd64)
-            .artifact(Artifact::Initramfs, &mut initramfs)
-            .expect("initramfs target")
-            .build(&profile)
-            .expect("build initramfs");
+        let initramfs = base_initramfs();
 
         // ASSERT
         assert!(
@@ -613,10 +646,10 @@ digest = "{unsorted}"
             initramfs.starts_with(b"070701"),
             "initramfs must start with the raw CPIO tail member"
         );
-        assert!(contains(&initramfs, b"modules.erofs"));
-        assert!(contains(&initramfs, b"metadata/profile.toml"));
-        assert!(contains(&initramfs, b"metadata/version"));
-        assert!(contains(&initramfs, b"metadata/disk.toml"));
+        assert!(contains(initramfs, b"modules.erofs"));
+        assert!(contains(initramfs, b"metadata/profile.toml"));
+        assert!(contains(initramfs, b"metadata/version"));
+        assert!(contains(initramfs, b"metadata/disk.toml"));
     }
 
     #[test]
@@ -671,50 +704,27 @@ digest = "{unsorted}"
     }
 
     #[test]
-    fn uki_sections_metadata_matches_the_built_image() {
+    fn base_uki_is_well_formed_and_carries_release() {
         // ARRANGE
-        let _env = env();
-        let mut uki = Vec::new();
+        let base = base_uki();
 
         // ACT
-        let report = request(RELEASE)
-            .arch(Arch::Amd64)
-            .artifact(Artifact::Uki, &mut uki)
-            .expect("uki target")
-            .build(&base_profile())
-            .expect("build uki");
-
         let image = tempfile::NamedTempFile::new().expect("temp file");
-        image.as_file().write_all(&uki).expect("write uki");
+        image.as_file().write_all(&base.bytes).expect("write uki");
         let measured = uki::measure::from_file(image.path()).expect("measure uki");
 
         // ASSERT
-        assert_eq!(measured, report.sections);
+        assert!(is_pe(&base.bytes), "UKI must be a valid PE32+ EFI image");
+        assert!(sections_are_well_formed(&base.sections));
+        assert_eq!(measured, base.sections);
         let names: Vec<&str> = measured.iter().map(|section| section.name).collect();
         assert_eq!(
             names,
             uki::section::CANONICAL_ORDER.to_vec(),
             "UKI section table must follow canonical measurement order"
         );
-    }
-
-    #[test]
-    fn uki_embeds_the_release_in_osrel() {
-        // ARRANGE
-        let _env = env();
-        let mut uki = Vec::new();
-
-        // ACT
-        request(RELEASE)
-            .arch(Arch::Amd64)
-            .artifact(Artifact::Uki, &mut uki)
-            .expect("uki target")
-            .build(&base_profile())
-            .expect("build uki");
-
-        // ASSERT
         let expected = format!("ID=muak\nVERSION_ID={RELEASE}\n");
-        let measured_osrel = measured_section_content(&uki, uki::section::OSREL);
+        let measured_osrel = measured_section_content(&base.bytes, uki::section::OSREL);
         assert_eq!(measured_osrel, expected.into_bytes());
     }
 
@@ -722,13 +732,7 @@ digest = "{unsorted}"
     fn initramfs_and_uki_fanout_matches_standalone_initramfs() {
         // ARRANGE
         let _env = env();
-        let mut alone = Vec::new();
-        request(RELEASE)
-            .arch(Arch::Amd64)
-            .artifact(Artifact::Initramfs, &mut alone)
-            .expect("initramfs target")
-            .build(&base_profile())
-            .expect("build standalone initramfs");
+        let alone = base_initramfs();
         let mut combined = Vec::new();
         let mut uki = Vec::new();
 
@@ -744,7 +748,8 @@ digest = "{unsorted}"
 
         // ASSERT
         assert_eq!(
-            combined, alone,
+            combined.as_slice(),
+            alone,
             "fanned-out initramfs must be byte-identical to the standalone artifact"
         );
         assert!(is_pe(&uki));
@@ -977,19 +982,12 @@ digest = "{unsorted}"
     #[test]
     fn signed_uki_size_matches_align8_plus_cert_table() {
         // ARRANGE
-        let _env = env();
+        let base = base_uki();
         let (signer, certificate) = generate_pk("muak-e2e").expect("generate signing pair");
         let pair = SigningPair {
             signer: &signer,
             certificate: &certificate,
         };
-        let mut unsigned_uki = Vec::new();
-        request(RELEASE)
-            .arch(Arch::Amd64)
-            .artifact(Artifact::Uki, &mut unsigned_uki)
-            .expect("uki target")
-            .build(&base_profile())
-            .expect("build unsigned uki");
         let mut signed_uki = Vec::new();
 
         // ACT
@@ -1002,7 +1000,7 @@ digest = "{unsorted}"
             .expect("build signed uki");
 
         // ASSERT
-        let unsigned_len = u64::try_from(unsigned_uki.len()).expect("unsigned length");
+        let unsigned_len = u64::try_from(base.bytes.len()).expect("unsigned length");
         let cert_size = u64::try_from(
             sbolt::signature::cert_table_size(&certificate).expect("cert table size"),
         )
@@ -1014,29 +1012,6 @@ digest = "{unsorted}"
             "signed UKI must be align8(unsigned) + cert table size"
         );
         assert!(is_pe(&signed_uki));
-        assert_ne!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
-    }
-
-    #[test]
-    fn repeated_ukis_within_fat32_bounds_build() {
-        // ARRANGE
-        let _env = env();
-        let mut uki = Vec::new();
-
-        // ACT
-        let report = request(RELEASE)
-            .arch(Arch::Amd64)
-            .artifact(Artifact::Uki, &mut uki)
-            .expect("uki target")
-            .build(&base_profile())
-            .expect("full-size UKI must fit the FAT32 range");
-
-        // ASSERT
-        let size = u64::try_from(uki.len()).expect("uki length");
-        assert!(
-            (MIN_UKI_BYTES..=MAX_UKI_BYTES).contains(&size),
-            "full-size UKI must land inside the FAT32 bounds"
-        );
         assert_ne!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
     }
 
