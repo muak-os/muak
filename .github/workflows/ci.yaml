@@ -36,6 +36,19 @@ jobs:
 
       - run: just lint
 
+  deny:
+    name: Deny
+    runs-on: ubuntu-26.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: just@1.58.0,cargo-deny@0.20.2
+
+      - run: just deny licenses bans sources
+
   test:
     name: Test
     runs-on: ubuntu-26.04
@@ -84,7 +97,7 @@ jobs:
   ci-success:
     name: CI success
     if: always()
-    needs: [lint, test, features, docs]
+    needs: [lint, deny, test, features, docs]
     runs-on: ubuntu-26.04
     steps:
       - name: Check required jobs
