@@ -5,6 +5,12 @@ all-features = true
 
 [advisories]
 version = 2
+ignore = [
+    # Unmaintained, pulled in by netlink-packet-core. No safe upgrade is available.
+    { id = "RUSTSEC-2024-0436", reason = "paste is transitive via netlink-packet-core and has no replacement yet" },
+    # Marvin timing attack. sbolt uses RSA for local signing, not network-facing verification.
+    { id = "RUSTSEC-2023-0071", reason = "rsa has no patched release and is only used locally by sbolt" },
+]
 
 [licenses]
 version = 2
