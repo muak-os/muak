@@ -24,7 +24,6 @@ allow = [
     "Unicode-3.0",
     "Zlib",
 ]
-unused-allowed-license = "allow"
 exceptions = [
     # r-efi offers a permissive option, but also declares LGPL as an alternative.
     { allow = ["LGPL-2.1-or-later"], crate = "r-efi" },
