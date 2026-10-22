@@ -4,7 +4,6 @@
 all-features = true
 
 [advisories]
-version = 2
 ignore = [
     # Unmaintained, pulled in by netlink-packet-core. No safe upgrade is available.
     { id = "RUSTSEC-2024-0436", reason = "paste is transitive via netlink-packet-core and has no replacement yet" },
@@ -13,11 +12,9 @@ ignore = [
 ]
 
 [licenses]
-version = 2
 confidence-threshold = 0.9
 allow = [
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
     "CC-BY-NC-SA-4.0",
     "CDLA-Permissive-2.0",
