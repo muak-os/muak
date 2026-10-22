@@ -52,9 +52,7 @@ default = ["cli"]
 cli = ["anyhow", "clap"]
 
 [dev-dependencies]
-disk = { workspace = true }
 object = { workspace = true }
-sha2 = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

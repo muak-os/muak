@@ -620,7 +620,6 @@ name = "esp"
 version = "1.0.3-beta"
 dependencies = [
  "fatfs",
- "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -634,7 +633,6 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "fatfs"
 version = "1.0.3-beta"
 dependencies = [
- "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -1342,7 +1340,6 @@ dependencies = [
  "prost",
  "protox",
  "rustls",
- "serde",
  "tokio",
  "tokio-rustls",
  "tokio-stream",

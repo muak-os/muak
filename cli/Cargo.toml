@@ -25,7 +25,6 @@ rustls = { workspace = true }
 
 # Encoding
 prost = { workspace = true }
-serde = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
