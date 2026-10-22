@@ -3,7 +3,7 @@
 # Prerequisites:
 #   - just
 #   - rustup
-#   - cargo-nextest, cargo-hack, cargo-llvm-cov, cargo-flamegraph
+#   - cargo-nextest, cargo-hack, cargo-llvm-cov, cargo-flamegraph, cargo-deny
 #   - git, bash, GNU coreutils, GNU grep, sed, tr
 #   - podman, or docker with the buildx plugin
 #   - qemu-system-x86_64, qemu-img and KVM access (start, e2e)
@@ -130,7 +130,7 @@ artifacts *types:
 # Release a new version.
 [group('build')]
 [script]
-release version: lint test
+release version: lint test deny
     arg="{{ version }}"
     next="${arg#v}"
 
@@ -329,6 +329,12 @@ test *pkgs:
 docs:
     printf "{{ cyan }}Building documentation{{ reset }}\n"
     RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --workspace --no-deps
+
+# Check dependency policies (e.g., just deny or just deny licenses bans sources).
+[group('test')]
+deny *checks="advisories bans licenses sources":
+    @printf "{{ cyan }}Checking dependencies: {{ checks }}{{ reset }}\n"
+    cargo deny --locked --all-features check {{ checks }}
 
 # Check every feature combination compiles (e.g., just features or just features yuki).
 [group('test')]
