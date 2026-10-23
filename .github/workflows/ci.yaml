@@ -13,11 +13,6 @@ on:
         required: false
         type: boolean
         default: false
-      tag:
-        description: "Release tag to build (must point at HEAD; defaults to the current commit)"
-        required: false
-        type: string
-        default: ""
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -137,8 +132,6 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/build-toolchain.yaml
-    with:
-      tag: ${{ inputs.tag || '' }}
 
   build-packages:
     name: Build packages
@@ -159,8 +152,6 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/build-cli.yaml
-    with:
-      tag: ${{ inputs.tag || '' }}
 
   build-installer:
     name: Build installer
@@ -176,6 +167,4 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/build-installer.yaml
-    with:
-      tag: ${{ inputs.tag || '' }}
     secrets: inherit
