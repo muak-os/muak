@@ -44,6 +44,13 @@ jobs:
             if [ "${MANUAL_PACKAGE}" = "all" ]; then
               packages="$all"
             else
+              case "${MANUAL_PACKAGE}" in
+                *[!a-z0-9._-]*) echo "::error::Invalid package '${MANUAL_PACKAGE}'"; exit 1 ;;
+              esac
+              if ! printf '%s\n' "$all" | grep -qxF "${MANUAL_PACKAGE}"; then
+                echo "::error::Unknown package '${MANUAL_PACKAGE}'"
+                exit 1
+              fi
               packages="${MANUAL_PACKAGE}"
             fi
           elif [ "${EVENT_TAG}" = "true" ]; then
