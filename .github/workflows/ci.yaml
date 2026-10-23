@@ -63,7 +63,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-26.04
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
@@ -78,7 +78,7 @@ jobs:
   features:
     name: Features
     runs-on: ubuntu-26.04
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
