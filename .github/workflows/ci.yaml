@@ -4,9 +4,20 @@ on:
   pull_request:
   push:
     branches: [master]
+    tags: ["v[0-9]+.*"]
   merge_group:
-  workflow_call:
   workflow_dispatch:
+    inputs:
+      build:
+        description: "Build and push images, ignoring the change detection"
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: "Release tag to build (must point at HEAD; defaults to the current commit)"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -106,40 +117,65 @@ jobs:
             exit 1
           fi
 
+  changes:
+    name: Changes
+    needs: ci-success
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))) ||
+      (github.event_name == 'workflow_dispatch' && inputs.build)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/changes.yaml
+    with:
+      force_all: ${{ github.event_name == 'workflow_dispatch' && inputs.build }}
+
   build-toolchain:
     name: Build toolchain
-    needs: ci-success
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [ci-success, changes]
+    if: needs.changes.result == 'success' && needs.changes.outputs.toolchain == 'true'
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-toolchain.yaml
+    with:
+      tag: ${{ inputs.tag || '' }}
 
   build-packages:
     name: Build packages
-    needs: [ci-success, build-toolchain]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [ci-success, changes]
+    if: needs.changes.result == 'success' && needs.changes.outputs.packages != '[]'
     permissions:
       contents: read
       packages: write
-      pull-requests: read
     uses: ./.github/workflows/build-packages.yaml
+    with:
+      packages: ${{ needs.changes.outputs.packages }}
 
   build-cli:
     name: Build CLI
-    needs: [ci-success, build-toolchain]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [ci-success, changes]
+    if: needs.changes.result == 'success' && needs.changes.outputs.cli == 'true'
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-cli.yaml
+    with:
+      tag: ${{ inputs.tag || '' }}
 
   build-installer:
     name: Build installer
-    needs: [ci-success, build-packages, build-cli]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [ci-success, changes, build-packages, build-cli]
+    if: |
+      always() &&
+      needs.ci-success.result == 'success' &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.installer == 'true' &&
+      (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped') &&
+      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped')
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-installer.yaml
+    with:
+      tag: ${{ inputs.tag || '' }}
     secrets: inherit

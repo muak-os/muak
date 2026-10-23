@@ -2,104 +2,31 @@ name: Build Packages
 
 on:
   workflow_call:
+    inputs:
+      packages:
+        description: "JSON array of packages to build"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
-      package:
-        description: "Package to build (leave empty for change detection, 'all' for all packages)"
-        required: false
+      packages:
+        description: 'JSON array of packages to build, e.g. ["granola","networkd"]'
+        required: true
         type: string
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      packages: ${{ steps.changes.outputs.packages }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          fetch-depth: 0
-
-      - name: Install tools
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
-        with:
-          tool: cargo-delta@0.4.0,just@1.58.0
-
-      - name: Determine packages to build
-        id: changes
-        shell: bash
-        env:
-          MANUAL_PACKAGE: ${{ inputs.package }}
-          EVENT_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
-          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          set -euo pipefail
-
-          all="$(just --evaluate components | tr ' ' '\n' | sed '/^$/d' | sort -u)"
-          packages=""
-
-          if [ -n "${MANUAL_PACKAGE}" ]; then
-            if [ "${MANUAL_PACKAGE}" = "all" ]; then
-              packages="$all"
-            else
-              case "${MANUAL_PACKAGE}" in
-                *[!a-z0-9._-]*) echo "::error::Invalid package '${MANUAL_PACKAGE}'"; exit 1 ;;
-              esac
-              if ! printf '%s\n' "$all" | grep -qxF "${MANUAL_PACKAGE}"; then
-                echo "::error::Unknown package '${MANUAL_PACKAGE}'"
-                exit 1
-              fi
-              packages="${MANUAL_PACKAGE}"
-            fi
-          elif [ "${EVENT_TAG}" = "true" ]; then
-            packages="$all"
-          else
-            base="${BASE_REF}"
-            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-              base="$(git rev-parse HEAD^ 2>/dev/null || true)"
-            fi
-
-            if [ -z "$base" ]; then
-              packages="$all"
-            else
-              config="${RUNNER_TEMP}/cargo-delta.toml"
-              printf '%s\n' \
-                'trip_wire_patterns = ["api/**", "Justfile", ".dockerignore", "rust-toolchain.toml"]' \
-                '' \
-                '[parser]' \
-                'assume = true' \
-                'assume_patterns = ["*"]' > "$config"
-
-              affected="$(cargo delta -c "$config" impact --base-ref "$base" -f names --affected)"
-              packages="$(comm -12 \
-                <(printf '%s\n' "$all" | sort -u) \
-                <(printf '%s\n' "$affected" | sort -u))"
-            fi
-          fi
-
-          if [ -z "$packages" ]; then
-            echo 'packages=[]' >> "$GITHUB_OUTPUT"
-          else
-            json="$(printf '%s\n' "$packages" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
-            echo "packages=${json}" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.packages != '[]'
+    if: inputs.packages != '[]'
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        package: ${{ fromJSON(needs.detect-changes.outputs.packages) }}
+        package: ${{ fromJSON(inputs.packages) }}
     uses: ./.github/workflows/_template.yaml
     with:
       image: ${{ matrix.package }}
       image_prefix: pkgs/
       recipe: oci ${{ matrix.package }}
-      push: ${{ github.event_name != 'pull_request' }}
       arch_matrix: '["amd64","arm64"]'

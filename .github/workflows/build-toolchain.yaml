@@ -23,6 +23,5 @@ jobs:
     with:
       image: toolchain
       recipe: oci toolchain
-      push: ${{ github.event_name != 'pull_request' }}
       tag: ${{ inputs.tag }}
       arch_matrix: '["amd64","arm64"]'

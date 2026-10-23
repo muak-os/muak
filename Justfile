@@ -26,7 +26,6 @@ out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" 
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c18a288141bf4745151ae83d0d5f05d875a102c5348a12d5ab89fa94b4f1c3a0")
-push := env_var_or_default("PUSH", "true")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
 components := `sed -n 's/^ARG PKG_//p' Dockerfile | tr '[:upper:]' '[:lower:]' | tr '\n' ' '`
@@ -44,7 +43,7 @@ release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
 container_runtime := env_var_or_default("CONTAINER_RUNTIME", "podman")
 build_cmd := if container_runtime == "podman" { "podman build" } else { "docker buildx build" }
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
-push_arg := if container_runtime == "podman" { "" } else { if push == "true" { "--push" } else { "" } }
+push_arg := if container_runtime == "podman" { "" } else { "--push" }
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
 common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " --build-arg TOOLCHAIN=" + toolchain + " " + provenance_arg
 
@@ -487,21 +486,19 @@ _build-oci name dockerfile *extra:
     image="{{ registry }}/{{ name }}:{{ tag }}"
     cache_from=$(just _cache-from "{{ name }}")
     cache_to=$(just _cache-to "{{ name }}")
-    printf "{{ cyan }}Building OCI:{{ reset }} {{ name }} (push={{ push }})\n"
+    printf "{{ cyan }}Building OCI:{{ reset }} {{ name }}\n"
     {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
         ${cache_from} ${cache_to} {{ push_arg }} --tag "${image}" {{ extra }} \
         --file {{ dockerfile }} \
         .
-    if [ "{{ container_runtime }}" = "podman" ] && [ "{{ push }}" = "true" ]; then
+    if [ "{{ container_runtime }}" = "podman" ]; then
         {{ container_runtime }} push "${image}"
     fi
-    if [ "{{ push }}" = "true" ]; then
-        {{ container_runtime }} run --rm --network=host \
-            -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
-            {{ toolchain }} \
-            /koci repack \
-                --image "${image}"
-    fi
+    {{ container_runtime }} run --rm --network=host \
+        -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
+        {{ toolchain }} \
+        /koci repack \
+            --image "${image}"
 
 [private]
 [script]
@@ -551,4 +548,4 @@ _cache-from name:
 
 [private]
 _cache-to name:
-    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ] && [ "{{ push }}" = "true" ]; then printf '%s' "--cache-to=type=registry,ref={{ registry }}/{{ name }}:buildcache-{{ oci_arch }},mode=max"; fi
+    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ]; then printf '%s' "--cache-to=type=registry,ref={{ registry }}/{{ name }}:buildcache-{{ oci_arch }},mode=max"; fi
