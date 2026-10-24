@@ -190,12 +190,11 @@ catalog *args:
 [group('oci')]
 [script]
 oci *pkgs:
-    pkgs="{{ pkgs }}"
-    if [ -z "$pkgs" ]; then
+    if [ "$#" -eq 0 ]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} No packages specified. Usage: just oci <pkg1> [pkg2...]\n"
         exit 1
     fi
-    for pkg in $pkgs; do
+    for pkg in "$@"; do
         case "$pkg" in
             installer) just installer --prod ;;
             cli)      just _build-oci muakctl cli/Dockerfile ;;
@@ -483,13 +482,16 @@ _kata *args:
 [private]
 [script]
 _build-oci name dockerfile *extra:
-    image="{{ registry }}/{{ name }}:{{ tag }}"
-    cache_from=$(just _cache-from "{{ name }}")
-    cache_to=$(just _cache-to "{{ name }}")
-    printf "{{ cyan }}Building OCI:{{ reset }} {{ name }}\n"
+    name="$1"
+    dockerfile="$2"
+    shift 2
+    image="{{ registry }}/$name:{{ tag }}"
+    cache_from=$(just _cache-from "$name")
+    cache_to=$(just _cache-to "$name")
+    printf "{{ cyan }}Building OCI:{{ reset }} %s\n" "$name"
     {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
-        ${cache_from} ${cache_to} {{ push_arg }} --tag "${image}" {{ extra }} \
-        --file {{ dockerfile }} \
+        ${cache_from} ${cache_to} {{ push_arg }} --tag "${image}" "$@" \
+        --file "$dockerfile" \
         .
     if [ "{{ container_runtime }}" = "podman" ]; then
         {{ container_runtime }} push "${image}"
@@ -544,8 +546,8 @@ _test-run runner label *pkgs:
 
 [private]
 _cache-from name:
-    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ]; then printf '%s' "--cache-from=type=registry,ref={{ registry }}/{{ name }}:buildcache-{{ oci_arch }}"; fi
+    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ]; then printf '%s' "--cache-from=type=registry,ref={{ registry }}/$1:buildcache-{{ oci_arch }}"; fi
 
 [private]
 _cache-to name:
-    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ]; then printf '%s' "--cache-to=type=registry,ref={{ registry }}/{{ name }}:buildcache-{{ oci_arch }},mode=max"; fi
+    @if [ "{{ env_var_or_default("GITHUB_ACTIONS", "false") }}" = "true" ]; then printf '%s' "--cache-to=type=registry,ref={{ registry }}/$1:buildcache-{{ oci_arch }},mode=max"; fi
