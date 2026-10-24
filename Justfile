@@ -24,7 +24,7 @@ alpine_version := "3.24"
 rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
-tag := env_var_or_default("TAG", "0.0.0-dev")
+export tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c18a288141bf4745151ae83d0d5f05d875a102c5348a12d5ab89fa94b4f1c3a0")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
@@ -220,13 +220,15 @@ oci *pkgs:
 [group('oci')]
 [script]
 merge image *sources:
+    image="$1"
+    shift
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         {{ toolchain }} \
         /koci merge \
-            --image "{{ registry }}/{{ image }}" \
-            --tag "{{ tag }}" \
-            {{ sources }}
+            --image "{{ registry }}/$image" \
+            --tag "$tag" \
+            "$@"
 
 # Copy an image from the upstream registry, preserving every digest.
 [group('oci')]
@@ -255,13 +257,13 @@ repack image=(registry + "/installer:" + tag):
 [group('oci')]
 [arg("image", long="image")]
 sign image=(registry + "/installer:" + tag):
-    @printf "{{ cyan }}Signing OCI image {{ image }}{{ reset }}\n"
+    @printf "{{ cyan }}Signing OCI image %s{{ reset }}\n" "$1"
     {{ container_runtime }} run --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         -v "{{ absolute_path(signature) }}:/key:ro" \
         {{ toolchain }} \
         /koci sign \
-            --image "{{ image }}" \
+            --image "$1" \
             --key /key \
             --annotation dev.muak.sig
 
@@ -485,7 +487,7 @@ _build-oci name dockerfile *extra:
     name="$1"
     dockerfile="$2"
     shift 2
-    image="{{ registry }}/$name:{{ tag }}"
+    image="{{ registry }}/$name:$tag"
     cache_from=$(just _cache-from "$name")
     cache_to=$(just _cache-to "$name")
     printf "{{ cyan }}Building OCI:{{ reset }} %s\n" "$name"
