@@ -41,8 +41,6 @@ pub(crate) fn blob_from_json(value: &serde_json::Value) -> Result<Blob> {
 /// Returns an error when the existence check or upload fails.
 pub(crate) async fn put_blob(client: &Client, digest: &str, bytes: Bytes) -> Result<()> {
     if blob::exists(client, digest).await? {
-        eprintln!("Blob {digest} already in registry; skipping upload");
-
         return Ok(());
     }
 

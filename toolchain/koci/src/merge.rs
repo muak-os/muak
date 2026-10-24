@@ -83,10 +83,6 @@ async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result
     let index = build_index(&descriptors)?;
     for tag in tags {
         manifest::put(&client, tag, OCI_IMAGE_INDEX_MEDIA_TYPE, index.clone()).await?;
-        eprintln!(
-            "Merged {} manifest(s) into {image}:{tag}",
-            descriptors.len()
-        );
     }
 
     Ok(())

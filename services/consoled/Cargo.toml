@@ -15,7 +15,7 @@ categories.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "time", "signal", "net", "sync"] }
 
 # Terminal
-crossterm = { workspace = true }
+tui = { workspace = true, features = ["input", "raw", "size"] }
 
 # Error handling
 anyhow = { workspace = true }
@@ -27,7 +27,7 @@ kmsg = { workspace = true }
 config = { workspace = true }
 
 # System/Platform APIs
-rustix = { workspace = true, features = ["termios"] }
+rustix = { workspace = true }
 
 [lints]
 workspace = true

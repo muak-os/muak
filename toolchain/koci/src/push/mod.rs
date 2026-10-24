@@ -78,7 +78,6 @@ async fn push_files(
     let (bytes, digest) = pack(&client, *arch, entries).await?;
     for tag in &tags {
         oci_client::manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
-        eprintln!("Pushed manifest to {image}:{tag}");
     }
 
     Ok(Pushed { digest })

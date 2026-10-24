@@ -8,6 +8,7 @@ use config::user::ServerContext;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
+use tui::live::Steps;
 
 use crate::client::{
     connect,
@@ -16,7 +17,6 @@ use crate::client::{
         UpdateStatus, provision_service_client::ProvisionServiceClient,
     },
 };
-use crate::ui;
 
 /// Handles the update command.
 pub async fn handle(
@@ -58,7 +58,7 @@ pub async fn handle(
         (target, Vec::new())
     };
 
-    let steps = ui::steps::Steps::new();
+    let steps = Steps::stderr()?;
 
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
@@ -77,7 +77,7 @@ pub async fn handle(
         if !progress.error.is_empty() {
             let msg = format!("Update preparation failed: {}", progress.error);
             steps.fail(&msg);
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(anyhow::anyhow!("{msg}"));
         }
 
@@ -90,7 +90,7 @@ pub async fn handle(
 
     if update_id.is_empty() {
         steps.fail("Prepare update stream ended without completion");
-        steps.finish().await;
+        let _finish_result = steps.finish();
         return Err(anyhow::anyhow!(
             "Prepare update stream ended without completion"
         ));
@@ -113,7 +113,7 @@ pub async fn handle(
         if !resp.success {
             let msg = format!("Update failed: {}", resp.error);
             steps.fail(&msg);
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(anyhow::anyhow!("{msg}"));
         }
     }
@@ -140,7 +140,7 @@ struct PollFeedback {
 }
 
 impl PollFeedback {
-    fn on_pending(&mut self, steps: &ui::steps::Steps) {
+    fn on_pending(&mut self, steps: &Steps) {
         if self.unreachable > 0 {
             steps.start(format!(
                 "Update pending (reachable again after {} failed poll(s))",
@@ -152,7 +152,7 @@ impl PollFeedback {
         self.unknown_warned = false;
     }
 
-    fn on_unknown(&mut self, steps: &ui::steps::Steps, update_id: &str) {
+    fn on_unknown(&mut self, steps: &Steps, update_id: &str) {
         self.unreachable = 0;
         self.unknown = self.unknown.saturating_add(1);
         if self.unknown >= UNKNOWN_WARN_THRESHOLD && !self.unknown_warned {
@@ -164,7 +164,7 @@ impl PollFeedback {
         }
     }
 
-    fn on_unreachable(&mut self, steps: &ui::steps::Steps, err: &str) {
+    fn on_unreachable(&mut self, steps: &Steps, err: &str) {
         self.unreachable = self.unreachable.saturating_add(1);
         if self.unreachable == 1 || self.unreachable.is_multiple_of(5) {
             steps.start(format!(
@@ -178,7 +178,7 @@ impl PollFeedback {
 async fn wait_for_update_completion(
     ctx: &ServerContext,
     update_id: &str,
-    steps: ui::steps::Steps,
+    steps: Steps,
 ) -> Result<()> {
     let timeout = Duration::from_mins(5);
     let poll_interval = Duration::from_secs(2);
@@ -192,7 +192,7 @@ async fn wait_for_update_completion(
     loop {
         if start.elapsed() > timeout {
             steps.fail("Timeout waiting for system to come back online after update");
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(anyhow::anyhow!(
                 "Timed out waiting for update {update_id} to complete. The machine may \
                  still be booting, or may have rolled back - check `muakctl rollback \
@@ -202,12 +202,12 @@ async fn wait_for_update_completion(
 
         match poll_update_status(ctx, update_id, &steps).await {
             PollOutcome::Done => {
-                steps.finish().await;
+                steps.finish()?;
                 return Ok(());
             }
             PollOutcome::Failed(msg) => {
                 steps.fail(&msg);
-                steps.finish().await;
+                let _finish_result = steps.finish();
                 return Err(anyhow::anyhow!("{msg}"));
             }
             PollOutcome::Pending => feedback.on_pending(&steps),
@@ -219,11 +219,7 @@ async fn wait_for_update_completion(
     }
 }
 
-async fn poll_update_status(
-    ctx: &ServerContext,
-    update_id: &str,
-    steps: &ui::steps::Steps,
-) -> PollOutcome {
+async fn poll_update_status(ctx: &ServerContext, update_id: &str, steps: &Steps) -> PollOutcome {
     let channel = match connect(ctx, 10).await {
         Ok(channel) => channel,
         Err(err) => return PollOutcome::Unreachable(format!("connect failed: {err}")),

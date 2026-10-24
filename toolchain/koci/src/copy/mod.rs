@@ -41,11 +41,6 @@ async fn copy(source: &str, destination: &str) -> Result<()> {
 
     let root = manifest::fetch(&src, src.image().manifest_ref.as_str()).await?;
     let (root_digest, manifests, blobs) = collect_tree(&src, root).await?;
-    eprintln!(
-        "Collected {} manifests and {} blobs",
-        manifests.len(),
-        blobs.len()
-    );
 
     for digest in &blobs {
         transfer_blob(&src, &dst, digest).await?;
@@ -60,7 +55,6 @@ async fn copy(source: &str, destination: &str) -> Result<()> {
                 Bytes::from(copied.bytes.clone()),
             )
             .await?;
-            eprintln!("Pushed manifest {digest}");
         }
     }
 
@@ -74,7 +68,6 @@ async fn copy(source: &str, destination: &str) -> Result<()> {
         Bytes::from(root_manifest.bytes.clone()),
     )
     .await?;
-    eprintln!("Pushed manifest {root_digest}");
 
     let served = manifest::fetch(&dst, dst.image().manifest_ref.as_str()).await?;
     if served != root_manifest.bytes {
@@ -83,8 +76,6 @@ async fn copy(source: &str, destination: &str) -> Result<()> {
             dst.image().manifest_ref
         )));
     }
-
-    eprintln!("Copied {source} to {destination} ({root_digest})");
 
     Ok(())
 }
@@ -163,8 +154,6 @@ fn record_manifest(
 
 async fn transfer_blob(src: &Client, dst: &Client, digest: &str) -> Result<()> {
     if blob::exists(dst, digest).await? {
-        eprintln!("Blob {digest} already in destination; skipping upload");
-
         return Ok(());
     }
 
@@ -175,7 +164,6 @@ async fn transfer_blob(src: &Client, dst: &Client, digest: &str) -> Result<()> {
     http::stream_body_to_sink(response, &mut bytes, &mut verifier).await?;
     verifier.verify()?;
     blob::upload(dst, digest, Bytes::from(bytes)).await?;
-    eprintln!("Transferred blob {digest}");
 
     Ok(())
 }

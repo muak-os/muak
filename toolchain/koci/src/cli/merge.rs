@@ -2,6 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use koci::{error, merge};
+use tui::style;
 
 /// Arguments of the `merge` subcommand.
 #[derive(clap::Args, Debug)]
@@ -31,10 +32,11 @@ pub(crate) fn run(args: Args) -> Result<()> {
         .context("Failed to parse sources")?;
 
     merge::index(&image, &tags, &sources).context("Failed to merge index")?;
-    println!(
+    let message = format!(
         "Successfully merged {} source(s) into {image}",
         sources.len()
     );
+    println!("{}", style::success(&message));
 
     Ok(())
 }

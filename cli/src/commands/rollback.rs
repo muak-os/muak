@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::style;
+use tui::table::Table;
 
 use crate::client::provision_service::{
     GetRollbackHistoryRequest, provision_service_client::ProvisionServiceClient,
 };
 use crate::format::time::format_timestamp;
-use crate::ui;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -35,12 +36,12 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
     }
 
     if resp.entries.is_empty() {
-        println!("{}", ui::style::muted("No rollback history found."));
+        println!("{}", style::muted("No rollback history found."));
         return Ok(());
     }
 
     let table = resp.entries.iter().fold(
-        ui::table::Table::new().header(&["ROLLED BACK AT", "UPDATE ID", "FAILED IMAGE", "REASON"]),
+        Table::new().header(&["ROLLED BACK AT", "UPDATE ID", "FAILED IMAGE", "REASON"]),
         |table, entry| {
             table.row(&[
                 &format_timestamp(entry.rolled_back_at),
@@ -51,6 +52,6 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
         },
     );
 
-    table.print();
+    table.print()?;
     Ok(())
 }

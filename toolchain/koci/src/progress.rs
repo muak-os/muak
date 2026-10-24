@@ -26,33 +26,3 @@ pub trait Progress: Send + Sync {
 pub struct Noop;
 
 impl Progress for Noop {}
-
-/// Progress observer writing human-readable lines to stderr.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Stderr;
-
-impl Progress for Stderr {
-    fn pulling(&self, reference: &str, arch: &str) {
-        eprintln!("Pulling {reference} for {arch}");
-    }
-
-    fn resolved(&self, layers: usize) {
-        eprintln!("Resolved {layers} layer(s)");
-    }
-
-    fn layer_scanning(&self, index: usize, total: usize, digest: &str) {
-        eprintln!("Scanning layer {index}/{total}: {digest}");
-    }
-
-    fn layer_download_queued(&self, index: usize, total: usize, digest: &str) {
-        eprintln!("Downloading layer {index}/{total}: {digest}");
-    }
-
-    fn layer_downloaded(&self, index: usize, total: usize, digest: &str) {
-        eprintln!("Downloaded layer {index}/{total}: {digest}");
-    }
-
-    fn layer_extracting(&self, index: usize, total: usize, digest: &str) {
-        eprintln!("Extracting layer {index}/{total}: {digest}");
-    }
-}

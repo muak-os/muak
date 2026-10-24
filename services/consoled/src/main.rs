@@ -16,9 +16,9 @@ use granola::runtime::notify::Health;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tokio::time::interval;
+use tui::input::Key;
 
 use crate::app::App;
-use crate::input::InputEvent;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -28,7 +28,7 @@ const EVENT_CHANNEL_CAPACITY: usize = 256;
 enum DaemonEvent {
     Tick,
     Kmsg(String),
-    Input(InputEvent),
+    Input(Key),
     Shutdown,
 }
 
@@ -45,8 +45,11 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.ready()?;
 
-    let mut input_rx =
-        input::spawn(app.tty().file_arc()).context("Failed to spawn input reader")?;
+    let input_file = app
+        .tty()
+        .file_clone()
+        .context("Failed to duplicate TTY for input")?;
+    let mut input_rx = input::spawn(input_file).context("Failed to spawn input reader")?;
     let mut kmsg_rx = app::spawn_kmsg_reader()?;
 
     let (event_tx, mut event_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);

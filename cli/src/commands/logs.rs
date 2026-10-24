@@ -1,11 +1,11 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::style;
 
 use crate::client::log_service::{
     FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry,
     log_service_client::LogServiceClient,
 };
-use crate::ui;
 
 /// Parses a log level name into its proto integer value.
 pub fn parse_level(level: &str) -> Result<i32, String> {
@@ -104,9 +104,9 @@ fn print_entry(entry: &LogEntry) {
     let line = format!("[{}] {}", entry.service, entry.message);
 
     match Level::try_from(entry.level) {
-        Ok(Level::Error) => println!("{}", ui::style::error_text(&line)),
-        Ok(Level::Warn) => println!("{}", ui::style::warn(&line)),
-        Ok(Level::Debug) => println!("{}", ui::style::muted(&line)),
+        Ok(Level::Error) => println!("{}", style::error_text(&line)),
+        Ok(Level::Warn) => println!("{}", style::warn(&line)),
+        Ok(Level::Debug) => println!("{}", style::muted(&line)),
         _ => println!("{line}"),
     }
 }

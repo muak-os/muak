@@ -2,6 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use koci::copy;
+use tui::style;
 
 /// Arguments of the `copy` subcommand.
 #[derive(clap::Args, Debug)]
@@ -23,7 +24,8 @@ pub(crate) fn run(args: Args) -> Result<()> {
     } = args;
 
     copy::run(&source, &destination).context("Failed to copy image")?;
-    println!("Successfully copied {source} to {destination}");
+    let message = format!("Successfully copied {source} to {destination}");
+    println!("{}", style::success(&message));
 
     Ok(())
 }

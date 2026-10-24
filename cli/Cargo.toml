@@ -18,7 +18,6 @@ tokio-rustls = { workspace = true }
 
 # CLI
 clap = { workspace = true, features = ["env"] }
-crossterm = { workspace = true }
 
 # Cryptography
 rustls = { workspace = true }
@@ -40,6 +39,7 @@ hyper-util = { workspace = true }
 # Internal
 pki = { workspace = true }
 config = { workspace = true }
+tui = { workspace = true, features = ["live", "prompt", "size"] }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

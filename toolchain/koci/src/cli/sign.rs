@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use koci::annotations;
+use tui::style;
 
 use super::read_key_file;
 
@@ -31,7 +32,8 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let private_key_pem = read_key_file(&key)?;
 
     annotations::sign(&image, &private_key_pem, &annotation).context("Failed to sign image")?;
-    println!("Successfully signed {image}");
+    let message = format!("Successfully signed {image}");
+    println!("{}", style::success(&message));
 
     Ok(())
 }

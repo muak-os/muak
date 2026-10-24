@@ -1,11 +1,13 @@
 use anyhow::{Context as _, Result};
 use config::user::ClientConfig;
 use tonic::transport::Channel;
+use tui::live::Steps;
+use tui::prompt::Prompter;
+use tui::style;
 
 use crate::client::provision_service::{
     FactoryResetRequest, provision_service_client::ProvisionServiceClient,
 };
-use crate::ui;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
 
@@ -17,23 +19,30 @@ pub async fn handle(
 ) -> Result<()> {
     println!(
         "{}",
-        ui::style::error("WARNING: This will perform a factory reset!")
+        style::error("WARNING: This will perform a factory reset!")
     );
     println!(
         "{}",
-        ui::style::error_text("All data, VMs, and configuration will be permanently deleted.")
+        style::error_text("All data, VMs, and configuration will be permanently deleted.")
     );
     println!(
         "{}",
-        ui::style::error_text("The system will reboot into maintenance mode.\n")
+        style::error_text("The system will reboot into maintenance mode.\n")
     );
 
-    if !force && !ui::prompt::confirm_phrase("", CONFIRM_PHRASE)? {
-        println!("{}", ui::style::warn("Factory reset cancelled."));
-        return Ok(());
+    if !force {
+        let confirmed = match Prompter::stdio() {
+            Some(mut prompter) => prompter.confirm_phrase("", CONFIRM_PHRASE)?,
+            None => false,
+        };
+
+        if !confirmed {
+            println!("{}", style::warn("Factory reset cancelled."));
+            return Ok(());
+        }
     }
 
-    let steps = ui::steps::Steps::new();
+    let steps = Steps::stderr()?;
 
     steps.start("Initiating factory reset...");
 
@@ -43,7 +52,7 @@ pub async fn handle(
         Ok(resp) => resp,
         Err(e) => {
             steps.fail("Factory reset failed");
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(e).context("Failed to send factory reset request");
         }
     };
@@ -53,7 +62,7 @@ pub async fn handle(
     if !resp.success {
         let msg = format!("Factory reset failed: {}", resp.error);
         steps.fail(&msg);
-        steps.finish().await;
+        let _finish_result = steps.finish();
         return Err(anyhow::anyhow!("{msg}"));
     }
 
@@ -69,7 +78,7 @@ pub async fn handle(
     }
 
     steps.start("Rebooting into maintenance mode...");
-    steps.finish().await;
+    steps.finish()?;
 
     Ok(())
 }

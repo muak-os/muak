@@ -1,11 +1,12 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::style;
+use tui::table::Table;
+use tui::units;
 
 use crate::client::provision_service::{
     DiskInfo, ListDisksRequest, provision_service_client::ProvisionServiceClient,
 };
-use crate::format::bytes::format_size;
-use crate::ui;
 
 /// Lists available disks on the system.
 pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
@@ -19,11 +20,11 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
     }
 
     if resp.disks.is_empty() {
-        println!("{}", ui::style::warn("No disks found"));
+        println!("{}", style::warn("No disks found"));
         return Ok(());
     }
 
-    let mut table = ui::table::Table::new().header(&[
+    let mut table = Table::new().header(&[
         "DISK",
         "SIZE",
         "FS",
@@ -35,7 +36,7 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
     ]);
 
     for disk in resp.disks {
-        let size_str = format_size(disk.size_bytes);
+        let size_str = units::bytes(disk.size_bytes);
         let ro_str = if disk.read_only { "Yes" } else { "No" };
         let rem_str = if disk.removable { "Yes" } else { "No" };
         let part_count = disk.partitions.len().to_string();
@@ -54,13 +55,13 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
         table = partition_rows(table, &disk);
     }
 
-    table.print();
+    table.print()?;
 
     Ok(())
 }
 
 /// Appends rows for each partition of a disk to the table.
-fn partition_rows(mut table: ui::table::Table, disk: &DiskInfo) -> ui::table::Table {
+fn partition_rows(mut table: Table, disk: &DiskInfo) -> Table {
     for (idx, part) in disk.partitions.iter().enumerate() {
         let is_last = idx == disk.partitions.len().saturating_sub(1);
         let prefix = if is_last {
@@ -68,7 +69,7 @@ fn partition_rows(mut table: ui::table::Table, disk: &DiskInfo) -> ui::table::Ta
         } else {
             "\u{251C}\u{2500}"
         };
-        let part_size_str = format_size(part.size_bytes);
+        let part_size_str = units::bytes(part.size_bytes);
         let fstype_display = if part.fstype.is_empty() {
             "unknown".to_owned()
         } else {

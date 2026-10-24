@@ -1,13 +1,14 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::style;
+use tui::table::Table;
+use tui::units;
 
 use crate::client::vm_service::{ListVmsRequest, VmInfo, vm_service_client::VmServiceClient};
 use crate::format::{
-    bytes::format_size,
     display::{hypervisor_to_string, vm_state_to_string},
     time::format_timestamp,
 };
-use crate::ui;
 
 /// Lists all VMs.
 pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
@@ -17,11 +18,11 @@ pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
     let resp = response.into_inner();
 
     if resp.vms.is_empty() {
-        println!("{}", ui::style::warn("No VMs"));
+        println!("{}", style::warn("No VMs"));
         return Ok(());
     }
 
-    let mut table = ui::table::Table::new().header(&[
+    let mut table = Table::new().header(&[
         "VM ID",
         "NAME",
         "STATE",
@@ -37,13 +38,13 @@ pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
         table = vm_rows(table, &vm);
     }
 
-    table.print();
+    table.print()?;
 
     Ok(())
 }
 
 /// Appends a row describing a single VM to the table.
-fn vm_rows(table: ui::table::Table, vm: &VmInfo) -> ui::table::Table {
+fn vm_rows(table: Table, vm: &VmInfo) -> Table {
     let created = format_timestamp(vm.created_at);
 
     let pid_str = if vm.pid == -1 {
@@ -62,8 +63,8 @@ fn vm_rows(table: ui::table::Table, vm: &VmInfo) -> ui::table::Table {
     let disk_str = if let Some(usage) = vm.disk_usage.as_ref() {
         format!(
             "{}/{}",
-            format_size(usage.used_bytes),
-            format_size(usage.quota_bytes)
+            units::bytes(usage.used_bytes),
+            units::bytes(usage.quota_bytes)
         )
     } else {
         "-".to_owned()

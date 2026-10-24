@@ -8,6 +8,8 @@ use pki::csr;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
+use tui::live::Steps;
+use tui::style;
 
 use crate::client::{
     connect,
@@ -15,7 +17,6 @@ use crate::client::{
         GetConfigRequest, InstallRequest, provision_service_client::ProvisionServiceClient,
     },
 };
-use crate::ui;
 
 /// Data received upon successful completion of the install process.
 struct CompletedInstall {
@@ -57,7 +58,7 @@ pub async fn handle(
     });
 
     let msg = format!("Installing Muak to {target_disk}...");
-    println!("{}", ui::style::info(&msg));
+    println!("{}", style::info(&msg));
 
     let response = client
         .install(request)
@@ -67,7 +68,7 @@ pub async fn handle(
     let mut stream = response.into_inner();
     let mut result_data: Option<CompletedInstall> = None;
 
-    let steps = ui::steps::Steps::new();
+    let steps = Steps::stderr()?;
 
     while let Some(progress) = stream.next().await {
         let progress = progress.context("Error receiving install progress")?;
@@ -75,7 +76,7 @@ pub async fn handle(
         if !progress.error.is_empty() {
             let msg = format!("Installation failed: {}", progress.error);
             steps.fail(&msg);
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(anyhow::anyhow!("{msg}"));
         }
 
@@ -115,17 +116,17 @@ pub async fn handle(
     client_config.save()?;
 
     let reboot_result = wait_for_reboot(&ctx, &steps).await;
-    steps.finish().await;
+    steps.finish()?;
     reboot_result?;
 
     let msg = format!("Context '{actual_name}' added and set as current.");
-    println!("{}", ui::style::success(&msg));
+    println!("{}", style::success(&msg));
 
     Ok(())
 }
 
 /// Polls the server after reboot to verify the install succeeded.
-async fn wait_for_reboot(ctx: &ServerContext, steps: &ui::steps::Steps) -> Result<()> {
+async fn wait_for_reboot(ctx: &ServerContext, steps: &Steps) -> Result<()> {
     steps.start("Rebooting system...");
     steps.start("Waiting for system to come back online...");
 

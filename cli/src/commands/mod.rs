@@ -17,6 +17,7 @@ pub mod vm;
 use ::config::user::ClientConfig;
 use anyhow::{Result, bail};
 use tonic::transport::Channel;
+use tui::style;
 
 use crate::client::{
     connect, connect_tls_insecure,
@@ -27,7 +28,6 @@ use crate::client::{
     version_service::{GetVersionRequest, version_service_client::VersionServiceClient},
     vm_service::vm_service_client::VmServiceClient,
 };
-use crate::ui;
 use crate::{Cli, Commands};
 
 /// Resolves the connection based on CLI flags and config.
@@ -164,7 +164,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
         Commands::Install { force: false, .. } if has_existing_credentials(cli)? => {
             println!(
                 "{}",
-                ui::style::warn(
+                style::warn(
                     "Existing credentials found for this server. Remove the context to reinstall."
                 )
             );

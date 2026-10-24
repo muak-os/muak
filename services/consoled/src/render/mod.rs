@@ -3,15 +3,11 @@
 mod body;
 mod footer;
 mod header;
-mod span;
 
-use std::io::{self, Write};
+use std::io;
 
-use anyhow::Result;
-use crossterm::cursor::MoveTo;
-use crossterm::queue;
-use crossterm::style::{Print, ResetColor};
-use crossterm::terminal::{Clear, ClearType};
+use tui::screen::Screen;
+use tui::text::Line;
 
 use crate::state::SystemState;
 
@@ -36,43 +32,37 @@ pub enum ScrollMode {
 }
 
 /// Renders the final presentation of the interface.
-pub fn draw<W: Write>(
-    w: &mut W,
+pub fn draw<S: Screen>(
+    screen: &mut S,
     state: &SystemState,
     scroll_mode: ScrollMode,
     cols: u16,
     rows: u16,
     separator: &str,
-) -> Result<()> {
+) -> io::Result<()> {
     let scroll_top = PANEL_ROWS.saturating_add(1);
     let scroll_bot = rows.saturating_sub(FOOTER_ROWS);
     let cursor_park = rows.saturating_sub(FOOTER_ROWS).saturating_sub(1);
 
-    queue!(w, Print(format!("\x1b[{scroll_top};{scroll_bot}r")))?;
+    screen.set_scroll_region(scroll_top, scroll_bot)?;
 
     let mut row = 0_u16;
-    row = header::draw(w, state, row)?;
-    row = draw_separator(w, row, separator)?;
-    body::draw(w, state, cols, row)?;
-    draw_separator(w, row.saturating_add(PANEL_BODY_ROWS), separator)?;
-    draw_separator(w, rows.saturating_sub(FOOTER_ROWS), separator)?;
-    footer::draw(w, scroll_mode, cols, rows)?;
+    row = header::draw(screen, state, row)?;
+    row = draw_separator(screen, row, separator)?;
+    body::draw(screen, state, cols, row)?;
+    draw_separator(screen, row.saturating_add(PANEL_BODY_ROWS), separator)?;
+    draw_separator(screen, rows.saturating_sub(FOOTER_ROWS), separator)?;
+    footer::draw(screen, scroll_mode, cols, rows)?;
 
-    queue!(w, ResetColor, MoveTo(0, cursor_park))?;
+    screen.move_to(0, cursor_park)?;
 
-    w.flush()?;
-
-    Ok(())
+    screen.flush()
 }
 
-/// Clears one full row and parks the cursor at its start.
-pub(crate) fn clear_line(w: &mut impl Write, row: u16) -> io::Result<()> {
-    queue!(w, MoveTo(0, row), Clear(ClearType::CurrentLine))
-}
-
-fn draw_separator(w: &mut impl Write, row: u16, separator: &str) -> io::Result<u16> {
-    clear_line(w, row)?;
-    queue!(w, ResetColor, Print(separator))?;
+fn draw_separator<S: Screen>(screen: &mut S, row: u16, separator: &str) -> io::Result<u16> {
+    screen.clear_line(row)?;
+    let line = Line::plain(0, separator);
+    screen.write_line(row, &line)?;
 
     Ok(row.saturating_add(1))
 }
@@ -80,6 +70,8 @@ fn draw_separator(w: &mut impl Write, row: u16, separator: &str) -> io::Result<u
 #[cfg(test)]
 mod tests {
     use firmware::secureboot::Status;
+    use tui::screen::Ansi;
+    use tui::size::Size;
 
     use super::*;
     use crate::state::{CpuUsage, MemoryInfo, NetInterface, SystemStatus, Uptime};
@@ -115,15 +107,19 @@ mod tests {
         "─".repeat(usize::from(DEFAULT_COLS))
     }
 
+    fn screen() -> Ansi<Vec<u8>> {
+        Ansi::new(Vec::new(), Size::new(DEFAULT_COLS, DEFAULT_ROWS))
+    }
+
     #[test]
     fn draw_produces_output() {
         // ARRANGE
         let state = test_state();
-        let mut buf: Vec<u8> = Vec::new();
+        let mut screen = screen();
 
         // ACT
         draw(
-            &mut buf,
+            &mut screen,
             &state,
             ScrollMode::Live,
             DEFAULT_COLS,
@@ -133,7 +129,7 @@ mod tests {
         .unwrap();
 
         // ASSERT
-        assert_ne!(buf, b"");
+        assert_ne!(screen.into_inner(), b"");
     }
 
     #[test]
@@ -153,11 +149,11 @@ mod tests {
             gateway: None,
             dns_servers: Vec::new(),
         };
-        let mut buf: Vec<u8> = Vec::new();
+        let mut screen = screen();
 
         // ACT
         draw(
-            &mut buf,
+            &mut screen,
             &state,
             ScrollMode::Live,
             DEFAULT_COLS,
@@ -165,17 +161,20 @@ mod tests {
             &separator(),
         )
         .unwrap();
+
+        // ASSERT
+        assert_ne!(screen.into_inner(), b"");
     }
 
     #[test]
     fn draw_scrollback_mode_shows_indicator() {
         // ARRANGE
         let state = test_state();
-        let mut buf: Vec<u8> = Vec::new();
+        let mut screen = screen();
 
         // ACT
         draw(
-            &mut buf,
+            &mut screen,
             &state,
             ScrollMode::Scrollback,
             DEFAULT_COLS,
@@ -185,21 +184,23 @@ mod tests {
         .unwrap();
 
         // ASSERT
-        let output = String::from_utf8_lossy(&buf);
+        let bytes = screen.into_inner();
+        let output = String::from_utf8_lossy(&bytes);
         assert!(output.contains("[SCROLLBACK]"));
     }
-
-    type Delayed = io::LineWriter<Vec<u8>>;
 
     #[test]
     fn draw_flushes_the_writer() {
         // ARRANGE
         let state = test_state();
-        let mut writer: Delayed = io::LineWriter::new(Vec::new());
+        let mut screen = Ansi::new(
+            io::LineWriter::new(Vec::new()),
+            Size::new(DEFAULT_COLS, DEFAULT_ROWS),
+        );
 
         // ACT
         draw(
-            &mut writer,
+            &mut screen,
             &state,
             ScrollMode::Live,
             DEFAULT_COLS,
@@ -209,6 +210,7 @@ mod tests {
         .unwrap();
 
         // ASSERT
+        let writer = screen.into_inner();
         assert!(
             !writer.get_ref().is_empty(),
             "flush must release queued output"

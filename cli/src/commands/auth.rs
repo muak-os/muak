@@ -8,6 +8,7 @@ use config::user::ClientConfig;
 use pki::csr;
 use tokio::time::sleep;
 use tonic::transport::Channel;
+use tui::style;
 
 use crate::client::{
     auth_service::{
@@ -17,7 +18,6 @@ use crate::client::{
     },
     connect_tls_insecure, connect_tls_pinned,
 };
-use crate::ui;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -65,21 +65,21 @@ async fn requests(channel: Channel) -> Result<()> {
     let count = csrs.len().to_string();
     println!(
         "{} pending authentication request(s):\n",
-        ui::style::accent(&count)
+        style::accent(&count)
     );
 
     for csr in csrs {
         let display_fp = short_fingerprint(&csr.fingerprint);
         println!(
             "  {} (submitted: {})",
-            ui::style::highlight(display_fp),
+            style::highlight(display_fp),
             csr.submitted_at
         );
     }
 
     println!(
         "\nTo approve: {} <fingerprint> --permissions admin",
-        ui::style::positive("muakctl auth approve")
+        style::positive("muakctl auth approve")
     );
 
     Ok(())
@@ -109,7 +109,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
         0 => {
             println!(
                 "{}: No pending CSR matches '{fingerprint}'",
-                ui::style::error("Error")
+                style::error("Error")
             );
             return Ok(());
         }
@@ -121,7 +121,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
         _ => {
             println!(
                 "{}: Multiple CSRs match '{fingerprint}'. Please be more specific:",
-                ui::style::error("Error")
+                style::error("Error")
             );
             for csr in matching {
                 println!("  {}", csr.fingerprint);
@@ -131,7 +131,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
     };
 
     let short_fp = short_fingerprint(&full_fingerprint).to_owned();
-    println!("Approving CSR: {}", ui::style::highlight(&short_fp));
+    println!("Approving CSR: {}", style::highlight(&short_fp));
     println!("Permissions: {perms:?}");
 
     auth_client
@@ -142,7 +142,7 @@ async fn approve(channel: Channel, fingerprint: &str, permissions: &str) -> Resu
         .await
         .context("Failed to approve CSR")?;
 
-    println!("\n{} Certificate issued!", ui::style::success("Success:"));
+    println!("\n{} Certificate issued!", style::success("Success:"));
 
     Ok(())
 }
@@ -166,7 +166,7 @@ async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
         0 => {
             println!(
                 "{}: No user matches fingerprint '{fingerprint}'",
-                ui::style::error("Error")
+                style::error("Error")
             );
             return Ok(());
         }
@@ -178,7 +178,7 @@ async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
         _ => {
             println!(
                 "{}: Multiple users match '{fingerprint}'. Please be more specific:",
-                ui::style::error("Error")
+                style::error("Error")
             );
             for user in matching {
                 println!("  {}", user.fingerprint);
@@ -188,7 +188,7 @@ async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
     };
 
     let short_fp = short_fingerprint(&full_fingerprint).to_owned();
-    println!("Revoking certificate: {}", ui::style::highlight(&short_fp));
+    println!("Revoking certificate: {}", style::highlight(&short_fp));
 
     auth_client
         .revoke_cert(RevokeCertRequest {
@@ -197,7 +197,7 @@ async fn revoke(channel: Channel, fingerprint: &str) -> Result<()> {
         .await
         .context("Failed to revoke certificate")?;
 
-    println!("{} Certificate revoked.", ui::style::success("Success:"));
+    println!("{} Certificate revoked.", style::success("Success:"));
 
     Ok(())
 }
@@ -217,25 +217,25 @@ async fn list(channel: Channel) -> Result<()> {
         println!("No authorized users.");
     } else {
         let count = inner.users.len().to_string();
-        println!("{} authorized user(s):\n", ui::style::accent(&count));
+        println!("{} authorized user(s):\n", style::accent(&count));
 
         for user in &inner.users {
             let display_fp = short_fingerprint(&user.fingerprint);
             let perms = user.permissions.join(", ");
             println!(
                 "  {} [{}]",
-                ui::style::positive(display_fp),
-                ui::style::muted(&perms)
+                style::positive(display_fp),
+                style::muted(&perms)
             );
         }
     }
 
     if !inner.revoked_fingerprints.is_empty() {
         let count = inner.revoked_fingerprints.len().to_string();
-        println!("\n{} revoked certificate(s):", ui::style::negative(&count));
+        println!("\n{} revoked certificate(s):", style::negative(&count));
         for fp in &inner.revoked_fingerprints {
             let display_fp = short_fingerprint(fp);
-            println!("  {}", ui::style::muted(display_fp));
+            println!("  {}", style::muted(display_fp));
         }
     }
 
@@ -250,7 +250,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         println!("Already authenticated to {endpoint}.");
         println!(
             "Use '{}' to re-enroll.",
-            ui::style::accent("muakctl context remove <name>")
+            style::accent("muakctl context remove <name>")
         );
         return Ok(());
     }
@@ -259,7 +259,7 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         if let Some(pending) = config.get_pending(endpoint) {
             println!(
                 "Resuming pending enrollment for {}",
-                ui::style::accent(endpoint)
+                style::accent(endpoint)
             );
             let key_pem = pending.key_pem()?;
             (
@@ -288,10 +288,10 @@ pub async fn enroll(endpoint: &str) -> Result<()> {
         };
 
     let display_fp = short_fingerprint(&fingerprint);
-    println!("\nFingerprint: {}", ui::style::highlight(display_fp));
+    println!("\nFingerprint: {}", style::highlight(display_fp));
     println!(
         "Ask an admin to run: {} {}...",
-        ui::style::positive("muakctl auth approve"),
+        style::positive("muakctl auth approve"),
         display_fp
     );
 
@@ -306,7 +306,7 @@ async fn wait_for_approval(
     server_fingerprint: &str,
 ) -> Result<()> {
     let spinner =
-        ui::spinner::Spinner::start("Waiting for admin approval... (Ctrl+C to resume later)");
+        tui::live::Spinner::stderr("Waiting for admin approval... (Ctrl+C to resume later)")?;
 
     let channel = connect_tls_pinned(endpoint, 30, server_fingerprint).await?;
     let mut client = AuthServiceClient::new(channel);
@@ -323,7 +323,7 @@ async fn wait_for_approval(
         match status.status() {
             CsrStatus::Pending => {}
             CsrStatus::Approved => {
-                spinner.success("Approved!").await;
+                spinner.success("Approved!")?;
 
                 let mut config = ClientConfig::load()?;
                 let name = config.complete_enrollment(
@@ -343,21 +343,19 @@ async fn wait_for_approval(
 
                 println!(
                     "Context '{}' created and set as current.",
-                    ui::style::accent(&name)
+                    style::accent(&name)
                 );
                 return Ok(());
             }
             CsrStatus::Rejected => {
-                spinner.fail("Request was rejected by admin.").await;
+                spinner.fail("Request was rejected by admin.")?;
                 let mut config = ClientConfig::load()?;
                 config.cancel_enrollment(endpoint);
                 config.save()?;
                 return Ok(());
             }
             CsrStatus::NotFound => {
-                spinner
-                    .fail("CSR not found on server (may have expired).")
-                    .await;
+                spinner.fail("CSR not found on server (may have expired).")?;
                 println!("Run the command again to submit a new request.");
                 let mut config = ClientConfig::load()?;
                 config.cancel_enrollment(endpoint);

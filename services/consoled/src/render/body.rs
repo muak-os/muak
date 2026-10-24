@@ -1,75 +1,73 @@
 //! Body drawing of the two-column system status.
 
-use std::io::Write;
+use std::io;
 
-use anyhow::Result;
-use crossterm::style::Color;
 use firmware::secureboot::{Mismatch, Status};
+use tui::screen::Screen;
+use tui::style::{AnsiColor, bold_fg, fg};
+use tui::text::{Line, Span};
 
 use super::PANEL_BODY_ROWS;
-use super::clear_line;
-use super::span::{Line, Span};
 use crate::state::{SystemState, SystemStatus};
 
 /// Draws the two-column status body between the separators.
-pub(super) fn draw(
-    w: &mut impl Write,
+pub(super) fn draw<S: Screen>(
+    screen: &mut S,
     state: &SystemState,
     cols: u16,
     start_row: u16,
-) -> Result<()> {
+) -> io::Result<()> {
     let mid_col = cols.div_euclid(2);
 
     let left_lines = build_left(state, 2);
     let right_lines = build_right(state, mid_col);
-
-    let empty_line = Line::default();
+    let empty_line = Line::new(0);
 
     for i in 0..usize::from(PANEL_BODY_ROWS) {
         let row = start_row.saturating_add(u16::try_from(i).unwrap_or(0));
-        clear_line(w, row)?;
-        left_lines.get(i).unwrap_or(&empty_line).write_to(w, row)?;
-        right_lines.get(i).unwrap_or(&empty_line).write_to(w, row)?;
+        screen.clear_line(row)?;
+        screen.write_line(row, left_lines.get(i).unwrap_or(&empty_line))?;
+        screen.write_line(row, right_lines.get(i).unwrap_or(&empty_line))?;
     }
 
     Ok(())
 }
 
-fn build_left(state: &SystemState, col: u16) -> Vec<Line> {
+fn build_left(state: &SystemState, col: u16) -> Vec<Line<'static>> {
     let (status_label, status_color) = match state.system_status {
-        SystemStatus::Installed => ("INSTALLED", Color::Green),
-        SystemStatus::Maintenance => ("MAINTENANCE", Color::Red),
+        SystemStatus::Installed => ("INSTALLED", AnsiColor::Green),
+        SystemStatus::Maintenance => ("MAINTENANCE", AnsiColor::Red),
     };
 
     let (sb_label, sb_color) = match state.secure_boot_mismatch {
-        Some(_) => (short_status(state.secure_boot), Color::Yellow),
+        Some(_) => (short_status(state.secure_boot), AnsiColor::Yellow),
         None => firmware_label(state.secure_boot),
     };
 
     let mut lines = Vec::new();
 
     let mut status_line = Line::new(col);
-    status_line.push(Span::new(Color::White, "STATUS     "));
-    status_line.push(Span::bold(status_color, status_label));
+    status_line.push(Span::styled("STATUS     ", fg(AnsiColor::White)));
+    status_line.push(Span::styled(status_label, bold_fg(status_color)));
     lines.push(status_line);
 
     let mut sb_line = Line::new(col);
-    sb_line.push(Span::new(Color::White, "SECUREBOOT "));
-    sb_line.push(Span::bold(sb_color, sb_label));
+    sb_line.push(Span::styled("SECUREBOOT ", fg(AnsiColor::White)));
+    sb_line.push(Span::styled(sb_label, bold_fg(sb_color)));
     if let Some(mismatch) = state.secure_boot_mismatch {
         let note = mismatch_note(mismatch);
-        sb_line.push(Span::new(Color::Yellow, format!(" ({note})")));
+        sb_line.push(Span::styled(format!(" ({note})"), fg(AnsiColor::Yellow)));
     }
     lines.push(sb_line);
 
     lines
 }
 
-fn firmware_label(status: Status) -> (&'static str, Color) {
+fn firmware_label(status: Status) -> (&'static str, AnsiColor) {
     match status {
-        Status::Enabled => ("Enabled", Color::Green),
-        Status::Pending => ("Pending (firmware reboot required)", Color::Yellow),
-        Status::Disabled => ("Disabled", Color::Red),
+        Status::Enabled => ("Enabled", AnsiColor::Green),
+        Status::Pending => ("Pending (firmware reboot required)", AnsiColor::Yellow),
+        Status::Disabled => ("Disabled", AnsiColor::Red),
     }
 }
 
@@ -89,7 +87,7 @@ fn mismatch_note(mismatch: Mismatch) -> &'static str {
     }
 }
 
-fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
+fn build_right(state: &SystemState, col: u16) -> Vec<Line<'static>> {
     const KEY_WIDTH: u16 = 3;
     let val_col = col.saturating_add(KEY_WIDTH).saturating_add(1);
     let mut lines = Vec::new();
@@ -104,18 +102,18 @@ fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
         lines.push(net_kv_line(col, "IP", "none"));
     } else {
         let mut ip_line = Line::new(col);
-        ip_line.push(Span::new(
-            Color::White,
+        ip_line.push(Span::styled(
             format!("{:<width$} ", "IP", width = usize::from(KEY_WIDTH)),
+            fg(AnsiColor::White),
         ));
-        ip_line.push(Span::reset(
+        ip_line.push(Span::plain(
             all_addrs.first().copied().unwrap_or_default().to_owned(),
         ));
         lines.push(ip_line);
 
         for addr in all_addrs.iter().skip(1).take(2) {
             let mut cont = Line::new(val_col);
-            cont.push(Span::reset((*addr).to_owned()));
+            cont.push(Span::plain((*addr).to_owned()));
             lines.push(cont);
         }
     }
@@ -135,10 +133,10 @@ fn build_right(state: &SystemState, col: u16) -> Vec<Line> {
     lines
 }
 
-fn net_kv_line(col: u16, key: &str, val: &str) -> Line {
+fn net_kv_line(col: u16, key: &str, val: &str) -> Line<'static> {
     let mut line = Line::new(col);
-    line.push(Span::new(Color::White, format!("{key:<3} ")));
-    line.push(Span::reset(val.to_owned()));
+    line.push(Span::styled(format!("{key:<3} "), fg(AnsiColor::White)));
+    line.push(Span::plain(val.to_owned()));
 
     line
 }
@@ -196,10 +194,14 @@ mod tests {
             panic!("expected SECUREBOOT line, got: {lines:?}");
         };
         let pending = sb_line
-            .spans
+            .spans()
             .iter()
-            .any(|span| span.text == "Pending (firmware reboot required)");
-        assert!(pending, "expected pending label, got: {:?}", sb_line.spans);
+            .any(|span| span.text() == "Pending (firmware reboot required)");
+        assert!(
+            pending,
+            "expected pending label, got: {:?}",
+            sb_line.spans()
+        );
     }
 
     #[test]
@@ -217,10 +219,10 @@ mod tests {
             panic!("expected SECUREBOOT line, got: {lines:?}");
         };
         let note = sb_line
-            .spans
+            .spans()
             .iter()
-            .any(|span| span.text == " (still enforced)");
-        assert!(note, "expected mismatch note, got: {:?}", sb_line.spans);
+            .any(|span| span.text() == " (still enforced)");
+        assert!(note, "expected mismatch note, got: {:?}", sb_line.spans());
     }
 
     #[test]
@@ -244,7 +246,7 @@ mod tests {
         let ip_rows = lines
             .iter()
             .take(3)
-            .filter(|line| !line.spans.is_empty())
+            .filter(|line| !line.spans().is_empty())
             .count();
         assert_eq!(ip_rows, 3);
     }
@@ -263,7 +265,7 @@ mod tests {
         assert!(
             lines
                 .first()
-                .is_some_and(|line| line.spans.iter().any(|span| span.text.contains("none")))
+                .is_some_and(|line| line.spans().iter().any(|span| span.text().contains("none")))
         );
     }
 }

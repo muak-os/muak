@@ -1,44 +1,28 @@
 //! Raw TTY input reader for decoding VT escape sequences and plain keys.
 
-extern crate alloc;
-
-mod escape;
-
-use alloc::sync::Arc;
 use core::time::Duration;
 use std::fs::File;
 use std::io::{self, Read as _};
 
 use anyhow::Result;
-use escape::Decoder;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-
-/// Events emitted by the input reader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputEvent {
-    Up,
-    Down,
-    PageUp,
-    PageDown,
-    End,
-    Escape,
-}
+use tui::input::{Decoder, Key};
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const READ_BUF_SIZE: usize = 16;
 const SPLIT_SEQUENCE_TIMEOUT: Duration = Duration::from_millis(50);
 
-/// Spawns the input reader on `file`, emitting decoded events on the receiver.
+/// Spawns the input reader on `file`, emitting decoded keys on the receiver.
 ///
 /// # Errors
 ///
 /// Returns an error when the file descriptor cannot be registered for asynchronous notifications.
-pub fn spawn(file: Arc<File>) -> Result<mpsc::Receiver<InputEvent>> {
+pub fn spawn(file: File) -> Result<mpsc::Receiver<Key>> {
     let (tx, rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
-    // SAFETY: the file descriptor behind `file` stays open while the `AsyncFd` holds this
-    // `Arc`, and `as_raw_fd` keeps returning that same descriptor.
+    // SAFETY: `file` uniquely owns the descriptor and stays open for the lifetime of
+    // the `AsyncFd`, so the registered descriptor remains valid and unchanged.
     let async_fd = unsafe { AsyncFd::register(file) }.map_err(io::Error::from)?;
 
     tokio::spawn(async move {
@@ -48,13 +32,13 @@ pub fn spawn(file: Arc<File>) -> Result<mpsc::Receiver<InputEvent>> {
     Ok(rx)
 }
 
-async fn run(async_fd: AsyncFd<Arc<File>>, tx: mpsc::Sender<InputEvent>) -> Result<()> {
+async fn run(async_fd: AsyncFd<File>, tx: mpsc::Sender<Key>) -> Result<()> {
     let mut buf = [0_u8; READ_BUF_SIZE];
     let mut decoder = Decoder::default();
 
     loop {
-        let (events, eof) = poll_events(&async_fd, &mut decoder, &mut buf).await?;
-        send_events(events, &tx).await?;
+        let (keys, eof) = poll_events(&async_fd, &mut decoder, &mut buf).await?;
+        send_keys(keys, &tx).await?;
         if eof {
             break;
         }
@@ -64,35 +48,35 @@ async fn run(async_fd: AsyncFd<Arc<File>>, tx: mpsc::Sender<InputEvent>) -> Resu
 }
 
 async fn poll_events(
-    fd: &AsyncFd<Arc<File>>,
+    fd: &AsyncFd<File>,
     decoder: &mut Decoder,
     buf: &mut [u8],
-) -> Result<(Vec<InputEvent>, bool)> {
+) -> Result<(Vec<Key>, bool)> {
     let n = read_once(fd, buf).await?;
     if n == 0 {
         return Ok((Vec::new(), true));
     }
 
-    let mut events = decoder.push(buf.get(..n).unwrap_or_default());
+    let mut keys = decoder.push(buf.get(..n).unwrap_or_default());
 
     while decoder.has_pending() {
         let Ok(Ok(n)) = timeout(SPLIT_SEQUENCE_TIMEOUT, read_once(fd, buf)).await else {
-            events.extend(decoder.flush());
-            return Ok((events, false));
+            keys.extend(decoder.flush());
+            return Ok((keys, false));
         };
         if n == 0 {
-            return Ok((events, true));
+            return Ok((keys, true));
         }
-        events.extend(decoder.push(buf.get(..n).unwrap_or_default()));
+        keys.extend(decoder.push(buf.get(..n).unwrap_or_default()));
     }
 
-    Ok((events, false))
+    Ok((keys, false))
 }
 
-async fn read_once(fd: &AsyncFd<Arc<File>>, buf: &mut [u8]) -> io::Result<usize> {
+async fn read_once(fd: &AsyncFd<File>, buf: &mut [u8]) -> io::Result<usize> {
     let mut guard = fd.readable().await?;
     loop {
-        match guard.get_inner().as_ref().read(buf) {
+        match guard.get_inner().read(buf) {
             Ok(n) => {
                 guard.clear_ready();
                 return Ok(n);
@@ -106,9 +90,9 @@ async fn read_once(fd: &AsyncFd<Arc<File>>, buf: &mut [u8]) -> io::Result<usize>
     }
 }
 
-async fn send_events(events: Vec<InputEvent>, tx: &mpsc::Sender<InputEvent>) -> Result<()> {
-    for event in events {
-        tx.send(event).await?;
+async fn send_keys(keys: Vec<Key>, tx: &mpsc::Sender<Key>) -> Result<()> {
+    for key in keys {
+        tx.send(key).await?;
     }
 
     Ok(())

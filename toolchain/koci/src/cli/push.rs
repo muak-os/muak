@@ -4,6 +4,7 @@ use anyhow::{Context as _, Result};
 use koci::{error, push};
 use oci::arch;
 use oci::arch::Arch;
+use tui::style;
 
 use super::parse_arch;
 
@@ -45,7 +46,8 @@ pub(crate) fn run(args: Args) -> Result<()> {
 
     let pushed =
         push::files(&image, &tags, &target_arch, &entries).context("Failed to push image")?;
-    println!("Successfully pushed {image} (manifest {})", pushed.digest);
+    let message = format!("Successfully pushed {image} (manifest {})", pushed.digest);
+    println!("{}", style::success(&message));
 
     Ok(())
 }

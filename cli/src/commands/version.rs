@@ -3,11 +3,11 @@
 use anyhow::Result;
 use config::version::CompatibilityStatus;
 use tonic::transport::Channel;
+use tui::style;
 
 use crate::client::version_service::{
     GetVersionRequest, version_service_client::VersionServiceClient,
 };
-use crate::ui;
 
 /// Fetches the server version string via gRPC.
 pub async fn fetch_server(channel: Channel) -> Option<String> {
@@ -22,17 +22,17 @@ pub async fn fetch_server(channel: Channel) -> Option<String> {
 /// Handles the `version` command: prints client/server versions and any warnings.
 pub async fn handle(channel: Channel) -> Result<()> {
     let client_ver = env!("CARGO_PKG_VERSION");
-    println!("{} {}", ui::style::label("Client:"), client_ver);
+    println!("{} {}", style::label("Client:"), client_ver);
 
     match fetch_server(channel).await {
         None => {
             eprintln!(
                 "{} server does not support version reporting (consider updating the server)",
-                ui::style::warn("Warning:")
+                style::stderr().warn("Warning:")
             );
         }
         Some(ref server_ver) => {
-            println!("{} {}", ui::style::label("Server:"), server_ver);
+            println!("{} {}", style::label("Server:"), server_ver);
             print_compat_warning(client_ver, server_ver);
         }
     }
@@ -74,5 +74,5 @@ pub fn print_compat_warning(client_ver: &str, server_ver: &str) {
         }
     };
 
-    eprintln!("{} {}", ui::style::warn("Warning:"), msg);
+    eprintln!("{} {}", style::stderr().warn("Warning:"), msg);
 }

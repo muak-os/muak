@@ -1,22 +1,21 @@
 //! Header drawing of the summary status line.
 
-use std::io::Write;
+use std::io;
 
-use anyhow::Result;
-use crossterm::cursor::MoveTo;
-use crossterm::queue;
-use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
+use tui::screen::Screen;
+use tui::style::{AnsiColor, bold_fg};
+use tui::text::{Line, Span};
+use tui::units;
 
-use super::clear_line;
 use crate::state::SystemState;
 
 /// Draws the summary header line and returns the next row.
-pub(super) fn draw(w: &mut impl Write, state: &SystemState, row: u16) -> Result<u16> {
+pub(super) fn draw<S: Screen>(screen: &mut S, state: &SystemState, row: u16) -> io::Result<u16> {
     let uptime = &state.uptime;
-    let total_gib = format_gib(state.memory.total_kb);
+    let total = units::bytes(state.memory.total_kb.saturating_mul(1024));
 
     let summary = format!(
-        "up {}d {}h {}m, {total_gib} GiB RAM, CPU {:.1}%, RAM {:.1}%",
+        "up {}d {}h {}m, {total} RAM, CPU {:.1}%, RAM {:.1}%",
         uptime.days,
         uptime.hours,
         uptime.minutes,
@@ -24,52 +23,17 @@ pub(super) fn draw(w: &mut impl Write, state: &SystemState, row: u16) -> Result<
         state.memory.percent(),
     );
 
-    clear_line(w, row)?;
-    queue!(
-        w,
-        MoveTo(0, row),
-        SetForegroundColor(Color::Cyan),
-        SetAttribute(Attribute::Bold),
-        Print(format!("  {}", state.hostname)),
-        SetAttribute(Attribute::Reset),
-        ResetColor,
-        Print(format!(" (v{})", state.version)),
-        Print(": "),
-        Print(summary),
-    )?;
+    let mut line = Line::new(0);
+    line.push(Span::styled(
+        format!("  {}", state.hostname),
+        bold_fg(AnsiColor::Cyan),
+    ));
+    line.push(Span::plain(format!(" (v{})", state.version)));
+    line.push(Span::plain(": "));
+    line.push(Span::plain(summary));
+
+    screen.clear_line(row)?;
+    screen.write_line(row, &line)?;
 
     Ok(row.saturating_add(1))
-}
-
-fn format_gib(total_kb: u64) -> String {
-    const GIB_IN_KB: u64 = 1024 * 1024;
-    let mut whole = total_kb.div_euclid(GIB_IN_KB);
-    let mut fraction = total_kb
-        .rem_euclid(GIB_IN_KB)
-        .wrapping_mul(10)
-        .wrapping_mul(2)
-        .wrapping_add(GIB_IN_KB)
-        .div_euclid(GIB_IN_KB.wrapping_mul(2));
-    if fraction >= 10 {
-        fraction = fraction.rem_euclid(10);
-        whole = whole.saturating_add(1);
-    }
-
-    format!("{whole}.{fraction}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_gib_rounds_to_one_decimal() {
-        // ARRANGE
-        let kib = 1024 * 1024;
-
-        // ACT / ASSERT
-        assert_eq!(format_gib(kib), "1.0");
-        assert_eq!(format_gib(kib * 2), "2.0");
-        assert_eq!(format_gib(0), "0.0");
-    }
 }

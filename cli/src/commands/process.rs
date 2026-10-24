@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::style;
+use tui::table::Table;
 
 use crate::client::process_service::{
     ListProcessesRequest, process_service_client::ProcessServiceClient,
 };
 use crate::format::time::format_timestamp;
-use crate::ui;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -28,11 +29,11 @@ async fn list(client: &mut ProcessServiceClient<Channel>) -> Result<()> {
     let resp = response.into_inner();
 
     if resp.processes.is_empty() {
-        println!("{}", ui::style::warn("No processes running"));
+        println!("{}", style::warn("No processes running"));
         return Ok(());
     }
 
-    let mut table = ui::table::Table::new().header(&["PID", "COMMAND", "STATUS", "STARTED"]);
+    let mut table = Table::new().header(&["PID", "COMMAND", "STATUS", "STARTED"]);
 
     for process in resp.processes {
         let started = format_timestamp(process.started_at);
@@ -40,6 +41,6 @@ async fn list(client: &mut ProcessServiceClient<Channel>) -> Result<()> {
         table = table.row(&[&pid_str, &process.command, &process.status, &started]);
     }
 
-    table.print();
+    table.print()?;
     Ok(())
 }

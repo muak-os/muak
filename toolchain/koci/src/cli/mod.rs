@@ -1,11 +1,13 @@
 //! Command-line interface for koci.
 
 use std::ffi::OsString;
+use std::io;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use oci::arch::Arch;
+use tui::style;
 
 mod copy;
 mod digest;
@@ -59,7 +61,16 @@ where
     match run_from(args) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("Error: {error:?}");
+            if error
+                .chain()
+                .filter_map(|cause| cause.downcast_ref::<io::Error>())
+                .any(|cause| cause.kind() == io::ErrorKind::BrokenPipe)
+            {
+                return 0;
+            }
+
+            eprintln!("{} {error:?}", style::stderr().error("Error:"));
+
             1
         }
     }

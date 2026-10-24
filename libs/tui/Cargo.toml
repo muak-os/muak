@@ -1,0 +1,30 @@
+[package]
+name = "tui"
+description = "Terminal presentation toolkit"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# CLI
+anstyle = { workspace = true }
+unicode-width = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, optional = true, features = ["stdio", "termios"] }
+
+[features]
+default = []
+size = ["dep:rustix"]
+live = []
+prompt = []
+input = []
+raw = ["dep:rustix"]
+
+[lints]
+workspace = true

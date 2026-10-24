@@ -1,12 +1,12 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::style;
 
 use crate::client::security_service::{
     GetSecurityStateRequest, SecureBootDeviation, SecureBootState,
     security_service_client::SecurityServiceClient,
 };
-use crate::ui;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -22,7 +22,7 @@ pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action)
                 .await?;
             let resp = response.into_inner();
 
-            println!("{}", ui::style::header("Security State"));
+            println!("{}", style::header("Security State"));
 
             let status = firmware_status(resp.secure_boot);
             println!("  Secure Boot: {status}");
@@ -36,7 +36,7 @@ pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action)
             let deviation = SecureBootDeviation::try_from(resp.deviation)
                 .unwrap_or(SecureBootDeviation::Unspecified);
             if let Some(warning) = deviation_warning(deviation) {
-                println!("  {}", ui::style::warn(&format!("Warning: {warning}")));
+                println!("  {}", style::warn(&format!("Warning: {warning}")));
             }
         }
     }
@@ -46,20 +46,20 @@ pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action)
 
 fn firmware_status(value: i32) -> String {
     match SecureBootState::try_from(value).unwrap_or(SecureBootState::Unspecified) {
-        SecureBootState::Enabled => ui::style::positive("Enabled").to_string(),
-        SecureBootState::Disabled => ui::style::negative("Disabled").to_string(),
+        SecureBootState::Enabled => style::positive("Enabled").to_string(),
+        SecureBootState::Disabled => style::negative("Disabled").to_string(),
         SecureBootState::Pending => {
-            ui::style::highlight("Pending (firmware reboot required)").to_string()
+            style::highlight("Pending (firmware reboot required)").to_string()
         }
-        SecureBootState::Unspecified => ui::style::negative("Unknown").to_string(),
+        SecureBootState::Unspecified => style::negative("Unknown").to_string(),
     }
 }
 
 fn toggle(value: bool, as_positive: bool) -> String {
     if value == as_positive {
-        ui::style::positive(if value { "Enabled" } else { "Disabled" }).to_string()
+        style::positive(if value { "Enabled" } else { "Disabled" }).to_string()
     } else {
-        ui::style::negative(if value { "Enabled" } else { "Disabled" }).to_string()
+        style::negative(if value { "Enabled" } else { "Disabled" }).to_string()
     }
 }
 

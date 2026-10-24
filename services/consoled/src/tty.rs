@@ -1,8 +1,5 @@
 //! TTY device access for rendering to a virtual console.
 
-extern crate alloc;
-
-use alloc::sync::Arc;
 use std::fs::File;
 use std::io::{self, BufWriter};
 use std::os::fd::AsFd as _;
@@ -10,18 +7,17 @@ use std::os::fd::AsFd as _;
 use anyhow::{Context as _, Result};
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
-use rustix::termios::{
-    ControlModes, InputModes, LocalModes, OptionalActions, OutputModes, SpecialCodeIndex, Termios,
-    tcgetattr, tcgetwinsize, tcsetattr,
-};
+use tui::raw::{self, Original};
+use tui::screen::{Ansi, Screen as _};
+use tui::size::{self, Size};
 
 const TTY_PATH: &str = "/dev/tty0";
 
 /// A raw TTY handle with terminal mode management.
 pub struct Tty {
-    file: Arc<File>,
+    file: File,
     out: BufWriter<File>,
-    original_termios: Termios,
+    original: Original,
 }
 
 impl Tty {
@@ -40,47 +36,44 @@ impl Tty {
             }
         };
 
-        let file: Arc<File> = Arc::new(fd.into());
-
+        let file = File::from(fd);
         let out = BufWriter::new(
             file.try_clone()
                 .context("failed to duplicate tty descriptor for buffered output")?,
         );
-
-        let original_termios = tcgetattr(file.as_fd())
-            .with_context(|| format!("failed to get terminal attributes for {TTY_PATH}"))?;
-
-        let mut raw = original_termios.clone();
-        make_raw(&mut raw);
-
-        tcsetattr(file.as_fd(), OptionalActions::Flush, &raw)
+        let original = raw::enable(file.as_fd())
             .with_context(|| format!("failed to set terminal attributes for {TTY_PATH}"))?;
 
         Ok(Some(Self {
             file,
             out,
-            original_termios,
+            original,
         }))
     }
 
-    /// Returns `(cols, rows)` by querying `TIOCGWINSZ` on the TTY fd.
-    pub fn size(&self) -> (u16, u16) {
-        tcgetwinsize(self.file.as_fd()).map_or((80, 25), |ws| (ws.ws_col, ws.ws_row))
+    /// Returns the terminal dimensions.
+    pub fn size(&self) -> Size {
+        size::of(self.file.as_fd())
     }
 
-    /// Returns a cloned reference to the underlying file for async I/O.
-    pub fn file_arc(&self) -> Arc<File> {
-        Arc::clone(&self.file)
+    /// Returns a cloned file handle for asynchronous input.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the descriptor cannot be duplicated.
+    pub fn file_clone(&self) -> io::Result<File> {
+        self.file.try_clone()
     }
 }
 
 impl Drop for Tty {
     fn drop(&mut self) {
-        let _restore_result = tcsetattr(
-            self.file.as_fd(),
-            OptionalActions::Flush,
-            &self.original_termios,
-        );
+        let size = size::of(self.file.as_fd());
+        let mut screen = Ansi::new(&mut self.out, size);
+        let _show_result = screen.show_cursor();
+        let _reset_result = screen.reset_scroll_region();
+        let _flush_result = screen.flush();
+        let _restore_result = raw::restore(self.file.as_fd(), &self.original);
     }
 }
 
@@ -92,30 +85,4 @@ impl io::Write for Tty {
     fn flush(&mut self) -> io::Result<()> {
         self.out.flush()
     }
-}
-
-/// Equivalent of `libc::cfmakeraw()` using `rustix` termios types.
-fn make_raw(termios: &mut Termios) {
-    termios.input_modes &= !(InputModes::IGNBRK
-        | InputModes::BRKINT
-        | InputModes::PARMRK
-        | InputModes::ISTRIP
-        | InputModes::INLCR
-        | InputModes::IGNCR
-        | InputModes::ICRNL
-        | InputModes::IXON);
-
-    termios.output_modes &= !OutputModes::OPOST;
-
-    termios.local_modes &= !(LocalModes::ECHO
-        | LocalModes::ECHONL
-        | LocalModes::ICANON
-        | LocalModes::ISIG
-        | LocalModes::IEXTEN);
-
-    termios.control_modes &= !(ControlModes::CSIZE | ControlModes::PARENB);
-    termios.control_modes |= ControlModes::CS8;
-
-    termios.special_codes[SpecialCodeIndex::VMIN] = 1;
-    termios.special_codes[SpecialCodeIndex::VTIME] = 0;
 }

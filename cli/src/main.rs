@@ -5,8 +5,8 @@ extern crate alloc;
 mod client;
 mod commands;
 mod format;
-pub mod ui;
 
+use std::io;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -17,6 +17,7 @@ use commands::process::Action as ProcessAction;
 use commands::rollback::Action as RollbackAction;
 use commands::security::Action as SecurityAction;
 use commands::vm::Action as VmAction;
+use tui::style;
 
 #[derive(Parser)]
 #[command(name = "muak")]
@@ -107,10 +108,19 @@ pub enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    if let Err(e) = commands::run(cli).await {
-        handle_error(&e);
-        std::process::exit(1);
+    let Err(e) = commands::run(cli).await else {
+        return;
+    };
+
+    if e.chain()
+        .filter_map(|cause| cause.downcast_ref::<io::Error>())
+        .any(|cause| cause.kind() == io::ErrorKind::BrokenPipe)
+    {
+        return;
     }
+
+    handle_error(&e);
+    std::process::exit(1);
 }
 
 /// Handles and displays errors with user-friendly messages.
@@ -144,14 +154,14 @@ fn handle_error(err: &anyhow::Error) {
         };
         eprintln!(
             "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(msg)
+            style::stderr().error("Error:"),
+            style::stderr().error_text(msg)
         );
     } else {
         eprintln!(
             "{} {}",
-            ui::style::error("Error:"),
-            ui::style::error_text(&format!("{err:#}"))
+            style::stderr().error("Error:"),
+            style::stderr().error_text(&format!("{err:#}"))
         );
     }
 }

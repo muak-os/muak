@@ -4,11 +4,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use koci::error;
-use koci::progress::Stderr;
 use koci::pull;
 use koci::signature::Verification;
+use koci::ui::Reporter;
 use oci::arch;
 use oci::arch::Arch;
+use tui::live::Steps;
+use tui::style;
 
 use super::{parse_arch, read_key_file};
 
@@ -57,16 +59,29 @@ pub(crate) fn run(args: Args) -> Result<()> {
 
     let target_arch = arch.unwrap_or(arch::host());
 
-    pull::files(
+    let steps = Steps::stderr()?;
+    let progress = Reporter::new(steps.handle());
+    let result = pull::files(
         &image,
         &target_arch,
         verification.as_ref(),
-        &Stderr,
+        &progress,
         |entry| write_entry_to_dir(entry, &output),
     )
-    .context("Failed to stream image")?;
+    .context("Failed to stream image");
 
-    println!("Successfully extracted image to {}", output.display());
+    if let Err(error) = result {
+        steps.fail(format!("Pull failed: {error}"));
+        let _finish_result = steps.finish();
+
+        return Err(error);
+    }
+
+    steps.complete(format!("Extracted image to {}", output.display()));
+    steps.finish()?;
+
+    let message = format!("Successfully extracted image to {}", output.display());
+    println!("{}", style::success(&message));
 
     Ok(())
 }

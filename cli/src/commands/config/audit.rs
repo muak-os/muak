@@ -2,13 +2,14 @@
 
 use anyhow::{Context as _, Result};
 use tonic::transport::Channel;
+use tui::style::{self, Role};
+use tui::table::{Cell, Table};
 
 use crate::client::provision_service::{
     ConfigHistoryEntry, GetConfigHistoryRequest, provision_service_client::ProvisionServiceClient,
 };
 use crate::commands::config::fetch_snapshot;
 use crate::format::time::format_timestamp;
-use crate::ui;
 
 pub(crate) async fn history(channel: Channel, limit: u32) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
@@ -22,12 +23,12 @@ pub(crate) async fn history(channel: Channel, limit: u32) -> Result<()> {
     }
 
     if resp.entries.is_empty() {
-        println!("{}", ui::style::muted("No config history found."));
+        println!("{}", style::muted("No config history found."));
         return Ok(());
     }
 
     let table = resp.entries.iter().fold(
-        ui::table::Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR"]),
+        Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR"]),
         |table, entry| {
             table.row(&[
                 &format_timestamp(entry.timestamp),
@@ -38,7 +39,7 @@ pub(crate) async fn history(channel: Channel, limit: u32) -> Result<()> {
         },
     );
 
-    table.print();
+    table.print()?;
     Ok(())
 }
 
@@ -63,10 +64,7 @@ pub(crate) async fn diff(channel: Channel, from: Option<String>, to: Option<Stri
                 let after = fetch_snapshot(&mut client, &to_id).await?;
                 (before, after)
             } else {
-                println!(
-                    "{}",
-                    ui::style::muted("No previous entry to compare against.")
-                );
+                println!("{}", style::muted("No previous entry to compare against."));
                 return Ok(());
             }
         }
@@ -80,20 +78,21 @@ pub(crate) async fn diff(channel: Channel, from: Option<String>, to: Option<Stri
     let changes = config::system::diff(&from, &to).context("Failed to diff configs")?;
 
     if changes.is_empty() {
-        println!("{}", ui::style::muted("No differences found."));
+        println!("{}", style::muted("No differences found."));
         return Ok(());
     }
 
-    let mut table = ui::table::Table::new().header(&["FIELD", "BEFORE", "AFTER"]);
+    let theme = style::stdout();
+    let mut table = Table::new().header(&["FIELD", "BEFORE", "AFTER"]);
     for (field, before, after) in changes {
-        table = table.row(&[
-            field.as_str(),
-            &ui::style::negative(&before).to_string(),
-            &ui::style::positive(&after).to_string(),
+        table = table.row_cells(vec![
+            Cell::plain(field),
+            Cell::styled(before, theme.style(Role::Negative)),
+            Cell::styled(after, theme.style(Role::Positive)),
         ]);
     }
 
-    table.print();
+    table.print()?;
     Ok(())
 }
 

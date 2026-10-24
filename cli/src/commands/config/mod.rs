@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::style;
 
 use crate::client::provision_service::{
     GetConfigRequest, GetConfigSnapshotRequest, GetDefaultConfigRequest,
     provision_service_client::ProvisionServiceClient,
 };
-use crate::ui;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -73,7 +73,7 @@ async fn get(channel: Channel, from: Option<String>, output: Option<PathBuf>) ->
                 .with_context(|| format!("Failed to write config to {}", path.display()))?;
             println!(
                 "{}",
-                ui::style::success(&format!("Config written to {}", path.display()))
+                style::success(&format!("Config written to {}", path.display()))
             );
         }
         None => print!("{config}"),

@@ -2,15 +2,17 @@
 
 use anyhow::{Context as _, Result};
 use tonic::transport::Channel;
+use tui::live::Steps;
+use tui::prompt::Prompter;
+use tui::style;
 
 use crate::client::provision_service::{
     RebootRequest, ShutdownRequest, provision_service_client::ProvisionServiceClient,
 };
-use crate::ui;
 
 /// Requests a reboot of the target system.
 pub async fn reboot(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
-    let steps = ui::steps::Steps::new();
+    let steps = Steps::stderr()?;
 
     steps.start("Requesting reboot...");
 
@@ -20,24 +22,29 @@ pub async fn reboot(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
         Ok(_) => steps.complete("Reboot scheduled, the system will restart shortly"),
         Err(e) => {
             steps.fail("Reboot request failed");
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(e).context("Failed to send reboot request");
         }
     }
 
-    steps.finish().await;
+    steps.finish()?;
 
     Ok(())
 }
 
 /// Requests a shutdown of the target system.
 pub async fn shutdown(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
-    if !ui::prompt::confirm("Shutdown the system?")? {
-        println!("{}", ui::style::warn("Shutdown cancelled."));
+    let confirmed = match Prompter::stdio() {
+        Some(mut prompter) => prompter.confirm("Shutdown the system?")?,
+        None => false,
+    };
+
+    if !confirmed {
+        println!("{}", style::warn("Shutdown cancelled."));
         return Ok(());
     }
 
-    let steps = ui::steps::Steps::new();
+    let steps = Steps::stderr()?;
 
     steps.start("Requesting shutdown...");
 
@@ -47,12 +54,12 @@ pub async fn shutdown(client: &mut ProvisionServiceClient<Channel>) -> Result<()
         Ok(_) => steps.complete("Shutdown scheduled, the system will power off shortly"),
         Err(e) => {
             steps.fail("Shutdown request failed");
-            steps.finish().await;
+            let _finish_result = steps.finish();
             return Err(e).context("Failed to send shutdown request");
         }
     }
 
-    steps.finish().await;
+    steps.finish()?;
 
     Ok(())
 }

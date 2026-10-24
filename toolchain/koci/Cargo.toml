@@ -43,10 +43,21 @@ thiserror = { workspace = true }
 # Internal
 oci = { workspace = true }
 oci-client = { workspace = true }
+tui = { workspace = true, optional = true, features = ["live", "size"] }
 
 [features]
 default = ["cli"]
-cli = ["copy", "anyhow", "clap", "merge", "pull", "push", "sign"]
+cli = [
+    "copy",
+    "anyhow",
+    "clap",
+    "merge",
+    "pull",
+    "push",
+    "sign",
+    "ui",
+]
+ui = ["dep:tui"]
 copy = ["dep:bytes", "json", "registry"]
 merge = ["dep:bytes", "json", "registry"]
 pull = [

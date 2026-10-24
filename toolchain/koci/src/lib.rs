@@ -29,3 +29,5 @@ mod runtime;
 pub mod signature;
 #[cfg(feature = "stargz")]
 pub mod stargz;
+#[cfg(feature = "ui")]
+pub mod ui;

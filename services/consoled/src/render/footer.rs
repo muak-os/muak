@@ -1,13 +1,12 @@
 //! Footer drawing of the bottom info row with key hints and scroll mode.
 
-use std::io::Write;
+use std::io;
 
-use anyhow::Result;
-use crossterm::cursor::MoveTo;
-use crossterm::queue;
-use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
+use tui::screen::Screen;
+use tui::style::{AnsiColor, fg};
+use tui::text::{self, Line, Span};
 
-use super::{ScrollMode, clear_line};
+use super::ScrollMode;
 
 const HINT_SEGMENTS: [(&str, bool); 5] = [
     ("  ", false),
@@ -16,15 +15,14 @@ const HINT_SEGMENTS: [(&str, bool); 5] = [
     ("j/k", true),
     (" scroll", false),
 ];
-const HINT_KEY_COLOR: Color = Color::Cyan;
 
 /// Draws the bottom footer with the scroll-mode indicator.
-pub(super) fn draw(
-    w: &mut impl Write,
+pub(super) fn draw<S: Screen>(
+    screen: &mut S,
     scroll_mode: ScrollMode,
     cols: u16,
     rows: u16,
-) -> Result<()> {
+) -> io::Result<()> {
     let info_row = rows.saturating_sub(1);
 
     let (mode_label, esc_hint) = match scroll_mode {
@@ -33,47 +31,41 @@ pub(super) fn draw(
     };
 
     let right = format!("{esc_hint}  {mode_label}  ");
-    let hint_len: usize = hint_visible_len();
-    let right_len = right.chars().count();
+    let hint_len: usize = HINT_SEGMENTS
+        .iter()
+        .map(|segment| text::width(segment.0))
+        .sum();
+    let right_len = text::width(&right);
     let padding = usize::from(cols).saturating_sub(hint_len.saturating_add(right_len));
 
-    clear_line(w, info_row)?;
-    queue!(w, MoveTo(0, info_row), ResetColor)?;
-    for (text, key) in HINT_SEGMENTS {
+    let mut line = Line::new(0);
+    for (content, key) in HINT_SEGMENTS {
         if key {
-            queue!(
-                w,
-                SetForegroundColor(HINT_KEY_COLOR),
-                Print(text),
-                ResetColor
-            )?;
+            line.push(Span::styled(content, fg(AnsiColor::Cyan)));
         } else {
-            queue!(w, Print(text))?;
+            line.push(Span::plain(content));
         }
     }
-    queue!(
-        w,
-        Print(" ".repeat(padding)),
-        SetForegroundColor(match scroll_mode {
-            ScrollMode::Live => Color::Green,
-            ScrollMode::Scrollback => Color::Yellow,
+    line.push(Span::plain(" ".repeat(padding)));
+    line.push(Span::styled(
+        right,
+        fg(match scroll_mode {
+            ScrollMode::Live => AnsiColor::Green,
+            ScrollMode::Scrollback => AnsiColor::Yellow,
         }),
-        Print(right),
-        ResetColor,
-    )?;
+    ));
+
+    screen.clear_line(info_row)?;
+    screen.write_line(info_row, &line)?;
 
     Ok(())
 }
 
-fn hint_visible_len() -> usize {
-    HINT_SEGMENTS
-        .iter()
-        .map(|segment| segment.0.chars().count())
-        .sum()
-}
-
 #[cfg(test)]
 mod tests {
+    use tui::screen::Ansi;
+    use tui::size::Size;
+
     use super::*;
 
     fn strip_ansi(output: &str) -> String {
@@ -96,16 +88,23 @@ mod tests {
         }
     }
 
+    fn draw_to_bytes(scroll_mode: ScrollMode) -> Vec<u8> {
+        let mut screen = Ansi::new(Vec::new(), Size::new(80, 40));
+        draw(&mut screen, scroll_mode, 80, 40).unwrap();
+
+        screen.into_inner()
+    }
+
     #[test]
     fn footer_hint_lists_arrow_and_vim_bindings() {
         // ARRANGE
-        let mut buf: Vec<u8> = Vec::new();
+        let mode = ScrollMode::Live;
 
         // ACT
-        draw(&mut buf, ScrollMode::Live, 80, 40).unwrap();
+        let output = draw_to_bytes(mode);
 
         // ASSERT
-        let output = String::from_utf8_lossy(&buf);
+        let output = String::from_utf8_lossy(&output);
         assert!(output.contains("\u{2191}/\u{2193}"));
         assert!(output.contains("j/k"));
     }
@@ -113,13 +112,15 @@ mod tests {
     #[test]
     fn footer_hint_and_indicator_fit_within_columns() {
         // ARRANGE
-        let mut buf: Vec<u8> = Vec::new();
+        let mode = ScrollMode::Scrollback;
 
         // ACT
-        draw(&mut buf, ScrollMode::Scrollback, 80, 40).unwrap();
+        let output = draw_to_bytes(mode);
 
         // ASSERT
-        let visible = strip_ansi(&String::from_utf8_lossy(&buf)).chars().count();
+        let visible = strip_ansi(&String::from_utf8_lossy(&output))
+            .chars()
+            .count();
         assert!(visible <= 80, "footer drew {visible} visible columns");
     }
 }

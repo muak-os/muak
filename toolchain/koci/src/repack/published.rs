@@ -34,7 +34,6 @@ pub(crate) async fn run(client: &Client, tags: &[String]) -> Result<String> {
     };
     for tag in &tags {
         manifest::put(client, tag, media, body.clone()).await?;
-        eprintln!("Repacked manifest to {reference}:{tag}");
     }
 
     Ok(digest)

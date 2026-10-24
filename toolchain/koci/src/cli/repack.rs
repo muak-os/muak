@@ -2,6 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use koci::repack;
+use tui::style;
 
 /// Arguments of the `repack` subcommand.
 #[derive(clap::Args, Debug)]
@@ -19,7 +20,8 @@ pub struct Args {
 pub(crate) fn run(args: Args) -> Result<()> {
     let Args { image, tags } = args;
     let digest = repack::run(&image, &tags).context("Failed to repack image")?;
-    println!("Successfully repacked {image} (manifest {digest})");
+    let message = format!("Successfully repacked {image} (manifest {digest})");
+    println!("{}", style::success(&message));
 
     Ok(())
 }

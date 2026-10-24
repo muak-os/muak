@@ -1,0 +1,150 @@
+//! Ordered multi-step progress display.
+
+mod render;
+mod state;
+
+use std::io;
+
+use state::{Command, run};
+
+use crate::live::renderer::{Handle, Renderer};
+use crate::live::{Options, surface_size};
+use crate::screen::{Ansi, Screen};
+use crate::style::Stream;
+
+/// Cloneable handle for updating a running [`Steps`].
+#[derive(Clone)]
+pub struct StepsHandle {
+    handle: Handle<Command>,
+}
+
+/// Ordered multi-step progress display.
+pub struct Steps {
+    renderer: Renderer<Command>,
+    handle: StepsHandle,
+}
+
+impl Steps {
+    /// Starts a step display on `screen`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn new<S: Screen + Send + 'static>(screen: S, options: Options) -> io::Result<Self> {
+        let renderer = Renderer::start("tui-steps", Command::Stop, move |rx| {
+            run(screen, options, rx)
+        })?;
+        let handle = renderer
+            .handle()
+            .ok_or_else(|| io::Error::other("renderer thread is not running"))?;
+
+        Ok(Self {
+            renderer,
+            handle: StepsHandle { handle },
+        })
+    }
+
+    /// Starts a step display on standard output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn stdout() -> io::Result<Self> {
+        let stream = Stream::Stdout;
+        let screen = Ansi::new(std::io::stdout(), surface_size(stream));
+
+        Self::new(screen, Options::detect(stream))
+    }
+
+    /// Starts a step display on standard error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn stderr() -> io::Result<Self> {
+        let stream = Stream::Stderr;
+        let screen = Ansi::new(std::io::stderr(), surface_size(stream));
+
+        Self::new(screen, Options::detect(stream))
+    }
+
+    /// Returns a cloneable handle for updating steps.
+    #[must_use]
+    pub fn handle(&self) -> StepsHandle {
+        self.handle.clone()
+    }
+
+    /// Begins a new step.
+    pub fn start<M: Into<String>>(&self, message: M) {
+        self.handle.start(message);
+    }
+
+    /// Begins a new step with a progress bar.
+    pub fn start_progress<M: Into<String>>(&self, message: M, total: u64) {
+        self.handle.start_progress(message, total);
+    }
+
+    /// Updates the active step label.
+    pub fn set_label<M: Into<String>>(&self, message: M) {
+        self.handle.set_label(message);
+    }
+
+    /// Updates the active progress value.
+    pub fn progress(&self, current: u64) {
+        self.handle.progress(current);
+    }
+
+    /// Freezes the active step as a success.
+    pub fn complete<M: Into<String>>(&self, message: M) {
+        self.handle.complete(message);
+    }
+
+    /// Freezes the active step as a failure.
+    pub fn fail<M: Into<String>>(&self, message: M) {
+        self.handle.fail(message);
+    }
+
+    /// Freezes the active step and stops the renderer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread fails.
+    pub fn finish(self) -> io::Result<()> {
+        self.renderer.finish()
+    }
+}
+
+impl StepsHandle {
+    /// Begins a new step.
+    pub fn start<M: Into<String>>(&self, message: M) {
+        self.handle.send_waiting(Command::Start(message.into()));
+    }
+
+    /// Begins a new step with a progress bar.
+    pub fn start_progress<M: Into<String>>(&self, message: M, total: u64) {
+        self.handle.send_waiting(Command::StartProgress {
+            message: message.into(),
+            total,
+        });
+    }
+
+    /// Updates the active step label.
+    pub fn set_label<M: Into<String>>(&self, message: M) {
+        self.handle.send(Command::SetLabel(message.into()));
+    }
+
+    /// Updates the active progress value.
+    pub fn progress(&self, current: u64) {
+        self.handle.send(Command::Progress(current));
+    }
+
+    /// Freezes the active step as a success.
+    pub fn complete<M: Into<String>>(&self, message: M) {
+        self.handle.send_waiting(Command::Complete(message.into()));
+    }
+
+    /// Freezes the active step as a failure.
+    pub fn fail<M: Into<String>>(&self, message: M) {
+        self.handle.send_waiting(Command::Fail(message.into()));
+    }
+}

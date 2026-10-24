@@ -1,5 +1,7 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::live::Steps;
+use tui::style;
 
 use crate::client::{
     upload::upload,
@@ -8,7 +10,6 @@ use crate::client::{
         vm_service_client::VmServiceClient,
     },
 };
-use crate::ui;
 
 /// Parameters for creating a new VM.
 pub struct VmSpec {
@@ -33,7 +34,7 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, args: VmSpec) -> Resu
     let disks = build_disk_configs(&args.disk);
     let config = build_vm_config(&args, disks, hypervisor);
 
-    let steps = ui::steps::Steps::new();
+    let steps = Steps::stderr()?;
 
     let vm_id = create_vm(client, config, &args.name, &steps).await?;
 
@@ -48,19 +49,19 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, args: VmSpec) -> Resu
     .await
     {
         steps.fail(format!("Upload failed: {e}"));
-        steps.finish().await;
+        let _finish_result = steps.finish();
         cleanup_vm(client, &vm_id).await;
         return Err(e);
     }
 
     if let Err(e) = start_vm(client, &vm_id, &steps).await {
         steps.fail(format!("Start failed: {e}"));
-        steps.finish().await;
+        let _finish_result = steps.finish();
         cleanup_vm(client, &vm_id).await;
         return Err(e);
     }
 
-    steps.finish().await;
+    steps.finish()?;
     Ok(())
 }
 
@@ -103,7 +104,7 @@ fn parse_hypervisor(vmm: &str) -> Hypervisor {
         "qemu" | "kvm" => Hypervisor::Qemu,
         other => {
             let msg = format!("Warning: Unknown hypervisor '{other}', defaulting to QEMU");
-            eprintln!("{}", ui::style::warn(&msg));
+            eprintln!("{}", style::stderr().warn(&msg));
             Hypervisor::Qemu
         }
     }
@@ -148,7 +149,7 @@ async fn create_vm(
     client: &mut VmServiceClient<Channel>,
     config: VmConfig,
     name: &str,
-    steps: &ui::steps::Steps,
+    steps: &Steps,
 ) -> Result<String> {
     steps.start(format!("Creating VM '{name}'..."));
 
@@ -179,7 +180,7 @@ async fn upload_vm_files(
     kernel: &str,
     initrd: Option<&str>,
     disks: &[String],
-    steps: &ui::steps::Steps,
+    steps: &Steps,
 ) -> Result<()> {
     upload_kernel(client, vm_id, kernel, steps).await?;
 
@@ -197,7 +198,7 @@ async fn upload_kernel(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     kernel: &str,
-    steps: &ui::steps::Steps,
+    steps: &Steps,
 ) -> Result<()> {
     steps.start(format!("Uploading kernel: {kernel}"));
     match upload(client, kernel, Some(vm_id), Some("kernel")).await {
@@ -217,7 +218,7 @@ async fn upload_initrd(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     initrd_path: &str,
-    steps: &ui::steps::Steps,
+    steps: &Steps,
 ) -> Result<()> {
     steps.start(format!("Uploading initrd: {initrd_path}"));
     match upload(client, initrd_path, Some(vm_id), Some("initrd")).await {
@@ -237,7 +238,7 @@ async fn upload_disks(
     client: &mut VmServiceClient<Channel>,
     vm_id: &str,
     disks: &[String],
-    steps: &ui::steps::Steps,
+    steps: &Steps,
 ) -> Result<()> {
     for (i, disk_path) in disks.iter().enumerate() {
         let target_name = format!("disk{i}");
@@ -256,11 +257,7 @@ async fn upload_disks(
 }
 
 /// Starts the VM after files are uploaded.
-async fn start_vm(
-    client: &mut VmServiceClient<Channel>,
-    vm_id: &str,
-    steps: &ui::steps::Steps,
-) -> Result<()> {
+async fn start_vm(client: &mut VmServiceClient<Channel>, vm_id: &str, steps: &Steps) -> Result<()> {
     steps.start(format!("Starting VM {vm_id}..."));
 
     let start_request = tonic::Request::new(StartVmRequest {
@@ -286,6 +283,6 @@ async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) {
     });
     if let Err(e) = client.delete_vm(delete_request).await {
         let msg = format!("Warning: Failed to clean up VM: {e}");
-        eprintln!("{}", ui::style::warn(&msg));
+        eprintln!("{}", style::stderr().warn(&msg));
     }
 }

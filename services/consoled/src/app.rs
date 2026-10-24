@@ -1,15 +1,11 @@
 //! Application state and event handlers for the console display daemon.
 
-use std::io::Write as _;
-
 use anyhow::{Context as _, Result};
-use crossterm::cursor;
-use crossterm::queue;
-use crossterm::style::Print;
-use crossterm::terminal::{Clear, ClearType};
 use tokio::sync::mpsc;
+use tui::input::Key;
+use tui::screen::{Ansi, Screen as _};
+use tui::size::Size;
 
-use crate::input::InputEvent;
 use crate::log::buffer::Buffer;
 use crate::log::{reader, view};
 use crate::render::{self, FOOTER_ROWS, PANEL_ROWS, ScrollMode};
@@ -30,23 +26,20 @@ pub struct App {
 
 impl App {
     pub fn new(mut tty: Tty) -> Result<Self> {
-        queue!(
-            tty,
-            cursor::Hide,
-            Clear(ClearType::All),
-            cursor::MoveTo(0, 0)
-        )?;
-
+        let size = tty.size();
         let mut poll_state = PollState::default();
-        let (cols, rows) = tty.size();
         let sys_state = state::collect(&mut poll_state);
-        let separator = SEPARATOR_CHAR.repeat(usize::from(cols));
+        let separator = SEPARATOR_CHAR.repeat(usize::from(size.cols));
+        let mut screen = Ansi::new(&mut tty, size);
+        screen.hide_cursor()?;
+        screen.clear_all()?;
+        screen.move_to(0, 0)?;
         render::draw(
-            &mut tty,
+            &mut screen,
             &sys_state,
             ScrollMode::Live,
-            cols,
-            rows,
+            size.cols,
+            size.rows,
             &separator,
         )
         .context("Initial render failed")?;
@@ -55,7 +48,7 @@ impl App {
             tty,
             logs: Buffer::new(),
             poll_state,
-            separator_cols: cols,
+            separator_cols: size.cols,
             separator,
             full_dirty: false,
             log_dirty: false,
@@ -77,40 +70,51 @@ impl App {
         self.log_dirty = true;
     }
 
-    /// Applies a scroll event; rendering is deferred to the next settle.
-    pub fn handle_input(&mut self, event: InputEvent) {
+    /// Applies a key event; rendering is deferred to the next settle.
+    pub fn handle_input(&mut self, key: Key) {
         let log_rows = self.log_rows();
-        match event {
-            InputEvent::Up => self.logs.scroll_up(1, log_rows),
-            InputEvent::Down => self.logs.scroll_down(1),
-            InputEvent::PageUp => self.logs.scroll_up(log_rows.max(1), log_rows),
-            InputEvent::PageDown => self.logs.scroll_down(log_rows.max(1)),
-            InputEvent::End | InputEvent::Escape => self.logs.snap_to_live(),
+        match key {
+            Key::Up | Key::Char('k') => self.logs.scroll_up(1, log_rows),
+            Key::Down | Key::Char('j') => self.logs.scroll_down(1),
+            Key::PageUp => self.logs.scroll_up(log_rows.max(1), log_rows),
+            Key::PageDown => self.logs.scroll_down(log_rows.max(1)),
+            Key::End | Key::Esc => self.logs.snap_to_live(),
+            Key::Left
+            | Key::Right
+            | Key::Home
+            | Key::Enter
+            | Key::Tab
+            | Key::Backspace
+            | Key::Delete
+            | Key::Insert
+            | Key::Char(_) => {}
         }
         self.log_dirty = true;
     }
 
     /// Flushes all dirty regions to the terminal once per drained event batch.
     pub fn settle(&mut self) {
-        let (cols, rows) = self.tty.size();
+        let size = self.tty.size();
 
         if self.full_dirty {
-            self.redraw_panel(cols, rows);
+            self.redraw_panel(size);
             self.full_dirty = false;
             self.log_dirty = true;
         }
 
         if self.log_dirty {
-            self.redraw_logview();
+            self.redraw_logview(size);
             self.log_dirty = false;
         }
     }
 
     pub fn shutdown(&mut self) -> Result<()> {
-        queue!(self.tty, cursor::Show, Print("\x1b[r"))?;
-        self.tty
-            .flush()
-            .context("Failed to flush TTY on shutdown")?;
+        let size = self.tty.size();
+        let mut screen = Ansi::new(&mut self.tty, size);
+        screen.show_cursor()?;
+        screen.reset_scroll_region()?;
+        screen.flush().context("Failed to flush TTY on shutdown")?;
+
         Ok(())
     }
 
@@ -121,11 +125,19 @@ impl App {
         }
     }
 
-    fn redraw_panel(&mut self, cols: u16, rows: u16) {
-        self.ensure_separator(cols);
+    fn redraw_panel(&mut self, size: Size) {
+        self.ensure_separator(size.cols);
         let sys_state = state::collect(&mut self.poll_state);
         let mode = self.scroll_mode();
-        if let Err(e) = render::draw(&mut self.tty, &sys_state, mode, cols, rows, &self.separator) {
+        let mut screen = Ansi::new(&mut self.tty, size);
+        if let Err(e) = render::draw(
+            &mut screen,
+            &sys_state,
+            mode,
+            size.cols,
+            size.rows,
+            &self.separator,
+        ) {
             kmsg::warn!("Render failed: {e}");
         }
     }
@@ -139,15 +151,15 @@ impl App {
     }
 
     fn log_rows(&self) -> usize {
-        let (_cols, rows) = self.tty.size();
-        usize::from(rows.saturating_sub(PANEL_ROWS + FOOTER_ROWS))
+        let size = self.tty.size();
+        usize::from(size.rows.saturating_sub(PANEL_ROWS + FOOTER_ROWS))
     }
 
-    fn redraw_logview(&mut self) {
-        let (cols, rows) = self.tty.size();
+    fn redraw_logview(&mut self, size: Size) {
         let log_rows = self.log_rows();
         let window = self.logs.visible_window(log_rows);
-        if let Err(e) = view::render(&mut self.tty, window, cols, rows) {
+        let mut screen = Ansi::new(&mut self.tty, size);
+        if let Err(e) = view::render(&mut screen, window, size.cols, size.rows) {
             kmsg::warn!("Logview render failed: {e}");
         }
     }
