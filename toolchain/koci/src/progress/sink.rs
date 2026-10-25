@@ -2,6 +2,7 @@
 
 use std::io::{self, Write};
 
+#[cfg(feature = "copy")]
 use super::{ByteSample, Phase, Reporter};
 
 /// Destination of the byte samples produced by a [`Sink`].
@@ -58,6 +59,7 @@ impl<W: Write, T: Tracker> Write for Sink<'_, W, T> {
 }
 
 /// Byte samples forwarded to a [`Reporter`].
+#[cfg(feature = "copy")]
 pub(crate) struct Reported<'a> {
     reporter: &'a dyn Reporter,
     phase: Phase,
@@ -65,6 +67,7 @@ pub(crate) struct Reported<'a> {
     total: u64,
 }
 
+#[cfg(feature = "copy")]
 impl<'a> Reported<'a> {
     /// Reports bytes for item `index`, declared as `total` bytes, in `phase`.
     pub(crate) fn new(reporter: &'a dyn Reporter, phase: Phase, index: usize, total: u64) -> Self {
@@ -77,6 +80,7 @@ impl<'a> Reported<'a> {
     }
 }
 
+#[cfg(feature = "copy")]
 impl Tracker for Reported<'_> {
     fn advance(&self, current: u64) {
         self.reporter.bytes(ByteSample {
@@ -91,9 +95,11 @@ impl Tracker for Reported<'_> {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    #[cfg(feature = "copy")]
     use std::sync::Mutex;
 
     use super::*;
+    #[cfg(feature = "copy")]
     use crate::progress::Event;
 
     struct Counter<'a>(&'a Cell<u64>);
@@ -104,9 +110,11 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "copy")]
     #[derive(Default)]
     struct Reports(Mutex<u64>);
 
+    #[cfg(feature = "copy")]
     impl Reporter for Reports {
         fn report(&self, _event: Event<'_>) {
             let mut reports = self.0.lock().expect("unpoisoned reporter");
@@ -156,6 +164,7 @@ mod tests {
         assert_eq!(inner, b"abc");
     }
 
+    #[cfg(feature = "copy")]
     #[test]
     fn reported_sink_emits_one_event_per_write() {
         // ARRANGE
