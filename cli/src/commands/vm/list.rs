@@ -1,24 +1,25 @@
 use anyhow::Result;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
 use crate::client::vm_service::{ListVmsRequest, VmInfo, vm_service_client::VmServiceClient};
+use crate::console::Console;
 use crate::format::{
     display::{hypervisor_to_string, vm_state_to_string},
     time::format_timestamp,
 };
 
 /// Lists all VMs.
-pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
+pub async fn handle(client: &mut VmServiceClient<Channel>, console: &Console) -> Result<()> {
     let request = tonic::Request::new(ListVmsRequest {});
 
     let response = client.list_vms(request).await?;
     let resp = response.into_inner();
 
     if resp.vms.is_empty() {
-        println!("{}", style::warn("No VMs"));
+        console.line(Role::Warn, "No VMs");
         return Ok(());
     }
 
@@ -38,7 +39,7 @@ pub async fn handle(client: &mut VmServiceClient<Channel>) -> Result<()> {
         table = vm_rows(table, &vm);
     }
 
-    table.print()?;
+    console.table(&table)?;
 
     Ok(())
 }

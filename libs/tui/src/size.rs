@@ -6,6 +6,8 @@ use std::os::fd::AsFd;
 #[cfg(feature = "size")]
 use rustix::termios::tcgetwinsize;
 
+use crate::style::Stream;
+
 /// Terminal surface dimensions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Size {
@@ -37,6 +39,23 @@ pub fn of<Fd: AsFd>(fd: Fd) -> Size {
         |_error| Size::default(),
         |winsize| Size::new(winsize.ws_col, winsize.ws_row),
     )
+}
+
+pub(crate) fn surface(stream: Stream) -> Size {
+    surface_of(stream)
+}
+
+#[cfg(feature = "size")]
+fn surface_of(stream: Stream) -> Size {
+    match stream {
+        Stream::Stdout => stdout(),
+        Stream::Stderr => stderr(),
+    }
+}
+
+#[cfg(not(feature = "size"))]
+fn surface_of(_stream: Stream) -> Size {
+    Size::default()
 }
 
 /// Returns the size of the terminal attached to standard output.

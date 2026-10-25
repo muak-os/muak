@@ -7,8 +7,10 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use oci::arch::Arch;
+use tui::output::Flags;
 use tui::style;
 
+mod console;
 mod copy;
 mod digest;
 mod merge;
@@ -17,16 +19,30 @@ mod push;
 mod repack;
 mod sign;
 
-/// Top-level CLI arguments.
+use console::Console;
+
+// Top-level CLI arguments.
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
+    /// Suppress progress and decorative success lines.
+    #[arg(long, global = true, conflicts_with = "verbose")]
+    quiet: bool,
+
+    /// Disable color while keeping the detected mode.
+    #[arg(long, global = true)]
+    no_color: bool,
+
+    /// Show per-layer and per-blob detail.
+    #[arg(long, global = true, conflicts_with = "quiet")]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Command,
 }
 
-/// Available subcommands.
+// Available subcommands.
 #[derive(Subcommand, Debug)]
 enum Command {
     Pull(pull::Args),
@@ -38,18 +54,10 @@ enum Command {
     Repack(repack::Args),
 }
 
-/// Run the CLI from a caller-provided argument iterator.
-///
-/// # Errors
-///
-/// Returns an error if argument parsing fails or the requested operation fails.
-pub fn run_from<I, T>(args: I) -> Result<()>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    let args = Args::parse_from(args);
-    run_command(args.command)
+/// Runs the CLI with `std::env::args_os()` and returns an exit code.
+#[must_use]
+pub fn run() -> i32 {
+    run_with(std::env::args_os())
 }
 
 /// Runs the CLI with the given arguments and returns an exit code.
@@ -76,22 +84,29 @@ where
     }
 }
 
-/// Runs the CLI with `std::env::args_os()` and returns an exit code.
-#[must_use]
-pub fn run() -> i32 {
-    run_with(std::env::args_os())
-}
+/// Run the CLI from a caller-provided argument iterator.
+///
+/// # Errors
+///
+/// Returns an error if argument parsing fails or the requested operation fails.
+pub fn run_from<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let Args {
+        quiet,
+        no_color,
+        verbose,
+        command,
+    } = Args::parse_from(args);
+    let flags = Flags {
+        quiet,
+        no_color,
+        verbose,
+    };
 
-fn run_command(command: Command) -> Result<()> {
-    match command {
-        Command::Pull(args) => pull::run(args),
-        Command::Sign(args) => sign::run(args),
-        Command::Merge(args) => merge::run(args),
-        Command::Push(args) => push::run(args),
-        Command::Copy(args) => copy::run(args),
-        Command::Digest(args) => digest::run(args),
-        Command::Repack(args) => repack::run(args),
-    }
+    run_command(command, &Console::detect(flags))
 }
 
 /// Parse an architecture CLI value.
@@ -105,8 +120,21 @@ pub(crate) fn read_key_file(path: &Path) -> Result<String> {
         .with_context(|| format!("Failed to read key from {}", path.display()))
 }
 
+fn run_command(command: Command, console: &Console) -> Result<()> {
+    match command {
+        Command::Pull(args) => pull::run(args, console),
+        Command::Sign(args) => sign::run(args, console),
+        Command::Merge(args) => merge::run(args, console),
+        Command::Push(args) => push::run(args, console),
+        Command::Copy(args) => copy::run(args, console),
+        Command::Digest(args) => digest::run(args),
+        Command::Repack(args) => repack::run(args, console),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use clap::Parser as _;
     use tempfile::TempDir;
 
     use super::{read_key_file, run_from, run_with};
@@ -145,6 +173,51 @@ mod tests {
 
         // ASSERT
         assert!(error.to_string().contains("Failed to read key from"));
+    }
+
+    #[test]
+    fn global_output_flags_parse_before_or_after_the_subcommand() {
+        // ARRANGE
+        let args = crate::cli::Args::try_parse_from([
+            "koci",
+            "digest",
+            "--image",
+            "repo",
+            "--tag",
+            "v1",
+            "--no-color",
+            "--verbose",
+        ])
+        .expect("parse global output flags");
+
+        // ACT
+        let quiet = args.quiet;
+        let no_color = args.no_color;
+        let verbose = args.verbose;
+
+        // ASSERT
+        assert!(!quiet);
+        assert!(no_color);
+        assert!(verbose);
+    }
+
+    #[test]
+    fn quiet_conflicts_with_verbose() {
+        // ARRANGE / ACT
+        let error = crate::cli::Args::try_parse_from([
+            "koci",
+            "--quiet",
+            "--verbose",
+            "digest",
+            "--image",
+            "repo",
+            "--tag",
+            "v1",
+        ])
+        .expect_err("quiet and verbose must not be combined");
+
+        // ASSERT
+        assert!(error.to_string().contains("--verbose"));
     }
 
     #[test]

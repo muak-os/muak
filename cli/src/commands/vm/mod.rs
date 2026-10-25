@@ -8,6 +8,7 @@ use clap::Subcommand;
 use tonic::transport::Channel;
 
 use crate::client::vm_service::vm_service_client::VmServiceClient;
+use crate::console::Console;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -50,7 +51,11 @@ pub enum Action {
 }
 
 /// Routes VM subcommands to their handlers.
-pub async fn handle(client: &mut VmServiceClient<Channel>, action: Action) -> Result<()> {
+pub async fn handle(
+    client: &mut VmServiceClient<Channel>,
+    action: Action,
+    console: &Console,
+) -> Result<()> {
     match action {
         Action::Create {
             name,
@@ -76,13 +81,16 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, action: Action) -> Re
                     disk,
                     disk_size,
                 },
+                console,
             )
             .await
         }
-        Action::Start { vm_id } => lifecycle::handle_start(client, vm_id).await,
-        Action::Stop { vm_id, force } => lifecycle::handle_stop(client, vm_id, force).await,
-        Action::Delete { vm_id } => lifecycle::handle_delete(client, vm_id).await,
+        Action::Start { vm_id } => lifecycle::handle_start(client, vm_id, console).await,
+        Action::Stop { vm_id, force } => {
+            lifecycle::handle_stop(client, vm_id, force, console).await
+        }
+        Action::Delete { vm_id } => lifecycle::handle_delete(client, vm_id, console).await,
         Action::Logs { vm_id, tail } => logs::handle(client, vm_id, tail).await,
-        Action::List => list::handle(client).await,
+        Action::List => list::handle(client, console).await,
     }
 }

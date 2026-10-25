@@ -2,17 +2,17 @@
 
 use anyhow::{Context as _, Result};
 use tonic::transport::Channel;
-use tui::live::Steps;
 use tui::prompt::Prompter;
-use tui::style;
+use tui::style::Role;
 
 use crate::client::provision_service::{
     RebootRequest, ShutdownRequest, provision_service_client::ProvisionServiceClient,
 };
+use crate::console::Console;
 
 /// Requests a reboot of the target system.
-pub async fn reboot(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
-    let steps = Steps::stderr()?;
+pub async fn reboot(client: &mut ProvisionServiceClient<Channel>, console: &Console) -> Result<()> {
+    let steps = console.steps()?;
 
     steps.start("Requesting reboot...");
 
@@ -33,18 +33,21 @@ pub async fn reboot(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
 }
 
 /// Requests a shutdown of the target system.
-pub async fn shutdown(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
+pub async fn shutdown(
+    client: &mut ProvisionServiceClient<Channel>,
+    console: &Console,
+) -> Result<()> {
     let confirmed = match Prompter::stdio() {
         Some(mut prompter) => prompter.confirm("Shutdown the system?")?,
         None => false,
     };
 
     if !confirmed {
-        println!("{}", style::warn("Shutdown cancelled."));
+        console.line(Role::Warn, "Shutdown cancelled.");
         return Ok(());
     }
 
-    let steps = Steps::stderr()?;
+    let steps = console.steps()?;
 
     steps.start("Requesting shutdown...");
 

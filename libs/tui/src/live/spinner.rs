@@ -2,12 +2,12 @@
 
 use std::io;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::Instant;
 
-use crate::live::renderer::{
-    FRAME_DURATION, Renderer, message_line, spinner_line, status_line, write_active, write_frozen,
-    write_plain,
-};
-use crate::live::{Options, surface_size};
+use crate::live::Options;
+use crate::live::lines::{message_line, spinner_line, status_line};
+use crate::live::renderer::{FRAME_DURATION, Renderer, write_active, write_frozen, write_plain};
+use crate::output::{Flags, Mode, Output};
 use crate::screen::{Ansi, Screen};
 use crate::style::Stream;
 
@@ -53,10 +53,7 @@ impl Spinner {
     ///
     /// Returns an error when the renderer thread cannot start.
     pub fn stdout<M: Into<String>>(message: M) -> io::Result<Self> {
-        let stream = Stream::Stdout;
-        let screen = Ansi::new(std::io::stdout(), surface_size(stream));
-
-        Self::start(screen, message, Options::detect(stream))
+        Self::stdout_with(message, Output::detect(Stream::Stdout, Flags::default()))
     }
 
     /// Starts a spinner on standard error.
@@ -65,10 +62,29 @@ impl Spinner {
     ///
     /// Returns an error when the renderer thread cannot start.
     pub fn stderr<M: Into<String>>(message: M) -> io::Result<Self> {
-        let stream = Stream::Stderr;
-        let screen = Ansi::new(std::io::stderr(), surface_size(stream));
+        Self::stderr_with(message, Output::detect(Stream::Stderr, Flags::default()))
+    }
 
-        Self::start(screen, message, Options::detect(stream))
+    /// Starts a spinner on standard output with resolved `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn stdout_with<M: Into<String>>(message: M, output: Output) -> io::Result<Self> {
+        let screen = Ansi::new(std::io::stdout(), output.size);
+
+        Self::start(screen, message, Options::from_output(output))
+    }
+
+    /// Starts a spinner on standard error with resolved `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn stderr_with<M: Into<String>>(message: M, output: Output) -> io::Result<Self> {
+        let screen = Ansi::new(std::io::stderr(), output.size);
+
+        Self::start(screen, message, Options::from_output(output))
     }
 
     /// Updates the spinner message.
@@ -117,15 +133,23 @@ impl Spinner {
 fn run<S: Screen>(mut screen: S, options: Options, rx: &Receiver<Command>) -> io::Result<()> {
     let mut message: Option<String> = None;
     let mut frame = 0_usize;
+    let started = Instant::now();
 
     loop {
         let command = next_command(rx, options.tty, message.is_some());
 
         match command {
             Command::Update(text) => {
-                update(&mut screen, options, &mut message, &mut frame, text)?;
+                update(
+                    &mut screen,
+                    options,
+                    &mut message,
+                    &mut frame,
+                    started,
+                    text,
+                )?;
             }
-            Command::Tick => tick(&mut screen, options, message.as_ref(), &mut frame)?,
+            Command::Tick => tick(&mut screen, options, message.as_ref(), &mut frame, started)?,
             Command::Success(text) => {
                 finish(&mut screen, options, &text, true)?;
 
@@ -150,18 +174,19 @@ fn update<S: Screen>(
     options: Options,
     message: &mut Option<String>,
     frame: &mut usize,
+    started: Instant,
     text: String,
 ) -> io::Result<()> {
     if options.tty {
-        draw(screen, options, &text, *frame)?;
+        draw(screen, options, &text, *frame, started)?;
         *frame = frame.saturating_add(1);
         *message = Some(text);
-    } else if message.is_none() {
+    } else if options.mode == Mode::Plain && message.is_none() {
         let width = usize::from(screen.size().cols);
         write_plain(screen, &message_line(&text, width))?;
         *message = Some(text);
     } else {
-        // Plain output prints the initial message only.
+        // Plain output prints the initial message only, quiet prints nothing.
     }
 
     Ok(())
@@ -172,12 +197,13 @@ fn tick<S: Screen>(
     options: Options,
     message: Option<&String>,
     frame: &mut usize,
+    started: Instant,
 ) -> io::Result<()> {
     let Some(text) = message else {
         return Ok(());
     };
 
-    draw(screen, options, text, *frame)?;
+    draw(screen, options, text, *frame, started)?;
     *frame = frame.saturating_add(1);
 
     Ok(())
@@ -189,10 +215,18 @@ fn finish<S: Screen>(
     message: &str,
     success: bool,
 ) -> io::Result<()> {
-    let width = usize::from(screen.size().cols);
-    let line = status_line(message, success, width, options.theme);
+    if options.mode == Mode::Quiet && success {
+        return Ok(());
+    }
 
-    write_frozen(screen, &line)
+    let width = usize::from(screen.size().cols);
+    let line = status_line(message, success, width, options.theme, options.glyphs);
+
+    if options.tty {
+        write_frozen(screen, &line)
+    } else {
+        write_plain(screen, &line)
+    }
 }
 
 fn clear<S: Screen>(screen: &mut S, options: Options) -> io::Result<()> {
@@ -222,9 +256,17 @@ fn draw<S: Screen>(
     options: Options,
     message: &str,
     frame: usize,
+    started: Instant,
 ) -> io::Result<()> {
     let width = usize::from(screen.size().cols);
-    let line = spinner_line(message, frame, width, options.theme);
+    let line = spinner_line(
+        message,
+        frame,
+        width,
+        options.theme,
+        options.glyphs,
+        Some(started.elapsed()),
+    );
 
     write_active(screen, &line)
 }

@@ -1,13 +1,13 @@
 use anyhow::{Context as _, Result};
 use config::user::ClientConfig;
 use tonic::transport::Channel;
-use tui::live::Steps;
 use tui::prompt::Prompter;
-use tui::style;
+use tui::style::Role;
 
 use crate::client::provision_service::{
     FactoryResetRequest, provision_service_client::ProvisionServiceClient,
 };
+use crate::console::Console;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
 
@@ -16,18 +16,16 @@ pub async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     force: bool,
     context_name: Option<String>,
+    console: &Console,
 ) -> Result<()> {
-    println!(
-        "{}",
-        style::error("WARNING: This will perform a factory reset!")
+    console.line(Role::Error, "WARNING: This will perform a factory reset!");
+    console.line(
+        Role::ErrorText,
+        "All data, VMs, and configuration will be permanently deleted.",
     );
-    println!(
-        "{}",
-        style::error_text("All data, VMs, and configuration will be permanently deleted.")
-    );
-    println!(
-        "{}",
-        style::error_text("The system will reboot into maintenance mode.\n")
+    console.line(
+        Role::ErrorText,
+        "The system will reboot into maintenance mode.\n",
     );
 
     if !force {
@@ -37,12 +35,12 @@ pub async fn handle(
         };
 
         if !confirmed {
-            println!("{}", style::warn("Factory reset cancelled."));
+            console.line(Role::Warn, "Factory reset cancelled.");
             return Ok(());
         }
     }
 
-    let steps = Steps::stderr()?;
+    let steps = console.steps()?;
 
     steps.start("Initiating factory reset...");
 

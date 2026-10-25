@@ -1,13 +1,17 @@
 use anyhow::Result;
 use tonic::transport::Channel;
-use tui::style;
 
 use crate::client::vm_service::{
     DeleteVmRequest, StartVmRequest, StopVmRequest, vm_service_client::VmServiceClient,
 };
+use crate::console::Console;
 
 /// Starts a VM.
-pub async fn handle_start(client: &mut VmServiceClient<Channel>, vm_id: String) -> Result<()> {
+pub async fn handle_start(
+    client: &mut VmServiceClient<Channel>,
+    vm_id: String,
+    console: &Console,
+) -> Result<()> {
     let request = tonic::Request::new(StartVmRequest {
         vm_id: vm_id.clone(),
     });
@@ -16,7 +20,7 @@ pub async fn handle_start(client: &mut VmServiceClient<Channel>, vm_id: String) 
     let resp = response.into_inner();
 
     if resp.success {
-        println!("{}", style::success(&format!("Started VM: {vm_id}")));
+        console.success(&format!("Started VM: {vm_id}"));
         Ok(())
     } else {
         Err(anyhow::anyhow!("Failed to start VM: {}", resp.error))
@@ -28,6 +32,7 @@ pub async fn handle_stop(
     client: &mut VmServiceClient<Channel>,
     vm_id: String,
     force: bool,
+    console: &Console,
 ) -> Result<()> {
     let request = tonic::Request::new(StopVmRequest {
         vm_id: vm_id.clone(),
@@ -38,7 +43,7 @@ pub async fn handle_stop(
     let resp = response.into_inner();
 
     if resp.success {
-        println!("{}", style::success(&format!("Stopped VM: {vm_id}")));
+        console.success(&format!("Stopped VM: {vm_id}"));
         Ok(())
     } else {
         Err(anyhow::anyhow!("Failed to stop VM: {}", resp.error))
@@ -46,7 +51,11 @@ pub async fn handle_stop(
 }
 
 /// Deletes a VM.
-pub async fn handle_delete(client: &mut VmServiceClient<Channel>, vm_id: String) -> Result<()> {
+pub async fn handle_delete(
+    client: &mut VmServiceClient<Channel>,
+    vm_id: String,
+    console: &Console,
+) -> Result<()> {
     let request = tonic::Request::new(DeleteVmRequest {
         vm_id: vm_id.clone(),
     });
@@ -55,7 +64,8 @@ pub async fn handle_delete(client: &mut VmServiceClient<Channel>, vm_id: String)
     let resp = response.into_inner();
 
     if resp.success {
-        println!("{}", style::success(&format!("Deleted VM: {vm_id}")));
+        console.success(&format!("Deleted VM: {vm_id}"));
+
         Ok(())
     } else {
         Err(anyhow::anyhow!("Failed to delete VM: {}", resp.error))

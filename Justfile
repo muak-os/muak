@@ -1,4 +1,4 @@
-# Muak - A minimal, immutable, API-driven Linux distribution for running VMs
+# Muak - A minimal, immutable, API-driven operating system.
 #
 # Prerequisites:
 #   - just
@@ -114,7 +114,7 @@ artifacts *types:
     else
         printf '[kernel]\nsource = "muak-os/linux"\n\n[customization]\nextensions = []\n' > "{{ out }}/profile.toml"
     fi
-    {{ container_runtime }} run --rm --network host \
+    {{ container_runtime }} run -t --rm --network host \
         -e MUAK_KOCI_CACHE=/out/.cache \
         -v "{{ out }}:/out" \
         {{ toolchain }} \
@@ -247,7 +247,7 @@ mirror image tag upstream="ghcr.io/muak-os":
 [arg("image", long="image")]
 repack image=(registry + "/installer:" + tag):
     @printf "{{ cyan }}Repacking OCI image {{ image }}{{ reset }}\n"
-    {{ container_runtime }} run --rm --network=host \
+    {{ container_runtime }} run -t --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         {{ toolchain }} \
         /koci repack \
@@ -258,7 +258,7 @@ repack image=(registry + "/installer:" + tag):
 [arg("image", long="image")]
 sign image=(registry + "/installer:" + tag):
     @printf "{{ cyan }}Signing OCI image %s{{ reset }}\n" "$1"
-    {{ container_runtime }} run --rm --network=host \
+    {{ container_runtime }} run -t --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         -v "{{ absolute_path(signature) }}:/key:ro" \
         {{ toolchain }} \
@@ -498,7 +498,7 @@ _build-oci name dockerfile *extra:
     if [ "{{ container_runtime }}" = "podman" ]; then
         {{ container_runtime }} push "${image}"
     fi
-    {{ container_runtime }} run --rm --network=host \
+    {{ container_runtime }} run -t --rm --network=host \
         -e KOCI_REGISTRY_USERNAME -e KOCI_REGISTRY_PASSWORD \
         {{ toolchain }} \
         /koci repack \

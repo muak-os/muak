@@ -16,7 +16,7 @@ required-features = ["cli"]
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["fs", "io-util"], optional = true }
+tokio = { workspace = true, features = ["fs", "io-util", "sync"], optional = true }
 
 # CLI
 clap = { workspace = true, optional = true }

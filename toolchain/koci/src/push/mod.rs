@@ -7,10 +7,12 @@ use oci::arch::Arch;
 use oci::digest::sha256_hex;
 use oci::media::OCI_MANIFEST_MEDIA_TYPE;
 use oci_client::auth::Access;
+use oci_client::blob::report::BlobProgress;
 use oci_client::client::Client;
 
 use crate::error::Result;
 use crate::image::{config, manifest, upload};
+use crate::progress::{ByteSample, Event, Operation, Phase, Reporter, Unit};
 use crate::registry;
 use crate::runtime;
 
@@ -31,6 +33,8 @@ pub struct Entry {
 pub struct Pushed {
     /// Digest of the pushed image manifest.
     pub digest: String,
+    /// Tags the manifest was published under.
+    pub tags: Vec<String>,
 }
 
 /// Pack `entries` into one uncompressed tar layer and push a scratch image.
@@ -39,8 +43,14 @@ pub struct Pushed {
 ///
 /// Returns an error when entries are invalid, the session cannot be established,
 /// or any registry operation fails.
-pub fn files(image: &str, tags: &[String], arch: &Arch, entries: &[Entry]) -> Result<Pushed> {
-    runtime::runtime()?.block_on(push_files(image, tags, arch, entries))
+pub fn files(
+    image: &str,
+    tags: &[String],
+    arch: &Arch,
+    entries: &[Entry],
+    reporter: &dyn Reporter,
+) -> Result<Pushed> {
+    runtime::runtime()?.block_on(push_files(image, tags, arch, entries, reporter))
 }
 
 /// Packs entries into an eStargz layer, uploading the config and layer blobs.
@@ -54,15 +64,54 @@ pub(crate) async fn pack(
     client: &Client,
     arch: Arch,
     entries: &[Entry],
+    reporter: &dyn Reporter,
 ) -> Result<(Bytes, String)> {
     let layer = layer::build(entries)?;
+    let packed_bytes = u64::try_from(layer.bytes.len()).unwrap_or(u64::MAX);
+    reporter.report(Event::Packed {
+        entries: entries.len(),
+        bytes: packed_bytes,
+    });
+    reporter.report(Event::PhaseStarted {
+        phase: Phase::Upload,
+        label: "Uploading layer",
+        total: packed_bytes,
+        unit: Unit::Bytes,
+    });
     let config = config::scratch(arch, &layer.uncompressed)?;
-    upload::put_blob(client, &config.digest, config.bytes.clone()).await?;
-    upload::put_blob(client, &layer.digest, Bytes::from(layer.bytes.clone())).await?;
+    let blob_reporter = UploadReporter(reporter);
+    upload::put_blob(client, &config.digest, config.bytes.clone(), &blob_reporter).await?;
+    upload::put_blob(
+        client,
+        &layer.digest,
+        Bytes::from(layer.bytes.clone()),
+        &blob_reporter,
+    )
+    .await?;
     let bytes = manifest::build(&config, &[manifest::layer_descriptor(&layer)], None)?;
     let digest = format!("sha256:{}", sha256_hex(&bytes));
 
     Ok((bytes, digest))
+}
+
+struct UploadReporter<'a>(&'a dyn Reporter);
+
+impl BlobProgress for UploadReporter<'_> {
+    fn progress(&self, sent: u64, total: u64) {
+        self.0.bytes(ByteSample {
+            phase: Phase::Upload,
+            index: None,
+            current: sent,
+            total,
+        });
+    }
+
+    fn skipped(&self, digest: &str) {
+        self.0.report(Event::ItemSkipped {
+            phase: Phase::Upload,
+            digest,
+        });
+    }
 }
 
 async fn push_files(
@@ -70,17 +119,27 @@ async fn push_files(
     tags: &[String],
     arch: &Arch,
     entries: &[Entry],
+    reporter: &dyn Reporter,
 ) -> Result<Pushed> {
+    reporter.report(Event::Started {
+        operation: Operation::Push,
+        subject: image,
+    });
     let client = registry::connect(image, Access::PullPush).await?;
     let tags = upload::effective_tags(&client, tags)?;
     Entry::validate(entries)?;
 
-    let (bytes, digest) = pack(&client, *arch, entries).await?;
+    let (bytes, digest) = pack(&client, *arch, entries, reporter).await?;
     for tag in &tags {
         oci_client::manifest::put(&client, tag, OCI_MANIFEST_MEDIA_TYPE, bytes.clone()).await?;
+        reporter.report(Event::ManifestPushed { reference: tag });
     }
+    reporter.report(Event::Done {
+        digest: &digest,
+        tags: &tags,
+    });
 
-    Ok(Pushed { digest })
+    Ok(Pushed { digest, tags })
 }
 
 #[cfg(test)]
@@ -97,6 +156,7 @@ mod tests {
 
     use super::*;
     use crate::image::Blob;
+    use crate::progress::Noop;
     use crate::stargz::LayerBlob;
 
     struct TestServer {
@@ -286,8 +346,14 @@ mod tests {
         let image = format!("{}/repo:v1", server.address);
 
         // ACT
-        let pushed = files(&image, &[], &Arch::Amd64, std::slice::from_ref(&entry))
-            .expect("push should succeed");
+        let pushed = files(
+            &image,
+            &[],
+            &Arch::Amd64,
+            std::slice::from_ref(&entry),
+            &Noop,
+        )
+        .expect("push should succeed");
 
         // ASSERT
         assert!(pushed.digest.starts_with("sha256:"));
@@ -307,8 +373,14 @@ mod tests {
         let image = format!("{}/repo:v1", server.address);
 
         // ACT
-        let error = files(&image, &[], &Arch::Amd64, std::slice::from_ref(&entry))
-            .expect_err("push should fail");
+        let error = files(
+            &image,
+            &[],
+            &Arch::Amd64,
+            std::slice::from_ref(&entry),
+            &Noop,
+        )
+        .expect_err("push should fail");
 
         // ASSERT
         assert!(matches!(

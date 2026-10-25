@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 use tui::table::Table;
 
 use crate::client::provision_service::{
     GetRollbackHistoryRequest, provision_service_client::ProvisionServiceClient,
 };
+use crate::console::Console;
 use crate::format::time::format_timestamp;
 
 #[derive(Subcommand, Clone)]
@@ -18,13 +19,13 @@ pub enum Action {
 }
 
 /// Handles rollback subcommands.
-pub async fn handle(channel: Channel, action: Action) -> Result<()> {
+pub async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
     match action {
-        Action::History { limit } => history(channel, limit).await,
+        Action::History { limit } => history(channel, limit, console).await,
     }
 }
 
-async fn history(channel: Channel, limit: u32) -> Result<()> {
+async fn history(channel: Channel, limit: u32, console: &Console) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
     let resp = client
         .get_rollback_history(tonic::Request::new(GetRollbackHistoryRequest { limit }))
@@ -36,7 +37,7 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
     }
 
     if resp.entries.is_empty() {
-        println!("{}", style::muted("No rollback history found."));
+        console.line(Role::Muted, "No rollback history found.");
         return Ok(());
     }
 
@@ -52,6 +53,7 @@ async fn history(channel: Channel, limit: u32) -> Result<()> {
         },
     );
 
-    table.print()?;
+    console.table(&table)?;
+
     Ok(())
 }

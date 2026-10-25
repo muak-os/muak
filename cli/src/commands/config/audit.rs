@@ -2,16 +2,17 @@
 
 use anyhow::{Context as _, Result};
 use tonic::transport::Channel;
-use tui::style::{self, Role};
+use tui::style::Role;
 use tui::table::{Cell, Table};
 
 use crate::client::provision_service::{
     ConfigHistoryEntry, GetConfigHistoryRequest, provision_service_client::ProvisionServiceClient,
 };
 use crate::commands::config::fetch_snapshot;
+use crate::console::Console;
 use crate::format::time::format_timestamp;
 
-pub(crate) async fn history(channel: Channel, limit: u32) -> Result<()> {
+pub(crate) async fn history(channel: Channel, limit: u32, console: &Console) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
     let response = client
         .get_config_history(tonic::Request::new(GetConfigHistoryRequest { limit }))
@@ -23,7 +24,7 @@ pub(crate) async fn history(channel: Channel, limit: u32) -> Result<()> {
     }
 
     if resp.entries.is_empty() {
-        println!("{}", style::muted("No config history found."));
+        console.line(Role::Muted, "No config history found.");
         return Ok(());
     }
 
@@ -39,11 +40,17 @@ pub(crate) async fn history(channel: Channel, limit: u32) -> Result<()> {
         },
     );
 
-    table.print()?;
+    console.table(&table)?;
+
     Ok(())
 }
 
-pub(crate) async fn diff(channel: Channel, from: Option<String>, to: Option<String>) -> Result<()> {
+pub(crate) async fn diff(
+    channel: Channel,
+    from: Option<String>,
+    to: Option<String>,
+    console: &Console,
+) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
 
     let (from, to) = match (from, to) {
@@ -62,9 +69,10 @@ pub(crate) async fn diff(channel: Channel, from: Option<String>, to: Option<Stri
             if let Some(prev) = predecessor {
                 let before = fetch_snapshot(&mut client, prev).await?;
                 let after = fetch_snapshot(&mut client, &to_id).await?;
+
                 (before, after)
             } else {
-                println!("{}", style::muted("No previous entry to compare against."));
+                console.line(Role::Muted, "No previous entry to compare against.");
                 return Ok(());
             }
         }
@@ -78,21 +86,21 @@ pub(crate) async fn diff(channel: Channel, from: Option<String>, to: Option<Stri
     let changes = config::system::diff(&from, &to).context("Failed to diff configs")?;
 
     if changes.is_empty() {
-        println!("{}", style::muted("No differences found."));
+        console.line(Role::Muted, "No differences found.");
         return Ok(());
     }
 
-    let theme = style::stdout();
     let mut table = Table::new().header(&["FIELD", "BEFORE", "AFTER"]);
     for (field, before, after) in changes {
         table = table.row_cells(vec![
             Cell::plain(field),
-            Cell::styled(before, theme.style(Role::Negative)),
-            Cell::styled(after, theme.style(Role::Positive)),
+            Cell::styled(before, console.style(Role::Negative)),
+            Cell::styled(after, console.style(Role::Positive)),
         ]);
     }
 
-    table.print()?;
+    console.table(&table)?;
+
     Ok(())
 }
 
@@ -106,5 +114,6 @@ async fn fetch_history(
     if !resp.error.is_empty() {
         return Err(anyhow::anyhow!("{}", resp.error));
     }
+
     Ok(resp.entries)
 }

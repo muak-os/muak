@@ -1,6 +1,6 @@
 //! Semantic colors and text styling.
 
-mod color;
+pub(crate) mod color;
 pub mod semantic;
 
 use std::sync::OnceLock;

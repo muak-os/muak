@@ -66,10 +66,6 @@ pub(crate) fn check_signature(
     verification: Option<&Verification<'_>>,
 ) -> Result<()> {
     let Some(verification) = verification else {
-        eprintln!(
-            "WARNING: No public key provided - manifest signature verification is DISABLED. \
-             This image has not been authenticated and may have been tampered with."
-        );
         return Ok(());
     };
     let annotation = verification.sig_annotation;

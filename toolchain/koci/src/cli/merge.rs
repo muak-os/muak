@@ -2,7 +2,9 @@
 
 use anyhow::{Context as _, Result};
 use koci::{error, merge};
-use tui::style;
+use tui::live::summary::Summary;
+
+use super::Console;
 
 /// Arguments of the `merge` subcommand.
 #[derive(clap::Args, Debug)]
@@ -18,7 +20,7 @@ pub struct Args {
 }
 
 /// Execute the `merge` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args {
         image,
         tags,
@@ -31,14 +33,32 @@ pub(crate) fn run(args: Args) -> Result<()> {
         .collect::<error::Result<Vec<_>>>()
         .context("Failed to parse sources")?;
 
-    merge::index(&image, &tags, &sources).context("Failed to merge index")?;
-    let message = format!(
-        "Successfully merged {} source(s) into {image}",
-        sources.len()
-    );
-    println!("{}", style::success(&message));
+    let digest = merge::index(&image, &tags, &sources).context("Failed to merge index")?;
+    print_summary(&image, &tags, &sources, &digest, console);
 
     Ok(())
+}
+
+fn print_summary(
+    image: &str,
+    tags: &[String],
+    sources: &[merge::Source],
+    digest: &str,
+    console: &Console,
+) {
+    let title = format!("Merged {image}");
+    let arches = sources
+        .iter()
+        .map(|source| source.arch.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tags = tags.join(", ");
+    let rows = [
+        ("Sources", arches.as_str()),
+        ("Tags", tags.as_str()),
+        ("Index", digest),
+    ];
+    console.report(&Summary::new(&title, &rows).with_quiet(digest));
 }
 
 #[cfg(test)]

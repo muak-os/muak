@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use oci::digest::sha256_hex;
 use oci::model::Descriptor;
+use oci_client::blob::report::Noop;
 use oci_client::client::Client;
 
 use crate::error::{KociError, Result};
 use crate::image::{config, layer, manifest, upload};
+use crate::progress::{Event, Reporter};
 use crate::pull::download;
 
 /// Repacks `layers` into eStargz and returns the rebuilt manifest and digest.
@@ -22,6 +24,7 @@ pub(crate) async fn repack(
     config_descriptor: &Descriptor,
     layers: &[Descriptor],
     annotations: Option<&HashMap<String, String>>,
+    reporter: &dyn Reporter,
 ) -> Result<(Bytes, String)> {
     let authorization = client.authorization().map(str::to_owned);
     let config_bytes = download::blob(
@@ -29,6 +32,7 @@ pub(crate) async fn repack(
         client.image(),
         &config_descriptor.digest,
         authorization.as_deref(),
+        None,
     )
     .await?;
     let source_diff_ids = config::diff_ids(&config_bytes)?;
@@ -42,12 +46,14 @@ pub(crate) async fn repack(
 
     let mut descriptors = Vec::with_capacity(layers.len());
     let mut diff_ids = Vec::with_capacity(layers.len());
+    let total = layers.len();
     for (position, source) in layers.iter().enumerate() {
         let raw = download::blob(
             client.http(),
             client.image(),
             &source.digest,
             authorization.as_deref(),
+            None,
         )
         .await?;
         let prepared = layer::prepare(raw, source)?;
@@ -55,8 +61,12 @@ pub(crate) async fn repack(
             client,
             &prepared.descriptor.digest,
             Bytes::from(prepared.bytes),
+            &Noop,
         )
         .await?;
+        reporter.report(Event::Note {
+            message: &format!("Repacked layer {}/{}", position.saturating_add(1), total),
+        });
 
         let diff_id = match prepared.diff_id {
             Some(diff_id) => diff_id,
@@ -69,7 +79,7 @@ pub(crate) async fn repack(
     }
 
     let config = config::splice(&config_bytes, &diff_ids)?;
-    upload::put_blob(client, &config.digest, config.bytes.clone()).await?;
+    upload::put_blob(client, &config.digest, config.bytes.clone(), &Noop).await?;
     let bytes = manifest::build(&config, &descriptors, annotations.cloned())?;
     let digest = format!("sha256:{}", sha256_hex(&bytes));
 

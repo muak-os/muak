@@ -9,7 +9,6 @@ use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
 use tui::live::Steps;
-use tui::style;
 
 use crate::client::{
     connect,
@@ -17,6 +16,7 @@ use crate::client::{
         GetConfigRequest, InstallRequest, provision_service_client::ProvisionServiceClient,
     },
 };
+use crate::console::Console;
 
 /// Data received upon successful completion of the install process.
 struct CompletedInstall {
@@ -31,6 +31,7 @@ pub async fn handle(
     force: bool,
     config_path: PathBuf,
     server_endpoint: &str,
+    console: &Console,
 ) -> Result<()> {
     let mut client_config = ClientConfig::load()?;
 
@@ -58,7 +59,7 @@ pub async fn handle(
     });
 
     let msg = format!("Installing Muak to {target_disk}...");
-    println!("{}", style::info(&msg));
+    console.info(&msg);
 
     let response = client
         .install(request)
@@ -68,7 +69,7 @@ pub async fn handle(
     let mut stream = response.into_inner();
     let mut result_data: Option<CompletedInstall> = None;
 
-    let steps = Steps::stderr()?;
+    let steps = console.steps()?;
 
     while let Some(progress) = stream.next().await {
         let progress = progress.context("Error receiving install progress")?;
@@ -120,7 +121,7 @@ pub async fn handle(
     reboot_result?;
 
     let msg = format!("Context '{actual_name}' added and set as current.");
-    println!("{}", style::success(&msg));
+    console.success(&msg);
 
     Ok(())
 }

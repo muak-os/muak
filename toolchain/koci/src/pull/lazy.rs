@@ -83,6 +83,7 @@ impl LazyLayer<'_> {
             session.client().image(),
             digest,
             session.client().authorization(),
+            None,
         ))?;
 
         if let Some(blob) = bytes {

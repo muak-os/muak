@@ -1,21 +1,16 @@
-//! Renderer thread plumbing and shared line builders.
+//! Renderer thread plumbing.
 
-use alloc::borrow::Cow;
 use core::time::Duration;
 use std::io;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::thread::{self, JoinHandle};
 
 use crate::screen::Screen;
-use crate::style::{Role, Theme};
-use crate::text::{self, Line, Span};
+use crate::text::Line;
 
 pub(crate) const FRAME_DURATION: Duration = Duration::from_millis(80);
 
 const CHANNEL_CAPACITY: usize = 64;
-const FRAMES: &[&str] = &[
-    "\u{2807}", "\u{281b}", "\u{2819}", "\u{2838}", "\u{2834}", "\u{2826}", "\u{2827}", "\u{280f}",
-];
 
 /// Cloneable sender for renderer commands.
 pub(crate) struct Handle<C> {
@@ -111,65 +106,6 @@ where
     }
 }
 
-/// Returns the spinner frame at `index`.
-pub(crate) fn frame_at(index: usize) -> &'static str {
-    let modulo = FRAMES.len();
-    let safe = index.checked_rem(modulo).unwrap_or(0);
-
-    FRAMES.get(safe).copied().unwrap_or("")
-}
-
-/// Builds an active spinner line that fits in `width` columns.
-pub(crate) fn spinner_line(
-    message: &str,
-    frame: usize,
-    width: usize,
-    theme: Theme,
-) -> Line<'static> {
-    let frame_text = frame_at(frame);
-    let prefix = 2_usize
-        .saturating_add(text::width(frame_text))
-        .saturating_add(1);
-    let label = fitted(message, width.saturating_sub(prefix));
-    let mut line = Line::new(0);
-    line.push(Span::plain("  "));
-    line.push(Span::styled(frame_text, theme.style(Role::Accent)));
-    line.push(Span::plain(" "));
-    line.push(Span::plain(label));
-
-    line
-}
-
-/// Builds a plain message line that fits in `width` columns.
-pub(crate) fn message_line(message: &str, width: usize) -> Line<'static> {
-    let mut line = Line::new(0);
-    line.push(Span::plain("  "));
-    line.push(Span::plain(fitted(message, width.saturating_sub(2))));
-
-    line
-}
-
-/// Builds a frozen success or failure line that fits in `width` columns.
-pub(crate) fn status_line(
-    message: &str,
-    success: bool,
-    width: usize,
-    theme: Theme,
-) -> Line<'static> {
-    let (mark, role) = if success {
-        ("\u{2713}", Role::Success)
-    } else {
-        ("\u{2717}", Role::Error)
-    };
-    let mut line = Line::new(0);
-    line.push(Span::plain("  "));
-    line.push(Span::styled(mark, theme.style(role)));
-    line.push(Span::plain(" "));
-    line.push(Span::plain(fitted(message, width.saturating_sub(4))));
-
-    line
-}
-
 /// Draws `line` on the active line and flushes it.
 pub(crate) fn write_active<S: Screen>(screen: &mut S, line: &Line<'_>) -> io::Result<()> {
     screen.move_to_column(0)?;
@@ -195,12 +131,6 @@ pub(crate) fn write_plain<S: Screen>(screen: &mut S, line: &Line<'_>) -> io::Res
     screen.newline()?;
 
     screen.flush()
-}
-
-fn fitted(message: &str, width: usize) -> String {
-    let sanitized = text::sanitize(Cow::Borrowed(message));
-
-    text::truncate(&sanitized, width).to_owned()
 }
 
 #[cfg(test)]

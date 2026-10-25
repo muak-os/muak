@@ -1,9 +1,12 @@
 //! Registry blob operations per the distribution specification.
 
+pub mod report;
+
 use hyper::body::Bytes;
 use hyper::http::StatusCode;
 use hyper::http::header::LOCATION;
 use oci::reference::Image;
+use report::BlobProgress;
 
 use crate::client::Client;
 use crate::endpoint;
@@ -52,21 +55,41 @@ const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 ///
 /// Returns an error when the upload session cannot start, a chunk transfer
 /// fails or is dropped by the registry, or the final PUT fails.
-pub async fn upload(client: &Client, digest: &str, body: Bytes) -> Result<()> {
+pub async fn upload<B: BlobProgress>(
+    client: &Client,
+    digest: &str,
+    body: Bytes,
+    progress: &B,
+) -> Result<()> {
+    let total = u64::try_from(body.len()).unwrap_or(u64::MAX);
+    progress.started(digest, total);
     if body.len() <= SMALL_BLOB_LIMIT {
         let location = start(client).await?;
-        return finish(client, &location, digest, body).await;
+        finish(client, &location, digest, body).await?;
+        progress.progress(total, total);
+        progress.finished(digest);
+
+        return Ok(());
     }
 
     let location = start(client).await?;
-    let location = chunks(client, &location, &body).await?;
+    let location = chunks(client, &location, &body, progress).await?;
 
-    finish(client, &location, digest, Bytes::new()).await
+    finish(client, &location, digest, Bytes::new()).await?;
+    progress.finished(digest);
+
+    Ok(())
 }
 
-async fn chunks(client: &Client, location: &str, body: &Bytes) -> Result<String> {
+async fn chunks<B: BlobProgress>(
+    client: &Client,
+    location: &str,
+    body: &Bytes,
+    progress: &B,
+) -> Result<String> {
     let mut location = location.to_owned();
     let mut offset = 0_usize;
+    let total = u64::try_from(body.len()).unwrap_or(u64::MAX);
 
     while offset < body.len() {
         let end = offset.saturating_add(CHUNK_SIZE).min(body.len());
@@ -95,6 +118,7 @@ async fn chunks(client: &Client, location: &str, body: &Bytes) -> Result<String>
 
         location = response_location(client.image(), &response, &location)?;
         offset = end;
+        progress.progress(u64::try_from(offset).unwrap_or(u64::MAX), total);
     }
 
     Ok(location)

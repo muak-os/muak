@@ -4,6 +4,7 @@ extern crate alloc;
 
 mod client;
 mod commands;
+mod console;
 mod format;
 
 use std::io;
@@ -17,7 +18,7 @@ use commands::process::Action as ProcessAction;
 use commands::rollback::Action as RollbackAction;
 use commands::security::Action as SecurityAction;
 use commands::vm::Action as VmAction;
-use tui::style;
+use console::Console;
 
 #[derive(Parser)]
 #[command(name = "muak")]
@@ -35,8 +36,27 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub skip_version_check: bool,
 
+    #[command(flatten)]
+    pub output: OutputFlags,
+
     #[command(subcommand)]
     pub command: Commands,
+}
+
+/// Global output flags shared by every subcommand.
+#[derive(clap::Args, Clone, Copy, Debug)]
+pub struct OutputFlags {
+    /// Suppress progress and decorative success lines.
+    #[arg(long, global = true, conflicts_with = "verbose")]
+    pub quiet: bool,
+
+    /// Disable color while keeping the detected mode.
+    #[arg(long, global = true)]
+    pub no_color: bool,
+
+    /// Show per-item and per-upload detail.
+    #[arg(long, global = true, conflicts_with = "quiet")]
+    pub verbose: bool,
 }
 
 #[derive(Subcommand, Clone)]
@@ -108,60 +128,92 @@ pub enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let Err(e) = commands::run(cli).await else {
+    let console = Console::detect(cli.output);
+    let Err(error) = commands::run(cli, &console).await else {
         return;
     };
 
-    if e.chain()
+    if error
+        .chain()
         .filter_map(|cause| cause.downcast_ref::<io::Error>())
         .any(|cause| cause.kind() == io::ErrorKind::BrokenPipe)
     {
         return;
     }
 
-    handle_error(&e);
+    handle_error(&error, &console);
     std::process::exit(1);
 }
 
-/// Handles and displays errors with user-friendly messages.
-fn handle_error(err: &anyhow::Error) {
-    if let Some(status) = err.downcast_ref::<tonic::Status>() {
-        let msg = match status.code() {
-            tonic::Code::FailedPrecondition if status.message() == "Server not installed" => {
-                "Server not installed. Run 'muakctl install --config <path>' to set up."
-            }
-            tonic::Code::Unauthenticated => {
-                "Authentication required. Run 'muakctl auth' to access this resource on the server."
-            }
-            tonic::Code::PermissionDenied => {
-                "Permission denied. You don't have access to this resource."
-            }
-            tonic::Code::Unavailable => "Server unavailable. Check if the server is running.",
-            tonic::Code::DeadlineExceeded => "Request timed out.",
-            tonic::Code::Ok
-            | tonic::Code::Cancelled
-            | tonic::Code::Unknown
-            | tonic::Code::InvalidArgument
-            | tonic::Code::NotFound
-            | tonic::Code::AlreadyExists
-            | tonic::Code::ResourceExhausted
-            | tonic::Code::FailedPrecondition
-            | tonic::Code::Aborted
-            | tonic::Code::OutOfRange
-            | tonic::Code::Unimplemented
-            | tonic::Code::Internal
-            | tonic::Code::DataLoss => status.message(),
-        };
-        eprintln!(
-            "{} {}",
-            style::stderr().error("Error:"),
-            style::stderr().error_text(msg)
-        );
-    } else {
-        eprintln!(
-            "{} {}",
-            style::stderr().error("Error:"),
-            style::stderr().error_text(&format!("{err:#}"))
-        );
+// Handles and displays errors with user-friendly messages.
+fn handle_error(error: &anyhow::Error, console: &Console) {
+    match error.downcast_ref::<tonic::Status>() {
+        Some(status) => console.error(status_message(status)),
+        None => console.error(&format!("{error:#}")),
+    }
+}
+
+// Maps a gRPC status to a user-facing message.
+fn status_message(status: &tonic::Status) -> &str {
+    match status.code() {
+        tonic::Code::FailedPrecondition if status.message() == "Server not installed" => {
+            "Server not installed. Run 'muakctl install --config <path>' to set up."
+        }
+        tonic::Code::Unauthenticated => {
+            "Authentication required. Run 'muakctl auth' to access this resource on the server."
+        }
+        tonic::Code::PermissionDenied => {
+            "Permission denied. You don't have access to this resource."
+        }
+        tonic::Code::Unavailable => "Server unavailable. Check if the server is running.",
+        tonic::Code::DeadlineExceeded => "Request timed out.",
+        tonic::Code::Ok
+        | tonic::Code::Cancelled
+        | tonic::Code::Unknown
+        | tonic::Code::InvalidArgument
+        | tonic::Code::NotFound
+        | tonic::Code::AlreadyExists
+        | tonic::Code::ResourceExhausted
+        | tonic::Code::FailedPrecondition
+        | tonic::Code::Aborted
+        | tonic::Code::OutOfRange
+        | tonic::Code::Unimplemented
+        | tonic::Code::Internal
+        | tonic::Code::DataLoss => status.message(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser as _;
+
+    use super::Cli;
+
+    #[test]
+    fn global_output_flags_parse_after_the_subcommand() {
+        // ARRANGE
+        let cli = Cli::try_parse_from(["muakctl", "version", "--no-color", "--verbose"])
+            .expect("parse global output flags");
+
+        // ACT
+        let quiet = cli.output.quiet;
+        let no_color = cli.output.no_color;
+        let verbose = cli.output.verbose;
+
+        // ASSERT
+        assert!(!quiet);
+        assert!(no_color);
+        assert!(verbose);
+    }
+
+    #[test]
+    fn quiet_conflicts_with_verbose() {
+        // ARRANGE / ACT
+        let error = Cli::try_parse_from(["muakctl", "--quiet", "--verbose", "version"])
+            .err()
+            .expect("quiet and verbose must not be combined");
+
+        // ASSERT
+        assert!(error.to_string().contains("--verbose"));
     }
 }

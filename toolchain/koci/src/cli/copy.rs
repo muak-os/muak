@@ -1,8 +1,10 @@
 //! Copy images between registries byte-for-byte.
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use koci::copy;
-use tui::style;
+use tui::live::summary::Summary;
+
+use super::Console;
 
 /// Arguments of the `copy` subcommand.
 #[derive(clap::Args, Debug)]
@@ -17,17 +19,24 @@ pub struct Args {
 }
 
 /// Execute the `copy` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args {
         source,
         destination,
     } = args;
+    let digest = console.tracked("copy image", |reporter| {
+        copy::run(&source, &destination, reporter)
+    })?;
 
-    copy::run(&source, &destination).context("Failed to copy image")?;
-    let message = format!("Successfully copied {source} to {destination}");
-    println!("{}", style::success(&message));
+    print_summary(&source, &destination, &digest, console);
 
     Ok(())
+}
+
+fn print_summary(source: &str, destination: &str, digest: &str, console: &Console) {
+    let title = format!("Copied {source} to {destination}");
+    let rows = [("Digest", digest)];
+    console.report(&Summary::new(&title, &rows).with_quiet(digest));
 }
 
 #[cfg(test)]

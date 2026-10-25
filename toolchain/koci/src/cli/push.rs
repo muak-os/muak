@@ -4,9 +4,9 @@ use anyhow::{Context as _, Result};
 use koci::{error, push};
 use oci::arch;
 use oci::arch::Arch;
-use tui::style;
+use tui::live::summary::Summary;
 
-use super::parse_arch;
+use super::{Console, parse_arch};
 
 /// Arguments of the `push` subcommand.
 #[derive(clap::Args, Debug)]
@@ -29,7 +29,7 @@ pub struct Args {
 }
 
 /// Execute the `push` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args {
         image,
         tags,
@@ -43,13 +43,20 @@ pub(crate) fn run(args: Args) -> Result<()> {
         .collect::<error::Result<Vec<_>>>()
         .context("Failed to parse files")?;
     let target_arch = arch.unwrap_or(arch::host());
+    let pushed = console.tracked("push image", |reporter| {
+        push::files(&image, &tags, &target_arch, &entries, reporter)
+    })?;
 
-    let pushed =
-        push::files(&image, &tags, &target_arch, &entries).context("Failed to push image")?;
-    let message = format!("Successfully pushed {image} (manifest {})", pushed.digest);
-    println!("{}", style::success(&message));
+    print_summary(&image, &pushed, console);
 
     Ok(())
+}
+
+fn print_summary(image: &str, pushed: &push::Pushed, console: &Console) {
+    let title = format!("Pushed {image}");
+    let tags = pushed.tags.join(", ");
+    let rows = [("Tags", tags.as_str()), ("Digest", pushed.digest.as_str())];
+    console.report(&Summary::new(&title, &rows).with_quiet(&pushed.digest));
 }
 
 #[cfg(test)]

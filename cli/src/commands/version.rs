@@ -3,11 +3,12 @@
 use anyhow::Result;
 use config::version::CompatibilityStatus;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 
 use crate::client::version_service::{
     GetVersionRequest, version_service_client::VersionServiceClient,
 };
+use crate::console::Console;
 
 /// Fetches the server version string via gRPC.
 pub async fn fetch_server(channel: Channel) -> Option<String> {
@@ -20,20 +21,18 @@ pub async fn fetch_server(channel: Channel) -> Option<String> {
 }
 
 /// Handles the `version` command: prints client/server versions and any warnings.
-pub async fn handle(channel: Channel) -> Result<()> {
+pub async fn handle(channel: Channel, console: &Console) -> Result<()> {
     let client_ver = env!("CARGO_PKG_VERSION");
-    println!("{} {}", style::label("Client:"), client_ver);
+    println!("{} {}", console.paint("Client:", Role::Label), client_ver);
 
     match fetch_server(channel).await {
         None => {
-            eprintln!(
-                "{} server does not support version reporting (consider updating the server)",
-                style::stderr().warn("Warning:")
-            );
+            console
+                .warn("server does not support version reporting (consider updating the server)");
         }
         Some(ref server_ver) => {
-            println!("{} {}", style::label("Server:"), server_ver);
-            print_compat_warning(client_ver, server_ver);
+            println!("{} {}", console.paint("Server:", Role::Label), server_ver);
+            print_compat_warning(console, client_ver, server_ver);
         }
     }
 
@@ -41,7 +40,7 @@ pub async fn handle(channel: Channel) -> Result<()> {
 }
 
 /// Prints a warning to stderr if versions are not identical.
-pub fn print_compat_warning(client_ver: &str, server_ver: &str) {
+pub fn print_compat_warning(console: &Console, client_ver: &str, server_ver: &str) {
     if client_ver == server_ver {
         return;
     }
@@ -74,5 +73,5 @@ pub fn print_compat_warning(client_ver: &str, server_ver: &str) {
         }
     };
 
-    eprintln!("{} {}", style::stderr().warn("Warning:"), msg);
+    console.warn(&msg);
 }

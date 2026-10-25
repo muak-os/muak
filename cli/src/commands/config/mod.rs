@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
 use tonic::transport::Channel;
-use tui::style;
 
 use crate::client::provision_service::{
     GetConfigRequest, GetConfigSnapshotRequest, GetDefaultConfigRequest,
     provision_service_client::ProvisionServiceClient,
 };
+use crate::console::Console;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -36,12 +36,12 @@ pub enum Action {
 }
 
 /// Handles config subcommands.
-pub async fn handle(channel: Channel, action: Action) -> Result<()> {
+pub async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
     match action {
         Action::Generate => generate(channel).await,
-        Action::Get { from, output } => get(channel, from, output).await,
-        Action::History { limit } => audit::history(channel, limit).await,
-        Action::Diff { from, to } => audit::diff(channel, from, to).await,
+        Action::Get { from, output } => get(channel, from, output, console).await,
+        Action::History { limit } => audit::history(channel, limit, console).await,
+        Action::Diff { from, to } => audit::diff(channel, from, to, console).await,
     }
 }
 
@@ -60,7 +60,12 @@ async fn generate(channel: Channel) -> Result<()> {
     Ok(())
 }
 
-async fn get(channel: Channel, from: Option<String>, output: Option<PathBuf>) -> Result<()> {
+async fn get(
+    channel: Channel,
+    from: Option<String>,
+    output: Option<PathBuf>,
+    console: &Console,
+) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
     let config = match from.as_deref() {
         Some(update_id) => fetch_snapshot(&mut client, update_id).await?,
@@ -71,10 +76,7 @@ async fn get(channel: Channel, from: Option<String>, output: Option<PathBuf>) ->
         Some(path) => {
             std::fs::write(&path, &config)
                 .with_context(|| format!("Failed to write config to {}", path.display()))?;
-            println!(
-                "{}",
-                style::success(&format!("Config written to {}", path.display()))
-            );
+            console.success(&format!("Config written to {}", path.display()));
         }
         None => print!("{config}"),
     }

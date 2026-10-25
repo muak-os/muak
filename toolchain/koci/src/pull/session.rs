@@ -11,7 +11,7 @@ use super::entries::FileEntry;
 use super::lazy::LazyLayers;
 use super::{layer, resolve, scan};
 use crate::error::Result;
-use crate::progress::Progress;
+use crate::progress::{Event, Operation, Reporter};
 use crate::registry;
 use crate::runtime;
 use crate::signature::Verification;
@@ -22,6 +22,7 @@ pub struct Session {
     cache: Store,
     content: Content,
     layers: Vec<Descriptor>,
+    digest: String,
     reference: String,
     arch: String,
 }
@@ -33,25 +34,38 @@ impl Session {
         &self.layers
     }
 
+    /// The resolved platform manifest digest.
+    #[must_use]
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+
     /// Stream every live file entry of the image over a single pull.
     ///
     /// # Errors
     ///
     /// Returns an error when a layer cannot be fetched or decompressed, or the
     /// handler returns an error.
-    pub fn walk<F>(&self, progress: &dyn Progress, mut handler: F) -> Result<()>
+    pub fn walk<F>(&self, reporter: &dyn Reporter, mut handler: F) -> Result<()>
     where
         F: FnMut(FileEntry<'_>) -> Result<()>,
     {
-        progress.pulling(&self.reference, &self.arch);
-        progress.resolved(self.layers.len());
+        let subject = format!("{} {}", self.reference, self.arch);
+        reporter.report(Event::Started {
+            operation: Operation::Pull,
+            subject: &subject,
+        });
+        reporter.report(Event::Resolved {
+            layers: self.layers.len(),
+            digest: &self.digest,
+        });
 
         runtime::runtime()?.block_on(layer::walk(
             &self.client,
             &self.cache,
             &self.content,
             &self.layers,
-            progress,
+            reporter,
             |_layer_idx, entry, info| scan::handle_file_entry(entry, info, &mut handler),
         ))
     }
@@ -92,13 +106,14 @@ pub fn open(
     runtime::runtime()?.block_on(async {
         let client = registry::connect(reference, Access::Pull).await?;
         let cache = Store::new();
-        let layers = resolve::layers(&client, &cache, arch, verification).await?;
+        let (layers, digest) = resolve::layers(&client, &cache, arch, verification).await?;
 
         Ok(Session {
             client,
             cache,
             content: Content::new(),
             layers,
+            digest,
             reference: reference.to_owned(),
             arch: arch.as_str().to_owned(),
         })

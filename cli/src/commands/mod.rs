@@ -17,7 +17,7 @@ pub mod vm;
 use ::config::user::ClientConfig;
 use anyhow::{Result, bail};
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 
 use crate::client::{
     connect, connect_tls_insecure,
@@ -28,6 +28,7 @@ use crate::client::{
     version_service::{GetVersionRequest, version_service_client::VersionServiceClient},
     vm_service::vm_service_client::VmServiceClient,
 };
+use crate::console::Console;
 use crate::{Cli, Commands};
 
 /// Resolves the connection based on CLI flags and config.
@@ -45,6 +46,7 @@ async fn resolve_connection(
     cli: &Cli,
     timeout_secs: u64,
     skip_preflight: bool,
+    console: &Console,
 ) -> Result<(Channel, String, Option<String>)> {
     if cli.insecure {
         let endpoint = cli.endpoint.as_ref().ok_or_else(|| {
@@ -52,7 +54,7 @@ async fn resolve_connection(
         })?;
         let channel = connect_tls_insecure(endpoint, timeout_secs).await?.0;
         if !skip_preflight {
-            run_version_preflight(channel.clone()).await;
+            run_version_preflight(channel.clone(), console).await;
         }
         return Ok((channel, endpoint.clone(), None));
     }
@@ -87,24 +89,24 @@ async fn resolve_connection(
     };
 
     if !skip_preflight {
-        run_version_preflight(channel.clone()).await;
+        run_version_preflight(channel.clone(), console).await;
     }
     Ok((channel, endpoint, Some(context)))
 }
 
 /// Checks CLI vs server version and prints a warning to stderr on mismatch.
-async fn run_version_preflight(channel: Channel) {
+async fn run_version_preflight(channel: Channel, console: &Console) {
     let client_ver = env!("CARGO_PKG_VERSION");
     let mut vc = VersionServiceClient::new(channel);
     if let Ok(resp) = vc.get_version(GetVersionRequest {}).await {
         let server_ver = resp.into_inner().version;
-        version::print_compat_warning(client_ver, &server_ver);
+        version::print_compat_warning(console, client_ver, &server_ver);
     }
 }
 
 /// Routes CLI commands to their handlers.
-pub async fn run(cli: Cli) -> Result<()> {
-    if handle_offline_cmd(&cli).await? {
+pub async fn run(cli: Cli, console: &Console) -> Result<()> {
+    if handle_offline_cmd(&cli, console).await? {
         return Ok(());
     }
 
@@ -123,13 +125,13 @@ pub async fn run(cli: Cli) -> Result<()> {
     };
     let skip_preflight = cli.skip_version_check || matches!(cli.command, Commands::Version);
     let (channel, endpoint, context_name) =
-        resolve_connection(&cli, timeout_secs, skip_preflight).await?;
+        resolve_connection(&cli, timeout_secs, skip_preflight, console).await?;
 
-    handle_cmd(cli, channel, endpoint, context_name).await
+    handle_cmd(cli, channel, endpoint, context_name, console).await
 }
 
 /// Handles commands that don't require a server connection.
-async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
+async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
     match cli.command.clone() {
         Commands::Config {
             action: config::Action::Generate,
@@ -138,7 +140,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
             Ok(true)
         }
         Commands::Context { action } => {
-            context::handle(action)?;
+            context::handle(action, console)?;
             Ok(true)
         }
         Commands::Auth { action: None } => {
@@ -152,7 +154,7 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
                     "Authentication enrollment requires --insecure. Use 'muakctl auth --endpoint <ip>:<port> --insecure'."
                 );
             }
-            auth::enroll(endpoint).await?;
+            auth::enroll(endpoint, console).await?;
             Ok(true)
         }
         Commands::Update { version, config } => {
@@ -162,11 +164,9 @@ async fn handle_offline_cmd(cli: &Cli) -> Result<bool> {
             Ok(false)
         }
         Commands::Install { force: false, .. } if has_existing_credentials(cli)? => {
-            println!(
-                "{}",
-                style::warn(
-                    "Existing credentials found for this server. Remove the context to reinstall."
-                )
+            console.line(
+                Role::Warn,
+                "Existing credentials found for this server. Remove the context to reinstall.",
             );
             Ok(true)
         }
@@ -206,30 +206,31 @@ async fn handle_cmd(
     channel: Channel,
     endpoint: String,
     context: Option<String>,
+    console: &Console,
 ) -> Result<()> {
     match cli.command {
         Commands::Auth { action } => {
             let action =
                 action.ok_or_else(|| anyhow::anyhow!("Auth action missing in online handler"))?;
-            auth::handle(channel, action).await
+            auth::handle(channel, action, console).await
         }
-        Commands::Config { action } => config::handle(channel, action).await,
-        Commands::Rollback { action } => rollback::handle(channel, action).await,
+        Commands::Config { action } => config::handle(channel, action, console).await,
+        Commands::Rollback { action } => rollback::handle(channel, action, console).await,
         Commands::Process { action } => {
             let mut client = ProcessServiceClient::new(channel);
-            process::handle(&mut client, action).await
+            process::handle(&mut client, action, console).await
         }
         Commands::Security { action } => {
             let mut client = SecurityServiceClient::new(channel);
-            security::handle(&mut client, action).await
+            security::handle(&mut client, action, console).await
         }
         Commands::Vm { action } => {
             let mut client = VmServiceClient::new(channel);
-            vm::handle(&mut client, action).await
+            vm::handle(&mut client, action, console).await
         }
         Commands::Install { force, config } => {
             let mut client = ProvisionServiceClient::new(channel);
-            install::handle(&mut client, force, config, &endpoint).await
+            install::handle(&mut client, force, config, &endpoint, console).await
         }
         Commands::Update {
             version,
@@ -244,15 +245,15 @@ async fn handle_cmd(
             let ctx = config
                 .get_context(ctx_name)
                 .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?;
-            update::handle(ctx, version, config_path).await
+            update::handle(ctx, version, config_path, console).await
         }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);
-            disks::handle(&mut client).await
+            disks::handle(&mut client, console).await
         }
         Commands::Dmesg { follow } => {
             let mut client = LogServiceClient::new(channel);
-            dmesg::handle(&mut client, follow).await
+            dmesg::handle(&mut client, follow, console).await
         }
         Commands::Logs {
             service,
@@ -261,21 +262,21 @@ async fn handle_cmd(
             level,
         } => {
             let mut client = LogServiceClient::new(channel);
-            logs::handle(&mut client, service, tail, follow, level).await
+            logs::handle(&mut client, service, tail, follow, level, console).await
         }
         Commands::Reset { force } => {
             let mut client = ProvisionServiceClient::new(channel);
-            reset::handle(&mut client, force, context).await
+            reset::handle(&mut client, force, context, console).await
         }
         Commands::Reboot => {
             let mut client = ProvisionServiceClient::new(channel);
-            power::reboot(&mut client).await
+            power::reboot(&mut client, console).await
         }
         Commands::Shutdown => {
             let mut client = ProvisionServiceClient::new(channel);
-            power::shutdown(&mut client).await
+            power::shutdown(&mut client, console).await
         }
-        Commands::Version => version::handle(channel).await,
+        Commands::Version => version::handle(channel, console).await,
         Commands::Context { .. } => bail!("Command not handled"),
     }
 }

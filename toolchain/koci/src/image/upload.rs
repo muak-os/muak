@@ -3,6 +3,7 @@
 use bytes::Bytes;
 use oci::digest::sha256_hex;
 use oci_client::blob;
+use oci_client::blob::report::BlobProgress;
 use oci_client::client::Client;
 
 use super::Blob;
@@ -39,12 +40,18 @@ pub(crate) fn blob_from_json(value: &serde_json::Value) -> Result<Blob> {
 /// # Errors
 ///
 /// Returns an error when the existence check or upload fails.
-pub(crate) async fn put_blob(client: &Client, digest: &str, bytes: Bytes) -> Result<()> {
+pub(crate) async fn put_blob<B: BlobProgress>(
+    client: &Client,
+    digest: &str,
+    bytes: Bytes,
+    progress: &B,
+) -> Result<()> {
     if blob::exists(client, digest).await? {
+        progress.skipped(digest);
         return Ok(());
     }
 
-    blob::upload(client, digest, bytes).await?;
+    blob::upload(client, digest, bytes, progress).await?;
 
     Ok(())
 }

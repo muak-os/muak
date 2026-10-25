@@ -1,18 +1,18 @@
 //! Extract the files of an OCI image.
 
+use core::time::Duration;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use koci::error;
 use koci::pull;
 use koci::signature::Verification;
-use koci::ui::Reporter;
 use oci::arch;
 use oci::arch::Arch;
-use tui::live::Steps;
-use tui::style;
+use tui::live::summary::Summary;
 
-use super::{parse_arch, read_key_file};
+use super::{Console, parse_arch, read_key_file};
 
 /// Arguments of the `pull` subcommand.
 #[derive(clap::Args, Debug)]
@@ -34,7 +34,7 @@ pub struct Args {
 }
 
 /// Execute the `pull` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args {
         image,
         arch,
@@ -59,31 +59,51 @@ pub(crate) fn run(args: Args) -> Result<()> {
 
     let target_arch = arch.unwrap_or(arch::host());
 
-    let steps = Steps::stderr()?;
-    let progress = Reporter::new(steps.handle());
-    let result = pull::files(
-        &image,
-        &target_arch,
-        verification.as_ref(),
-        &progress,
-        |entry| write_entry_to_dir(entry, &output),
-    )
-    .context("Failed to stream image");
-
-    if let Err(error) = result {
-        steps.fail(format!("Pull failed: {error}"));
-        let _finish_result = steps.finish();
-
-        return Err(error);
+    if verification.is_none() {
+        console.warn(
+            "WARNING: No public key provided - manifest signature verification is DISABLED. \
+             This image has not been authenticated and may have been tampered with.",
+        );
     }
 
-    steps.complete(format!("Extracted image to {}", output.display()));
-    steps.finish()?;
+    let started = Instant::now();
+    let resolution = console.tracked("pull image", |reporter| {
+        pull::files(
+            &image,
+            &target_arch,
+            verification.as_ref(),
+            reporter,
+            |entry| write_entry_to_dir(entry, &output),
+        )
+    })?;
 
-    let message = format!("Successfully extracted image to {}", output.display());
-    println!("{}", style::success(&message));
+    print_summary(&resolution, &output, started.elapsed(), console);
 
     Ok(())
+}
+
+fn print_summary(
+    resolution: &pull::Resolution,
+    output: &Path,
+    elapsed: Duration,
+    console: &Console,
+) {
+    let layers = resolution.layers;
+    let title = format!("Pulled {layers} layers in {}", format_elapsed(elapsed));
+    let output_text = output.display().to_string();
+    let rows = [
+        ("Digest", resolution.digest.as_str()),
+        ("Output", output_text.as_str()),
+    ];
+    console.report(&Summary::new(&title, &rows));
+}
+
+fn format_elapsed(elapsed: Duration) -> String {
+    let tenths = elapsed.as_millis().checked_div(100).unwrap_or(0);
+    let whole = tenths.checked_div(10).unwrap_or(0);
+    let fraction = tenths.checked_rem(10).unwrap_or(0);
+
+    format!("{whole}.{fraction}s")
 }
 
 fn write_entry_to_dir(mut entry: pull::entries::FileEntry<'_>, output: &Path) -> error::Result<()> {

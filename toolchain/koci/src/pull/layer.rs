@@ -14,7 +14,7 @@ use super::fetch;
 use super::parallel;
 use super::scan;
 use crate::error::Result;
-use crate::progress::Progress;
+use crate::progress::{Event, Phase, Reporter, Unit};
 
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
 pub(crate) async fn walk<F>(
@@ -22,7 +22,7 @@ pub(crate) async fn walk<F>(
     cache: &Store,
     content: &Content,
     layers: &[Descriptor],
-    progress: &dyn Progress,
+    reporter: &dyn Reporter,
     mut on_entry: F,
 ) -> Result<()>
 where
@@ -32,27 +32,66 @@ where
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
-    let bytes = parallel::download_all(client, cache, content, layers, progress).await?;
-    let whiteouts = fetch::whiteout_map(content, layers, &bytes, progress)?;
+    let bytes = parallel::download_all(client, cache, content, layers, reporter).await?;
     let n = layers.len();
+    if n > 1 {
+        let whiteouts = fetch::whiteout_map(content, layers, &bytes, reporter)?;
+        reporter.report(Event::PhaseCompleted {
+            phase: Phase::Scan,
+            label: &format!("Scanned {n}/{n} layers"),
+        });
+        extract_all(content, layers, &bytes, &whiteouts, reporter, &mut on_entry)?;
+    } else {
+        let whiteouts = HashMap::new();
+        extract_all(content, layers, &bytes, &whiteouts, reporter, &mut on_entry)?;
+    }
 
-    for (layer_idx, layer) in layers.iter().enumerate() {
-        progress.layer_extracting(layer_idx.saturating_add(1), n, short_digest(&layer.digest));
-        let cached = fetch::cached_bytes(&bytes, layer_idx);
-        let mut reader = fetch::layer_reader(content, cached.as_deref(), layer)?;
-        extract_layer(&mut reader, layer_idx, &whiteouts, &mut on_entry)?;
+    if n > 0 {
+        reporter.report(Event::PhaseCompleted {
+            phase: Phase::Extract,
+            label: &format!("Extracted {n}/{n} layers"),
+        });
     }
 
     Ok(())
 }
 
-/// The short digest prefix used for progress lines.
-pub(crate) fn short_digest(digest: &str) -> &str {
-    if let Some(hash) = digest.strip_prefix("sha256:") {
-        hash.get(..12).unwrap_or(hash)
-    } else {
-        digest
+fn extract_all<F>(
+    content: &Content,
+    layers: &[Descriptor],
+    bytes: &[Option<Vec<u8>>],
+    whiteouts: &HashMap<PathBuf, usize>,
+    reporter: &dyn Reporter,
+    on_entry: &mut F,
+) -> Result<()>
+where
+    F: for<'a, 'b> FnMut(
+        usize,
+        tar::Entry<&'a mut download::LayerReader>,
+        scan::EntryInfo<'b>,
+    ) -> Result<()>,
+{
+    let n = layers.len();
+    let total = u64::try_from(n).unwrap_or(u64::MAX);
+    reporter.report(Event::PhaseStarted {
+        phase: Phase::Extract,
+        label: "Extracting layers",
+        total,
+        unit: Unit::Items,
+    });
+    for (layer_idx, layer) in layers.iter().enumerate() {
+        let current = u64::try_from(layer_idx.saturating_add(1)).unwrap_or(u64::MAX);
+        reporter.report(Event::Progress {
+            phase: Phase::Extract,
+            current,
+            total,
+        });
+        let cached = fetch::cached_bytes(bytes, layer_idx);
+        let mut reader = fetch::layer_reader(content, cached.as_deref(), layer)?;
+        extract_layer(&mut reader, layer_idx, whiteouts, on_entry)?;
     }
+
+    Ok(())
 }
 
 /// Iterate one layer's archive, skipping entries blocked by whiteouts.

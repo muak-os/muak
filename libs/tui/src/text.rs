@@ -181,6 +181,30 @@ mod tests {
     }
 
     #[test]
+    fn width_ignores_combining_marks() {
+        // ARRANGE
+        let text = "e\u{301}";
+
+        // ACT
+        let measured = width(text);
+
+        // ASSERT
+        assert_eq!(measured, 1);
+    }
+
+    #[test]
+    fn truncate_keeps_combining_marks_with_their_base() {
+        // ARRANGE
+        let text = "e\u{301}x";
+
+        // ACT
+        let truncated = truncate(text, 1);
+
+        // ASSERT
+        assert_eq!(truncated, "e\u{301}");
+    }
+
+    #[test]
     fn truncate_never_splits_a_wide_character() {
         // ARRANGE
         let text = "日本語";

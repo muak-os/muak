@@ -52,13 +52,13 @@ pub(crate) fn children(index: &str) -> Result<Vec<String>> {
         .collect()
 }
 
-/// Digests of the config and layer blobs an image manifest references.
+/// Digests and sizes of the config and layer blobs an image manifest references.
 ///
 /// # Errors
 ///
 /// Returns an error when the manifest is not valid JSON or a descriptor
 /// carries no digest.
-pub(crate) fn blob_digests(manifest: &str) -> Result<Vec<String>> {
+pub(crate) fn blobs(manifest: &str) -> Result<Vec<(String, u64)>> {
     let value: Value = serde_json::from_str(manifest)?;
     let config = value
         .get("config")
@@ -68,22 +68,25 @@ pub(crate) fn blob_digests(manifest: &str) -> Result<Vec<String>> {
         .and_then(Value::as_array)
         .ok_or_else(|| KociError::CopyError("manifest carries no layers array".to_owned()))?;
 
-    let mut digests = vec![descriptor_digest(config, "config")?];
-    let layer_digests = layers
+    let mut blobs = vec![descriptor_blob(config, "config")?];
+    let layer_blobs = layers
         .iter()
-        .map(|layer| descriptor_digest(layer, "layers"))
+        .map(|layer| descriptor_blob(layer, "layers"))
         .collect::<Result<Vec<_>>>()?;
-    digests.extend(layer_digests);
+    blobs.extend(layer_blobs);
 
-    Ok(digests)
+    Ok(blobs)
 }
 
-fn descriptor_digest(descriptor: &Value, section: &str) -> Result<String> {
-    descriptor
+fn descriptor_blob(descriptor: &Value, section: &str) -> Result<(String, u64)> {
+    let digest = descriptor
         .get("digest")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| KociError::CopyError(format!("{section} descriptor carries no digest")))
+        .ok_or_else(|| KociError::CopyError(format!("{section} descriptor carries no digest")))?;
+    let size = descriptor.get("size").and_then(Value::as_u64).unwrap_or(0);
+
+    Ok((digest, size))
 }
 
 #[cfg(test)]
@@ -148,24 +151,24 @@ mod tests {
     }
 
     #[test]
-    fn blob_digests_collects_config_and_layers() {
+    fn blobs_collects_config_and_layers_with_sizes() {
         // ACT / ASSERT
         assert_eq!(
-            blob_digests(MANIFEST).expect("read blobs"),
+            blobs(MANIFEST).expect("read blobs"),
             vec![
-                "sha256:ccc".to_owned(),
-                "sha256:ddd".to_owned(),
-                "sha256:eee".to_owned()
+                ("sha256:ccc".to_owned(), 0),
+                ("sha256:ddd".to_owned(), 0),
+                ("sha256:eee".to_owned(), 0)
             ]
         );
     }
 
     #[test]
-    fn blob_digests_rejects_descriptors_without_digest() {
+    fn blobs_rejects_descriptors_without_digest() {
         // ARRANGE
         let manifest = r#"{"config": {}, "layers": []}"#;
 
         // ACT / ASSERT
-        blob_digests(manifest).expect_err("missing descriptor digest must fail");
+        blobs(manifest).expect_err("missing descriptor digest must fail");
     }
 }

@@ -14,9 +14,12 @@ use oci_client::blob::build_url;
 use oci_client::error::ClientError;
 use oci_client::http::{Range, get, get_range, is_partial, stream_body_to_sink};
 use oci_client::transport::Transport;
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::content::{Content, Ingest};
 use crate::error::{KociError, Result};
+use crate::progress::sink::{Sink, Tracker};
+use crate::progress::{ByteSample, Phase};
 
 /// Where a layer blob's bytes come from.
 #[derive(Debug)]
@@ -83,6 +86,36 @@ pub(crate) fn decompress<'bytes>(
     }
 }
 
+/// Byte samples for one layer blob, sent to the pull scheduler.
+#[derive(Clone, Debug)]
+pub(crate) struct ByteProgress {
+    sender: UnboundedSender<ByteSample>,
+    index: usize,
+    total: u64,
+}
+
+impl ByteProgress {
+    /// Sends samples for layer `index`, declared as `total` bytes.
+    pub(crate) fn new(sender: UnboundedSender<ByteSample>, index: usize, total: u64) -> Self {
+        Self {
+            sender,
+            index,
+            total,
+        }
+    }
+}
+
+impl Tracker for ByteProgress {
+    fn advance(&self, current: u64) {
+        let _send_result = self.sender.send(ByteSample {
+            phase: Phase::Download,
+            index: Some(self.index),
+            current,
+            total: self.total,
+        });
+    }
+}
+
 /// Download a blob from the registry into memory, verifying its digest.
 ///
 /// # Errors
@@ -93,6 +126,7 @@ pub(crate) async fn blob(
     image_ref: &Image,
     digest: &str,
     authorization: Option<&str>,
+    progress: Option<ByteProgress>,
 ) -> Result<Vec<u8>> {
     let url = build_url(image_ref, digest);
 
@@ -100,7 +134,8 @@ pub(crate) async fn blob(
     let mut digest_verifier = Verifier::new(digest)?;
 
     let mut bytes = Vec::new();
-    stream_body_to_sink(resp, &mut bytes, &mut digest_verifier).await?;
+    let mut sink = Sink::new(&mut bytes, progress, 0);
+    stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
     digest_verifier.verify()?;
 
     Ok(bytes)
@@ -118,6 +153,7 @@ pub(crate) async fn fetch_into_store(
     image_ref: &Image,
     digest: &str,
     authorization: Option<&str>,
+    progress: Option<ByteProgress>,
 ) -> Result<u64> {
     if let Some(size) = content.has_blob(digest) {
         return Ok(size);
@@ -125,7 +161,7 @@ pub(crate) async fn fetch_into_store(
 
     let mut ingest = content.blob_writer(digest)?;
     let url = build_url(image_ref, digest);
-    let verifier = stream_blob(&mut ingest, http, &url, digest, authorization).await?;
+    let verifier = stream_blob(&mut ingest, http, &url, digest, authorization, progress).await?;
 
     ingest.commit(verifier)
 }
@@ -140,6 +176,7 @@ async fn stream_blob(
     url: &str,
     digest: &str,
     authorization: Option<&str>,
+    progress: Option<ByteProgress>,
 ) -> Result<Verifier> {
     let offset = ingest.resume_offset();
     if offset > 0 {
@@ -148,7 +185,8 @@ async fn stream_blob(
             Ok(resp) if is_partial(&resp) => {
                 let mut digest_verifier = Verifier::new(digest)?;
                 ingest.hash_prefix(&mut digest_verifier)?;
-                stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+                let mut sink = Sink::new(ingest, progress, offset);
+                stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
 
                 Ok(digest_verifier)
             }
@@ -156,7 +194,8 @@ async fn stream_blob(
                 // The registry ignored the Range header, we fetch the whole blob.
                 ingest.restart()?;
                 let mut digest_verifier = Verifier::new(digest)?;
-                stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+                let mut sink = Sink::new(ingest, progress, 0);
+                stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
 
                 Ok(digest_verifier)
             }
@@ -168,7 +207,8 @@ async fn stream_blob(
                 ingest.restart()?;
                 let resp = get(http, url, authorization, &[]).await?;
                 let mut digest_verifier = Verifier::new(digest)?;
-                stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+                let mut sink = Sink::new(ingest, progress, 0);
+                stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
 
                 Ok(digest_verifier)
             }
@@ -177,7 +217,8 @@ async fn stream_blob(
     }
     let resp = get(http, url, authorization, &[]).await?;
     let mut digest_verifier = Verifier::new(digest)?;
-    stream_body_to_sink(resp, ingest, &mut digest_verifier).await?;
+    let mut sink = Sink::new(ingest, progress, 0);
+    stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
 
     Ok(digest_verifier)
 }

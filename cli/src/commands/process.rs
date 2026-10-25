@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 use tui::table::Table;
 
 use crate::client::process_service::{
     ListProcessesRequest, process_service_client::ProcessServiceClient,
 };
+use crate::console::Console;
 use crate::format::time::format_timestamp;
 
 #[derive(Subcommand, Clone)]
@@ -15,21 +16,25 @@ pub enum Action {
 }
 
 /// Handles process subcommands.
-pub async fn handle(client: &mut ProcessServiceClient<Channel>, action: Action) -> Result<()> {
+pub async fn handle(
+    client: &mut ProcessServiceClient<Channel>,
+    action: Action,
+    console: &Console,
+) -> Result<()> {
     match action {
-        Action::List => list(client).await,
+        Action::List => list(client, console).await,
     }
 }
 
 /// Lists running processes.
-async fn list(client: &mut ProcessServiceClient<Channel>) -> Result<()> {
+async fn list(client: &mut ProcessServiceClient<Channel>, console: &Console) -> Result<()> {
     let request = tonic::Request::new(ListProcessesRequest {});
 
     let response = client.list_processes(request).await?;
     let resp = response.into_inner();
 
     if resp.processes.is_empty() {
-        println!("{}", style::warn("No processes running"));
+        console.line(Role::Warn, "No processes running");
         return Ok(());
     }
 
@@ -41,6 +46,7 @@ async fn list(client: &mut ProcessServiceClient<Channel>) -> Result<()> {
         table = table.row(&[&pid_str, &process.command, &process.status, &started]);
     }
 
-    table.print()?;
+    console.table(&table)?;
+
     Ok(())
 }

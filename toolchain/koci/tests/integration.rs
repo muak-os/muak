@@ -22,7 +22,7 @@ mod tests {
     use koci::annotations;
     use koci::error::KociError;
     use koci::merge;
-    use koci::progress::{Noop, Progress};
+    use koci::progress::{Event, Noop, Phase, Reporter};
     use koci::pull;
     use koci::pull::cache;
     use koci::pull::demux::Demux;
@@ -101,15 +101,36 @@ mod tests {
         fn extractions(&self) -> usize {
             self.extracting.load(Ordering::Relaxed)
         }
+
+        fn count(&self, phase: Phase) {
+            match phase {
+                Phase::Scan => self.scanning.fetch_add(1, Ordering::Relaxed),
+                Phase::Extract => self.extracting.fetch_add(1, Ordering::Relaxed),
+                Phase::Download | Phase::CopyBlobs | Phase::Upload | Phase::RepackPlatforms => 0,
+            };
+        }
     }
 
-    impl Progress for PassCounter {
-        fn layer_scanning(&self, _index: usize, _total: usize, _digest: &str) {
-            self.scanning.fetch_add(1, Ordering::Relaxed);
-        }
-
-        fn layer_extracting(&self, _index: usize, _total: usize, _digest: &str) {
-            self.extracting.fetch_add(1, Ordering::Relaxed);
+    impl Reporter for PassCounter {
+        fn report(&self, event: Event<'_>) {
+            match event {
+                Event::Progress { phase, .. } => self.count(phase),
+                Event::Started { .. }
+                | Event::Resolved { .. }
+                | Event::Collected { .. }
+                | Event::Packed { .. }
+                | Event::IndexFetched { .. }
+                | Event::PhaseStarted { .. }
+                | Event::PhaseCompleted { .. }
+                | Event::Bytes { .. }
+                | Event::ItemQueued { .. }
+                | Event::ItemSkipped { .. }
+                | Event::ItemDone { .. }
+                | Event::ManifestPushed { .. }
+                | Event::Verified { .. }
+                | Event::Note { .. }
+                | Event::Done { .. } => (),
+            }
         }
     }
 
@@ -580,6 +601,7 @@ mod tests {
             &[],
             &Arch::Amd64,
             std::slice::from_ref(&entry),
+            &Noop,
         )
         .expect("push should succeed");
 
@@ -687,8 +709,8 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let digest =
-            repack::run(&registry.reference("repo", "v1"), &[]).expect("repack should succeed");
+        let digest = repack::run(&registry.reference("repo", "v1"), &[], &Noop)
+            .expect("repack should succeed");
 
         // ASSERT
         let uploaded = required_request(&registry, "PUT", "/v2/repo/manifests/v1");
@@ -781,7 +803,7 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        repack::run(&registry.reference("repo", "v1"), &[]).expect("repack should succeed");
+        repack::run(&registry.reference("repo", "v1"), &[], &Noop).expect("repack should succeed");
 
         // ASSERT
         let index_put = required_request(&registry, "PUT", "/v2/repo/manifests/v1");
@@ -845,6 +867,7 @@ mod tests {
             &[],
             &Arch::Amd64,
             std::slice::from_ref(&entry),
+            &Noop,
         )
         .expect("first push should succeed");
 
@@ -864,6 +887,7 @@ mod tests {
             &[],
             &Arch::Amd64,
             std::slice::from_ref(&entry),
+            &Noop,
         )
         .expect("re-push should succeed");
 
@@ -1111,15 +1135,49 @@ mod tests {
             "stderr: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(
-            String::from_utf8_lossy(&output.stdout).contains("Successfully extracted image to"),
-            "stdout: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Pulled 1 layers"), "stdout: {stdout}");
+        assert!(stdout.contains("Digest: sha256:"), "stdout: {stdout}");
         assert_eq!(
             std::fs::read_to_string(output_dir.join("etc/cli")).expect("read extracted file"),
             "pulled from cli\n"
         );
+
+        let quiet = Command::new(koci_bin())
+            .arg("pull")
+            .arg("--image")
+            .arg(registry.reference("repo", "test"))
+            .arg("--output")
+            .arg(&output_dir)
+            .arg("--pub-key")
+            .arg(&pub_key_path)
+            .arg("--sig-annotation")
+            .arg("dev.muak.sig")
+            .arg("--quiet")
+            .output()
+            .expect("run quiet koci pull");
+
+        // ASSERT
+        assert!(
+            quiet.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&quiet.stderr)
+        );
+        assert!(
+            quiet.stdout.is_empty(),
+            "stdout: {}",
+            String::from_utf8_lossy(&quiet.stdout)
+        );
+        let quiet_stderr = String::from_utf8_lossy(&quiet.stderr);
+        assert!(
+            !quiet_stderr.contains("Downloading"),
+            "stderr: {quiet_stderr}"
+        );
+        assert!(
+            !quiet_stderr.contains("Extracting"),
+            "stderr: {quiet_stderr}"
+        );
+        assert!(!quiet_stderr.contains("Pulled"), "stderr: {quiet_stderr}");
     }
 
     #[test]
@@ -1614,6 +1672,47 @@ mod tests {
     }
 
     #[test]
+    fn cli_push_quiet_prints_only_the_digest() {
+        // ARRANGE
+        let workspace = TempDir::new().expect("create temp dir");
+        let source = workspace.path().join("catalog.toml");
+        std::fs::write(&source, b"api_version = 1\n").expect("write test file");
+        let registry = MockRegistry::start(HashMap::from([
+            post(
+                "/v2/repo/blobs/uploads/",
+                HttpResponse::accepted("/v2/repo/blobs/uploads/u1"),
+            ),
+            put("/v2/repo/manifests/v1", HttpResponse::ok()),
+        ]))
+        .expect("start mock registry");
+
+        // ACT
+        let output = Command::new(koci_bin())
+            .arg("push")
+            .arg("--image")
+            .arg(registry.reference("repo", "v1"))
+            .arg("--file")
+            .arg(&source)
+            .arg("--quiet")
+            .output()
+            .expect("run quiet koci push");
+
+        // ASSERT
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let digest = stdout.trim();
+        assert!(digest.starts_with("sha256:"), "stdout: {stdout}");
+        assert_eq!(digest.len(), "sha256:".len() + 64, "stdout: {stdout}");
+        assert_eq!(stdout.lines().count(), 1, "stdout: {stdout}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stderr.contains("Packed"), "stderr: {stderr}");
+    }
+
+    #[test]
     fn cli_sign_signs_manifest_in_registry() {
         // ARRANGE
         let keys = generate_test_keys().expect("generate test keys");
@@ -1650,7 +1749,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(
-            String::from_utf8_lossy(&output.stdout).contains("Successfully signed"),
+            String::from_utf8_lossy(&output.stdout).contains("Signed"),
             "stdout: {}",
             String::from_utf8_lossy(&output.stdout)
         );

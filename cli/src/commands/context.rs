@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
 use config::user::{ClientConfig, ServerContext};
-use tui::style;
+use tui::style::Role;
+
+use crate::console::Console;
 
 /// Context subcommands.
 #[derive(Clone, clap::Subcommand)]
@@ -31,31 +33,31 @@ pub enum Action {
 }
 
 /// Handle context commands.
-pub fn handle(action: Action) -> Result<()> {
+pub fn handle(action: Action, console: &Console) -> Result<()> {
     match action {
-        Action::List => list(),
-        Action::Use { name } => use_context(&name),
-        Action::Info => info(),
+        Action::List => list(console),
+        Action::Use { name } => use_context(&name, console),
+        Action::Info => info(console),
         Action::Add {
             name,
             endpoint,
             ca,
             crt,
             key,
-        } => add(&name, &endpoint, ca, crt, key),
-        Action::Remove { name } => remove(&name),
+        } => add(&name, &endpoint, ca, crt, key, console),
+        Action::Remove { name } => remove(&name, console),
     }
 }
 
 /// Lists all configured contexts.
-fn list() -> Result<()> {
+fn list(console: &Console) -> Result<()> {
     let config = ClientConfig::load()?;
 
     let names = config.list_contexts();
     if names.is_empty() {
-        println!(
-            "{}",
-            style::warn("No contexts configured. Run 'muakctl install' to add a server.")
+        console.line(
+            Role::Warn,
+            "No contexts configured. Run 'muakctl install' to add a server.",
         );
         return Ok(());
     }
@@ -66,14 +68,14 @@ fn list() -> Result<()> {
             continue;
         };
         let marker = if current == Some(name) {
-            style::positive("*").to_string()
+            console.paint("*", Role::Positive).to_string()
         } else {
             " ".to_owned()
         };
         let creds = if ctx.has_credentials() {
-            style::positive("mTLS").to_string()
+            console.paint("mTLS", Role::Positive).to_string()
         } else {
-            style::warn("insecure").to_string()
+            console.paint("insecure", Role::Warn).to_string()
         };
         println!("{marker} {name} ({}) [{creds}]", ctx.endpoint);
     }
@@ -82,35 +84,43 @@ fn list() -> Result<()> {
 }
 
 /// Switches to the specified context.
-fn use_context(name: &str) -> Result<()> {
+fn use_context(name: &str, console: &Console) -> Result<()> {
     let mut config = ClientConfig::load()?;
     config.set_current(name)?;
     config.save()?;
 
-    println!("Switched to context '{}'", style::positive(name));
+    console.success(&format!("Switched to context '{name}'"));
+
     Ok(())
 }
 
 /// Displays information about the current context.
-fn info() -> Result<()> {
+fn info(console: &Console) -> Result<()> {
     let config = ClientConfig::load()?;
 
     let Some((name, ctx)) = config.current_context() else {
-        println!(
-            "{}",
-            style::warn("No current context. Run 'muakctl context use <name>' to select one.")
+        console.line(
+            Role::Warn,
+            "No current context. Run 'muakctl context use <name>' to select one.",
         );
         return Ok(());
     };
 
-    println!("{}: {name}", style::label("Context"));
-    println!("{}: {}", style::label("Endpoint"), ctx.endpoint);
+    println!("{}: {name}", console.paint("Context", Role::Label));
+    println!(
+        "{}: {}",
+        console.paint("Endpoint", Role::Label),
+        ctx.endpoint
+    );
     let cred_status = if ctx.has_credentials() {
-        style::positive("mTLS configured").to_string()
+        console.paint("mTLS configured", Role::Positive).to_string()
     } else {
-        style::warn("None (insecure)").to_string()
+        console.paint("None (insecure)", Role::Warn).to_string()
     };
-    println!("{}: {cred_status}", style::label("Credentials"));
+    println!(
+        "{}: {cred_status}",
+        console.paint("Credentials", Role::Label)
+    );
 
     Ok(())
 }
@@ -122,6 +132,7 @@ fn add(
     ca: Option<PathBuf>,
     crt: Option<PathBuf>,
     key: Option<PathBuf>,
+    console: &Console,
 ) -> Result<()> {
     let mut config = ClientConfig::load()?;
 
@@ -155,24 +166,23 @@ fn add(
     config.save()?;
 
     if actual_name == name {
-        println!("Added context '{}'", style::positive(&actual_name));
+        console.success(&format!("Added context '{actual_name}'"));
     } else {
-        println!(
-            "Added context '{}' (renamed from '{}' to avoid collision)",
-            style::positive(&actual_name),
-            name
-        );
+        console.success(&format!(
+            "Added context '{actual_name}' (renamed from '{name}' to avoid collision)"
+        ));
     }
 
     Ok(())
 }
 
 /// Removes a context by name.
-fn remove(name: &str) -> Result<()> {
+fn remove(name: &str, console: &Console) -> Result<()> {
     let mut config = ClientConfig::load()?;
     config.remove_context(name)?;
     config.save()?;
 
-    println!("Removed context '{}'", style::positive(name));
+    console.success(&format!("Removed context '{name}'"));
+
     Ok(())
 }

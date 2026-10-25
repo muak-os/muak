@@ -17,12 +17,14 @@ use crate::client::{
         UpdateStatus, provision_service_client::ProvisionServiceClient,
     },
 };
+use crate::console::Console;
 
 /// Handles the update command.
 pub async fn handle(
     ctx: &ServerContext,
     version: Option<String>,
     config_path: Option<PathBuf>,
+    console: &Console,
 ) -> Result<()> {
     if version.is_some() && config_path.is_some() {
         bail!("--version and --config are mutually exclusive!");
@@ -58,7 +60,7 @@ pub async fn handle(
         (target, Vec::new())
     };
 
-    let steps = Steps::stderr()?;
+    let steps = console.steps()?;
 
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {

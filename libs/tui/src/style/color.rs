@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use super::semantic::Role;
 use crate::style::{AnsiColor, Style, bold, bold_fg, dim, fg};
 
-pub(super) fn should_color(
+pub(crate) fn should_color(
     terminal: bool,
     no_color: Option<&OsStr>,
     clicolor: Option<&OsStr>,

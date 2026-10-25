@@ -5,7 +5,9 @@
 use std::io;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
+use tui::glyphs::Glyphs;
 use tui::live::Options;
+use tui::output::Mode;
 use tui::screen::Screen;
 use tui::size::Size;
 use tui::style::Theme;
@@ -73,9 +75,17 @@ impl Screen for RecordingScreen {
 }
 
 fn options(tty: bool) -> Options {
+    Options::new(tty, Theme::plain())
+}
+
+fn quiet_options() -> Options {
     Options {
-        tty,
+        tty: false,
         theme: Theme::plain(),
+        mode: Mode::Quiet,
+        glyphs: Glyphs::plain(),
+        size: Size::default(),
+        verbose: false,
     }
 }
 
@@ -189,6 +199,81 @@ mod tests {
         assert!(output.contains("done"), "output: {output}");
         assert!(output.contains("broken"), "output: {output}");
         assert!(!output.contains("ignored"), "output: {output}");
+    }
+
+    #[test]
+    fn steps_render_item_counts_as_items() {
+        // ARRANGE
+        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let steps = Steps::new(screen, options(true)).unwrap();
+
+        // ACT
+        steps.start_items("download", 7);
+        steps.progress(5);
+        steps.complete("downloaded");
+        steps.finish().unwrap();
+        let output = collect(&rx);
+
+        // ASSERT
+        assert!(output.contains("5/7"), "output: {output}");
+        assert!(!output.contains("5 B / 7 B"), "output: {output}");
+    }
+
+    #[test]
+    fn steps_render_byte_counts_as_bytes() {
+        // ARRANGE
+        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let steps = Steps::new(screen, options(true)).unwrap();
+
+        // ACT
+        steps.start_bytes("download", 2048);
+        steps.progress(1024);
+        steps.complete("downloaded");
+        steps.finish().unwrap();
+        let output = collect(&rx);
+
+        // ASSERT
+        assert!(output.contains("1 KiB / 2 KiB"), "output: {output}");
+    }
+
+    #[test]
+    fn notes_are_frozen_above_the_active_step() {
+        // ARRANGE
+        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let steps = Steps::new(screen, options(true)).unwrap();
+
+        // ACT
+        steps.start("work");
+        steps.note("layer a");
+        steps.complete("done");
+        steps.finish().unwrap();
+        let output = collect(&rx);
+
+        // ASSERT
+        let note = output.find("layer a").expect("note is rendered");
+        let done = output.find("done").expect("completion is rendered");
+        assert!(note < done, "output: {output}");
+        assert!(output.contains('\u{b7}'), "output: {output}");
+    }
+
+    #[test]
+    fn quiet_steps_suppress_notes_and_progress_but_keep_failures() {
+        // ARRANGE
+        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let steps = Steps::new(screen, quiet_options()).unwrap();
+
+        // ACT
+        steps.start("work");
+        steps.note("hidden note");
+        steps.progress(1);
+        steps.fail("broken");
+        steps.finish().unwrap();
+        let output = collect(&rx);
+
+        // ASSERT
+        assert!(!output.contains("work"), "output: {output}");
+        assert!(!output.contains("hidden note"), "output: {output}");
+        assert!(output.contains("broken"), "output: {output}");
     }
 
     #[test]

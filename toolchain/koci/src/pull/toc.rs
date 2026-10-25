@@ -85,6 +85,7 @@ async fn layer_entries(
         client.image(),
         &layer.digest,
         authorization.as_deref(),
+        None,
     )
     .await?;
 

@@ -2,18 +2,27 @@
 
 use std::io;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::Instant;
 
-use super::render::{draw, freeze};
+use super::progress::Progress;
+use super::render::{draw, freeze, note};
 use crate::live::Options;
 use crate::live::renderer::FRAME_DURATION;
+use crate::output::Mode;
+use crate::progress::Unit;
 use crate::screen::Screen;
 
 #[derive(Clone)]
 pub(super) enum Command {
     Start(String),
-    StartProgress { message: String, total: u64 },
+    StartProgress {
+        message: String,
+        total: u64,
+        unit: Unit,
+    },
     SetLabel(String),
     Progress(u64),
+    Note(String),
     Complete(String),
     Fail(String),
     Stop,
@@ -22,7 +31,8 @@ pub(super) enum Command {
 
 pub(super) struct Active {
     pub(super) label: String,
-    pub(super) progress: Option<(u64, u64)>,
+    pub(super) progress: Option<Progress>,
+    pub(super) started: Instant,
 }
 
 pub(super) fn run<S: Screen>(
@@ -62,21 +72,38 @@ fn handle<S: Screen>(
 ) -> io::Result<bool> {
     match command {
         Command::Start(message) => begin(screen, options, active, frame, &message, None)?,
-        Command::StartProgress { message, total } => {
-            begin(screen, options, active, frame, &message, Some(total))?;
+        Command::StartProgress {
+            message,
+            total,
+            unit,
+        } => {
+            begin(
+                screen,
+                options,
+                active,
+                frame,
+                &message,
+                Some((total, unit)),
+            )?;
         }
         Command::SetLabel(message) => label(screen, options, active, *frame, message)?,
         Command::Progress(current) => progress(screen, options, active, *frame, current)?,
+        Command::Note(message) => note(screen, options, active.as_ref(), *frame, &message)?,
         Command::Complete(message) => {
             *active = None;
-            freeze(screen, options, &message, true)?;
+            if options.mode != Mode::Quiet {
+                freeze(screen, options, &message, true)?;
+            }
         }
         Command::Fail(message) => {
             *active = None;
             freeze(screen, options, &message, false)?;
         }
         Command::Stop => {
-            if let Some(step) = active.take() {
+            let step = active.take();
+            if options.mode != Mode::Quiet
+                && let Some(step) = step
+            {
                 freeze(screen, options, &step.label, true)?;
             }
 
@@ -124,7 +151,7 @@ fn progress<S: Screen>(
         return Ok(());
     };
 
-    value.0 = current;
+    value.set(current);
     if options.tty {
         draw(screen, options, active.as_ref(), frame)?;
     }
@@ -138,7 +165,7 @@ fn begin<S: Screen>(
     active: &mut Option<Active>,
     frame: &mut usize,
     message: &str,
-    total: Option<u64>,
+    progress: Option<(u64, Unit)>,
 ) -> io::Result<()> {
     if let Some(previous) = active.take() {
         freeze(screen, options, &previous.label, true)?;
@@ -146,15 +173,18 @@ fn begin<S: Screen>(
 
     let step = Active {
         label: message.to_owned(),
-        progress: total.map(|total| (0, total)),
+        progress: progress.map(|(total, unit)| Progress::new(total, unit)),
+        started: Instant::now(),
     };
     if options.tty {
         *frame = 0;
         *active = Some(step);
         draw(screen, options, active.as_ref(), *frame)?;
     } else {
-        let width = usize::from(screen.size().cols);
-        super::render::message(screen, message, width)?;
+        if options.mode == Mode::Plain {
+            let width = usize::from(screen.size().cols);
+            super::render::message(screen, message, width)?;
+        }
         *active = Some(step);
     }
 

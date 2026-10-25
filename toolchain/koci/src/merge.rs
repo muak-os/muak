@@ -57,11 +57,11 @@ pub fn parse_source(spec: &str) -> Result<Source> {
 ///
 /// Returns an error when the session cannot be established, a source cannot
 /// be fetched or verified, or the index cannot be pushed.
-pub fn index(image: &str, tags: &[String], sources: &[Source]) -> Result<()> {
+pub fn index(image: &str, tags: &[String], sources: &[Source]) -> Result<String> {
     runtime::runtime()?.block_on(merge_index(image, tags, sources))
 }
 
-async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result<()> {
+async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result<String> {
     if tags.is_empty() {
         return Err(KociError::MergeError(
             "no tags provided for the merged index".to_owned(),
@@ -81,11 +81,12 @@ async fn merge_index(image: &str, tags: &[String], sources: &[Source]) -> Result
     }
 
     let index = build_index(&descriptors)?;
+    let digest = format!("sha256:{}", sha256_hex(&index));
     for tag in tags {
         manifest::put(&client, tag, OCI_IMAGE_INDEX_MEDIA_TYPE, index.clone()).await?;
     }
 
-    Ok(())
+    Ok(digest)
 }
 
 /// Reject duplicate platform architectures in the source list.

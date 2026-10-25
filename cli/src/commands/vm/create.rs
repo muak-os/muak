@@ -1,7 +1,6 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 use tui::live::Steps;
-use tui::style;
 
 use crate::client::{
     upload::upload,
@@ -10,6 +9,7 @@ use crate::client::{
         vm_service_client::VmServiceClient,
     },
 };
+use crate::console::Console;
 
 /// Parameters for creating a new VM.
 pub struct VmSpec {
@@ -25,16 +25,20 @@ pub struct VmSpec {
 }
 
 /// Creates a new VM with the specified configuration.
-pub async fn handle(client: &mut VmServiceClient<Channel>, args: VmSpec) -> Result<()> {
+pub async fn handle(
+    client: &mut VmServiceClient<Channel>,
+    args: VmSpec,
+    console: &Console,
+) -> Result<()> {
     let kernel = validate_kernel(args.kernel.as_deref())?;
     validate_initrd(args.initrd.as_deref())?;
     validate_disks(&args.disk)?;
 
-    let hypervisor = parse_hypervisor(&args.vmm);
+    let hypervisor = parse_hypervisor(&args.vmm, console);
     let disks = build_disk_configs(&args.disk);
     let config = build_vm_config(&args, disks, hypervisor);
 
-    let steps = Steps::stderr()?;
+    let steps = console.steps()?;
 
     let vm_id = create_vm(client, config, &args.name, &steps).await?;
 
@@ -50,14 +54,14 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, args: VmSpec) -> Resu
     {
         steps.fail(format!("Upload failed: {e}"));
         let _finish_result = steps.finish();
-        cleanup_vm(client, &vm_id).await;
+        cleanup_vm(client, &vm_id, console).await;
         return Err(e);
     }
 
     if let Err(e) = start_vm(client, &vm_id, &steps).await {
         steps.fail(format!("Start failed: {e}"));
         let _finish_result = steps.finish();
-        cleanup_vm(client, &vm_id).await;
+        cleanup_vm(client, &vm_id, console).await;
         return Err(e);
     }
 
@@ -97,14 +101,13 @@ fn validate_disks(disks: &[String]) -> Result<()> {
 }
 
 /// Parses hypervisor string to enum variant.
-fn parse_hypervisor(vmm: &str) -> Hypervisor {
+fn parse_hypervisor(vmm: &str, console: &Console) -> Hypervisor {
     match vmm.to_lowercase().as_str() {
         "firecracker" | "fc" => Hypervisor::Firecracker,
         "cloud-hypervisor" | "cloud_hypervisor" | "ch" => Hypervisor::CloudHypervisor,
         "qemu" | "kvm" => Hypervisor::Qemu,
         other => {
-            let msg = format!("Warning: Unknown hypervisor '{other}', defaulting to QEMU");
-            eprintln!("{}", style::stderr().warn(&msg));
+            console.warn(&format!("Unknown hypervisor '{other}', defaulting to QEMU"));
             Hypervisor::Qemu
         }
     }
@@ -277,12 +280,11 @@ async fn start_vm(client: &mut VmServiceClient<Channel>, vm_id: &str, steps: &St
 }
 
 /// Cleans up VM on failure.
-async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str) {
+async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str, console: &Console) {
     let delete_request = tonic::Request::new(DeleteVmRequest {
         vm_id: vm_id.to_owned(),
     });
     if let Err(e) = client.delete_vm(delete_request).await {
-        let msg = format!("Warning: Failed to clean up VM: {e}");
-        eprintln!("{}", style::stderr().warn(&msg));
+        console.warn(&format!("Failed to clean up VM: {e}"));
     }
 }

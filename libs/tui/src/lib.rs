@@ -4,10 +4,12 @@
 
 extern crate alloc;
 
+pub mod glyphs;
 #[cfg(feature = "input")]
 pub mod input;
 #[cfg(feature = "live")]
 pub mod live;
+pub mod output;
 pub mod progress;
 #[cfg(feature = "prompt")]
 pub mod prompt;

@@ -1,8 +1,10 @@
 //! Repack a published image's layers into eStargz, in place.
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use koci::repack;
-use tui::style;
+use tui::live::summary::Summary;
+
+use super::Console;
 
 /// Arguments of the `repack` subcommand.
 #[derive(clap::Args, Debug)]
@@ -17,13 +19,22 @@ pub struct Args {
 }
 
 /// Execute the `repack` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args { image, tags } = args;
-    let digest = repack::run(&image, &tags).context("Failed to repack image")?;
-    let message = format!("Successfully repacked {image} (manifest {digest})");
-    println!("{}", style::success(&message));
+    let digest = console.tracked("repack image", |reporter| {
+        repack::run(&image, &tags, reporter)
+    })?;
+
+    print_summary(&image, &tags, &digest, console);
 
     Ok(())
+}
+
+fn print_summary(image: &str, tags: &[String], digest: &str, console: &Console) {
+    let title = format!("Repacked {image}");
+    let tags = tags.join(", ");
+    let rows = [("Tags", tags.as_str()), ("Digest", digest)];
+    console.report(&Summary::new(&title, &rows).with_quiet(digest));
 }
 
 #[cfg(test)]

@@ -195,6 +195,7 @@ fn publish_one(
             path: "catalog.toml".to_owned(),
             source: repository::document_path(kind, root, release),
         }],
+        &koci::progress::Noop,
     )
     .map_err(|error| KataError::Registry(error.to_string()))?;
     eprintln!("Published {image}:{release}");

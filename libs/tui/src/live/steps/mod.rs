@@ -1,5 +1,6 @@
 //! Ordered multi-step progress display.
 
+mod progress;
 mod render;
 mod state;
 
@@ -7,8 +8,10 @@ use std::io;
 
 use state::{Command, run};
 
+use crate::live::Options;
 use crate::live::renderer::{Handle, Renderer};
-use crate::live::{Options, surface_size};
+use crate::output::{Flags, Output};
+use crate::progress::Unit;
 use crate::screen::{Ansi, Screen};
 use crate::style::Stream;
 
@@ -50,10 +53,7 @@ impl Steps {
     ///
     /// Returns an error when the renderer thread cannot start.
     pub fn stdout() -> io::Result<Self> {
-        let stream = Stream::Stdout;
-        let screen = Ansi::new(std::io::stdout(), surface_size(stream));
-
-        Self::new(screen, Options::detect(stream))
+        Self::stdout_with(Output::detect(Stream::Stdout, Flags::default()))
     }
 
     /// Starts a step display on standard error.
@@ -62,10 +62,29 @@ impl Steps {
     ///
     /// Returns an error when the renderer thread cannot start.
     pub fn stderr() -> io::Result<Self> {
-        let stream = Stream::Stderr;
-        let screen = Ansi::new(std::io::stderr(), surface_size(stream));
+        Self::stderr_with(Output::detect(Stream::Stderr, Flags::default()))
+    }
 
-        Self::new(screen, Options::detect(stream))
+    /// Starts a step display on standard output with resolved `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn stdout_with(output: Output) -> io::Result<Self> {
+        let screen = Ansi::new(std::io::stdout(), output.size);
+
+        Self::new(screen, Options::from_output(output))
+    }
+
+    /// Starts a step display on standard error with resolved `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the renderer thread cannot start.
+    pub fn stderr_with(output: Output) -> io::Result<Self> {
+        let screen = Ansi::new(std::io::stderr(), output.size);
+
+        Self::new(screen, Options::from_output(output))
     }
 
     /// Returns a cloneable handle for updating steps.
@@ -79,9 +98,24 @@ impl Steps {
         self.handle.start(message);
     }
 
-    /// Begins a new step with a progress bar.
+    /// Begins a new step with an item progress bar.
     pub fn start_progress<M: Into<String>>(&self, message: M, total: u64) {
         self.handle.start_progress(message, total);
+    }
+
+    /// Begins a new step with an item progress bar.
+    pub fn start_items<M: Into<String>>(&self, message: M, total: u64) {
+        self.handle.start_items(message, total);
+    }
+
+    /// Begins a new step with a byte progress bar.
+    pub fn start_bytes<M: Into<String>>(&self, message: M, total: u64) {
+        self.handle.start_bytes(message, total);
+    }
+
+    /// Freezes a note above the active step.
+    pub fn note<M: Into<String>>(&self, message: M) {
+        self.handle.note(message);
     }
 
     /// Updates the active step label.
@@ -120,12 +154,32 @@ impl StepsHandle {
         self.handle.send_waiting(Command::Start(message.into()));
     }
 
-    /// Begins a new step with a progress bar.
+    /// Begins a new step with an item progress bar.
     pub fn start_progress<M: Into<String>>(&self, message: M, total: u64) {
+        self.start_items(message, total);
+    }
+
+    /// Begins a new step with an item progress bar.
+    pub fn start_items<M: Into<String>>(&self, message: M, total: u64) {
         self.handle.send_waiting(Command::StartProgress {
             message: message.into(),
             total,
+            unit: Unit::Items,
         });
+    }
+
+    /// Begins a new step with a byte progress bar.
+    pub fn start_bytes<M: Into<String>>(&self, message: M, total: u64) {
+        self.handle.send_waiting(Command::StartProgress {
+            message: message.into(),
+            total,
+            unit: Unit::Bytes,
+        });
+    }
+
+    /// Freezes a note above the active step.
+    pub fn note<M: Into<String>>(&self, message: M) {
+        self.handle.send(Command::Note(message.into()));
     }
 
     /// Updates the active step label.

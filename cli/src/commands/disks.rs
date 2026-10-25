@@ -1,15 +1,16 @@
 use anyhow::Result;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
 use crate::client::provision_service::{
     DiskInfo, ListDisksRequest, provision_service_client::ProvisionServiceClient,
 };
+use crate::console::Console;
 
 /// Lists available disks on the system.
-pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> {
+pub async fn handle(client: &mut ProvisionServiceClient<Channel>, console: &Console) -> Result<()> {
     let request = tonic::Request::new(ListDisksRequest {});
 
     let response = client.list_disks(request).await?;
@@ -20,7 +21,7 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
     }
 
     if resp.disks.is_empty() {
-        println!("{}", style::warn("No disks found"));
+        console.line(Role::Warn, "No disks found");
         return Ok(());
     }
 
@@ -55,7 +56,7 @@ pub async fn handle(client: &mut ProvisionServiceClient<Channel>) -> Result<()> 
         table = partition_rows(table, &disk);
     }
 
-    table.print()?;
+    console.table(&table)?;
 
     Ok(())
 }

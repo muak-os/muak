@@ -1,11 +1,12 @@
 use anyhow::Result;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 
 use crate::client::log_service::{
     FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry,
     log_service_client::LogServiceClient,
 };
+use crate::console::Console;
 
 /// Parses a log level name into its proto integer value.
 pub fn parse_level(level: &str) -> Result<i32, String> {
@@ -39,11 +40,12 @@ pub async fn handle(
     tail: Option<u32>,
     follow: bool,
     level: Option<i32>,
+    console: &Console,
 ) -> Result<()> {
     if follow {
-        handle_follow(client, service, level).await
+        handle_follow(client, service, level, console).await
     } else {
-        handle_get(client, service, tail.unwrap_or(0), level).await
+        handle_get(client, service, tail.unwrap_or(0), level, console).await
     }
 }
 
@@ -53,6 +55,7 @@ async fn handle_get(
     service: Option<String>,
     tail: u32,
     level: Option<i32>,
+    console: &Console,
 ) -> Result<()> {
     let request = tonic::Request::new(GetLogsRequest {
         service: service.unwrap_or_default(),
@@ -63,7 +66,7 @@ async fn handle_get(
 
     for entry in &entries {
         if should_display(entry, level) {
-            print_entry(entry);
+            print_entry(console, entry);
         }
     }
 
@@ -75,6 +78,7 @@ async fn handle_follow(
     client: &mut LogServiceClient<Channel>,
     service: Option<String>,
     level: Option<i32>,
+    console: &Console,
 ) -> Result<()> {
     let request = tonic::Request::new(FollowLogsRequest {
         service: service.unwrap_or_default(),
@@ -84,7 +88,7 @@ async fn handle_follow(
 
     while let Some(entry) = stream.message().await? {
         if should_display(&entry, level) {
-            print_entry(&entry);
+            print_entry(console, &entry);
         }
     }
 
@@ -100,13 +104,13 @@ fn should_display(entry: &LogEntry, max_level: Option<i32>) -> bool {
 }
 
 /// Formats and prints a single log entry with level-based coloring.
-fn print_entry(entry: &LogEntry) {
+fn print_entry(console: &Console, entry: &LogEntry) {
     let line = format!("[{}] {}", entry.service, entry.message);
 
     match Level::try_from(entry.level) {
-        Ok(Level::Error) => println!("{}", style::error_text(&line)),
-        Ok(Level::Warn) => println!("{}", style::warn(&line)),
-        Ok(Level::Debug) => println!("{}", style::muted(&line)),
+        Ok(Level::Error) => console.line(Role::ErrorText, &line),
+        Ok(Level::Warn) => console.line(Role::Warn, &line),
+        Ok(Level::Debug) => console.line(Role::Muted, &line),
         _ => println!("{line}"),
     }
 }

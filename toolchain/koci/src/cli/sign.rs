@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use koci::annotations;
-use tui::style;
+use tui::live::summary::Summary;
 
-use super::read_key_file;
+use super::{Console, read_key_file};
 
 /// Arguments of the `sign` subcommand.
 #[derive(clap::Args, Debug)]
@@ -22,7 +22,7 @@ pub struct Args {
 }
 
 /// Execute the `sign` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args {
         image,
         key,
@@ -32,10 +32,15 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let private_key_pem = read_key_file(&key)?;
 
     annotations::sign(&image, &private_key_pem, &annotation).context("Failed to sign image")?;
-    let message = format!("Successfully signed {image}");
-    println!("{}", style::success(&message));
+    print_summary(&image, &annotation, console);
 
     Ok(())
+}
+
+fn print_summary(image: &str, annotation: &str, console: &Console) {
+    let title = format!("Signed {image}");
+    let rows = [("Annotation", annotation)];
+    console.report(&Summary::new(&title, &rows));
 }
 
 #[cfg(test)]

@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
-use tui::style;
+use tui::style::Role;
 
 use crate::client::security_service::{
     GetSecurityStateRequest, SecureBootDeviation, SecureBootState,
     security_service_client::SecurityServiceClient,
 };
+use crate::console::Console;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {
@@ -14,7 +15,11 @@ pub enum Action {
 }
 
 /// Handles security subcommands.
-pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action) -> Result<()> {
+pub async fn handle(
+    client: &mut SecurityServiceClient<Channel>,
+    action: Action,
+    console: &Console,
+) -> Result<()> {
     match action {
         Action::State => {
             let response = client
@@ -22,21 +27,21 @@ pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action)
                 .await?;
             let resp = response.into_inner();
 
-            println!("{}", style::header("Security State"));
+            console.line(Role::Header, "Security State");
 
-            let status = firmware_status(resp.secure_boot);
+            let status = firmware_status(console, resp.secure_boot);
             println!("  Secure Boot: {status}");
 
-            let setup_mode = toggle(resp.setup_mode, false);
+            let setup_mode = toggle(console, resp.setup_mode, false);
             println!("  Setup Mode:  {setup_mode}");
 
-            let config = toggle(resp.config_enabled, true);
+            let config = toggle(console, resp.config_enabled, true);
             println!("  Config:      {config}");
 
             let deviation = SecureBootDeviation::try_from(resp.deviation)
                 .unwrap_or(SecureBootDeviation::Unspecified);
             if let Some(warning) = deviation_warning(deviation) {
-                println!("  {}", style::warn(&format!("Warning: {warning}")));
+                console.line(Role::Warn, &format!("  Warning: {warning}"));
             }
         }
     }
@@ -44,23 +49,26 @@ pub async fn handle(client: &mut SecurityServiceClient<Channel>, action: Action)
     Ok(())
 }
 
-fn firmware_status(value: i32) -> String {
+fn firmware_status(console: &Console, value: i32) -> String {
     match SecureBootState::try_from(value).unwrap_or(SecureBootState::Unspecified) {
-        SecureBootState::Enabled => style::positive("Enabled").to_string(),
-        SecureBootState::Disabled => style::negative("Disabled").to_string(),
-        SecureBootState::Pending => {
-            style::highlight("Pending (firmware reboot required)").to_string()
-        }
-        SecureBootState::Unspecified => style::negative("Unknown").to_string(),
+        SecureBootState::Enabled => console.paint("Enabled", Role::Positive).to_string(),
+        SecureBootState::Disabled => console.paint("Disabled", Role::Negative).to_string(),
+        SecureBootState::Pending => console
+            .paint("Pending (firmware reboot required)", Role::Highlight)
+            .to_string(),
+        SecureBootState::Unspecified => console.paint("Unknown", Role::Negative).to_string(),
     }
 }
 
-fn toggle(value: bool, as_positive: bool) -> String {
-    if value == as_positive {
-        style::positive(if value { "Enabled" } else { "Disabled" }).to_string()
+fn toggle(console: &Console, value: bool, as_positive: bool) -> String {
+    let text = if value { "Enabled" } else { "Disabled" };
+    let role = if value == as_positive {
+        Role::Positive
     } else {
-        style::negative(if value { "Enabled" } else { "Disabled" }).to_string()
-    }
+        Role::Negative
+    };
+
+    console.paint(text, role).to_string()
 }
 
 fn deviation_warning(deviation: SecureBootDeviation) -> Option<&'static str> {

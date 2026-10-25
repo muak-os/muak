@@ -6,7 +6,7 @@ use oci::arch::Arch;
 use oci_client::auth::Access;
 
 use crate::error::Result;
-use crate::progress::Progress;
+use crate::progress::Reporter;
 use crate::registry;
 use crate::runtime;
 use crate::signature::Verification;
@@ -26,6 +26,15 @@ pub(crate) mod resolve;
 pub(crate) mod scan;
 pub mod session;
 pub mod toc;
+
+/// Resolution of a pull to one platform manifest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Resolution {
+    /// Resolved platform manifest digest.
+    pub digest: String,
+    /// Number of layers in the platform manifest.
+    pub layers: usize,
+}
 
 /// Fetch the manifest annotations of the platform manifest matching `arch`.
 ///
@@ -58,11 +67,18 @@ pub fn files<F>(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    progress: &dyn Progress,
+    reporter: &dyn Reporter,
     handler: F,
-) -> Result<()>
+) -> Result<Resolution>
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    session::open(reference, arch, verification)?.walk(progress, handler)
+    let session = session::open(reference, arch, verification)?;
+    let resolution = Resolution {
+        digest: session.digest().to_owned(),
+        layers: session.layers().len(),
+    };
+    session.walk(reporter, handler)?;
+
+    Ok(resolution)
 }

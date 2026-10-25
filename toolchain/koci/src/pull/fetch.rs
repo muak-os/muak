@@ -11,10 +11,11 @@ use oci_client::transport::Transport;
 
 use super::cache::Store;
 use super::content::Content;
-use super::{blobinfo, download, scan};
+use super::download;
+use super::download::ByteProgress;
+use super::{blobinfo, scan};
 use crate::error::{KociError, Result};
-use crate::progress::Progress;
-use crate::pull::layer::short_digest;
+use crate::progress::{Event, Phase, Reporter, Unit};
 
 /// HTTP status code for a blob the registry does not serve.
 const NOT_FOUND: u16 = 404;
@@ -51,20 +52,28 @@ pub(crate) fn whiteout_map(
     content: &Content,
     layers: &[Descriptor],
     bytes: &[Option<Vec<u8>>],
-    progress: &dyn Progress,
+    reporter: &dyn Reporter,
 ) -> Result<HashMap<PathBuf, usize>> {
     if layers.len() < 2 {
         return Ok(HashMap::new());
     }
 
     let total = layers.len();
+    let total_u64 = u64::try_from(total).unwrap_or(u64::MAX);
+    reporter.report(Event::PhaseStarted {
+        phase: Phase::Scan,
+        label: "Scanning layers",
+        total: total_u64,
+        unit: Unit::Items,
+    });
     let mut whiteouts: HashMap<PathBuf, usize> = HashMap::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
-        progress.layer_scanning(
-            layer_idx.saturating_add(1),
-            total,
-            short_digest(&layer.digest),
-        );
+        let current = u64::try_from(layer_idx.saturating_add(1)).unwrap_or(u64::MAX);
+        reporter.report(Event::Progress {
+            phase: Phase::Scan,
+            current,
+            total: total_u64,
+        });
         let cached = cached_bytes(bytes, layer_idx);
         let mut reader = layer_reader(content, cached.as_deref(), layer)?;
         for whiteout in scan::scan_whiteouts(&mut reader)? {
@@ -83,6 +92,7 @@ pub(crate) async fn fetch_one(
     image: &Image,
     digest: &str,
     authorization: Option<&str>,
+    progress: Option<ByteProgress>,
 ) -> Result<Option<Vec<u8>>> {
     if cache.layer_location(image, digest) == Some(blobinfo::LayerLocation::Missing) {
         return Err(ClientError::Status {
@@ -92,7 +102,7 @@ pub(crate) async fn fetch_one(
         .into());
     }
 
-    match fetch_bytes(cache, content, http, image, digest, authorization).await {
+    match fetch_bytes(cache, content, http, image, digest, authorization, progress).await {
         Ok(bytes) => Ok(bytes),
         Err(KociError::Client(
             error @ ClientError::Status {
@@ -114,13 +124,14 @@ async fn fetch_bytes(
     image: &Image,
     digest: &str,
     authorization: Option<&str>,
+    progress: Option<ByteProgress>,
 ) -> Result<Option<Vec<u8>>> {
     let fetched = if content.disk().is_some() {
-        download::fetch_into_store(content, http, image, digest, authorization)
+        download::fetch_into_store(content, http, image, digest, authorization, progress)
             .await
             .map(|size| (size, None))
     } else {
-        download::blob(http, image, digest, authorization)
+        download::blob(http, image, digest, authorization, progress)
             .await
             .map(|bytes| {
                 let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
