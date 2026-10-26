@@ -21,6 +21,9 @@ on:
       installer:
         description: "Whether the installer image should be rebuilt"
         value: ${{ jobs.changes.outputs.installer }}
+      result:
+        description: "Change detection result as JSON"
+        value: ${{ jobs.changes.outputs.result }}
 
 permissions:
   contents: read
@@ -35,6 +38,7 @@ jobs:
       cli: ${{ steps.detect.outputs.cli }}
       packages: ${{ steps.detect.outputs.packages }}
       installer: ${{ steps.detect.outputs.installer }}
+      result: ${{ steps.detect.outputs.result }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -57,10 +61,27 @@ jobs:
 
           components="$(just --evaluate components | tr ' ' '\n' | sed '/^$/d' | sort -u)"
 
+          summarize() {
+            printf '%s\n' "$1"
+            printf 'result=%s\n' "$1" >> "$GITHUB_OUTPUT"
+            {
+              printf '### Change detection\n\n'
+              printf '```json\n'
+              printf '%s\n' "$1" | jq .
+              printf '```\n'
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          }
+
           emit_all() {
-            local packages
+            local packages result
             packages="$(printf '%s\n' "$components" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+            result="$(jq -cn \
+              --arg base "${BASE:-}" \
+              --arg sha "${GITHUB_SHA:-}" \
+              --argjson packages "$packages" \
+              '{base: $base, sha: $sha, forced: true, toolchain: true, cli: true, installer: true, packages: $packages, affected: []}')"
             printf 'toolchain=true\ncli=true\ninstaller=true\npackages=%s\n' "$packages" >> "$GITHUB_OUTPUT"
+            summarize "$result"
           }
 
           # Tags, explicit requests and unusable bases rebuild everything.
@@ -126,6 +147,18 @@ jobs:
           if [ "$packages" != "[]" ] || [ "$toolchain" = "true" ]; then
             installer=true
           fi
+
+          result="$(jq -cn \
+            --arg base "${BASE:-}" \
+            --arg sha "${GITHUB_SHA:-}" \
+            --argjson toolchain "$toolchain" \
+            --argjson cli "$cli" \
+            --argjson installer "$installer" \
+            --argjson packages "$packages" \
+            --argjson affected "$affected_json" \
+            '{base: $base, sha: $sha, forced: false, toolchain: $toolchain, cli: $cli, installer: $installer, packages: $packages, affected: $affected}')"
+
+          summarize "$result"
 
           printf 'toolchain=%s\ncli=%s\ninstaller=%s\npackages=%s\n' \
             "$toolchain" "$cli" "$installer" "$packages" >> "$GITHUB_OUTPUT"
