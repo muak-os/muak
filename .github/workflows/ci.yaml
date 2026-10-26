@@ -135,36 +135,52 @@ jobs:
 
   build-packages:
     name: Build packages
-    needs: [ci-success, changes]
-    if: needs.changes.result == 'success' && needs.changes.outputs.packages != '[]'
+    needs: [ci-success, changes, build-toolchain]
+    if: |
+      always() &&
+      needs.ci-success.result == 'success' &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.packages != '[]' &&
+      (needs.build-toolchain.result == 'success' || needs.build-toolchain.result == 'skipped')
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-packages.yaml
     with:
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
       packages: ${{ needs.changes.outputs.packages }}
 
   build-cli:
     name: Build CLI
-    needs: [ci-success, changes]
-    if: needs.changes.result == 'success' && needs.changes.outputs.cli == 'true'
+    needs: [ci-success, changes, build-toolchain]
+    if: |
+      always() &&
+      needs.ci-success.result == 'success' &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.cli == 'true' &&
+      (needs.build-toolchain.result == 'success' || needs.build-toolchain.result == 'skipped')
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-cli.yaml
+    with:
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
 
   build-installer:
     name: Build installer
-    needs: [ci-success, changes, build-packages, build-cli]
+    needs: [ci-success, changes, build-toolchain, build-packages, build-cli]
     if: |
       always() &&
       needs.ci-success.result == 'success' &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.installer == 'true' &&
+      (needs.build-toolchain.result == 'success' || needs.build-toolchain.result == 'skipped') &&
       (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped') &&
       (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped')
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-installer.yaml
+    with:
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
     secrets: inherit

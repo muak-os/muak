@@ -7,12 +7,11 @@ on:
         description: "JSON array of packages to build"
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      packages:
-        description: 'JSON array of packages to build, e.g. ["granola","networkd"]'
-        required: true
+      toolchain:
+        description: "Toolchain image reference for fresh toolchain builds"
+        required: false
         type: string
+        default: ""
 
 jobs:
   build:
@@ -29,4 +28,5 @@ jobs:
       image: ${{ matrix.package }}
       image_prefix: pkgs/
       recipe: oci ${{ matrix.package }}
+      toolchain: ${{ inputs.toolchain }}
       arch_matrix: '["amd64","arm64"]'

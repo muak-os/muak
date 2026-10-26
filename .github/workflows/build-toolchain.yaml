@@ -2,7 +2,16 @@ name: Build Toolchain
 
 on:
   workflow_call:
-  workflow_dispatch:
+    outputs:
+      tag:
+        description: "Resolved toolchain tag"
+        value: ${{ jobs.build.outputs.tag }}
+      repository:
+        description: "Resolved toolchain repository"
+        value: ${{ jobs.build.outputs.repository }}
+      ref:
+        description: "Resolved toolchain reference"
+        value: ${{ jobs.build.outputs.ref }}
 
 jobs:
   build:

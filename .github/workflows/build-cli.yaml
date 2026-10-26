@@ -2,7 +2,12 @@ name: Build CLI
 
 on:
   workflow_call:
-  workflow_dispatch:
+    inputs:
+      toolchain:
+        description: "Toolchain image reference for fresh toolchain builds"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build:
@@ -13,3 +18,4 @@ jobs:
     with:
       image: muakctl
       recipe: oci cli
+      toolchain: ${{ inputs.toolchain }}

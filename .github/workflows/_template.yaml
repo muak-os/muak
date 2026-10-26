@@ -11,6 +11,10 @@ on:
         description: "Optional registry path prefix before image (e.g. 'pkgs/' for packages)"
         type: string
         default: ""
+      toolchain:
+        description: "Toolchain image reference for fresh toolchain builds"
+        type: string
+        default: ""
       recipe:
         description: "Full just recipe to run (e.g. 'oci cli', 'oci installer')"
         type: string
@@ -23,6 +27,16 @@ on:
         description: "JSON array of architectures to build"
         type: string
         default: '["amd64","arm64"]'
+    outputs:
+      tag:
+        description: "Resolved image tag"
+        value: ${{ jobs.manifest.outputs.tag }}
+      repository:
+        description: "Resolved image repository"
+        value: ${{ jobs.manifest.outputs.repository }}
+      ref:
+        description: "Resolved image reference"
+        value: ${{ jobs.manifest.outputs.ref }}
     secrets:
       COSIGN_KEY:
         required: false
@@ -62,6 +76,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Select toolchain
+        if: inputs.toolchain != ''
+        run: |
+          printf 'TOOLCHAIN=%s\n' "${{ inputs.toolchain }}" >> "$GITHUB_ENV"
 
       - name: Determine tag
         id: tag
@@ -109,6 +128,10 @@ jobs:
     runs-on: ubuntu-26.04
     env:
       CONTAINER_RUNTIME: docker
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      repository: ${{ steps.metadata.outputs.repository }}
+      ref: ${{ steps.metadata.outputs.ref }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -117,6 +140,22 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
           tool: just@1.58.0
+
+      - name: Resolve image metadata
+        id: metadata
+        env:
+          IMAGE_PREFIX: ${{ inputs.image_prefix }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          tag="${{ needs.build.outputs.tag }}"
+          repository="ghcr.io/${{ github.repository_owner }}/${IMAGE_PREFIX}${IMAGE}"
+          printf 'tag=%s\nrepository=%s\nref=%s\n' \
+            "$tag" "$repository" "$repository:$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Select toolchain
+        if: inputs.toolchain != ''
+        run: |
+          printf 'TOOLCHAIN=%s\n' "${{ inputs.toolchain }}" >> "$GITHUB_ENV"
 
       - name: Create multi-arch manifest (${{ needs.build.outputs.tag }})
         env:

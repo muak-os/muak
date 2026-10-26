@@ -123,7 +123,7 @@ jobs:
           git diff --quiet "$BASE"...HEAD -- Dockerfile policy || installer=true
 
           packages="$(printf '%s' "$packages" | jq -R -s -c 'split("\n") | map(select(length > 0)) | unique')"
-          if [ "$packages" != "[]" ]; then
+          if [ "$packages" != "[]" ] || [ "$toolchain" = "true" ]; then
             installer=true
           fi
 
