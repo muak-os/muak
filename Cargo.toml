@@ -105,7 +105,7 @@ unicode-width = "0.2"
 ## Compression
 flate2 = "1.1"
 tar = "0.4"
-zstd = { version = "0.13", default-features = false, features = ["zstdmt"] }
+zstd = { version = "0.14", default-features = false, features = ["zstdmt"] }
 
 ## Cryptography
 aes = "0.9"
