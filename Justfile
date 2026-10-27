@@ -20,14 +20,13 @@ set positional-arguments
 
 # Global settings
 
-alpine_version := "3.24"
-rust_version := `grep -oP 'rust-version\s*=\s*"\K[^"]+' Cargo.toml`
-out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
+rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-09-30@sha256:28be448949719498dfad2a792b3af80ce5e3293ea3fb9c69ccbf141234ed26e7")
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 export tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c18a288141bf4745151ae83d0d5f05d875a102c5348a12d5ab89fa94b4f1c3a0")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
+out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
 components := `sed -n 's/^ARG PKG_//p' Dockerfile | tr '[:upper:]' '[:lower:]' | tr '\n' ' '`
 
 # Architecture
@@ -45,7 +44,7 @@ build_cmd := if container_runtime == "podman" { "podman build" } else { "docker 
 pull_arg := if container_runtime == "podman" { "--pull=missing" } else { "" }
 push_arg := if container_runtime == "podman" { "" } else { "--push" }
 provenance_arg := if container_runtime == "podman" { "" } else { "--provenance=false" }
-common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg ALPINE_VERSION=" + alpine_version + " --build-arg TOOLCHAIN=" + toolchain + " " + provenance_arg
+common_args := "--platform=linux/" + oci_arch + " --progress=" + env_var_or_default("PROGRESS", "auto") + " --build-arg SOURCE_DATE_EPOCH=" + env_var_or_default("SOURCE_DATE_EPOCH", "0") + " --build-arg TOOLCHAIN=" + toolchain + " " + provenance_arg
 
 # Colors
 
@@ -491,7 +490,7 @@ _build-oci name dockerfile *extra:
     cache_from=$(just _cache-from "$name")
     cache_to=$(just _cache-to "$name")
     printf "{{ cyan }}Building OCI:{{ reset }} %s\n" "$name"
-    {{ build_cmd }} {{ common_args }} --build-arg RUST_VERSION={{ rust_version }} {{ pull_arg }} \
+    {{ build_cmd }} {{ common_args }} --build-arg RUST_IMAGE={{ rust_image }} {{ pull_arg }} \
         ${cache_from} ${cache_to} {{ push_arg }} --tag "${image}" "$@" \
         --file "$dockerfile" \
         .
@@ -514,7 +513,7 @@ _ensure-fw: _ensure-out
 
     if [ ! -f "{{ out }}/OVMF_VARS.fd" ] || [ ! -f "{{ out }}/OVMF_CODE.secboot.fd" ]; then
         printf "{{ cyan }}Fetching OVMF firmware files{{ reset }}\n"
-        {{ container_runtime }} run --rm --network=host -v {{ out }}:/out docker.io/alpine:{{ alpine_version }} sh -c '
+        {{ container_runtime }} run --rm --network=host -v {{ out }}:/out {{ rust_image }} sh -c '
         set -euo pipefail
         apk add --no-cache wget libarchive-tools >/dev/null 2>&1
         wget -q -O /tmp/edk2.rpm https://kojipkgs.fedoraproject.org/packages/edk2/20251119/10.fc44/noarch/edk2-ovmf-20251119-10.fc44.noarch.rpm

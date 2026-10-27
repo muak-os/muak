@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
-ARG ALPINE_VERSION
+ARG RUST_IMAGE
 
 ARG TOOLCHAIN
 
@@ -47,7 +47,7 @@ COPY --link --from=services       */*.service /rootfs/etc/services/
 # ─────────────────────────────────────────────────────────────────────────────
 # Compile SELinux policy
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS selinux
+FROM ${RUST_IMAGE} AS selinux
 
 COPY --link --from=toolchain /secilc /usr/local/bin/secilc
 

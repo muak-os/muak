@@ -1,11 +1,10 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
-ARG RUST_VERSION
-ARG ALPINE_VERSION
+ARG RUST_IMAGE
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS deps
+FROM ${RUST_IMAGE} AS deps
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH

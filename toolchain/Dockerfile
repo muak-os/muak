@@ -1,12 +1,11 @@
 # syntax = docker/dockerfile-upstream:1.22.0-labs
 
-ARG RUST_VERSION
-ARG ALPINE_VERSION
+ARG RUST_IMAGE
 ARG SELINUX_VERSION=3.10
 ARG SOURCE_DATE_EPOCH=0
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/alpine:${ALPINE_VERSION} AS secilc
+FROM ${RUST_IMAGE} AS secilc
 
 ARG SELINUX_VERSION
 
@@ -24,7 +23,7 @@ cp /tmp/secilc-${SELINUX_VERSION}/secilc /secilc
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-FROM docker.io/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS deps
+FROM ${RUST_IMAGE} AS deps
 
 ARG SOURCE_DATE_EPOCH
 ARG TARGETARCH
