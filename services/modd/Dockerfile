@@ -17,10 +17,6 @@ ENV RUST_TARGET=${TARGET}-unknown-linux-musl
 
 WORKDIR /build
 
-RUN --mount=type=cache,target=/var/cache/apk \
-  --mount=type=cache,target=/etc/apk/cache \
-  apk add --no-cache --no-scripts musl-dev
-
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   cargo install --locked cargo-chef

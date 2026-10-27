@@ -11,7 +11,7 @@ ARG SELINUX_VERSION
 
 RUN --mount=type=cache,target=/var/cache/apk \
   --mount=type=cache,target=/etc/apk/cache \
-  apk add --no-cache --no-scripts gcc musl-dev make libsepol-dev
+  apk add --no-cache --no-scripts make libsepol-dev
 
 RUN <<EOF
 set -euo pipefail
@@ -35,10 +35,6 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 ENV RUST_TARGET=${TARGET}-unknown-linux-musl
 
 WORKDIR /build
-
-RUN --mount=type=cache,target=/var/cache/apk \
-  --mount=type=cache,target=/etc/apk/cache \
-  apk add --no-cache --no-scripts musl-dev
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
