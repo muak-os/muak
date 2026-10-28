@@ -3,7 +3,7 @@
 # Prerequisites:
 #   - just
 #   - rustup
-#   - cargo-nextest, cargo-hack, cargo-llvm-cov, cargo-flamegraph, cargo-deny
+#   - cargo-nextest, cargo-hack, cargo-llvm-cov, cargo-flamegraph, cargo-deny, typos
 #   - git, bash, GNU coreutils, GNU grep, sed, tr
 #   - podman, or docker with the buildx plugin
 #   - qemu-system-x86_64, qemu-img and KVM access (start, e2e)
@@ -305,6 +305,12 @@ lint *pkgs:
     else
         cargo clippy --locked --workspace --all-targets -- -D warnings
     fi
+
+# Check spelling across the repository.
+[group('test')]
+spell:
+    @printf "{{ cyan }}Checking spelling{{ reset }}\n"
+    typos
 
 # Run tests and doctests (e.g., just test or just test yuki koci).
 [group('test')]

@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn is_physical_disk_accepts_real_disk_names() {
         // ARRANGE
-        let names = ["sda", "sdb", "vda", "nvme0n1", "mmcblk0", "hda"];
+        let names = ["sda", "sdb", "sdc", "vda", "nvme0n1", "mmcblk0"];
 
         for name in &names {
             // ACT

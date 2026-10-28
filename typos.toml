@@ -1,0 +1,5 @@
+[default.extend-words]
+# Neighbor Discovery option constants.
+ND = "ND"
+# `O_WRONLY` open flag suffix.
+WRONLY = "WRONLY"
