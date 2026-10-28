@@ -1,9 +1,9 @@
 # TODO
 
 - Harden CI with supply chain security of the CI itself
+  - cargo-vet
 
-- Remove duplicated console.rs in wizard, koci & cli and consolidate in tui.
-- Remove Tracker & Writer in each cli too
+- Remove duplicated tracker.rs, writer.rs & console.rs in wizard, koci & cli and consolidate in tui.
 
 - Nighly/edge images ready for usage, leveraging channels
 

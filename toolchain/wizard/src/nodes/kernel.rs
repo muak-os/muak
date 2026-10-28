@@ -77,7 +77,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
 
 /// Pulls the kernel package once and routes known files to their output streams.
 fn run(
-    _kind: NodeKind,
+    kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
@@ -89,7 +89,7 @@ fn run(
         source,
         &ctx.build.arch(),
         None,
-        &koci::progress::Noop,
+        &ctx.reporter(kind),
         |entry| route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline),
     )
     .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;

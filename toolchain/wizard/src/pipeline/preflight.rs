@@ -5,6 +5,7 @@ use crate::nodes;
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::NodeId;
+use crate::progress::Event;
 
 /// Attaches the final size and name to every stream in the planned graph.
 ///
@@ -18,7 +19,10 @@ pub(crate) fn preflight(graph: Graph, ctx: &BuildContext<'_, '_>) -> Result<Grap
     for index in 0..graph.nodes().len() {
         let kind = graph.node(NodeId(index))?.kind;
         let node = nodes::descriptor(kind);
+        let label = format!("Preparing {}", kind.title());
+        ctx.progress.report(Event::Started { label: &label });
         (node.preflight)(&mut graph, NodeId(index), ctx)?;
+        ctx.progress.report(Event::Completed { label: &label });
     }
 
     graph.assert_named()?;

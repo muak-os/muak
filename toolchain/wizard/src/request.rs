@@ -16,6 +16,7 @@ use crate::nodes::{disk_layout_annotation, measured_sizes};
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
+use crate::progress::{Event, NOOP, Reporter};
 use crate::resolver;
 
 /// A build request expressing what to build and where to write each artifact.
@@ -25,6 +26,7 @@ pub struct Request<'a> {
     arch: Option<Arch>,
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
+    progress: Option<&'a dyn Reporter>,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
 
@@ -34,6 +36,7 @@ impl fmt::Debug for Request<'_> {
             .field("version", &self.version)
             .field("arch", &self.arch)
             .field("signing", &self.signing.is_some())
+            .field("progress", &self.progress.is_some())
             .field(
                 "targets",
                 &self.targets.iter().map(|item| &item.0).collect::<Vec<_>>(),
@@ -52,6 +55,7 @@ impl<'a> Request<'a> {
             arch: None,
             codec: None,
             signing: None,
+            progress: None,
             targets: Vec::new(),
         }
     }
@@ -117,12 +121,94 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Reports pipeline progress to `reporter`.
+    #[must_use]
+    pub fn progress(mut self, reporter: &'a dyn Reporter) -> Self {
+        self.progress = Some(reporter);
+
+        self
+    }
+
     /// Returns the artifact kinds targeted by this request.
     pub fn targets(&self) -> impl Iterator<Item = &Artifact> {
         self.targets.iter().map(|item| &item.0)
     }
 
-    /// Rejects explicit compressing codecs that apply to no requested artifact.
+    /// Resolves and builds all requested artifacts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when resolution, pulling, building, or signing fails.
+    pub fn build(self, profile: &Profile) -> Result<crate::Metadata> {
+        if self.targets.is_empty() {
+            return Err(WizardError::RequestValidation(
+                "at least one artifact must be requested".to_owned(),
+            ));
+        }
+
+        self.validate_codec()?;
+
+        let progress = self.progress.unwrap_or(&NOOP);
+
+        progress.report(Event::Started {
+            label: "Resolving sources",
+        });
+        let mut resolution = resolver::plan(&self, profile)?;
+        progress.report(Event::Completed {
+            label: &format!(
+                "Resolved {} ({})",
+                resolution.profile_id(),
+                resolution.build().arch()
+            ),
+        });
+
+        if resolution.build().overlay().is_some() {
+            progress.report(Event::Started {
+                label: "Discovering overlay assets",
+            });
+            discover_assets(&mut resolution)?;
+            let assets = resolution
+                .build()
+                .overlay_assets()
+                .map_or(0, <[overlay::Asset]>::len);
+            progress.report(Event::Completed {
+                label: &format!("Discovered {assets} overlay assets"),
+            });
+        }
+
+        progress.report(Event::Started {
+            label: "Resolving disk layout",
+        });
+        discover_layout(&mut resolution)?;
+        progress.report(Event::Completed {
+            label: &format!(
+                "Resolved {} disk layout",
+                resolution.build().layout().name()
+            ),
+        });
+
+        let profile_bytes = profile.canonical_bytes()?;
+        let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
+        let ctx = BuildContext {
+            build: resolution.build(),
+            profile: &profile_bytes,
+            signing: self.signing,
+            codec: self.codec.unwrap_or_default(),
+            progress,
+        };
+        let mut writers = TargetWriters::new(self.targets);
+
+        progress.report(Event::Started {
+            label: "Planning build graph",
+        });
+        let graph = plan(&ctx, &artifacts)?;
+        progress.report(Event::Completed {
+            label: &format!("Planned {} nodes", graph.nodes().len()),
+        });
+
+        execute(graph, &ctx, &mut writers)
+    }
+
     fn validate_codec(&self) -> Result<()> {
         let Some(codec) = self.codec.filter(Codec::compresses) else {
             return Ok(());
@@ -140,37 +226,6 @@ impl<'a> Request<'a> {
             "codec {} applies to none of the requested artifacts",
             codec.extension()
         )))
-    }
-
-    /// Resolves and builds all requested artifacts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when resolution, pulling, building, or signing fails.
-    pub fn build(self, profile: &Profile) -> Result<crate::Metadata> {
-        if self.targets.is_empty() {
-            return Err(WizardError::RequestValidation(
-                "at least one artifact must be requested".to_owned(),
-            ));
-        }
-
-        self.validate_codec()?;
-
-        let mut resolution = resolver::plan(&self, profile)?;
-        discover_assets(&mut resolution)?;
-        discover_layout(&mut resolution)?;
-        let profile_bytes = profile.canonical_bytes()?;
-        let artifacts: Vec<Artifact> = self.targets.iter().map(|target| target.0).collect();
-        let ctx = BuildContext {
-            build: resolution.build(),
-            profile: &profile_bytes,
-            signing: self.signing,
-            codec: self.codec.unwrap_or_default(),
-        };
-        let mut writers = TargetWriters::new(self.targets);
-        let graph = plan(&ctx, &artifacts)?;
-
-        execute(graph, &ctx, &mut writers)
     }
 }
 

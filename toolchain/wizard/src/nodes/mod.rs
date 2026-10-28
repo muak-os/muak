@@ -60,6 +60,26 @@ node_registry! {
     OverlayTar => overlay::tar::DESCRIPTOR,
 }
 
+impl NodeKind {
+    /// Short human-readable node name used in progress output.
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::InstallerPull => "installer",
+            Self::StubPull => "stub",
+            Self::KernelPull => "kernel",
+            Self::LayerPayloads => "layers",
+            Self::InitramfsTail => "initramfs",
+            Self::Concat => "concat",
+            Self::Uki => "uki",
+            Self::Sign => "sign",
+            Self::Iso => "iso",
+            Self::Raw => "raw",
+            Self::OverlayPull => "overlay",
+            Self::OverlayTar => "overlay-tar",
+        }
+    }
+}
+
 /// One node kind's full contract.
 pub(crate) struct NodeDescriptor {
     pub(crate) dependencies: fn(NodeKind, &BuildContext<'_, '_>) -> Vec<Dependency>,
@@ -131,6 +151,7 @@ mod tests {
     use crate::codec::Codec;
     use crate::domain::resolution::Kernel;
     use crate::domain::resolution::ResolvedBuild;
+    use crate::progress::NOOP;
 
     fn build_plan() -> ResolvedBuild {
         ResolvedBuild::new(
@@ -155,7 +176,26 @@ mod tests {
             profile: b"",
             signing: None,
             codec: Codec::Zstd,
+            progress: &NOOP,
         }
+    }
+
+    #[test]
+    fn every_node_has_a_unique_title() {
+        // ARRANGE
+        let mut titles = Vec::with_capacity(NodeKind::ALL.len());
+
+        // ACT
+        for kind in NodeKind::ALL {
+            titles.push(kind.title());
+        }
+
+        // ASSERT
+        let total = titles.len();
+        titles.sort_unstable();
+        titles.dedup();
+        assert_eq!(titles.len(), total, "node titles must be unique");
+        assert!(titles.iter().all(|title| !title.is_empty()));
     }
 
     #[test]
@@ -226,6 +266,7 @@ mod tests {
             profile: b"",
             signing: Some(&signing),
             codec: Codec::Zstd,
+            progress: &NOOP,
         };
 
         // ACT

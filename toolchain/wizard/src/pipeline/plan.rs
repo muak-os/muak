@@ -188,6 +188,7 @@ mod tests {
     use crate::nodes::kernel;
     use crate::nodes::uki;
     use crate::pipeline::context::BuildContext;
+    use crate::progress::NOOP;
 
     fn build_plan() -> ResolvedBuild {
         ResolvedBuild::new(
@@ -237,6 +238,7 @@ mod tests {
             profile: b"",
             signing: None,
             codec: Codec::Zstd,
+            progress: &NOOP,
         }
     }
 
@@ -380,6 +382,7 @@ mod tests {
             profile: b"",
             signing: Some(&signing),
             codec: Codec::Zstd,
+            progress: &NOOP,
         };
 
         // ACT

@@ -67,13 +67,14 @@ const MAX_UKI_BYTES: u64 = 512 << 20;
 /// Probes the bounded stub header prefix and plans the UKI layout to get the size.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
+    let kind = graph.node(id)?.kind;
 
     let mut prefix = Vec::new();
     pull::files(
         build.stub(),
         &build.arch(),
         None,
-        &koci::progress::Noop,
+        &ctx.reporter(kind),
         |entry| {
             if entry.path == "stub.efi" {
                 let max = u64::try_from(yuki::probe::MAX_HEADER_BYTES)

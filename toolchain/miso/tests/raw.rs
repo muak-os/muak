@@ -47,17 +47,39 @@ mod tests {
     }
 
     fn build_raw(size: usize) -> Vec<u8> {
+        build_raw_with_plan(size).0
+    }
+
+    fn build_raw_with_plan(size: usize) -> (Vec<u8>, raw::Plan) {
         let uki_data = fake_uki(size);
         let uki_size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::X86_64.boot_path(), uki_size)];
         let layout = compute(files).expect("compute layout");
+        let planned = raw::plan(&layout, &[]).expect("raw::plan must succeed");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        raw::build(&layout, &mut readers, &mut [], &mut out).expect("raw::build must succeed");
+        raw::write(&planned, &layout, &mut readers, &mut [], &mut out)
+            .expect("raw::write must succeed");
 
-        out.into_inner()
+        (out.into_inner(), planned)
+    }
+
+    #[test]
+    fn plan_size_matches_the_emitted_image() {
+        // ARRANGE
+        let sizes = [0, 1, 512, 1024, 4096];
+
+        // ACT & ASSERT
+        for size in sizes {
+            let (img, planned) = build_raw_with_plan(size);
+            assert_eq!(
+                usize::try_from(planned.size()).unwrap_or(0),
+                img.len(),
+                "planned size must match the emitted image for a {size}-byte UKI"
+            );
+        }
     }
 
     #[test]
@@ -192,11 +214,13 @@ mod tests {
             FileMeta::new("assets/rootfs.img", extra_size),
         ];
         let layout = compute(files).expect("compute layout");
+        let planned = raw::plan(&layout, &[]).expect("raw::plan must succeed");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        raw::build(&layout, &mut readers, &mut [], &mut out).expect("raw::build must succeed");
+        raw::write(&planned, &layout, &mut readers, &mut [], &mut out)
+            .expect("raw::write must succeed");
         let img = out.into_inner();
 
         // ASSERT

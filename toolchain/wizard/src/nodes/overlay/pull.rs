@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use koci::progress::Noop;
+use koci::progress::Reporter;
 use koci::pull;
 use koci::pull::demux::Demux;
 use koci::pull::session::Session;
@@ -67,7 +67,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
 
 /// Pulls the overlay source with one demux pass.
 fn run(
-    _kind: NodeKind,
+    kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
@@ -83,13 +83,18 @@ fn run(
     let session = pull::session::open(&overlay.source, &overlay.arch, None)
         .map_err(|e| WizardError::BuildError(format!("open overlay session: {e}")))?;
 
-    demux_pass(&session, assets, outputs)?;
+    demux_pass(&session, assets, outputs, &ctx.reporter(kind))?;
 
     Ok(None)
 }
 
 /// Single-pass demux: routes every entry to its output stream in one walk.
-fn demux_pass(session: &Session, assets: &[Asset], outputs: Vec<OutputStream<'_>>) -> Result<()> {
+fn demux_pass(
+    session: &Session,
+    assets: &[Asset],
+    outputs: Vec<OutputStream<'_>>,
+    progress: &dyn Reporter,
+) -> Result<()> {
     let sizes = assets
         .iter()
         .map(|asset| (asset.entry().to_owned(), asset.size()));
@@ -101,6 +106,6 @@ fn demux_pass(session: &Session, assets: &[Asset], outputs: Vec<OutputStream<'_>
     let mut demux = Demux::by_name(writers).with_sizes(sizes);
 
     session
-        .walk(&Noop, |entry| demux.route(entry))
+        .walk(progress, |entry| demux.route(entry))
         .map_err(|e| WizardError::BuildError(format!("demux overlay files: {e}")))
 }

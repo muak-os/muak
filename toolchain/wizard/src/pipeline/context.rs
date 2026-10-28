@@ -7,6 +7,9 @@ use sbolt::keys::SigningPair;
 use crate::artifact::Artifact;
 use crate::codec::Codec;
 use crate::domain::resolution::ResolvedBuild;
+use crate::nodes::NodeKind;
+use crate::progress::Reporter;
+use crate::progress::koci::Adapter;
 
 /// Build inputs, passed explicitly to planning, preflight, and runners.
 pub(crate) struct BuildContext<'data, 'sign> {
@@ -14,6 +17,14 @@ pub(crate) struct BuildContext<'data, 'sign> {
     pub(crate) profile: &'data [u8],
     pub(crate) signing: Option<&'sign SigningPair<'sign>>,
     pub(crate) codec: Codec,
+    pub(crate) progress: &'data dyn Reporter,
+}
+
+impl BuildContext<'_, '_> {
+    /// Reporter attributed to `kind`, for the koci calls it makes.
+    pub(crate) fn reporter(&self, kind: NodeKind) -> Adapter<'_> {
+        Adapter::new(self.progress, kind.title())
+    }
 }
 
 /// User artifact writers, consumed once each by their producing node at bind time.

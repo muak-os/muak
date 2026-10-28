@@ -12,6 +12,7 @@ pub mod domain;
 pub mod error;
 mod nodes;
 mod pipeline;
+pub mod progress;
 pub mod request;
 pub mod resolver;
 mod stream;

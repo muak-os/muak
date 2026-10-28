@@ -7,7 +7,7 @@ mod common;
 mod tests {
     use std::io::{Read as _, Write as _};
     use std::process::Command;
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, OnceLock};
 
     use koci::arch::Arch;
     use sbolt::keys::SigningPair;
@@ -55,6 +55,19 @@ mod tests {
     struct Env {
         harness: Harness,
         images: TestImages,
+    }
+
+    /// Records every pipeline progress event as its debug form.
+    #[derive(Default)]
+    struct Recorded(Mutex<Vec<String>>);
+
+    impl wizard::progress::Reporter for Recorded {
+        fn report(&self, event: wizard::progress::Event<'_>) {
+            self.0
+                .lock()
+                .expect("unpoisoned")
+                .push(format!("{event:?}"));
+        }
     }
 
     /// One registry, one wizard config, and one cache per test process.
@@ -565,6 +578,38 @@ digest = "{unsorted}"
         assert_eq!(report.sections, Vec::<uki::measure::MeasuredSection>::new());
     }
 
+    #[test]
+    fn build_reports_stages_nodes_and_pull_notes() {
+        // ARRANGE
+        let recorded = Recorded::default();
+        let mut kernel_out = Vec::new();
+
+        // ACT
+        request(RELEASE)
+            .arch(Arch::Amd64)
+            .progress(&recorded)
+            .artifact(Artifact::Kernel, &mut kernel_out)
+            .expect("kernel target")
+            .build(&base_profile())
+            .expect("build kernel");
+
+        // ASSERT
+        let events = recorded.0.lock().expect("unpoisoned");
+        let rendered = events.join("\n");
+        assert!(rendered.contains("Resolving sources"), "events: {rendered}");
+        assert!(
+            rendered.contains("Planning build graph"),
+            "events: {rendered}"
+        );
+        assert!(rendered.contains("Preparing kernel"), "events: {rendered}");
+        assert!(rendered.contains("node: \"kernel\""), "events: {rendered}");
+        assert!(
+            rendered.contains("Downloading layers"),
+            "events: {rendered}"
+        );
+        assert!(rendered.contains("Sized"), "events: {rendered}");
+    }
+
     /// Extracts the `vmlinuz` bytes from the fixture kernel layer archive.
     fn kernel_bytes(image: &FixtureImage) -> Vec<u8> {
         let mut decoder =
@@ -704,6 +749,33 @@ digest = "{unsorted}"
     }
 
     #[test]
+    fn iso_build_reports_the_exact_artifact_size() {
+        // ARRANGE
+        let recorded = Recorded::default();
+        let mut iso = Vec::new();
+
+        // ACT
+        request(RELEASE)
+            .arch(Arch::Amd64)
+            .progress(&recorded)
+            .artifact(Artifact::Iso, &mut iso)
+            .expect("iso target")
+            .build(&base_profile())
+            .expect("build iso");
+
+        // ASSERT
+        let events = recorded.0.lock().expect("unpoisoned");
+        let sized = events
+            .iter()
+            .find(|event| event.contains("Sized"))
+            .expect("build must report the artifact size");
+        assert!(
+            sized.contains(&format!("bytes: Some({})", iso.len())),
+            "reported size must match the emitted ISO: {sized}"
+        );
+    }
+
+    #[test]
     fn base_uki_is_well_formed_and_carries_release() {
         // ARRANGE
         let base = base_uki();
@@ -760,12 +832,14 @@ digest = "{unsorted}"
     fn raw_image_is_zstd_gpt_containing_uki() {
         // ARRANGE
         let _env = env();
+        let recorded = Recorded::default();
         let mut raw = Vec::new();
         let mut uki = Vec::new();
 
         // ACT
         request(RELEASE)
             .arch(Arch::Amd64)
+            .progress(&recorded)
             .artifact(Artifact::Raw, &mut raw)
             .expect("raw target")
             .artifact(Artifact::Uki, &mut uki)
@@ -777,6 +851,15 @@ digest = "{unsorted}"
         decoder.read_to_end(&mut image).expect("decompress raw");
 
         // ASSERT
+        let events = recorded.0.lock().expect("unpoisoned");
+        let sized = events
+            .iter()
+            .find(|event| event.contains("Sized"))
+            .expect("build must report the artifact size");
+        assert!(
+            sized.contains("bytes: None"),
+            "compressed raw size must be unknown: {sized}"
+        );
         assert_eq!(
             image.get(512..520),
             Some(b"EFI PART".as_slice()),
@@ -822,18 +905,29 @@ digest = "{unsorted}"
     fn raw_image_none_codec_yields_uncompressed_gpt() {
         // ARRANGE
         let _env = env();
+        let recorded = Recorded::default();
         let mut raw = Vec::new();
 
         // ACT
         request(RELEASE)
             .arch(Arch::Amd64)
             .codec(Codec::None)
+            .progress(&recorded)
             .artifact(Artifact::Raw, &mut raw)
             .expect("raw target")
             .build(&base_profile())
             .expect("build uncompressed raw");
 
         // ASSERT
+        let events = recorded.0.lock().expect("unpoisoned");
+        let sized = events
+            .iter()
+            .find(|event| event.contains("Sized"))
+            .expect("build must report the artifact size");
+        assert!(
+            sized.contains(&format!("bytes: Some({})", raw.len())),
+            "reported size must match the emitted raw image: {sized}"
+        );
         assert_eq!(raw.get(512..520), Some(b"EFI PART".as_slice()));
         assert_ne!(
             raw.get(..2),

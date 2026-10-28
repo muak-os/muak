@@ -37,44 +37,86 @@ const SYSTEM_IDENTIFIER: &[u8; 32] = b"                                ";
 /// A zero-filled ISO 9660 sector used for padding.
 const ZERO_SECTOR: [u8; SECTOR_SIZE] = [0; SECTOR_SIZE];
 
-/// Builds a complete bootable ISO 9660 image from a [`Layout`].
+/// Planned ISO 9660 geometry, computed without writing anything.
+#[derive(Clone, Copy, Debug)]
+pub struct Plan {
+    esp_size: u64,
+    esp_size_u32: u32,
+    esp_sectors: u16,
+    total_sectors: u32,
+}
+
+impl Plan {
+    /// Total ISO image size in bytes.
+    #[must_use]
+    pub fn size(&self) -> u64 {
+        u64::from(self.sectors()).saturating_mul(u64::try_from(SECTOR_SIZE).unwrap_or(u64::MAX))
+    }
+
+    /// Total ISO image size in logical blocks.
+    #[must_use]
+    pub const fn sectors(&self) -> u32 {
+        self.total_sectors
+    }
+}
+
+/// Computes the ISO geometry for `layout` without writing anything.
 ///
 /// # Errors
 ///
-/// Returns an error if ISO metadata construction overflows format limits, ESP construction
-/// fails, or any write operation fails.
-pub fn build<'data, 'ctx, W: Write>(
-    layout: &'ctx Layout<'data>,
-    readers: &mut [&'data mut (dyn Read + 'data)],
-    out: &mut W,
-) -> Result<()> {
+/// Returns an error when the ESP size does not fit the ISO or El Torito
+/// format limits.
+pub fn plan(layout: &Layout<'_>) -> Result<Plan> {
     let esp_size = layout.total_size;
     let esp_size_u32 = u32::try_from(esp_size)
         .map_err(|_err| MisoError::Iso("ISO field must fit in u32".to_owned()))?;
     let esp_sectors = el_torito_sector_count(esp_size)?;
-    let esp_sectors_u32 =
-        u32::try_from(usize::try_from(esp_size).unwrap_or(0).div_ceil(SECTOR_SIZE))
-            .unwrap_or(u32::MAX);
     let total_sectors = LBA_FILE_DATA
-        .checked_add(esp_sectors_u32)
-        .and_then(|sum| sum.checked_add(1))
+        .checked_add(u32::from(esp_sectors))
         .ok_or_else(|| MisoError::Iso("u32 addition for ISO sectors overflowed".to_owned()))?;
+
+    Ok(Plan {
+        esp_size,
+        esp_size_u32,
+        esp_sectors,
+        total_sectors,
+    })
+}
+
+/// Writes the ISO image described by `plan`.
+///
+/// # Errors
+///
+/// Returns an error when `layout` no longer matches `plan`, ISO metadata
+/// construction fails, ESP construction fails, or any write operation fails.
+pub fn write<'data, W: Write>(
+    plan: &Plan,
+    layout: &Layout<'data>,
+    readers: &mut [&'data mut (dyn Read + 'data)],
+    out: &mut W,
+) -> Result<()> {
+    if layout.total_size != plan.esp_size {
+        return Err(MisoError::Iso(format!(
+            "ISO plan ESP size {} does not match layout size {}",
+            plan.esp_size, layout.total_size
+        )));
+    }
 
     write_system_area(
         out,
         u64::from(LBA_FILE_DATA).saturating_mul(u64::try_from(SECTOR_SIZE).unwrap_or(u64::MAX)),
-        esp_size,
+        plan.esp_size,
     )?;
-    out.write_all(&build_pvd(total_sectors, esp_size_u32)?)?;
+    out.write_all(&build_pvd(plan.total_sectors, plan.esp_size_u32)?)?;
     out.write_all(&build_boot_record_vd())?;
     out.write_all(&build_vd_terminator())?;
     out.write_all(&build_path_table_l())?;
     out.write_all(&build_path_table_m())?;
-    out.write_all(&build_boot_catalog(LBA_FILE_DATA, esp_sectors)?)?;
-    out.write_all(&build_root_dir(esp_size_u32)?)?;
+    out.write_all(&build_boot_catalog(LBA_FILE_DATA, plan.esp_sectors)?)?;
+    out.write_all(&build_root_dir(plan.esp_size_u32)?)?;
     image::build(layout, readers, out).map_err(MisoError::Esp)?;
 
-    let esp_total = usize::try_from(esp_size).unwrap_or(0);
+    let esp_total = usize::try_from(plan.esp_size).unwrap_or(0);
     let pad = esp_total.rem_euclid(SECTOR_SIZE);
     if pad != 0 {
         let len = SECTOR_SIZE.saturating_sub(pad);
@@ -556,10 +598,51 @@ mod tests {
     }
 
     #[test]
+    fn plan_size_counts_fixed_sectors_and_the_esp() {
+        // ARRANGE
+        let layout = Layout {
+            files: vec![],
+            total_size: u64::try_from(2 * SECTOR_SIZE).unwrap_or(0),
+        };
+
+        // ACT
+        let planned = plan(&layout).expect("plan must build");
+
+        // ASSERT
+        assert_eq!(planned.sectors(), LBA_FILE_DATA + 2);
+        assert_eq!(
+            planned.size(),
+            u64::try_from(25 * SECTOR_SIZE).unwrap_or(0),
+            "23 fixed sectors plus a 2-sector ESP"
+        );
+    }
+
+    #[test]
+    fn write_rejects_a_layout_that_does_not_match_the_plan() {
+        // ARRANGE
+        let planned_layout = Layout {
+            files: vec![],
+            total_size: u64::try_from(2 * SECTOR_SIZE).unwrap_or(0),
+        };
+        let planned = plan(&planned_layout).expect("plan must build");
+        let other_layout = Layout {
+            files: vec![],
+            total_size: u64::try_from(SECTOR_SIZE).unwrap_or(0),
+        };
+        let mut out = Vec::new();
+
+        // ACT
+        let err = write(&planned, &other_layout, &mut [], &mut out)
+            .expect_err("mismatched layout must fail");
+
+        // ASSERT
+        assert!(matches!(err, MisoError::Iso(_)));
+        assert!(err.to_string().contains("does not match layout size"));
+    }
+
+    #[test]
     fn rejects_sizes_that_do_not_fit_in_u32() {
         // ARRANGE
-        use std::io::Cursor as IoCursor;
-
         use ::esp::layout::Layout;
 
         let oversized = u64::from(u32::MAX) + 1;
@@ -567,10 +650,9 @@ mod tests {
             files: vec![],
             total_size: oversized,
         };
-        let mut out = IoCursor::new(Vec::new());
 
         // ACT
-        let result = build(&layout, &mut [], &mut out);
+        let result = plan(&layout);
 
         // ASSERT
         let err = result.expect_err("oversized image must fail");

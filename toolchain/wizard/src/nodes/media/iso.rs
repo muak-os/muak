@@ -7,7 +7,7 @@ use miso::iso;
 use crate::artifact::Artifact;
 use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
-use crate::nodes::media::{self, MEDIA_OUTPUT, media_inputs, media_layout};
+use crate::nodes::media::{self, MEDIA_OUTPUT};
 use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::execute::NodeReport;
@@ -27,13 +27,14 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
     vec![(MEDIA_OUTPUT, Artifact::Iso)]
 }
 
-/// The media output stream size is not needed so we set it to zero.
-fn preflight(graph: &mut Graph, id: NodeId, _ctx: &BuildContext<'_, '_>) -> Result<()> {
-    let output = graph.stream_mut(graph.node(id)?.output(MEDIA_OUTPUT)?)?;
-    output.size = 0;
-    "boot.iso".clone_into(&mut output.name);
+/// Exact ISO size from the UKI stream and the overlay ESP layout.
+fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
+    let assets = ctx.build.overlay_assets().unwrap_or(&[]);
+    let layout = media::layout(ctx, media::uki_size(graph, id)?, assets)?;
+    let planned = iso::plan(&layout)
+        .map_err(|e| WizardError::BuildError(format!("plan bootable ISO: {e}")))?;
 
-    Ok(())
+    media::set_output(graph, id, planned.size(), "boot.iso")
 }
 
 /// Builds the ISO from the UKI stream and overlay ESP file streams.
@@ -42,7 +43,7 @@ fn run(
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let (mut uki, mut overlays) = media_inputs(ports)?;
+    let (mut uki, mut overlays) = media::inputs(ports)?;
     let assets = ctx.build.overlay_assets().unwrap_or(&[]);
     if assets
         .iter()
@@ -52,8 +53,11 @@ fn run(
             "raw blobs cannot be written to an ISO image".to_owned(),
         ));
     }
-    let layout = media_layout(ctx, &uki, assets)?;
+    let layout = media::layout(ctx, uki.size, assets)?;
+    let planned = iso::plan(&layout)
+        .map_err(|e| WizardError::BuildError(format!("plan bootable ISO: {e}")))?;
     let mut output = ports.output(MEDIA_OUTPUT)?;
+    media::check_size("ISO", planned.size(), output.size)?;
 
     let mut readers: Vec<&mut dyn Read> = Vec::with_capacity(overlays.len().saturating_add(1));
     readers.push(&mut uki.reader);
@@ -61,7 +65,7 @@ fn run(
         readers.push(&mut overlay.reader);
     }
 
-    iso::build(&layout, &mut readers, &mut output.writer)
+    iso::write(&planned, &layout, &mut readers, &mut output.writer)
         .map_err(|e| WizardError::BuildError(format!("build bootable ISO: {e}")))?;
 
     Ok(None)

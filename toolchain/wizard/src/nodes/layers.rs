@@ -4,6 +4,7 @@ use std::sync::{Mutex, PoisonError};
 
 use koci::arch::Arch;
 use koci::error::KociError;
+use koci::progress::Reporter;
 use koci::pull;
 use koci::pull::entries::FileEntry;
 
@@ -55,8 +56,9 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 
 /// Pulls and measures every layer payload once, recording stream size and name.
 pub(crate) fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
+    let kind = graph.node(id)?.kind;
     let layers = layer_specs(ctx)?;
-    let mut payloads = pull_payloads(&layers)?;
+    let mut payloads = pull_payloads(&layers, &ctx.reporter(kind))?;
     let planned = measure(&mut payloads, &layers)?;
     let staged = payloads.into_iter().zip(planned).collect::<Staged>();
 
@@ -87,14 +89,14 @@ pub(crate) fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_
 
 /// Streams the preflight-staged payloads into their output streams.
 pub(crate) fn run(
-    _kind: NodeKind,
+    kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
     let layers = layer_specs(ctx)?;
     let mut staged = match STAGED.lock().unwrap_or_else(PoisonError::into_inner).take() {
         Some(staged) if matches(&staged, &layers) => staged,
-        _ => pull_and_measure(&layers)?,
+        _ => pull_and_measure(&layers, &ctx.reporter(kind))?,
     };
 
     let mut outputs = ports.outputs_from(FIRST_OUTPUT, Some(staged.len()))?;
@@ -146,8 +148,8 @@ fn matches(staged: &Staged, layers: &[Layer]) -> bool {
             .all(|(pair, layer)| pair.1.meta().name == layer.name)
 }
 
-fn pull_and_measure(layers: &[Layer]) -> Result<Staged> {
-    let mut payloads = pull_payloads(layers)?;
+fn pull_and_measure(layers: &[Layer], progress: &dyn Reporter) -> Result<Staged> {
+    let mut payloads = pull_payloads(layers, progress)?;
     let planned = measure(&mut payloads, layers)?;
 
     Ok(payloads.into_iter().zip(planned).collect())
@@ -194,17 +196,13 @@ fn measure(
     Ok(planned)
 }
 
-fn pull_payloads(layers: &[Layer]) -> Result<Vec<mumi::payload::Payload>> {
+fn pull_payloads(layers: &[Layer], progress: &dyn Reporter) -> Result<Vec<mumi::payload::Payload>> {
     let mut payloads = Vec::with_capacity(layers.len());
     for layer in layers {
         let mut payload = mumi::payload::Payload::new(layer.name.clone());
-        pull::files(
-            &layer.source,
-            &layer.arch,
-            None,
-            &koci::progress::Noop,
-            |entry| add_entry(&mut payload, entry, layer.entry),
-        )
+        pull::files(&layer.source, &layer.arch, None, progress, |entry| {
+            add_entry(&mut payload, entry, layer.entry)
+        })
         .map_err(|e| WizardError::BuildError(format!("pull layer {}: {e}", layer.name)))?;
         payloads.push(payload);
     }
@@ -244,6 +242,7 @@ fn build_config(file_contexts: Option<mumi::image::FileContexts>) -> mumi::image
 mod tests {
     use super::*;
     use crate::pipeline::runtime::{OutputStream, OutputWriter};
+    use crate::progress::NOOP;
 
     fn planned(size: u64) -> mumi::payload::Planned {
         let mut payload = mumi::payload::Payload::new("muak-test/layer");
@@ -371,6 +370,7 @@ mod tests {
             profile: b"",
             signing: None,
             codec: Codec::Zstd,
+            progress: &NOOP,
         };
 
         // ACT

@@ -54,7 +54,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
 
 /// Pulls the installer once and writes its initramfs to the output stream.
 fn run(
-    _kind: NodeKind,
+    kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
@@ -64,7 +64,7 @@ fn run(
         ctx.build.installer(),
         &ctx.build.arch(),
         None,
-        &koci::progress::Noop,
+        &ctx.reporter(kind),
         |mut entry| {
             if entry.path == INITRAMFS_PATH {
                 std::io::copy(&mut entry.reader, &mut output.writer).map_err(KociError::IoError)?;

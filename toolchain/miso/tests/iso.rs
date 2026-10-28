@@ -27,17 +27,22 @@ mod tests {
     }
 
     fn build_iso(uki_size: usize) -> Vec<u8> {
+        build_with_plan(uki_size).0
+    }
+
+    fn build_with_plan(uki_size: usize) -> (Vec<u8>, iso::Plan) {
         let uki_data = fake_uki(uki_size);
         let size = u64::try_from(uki_data.len()).unwrap_or(u64::MAX);
         let mut cursor = Cursor::new(uki_data);
 
         let files = &[FileMeta::new(Arch::X86_64.boot_path(), size)];
         let layout = compute(files).expect("compute layout");
+        let planned = iso::plan(&layout).expect("iso::plan must succeed");
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
+        iso::write(&planned, &layout, &mut readers, &mut out).expect("iso::write must succeed");
 
-        out.into_inner()
+        (out.into_inner(), planned)
     }
 
     #[test]
@@ -87,6 +92,45 @@ mod tests {
     }
 
     #[test]
+    fn plan_size_matches_the_emitted_image() {
+        // ARRANGE
+        let sizes = [0, 1, 512, 2048, 3000, 4096];
+
+        // ACT & ASSERT
+        for size in sizes {
+            let (iso, planned) = build_with_plan(size);
+            assert_eq!(
+                usize::try_from(planned.size()).unwrap_or(0),
+                iso.len(),
+                "planned size must match the emitted image for a {size}-byte UKI"
+            );
+        }
+    }
+
+    #[test]
+    fn pvd_volume_space_matches_the_plan() {
+        // ARRANGE
+        let (iso, planned) = build_with_plan(3000);
+        let pvd = iso::SECTOR_SIZE * 16;
+
+        // ACT
+        let little_endian = u32::from_le_bytes(
+            bytes_at(&iso, pvd + 80..pvd + 84)
+                .try_into()
+                .expect("volume space size little-endian field"),
+        );
+        let big_endian = u32::from_be_bytes(
+            bytes_at(&iso, pvd + 84..pvd + 88)
+                .try_into()
+                .expect("volume space size big-endian field"),
+        );
+
+        // ASSERT
+        assert_eq!(little_endian, planned.sectors());
+        assert_eq!(big_endian, planned.sectors());
+    }
+
+    #[test]
     fn mbr_boot_signature_present() {
         // ARRANGE / ACT
         let iso = build_iso(512);
@@ -114,11 +158,12 @@ mod tests {
 
         let files = &[FileMeta::new(Arch::Aarch64.boot_path(), size)];
         let layout = compute(files).expect("compute layout");
+        let planned = iso::plan(&layout).expect("iso::plan must succeed");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut cursor];
-        iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
+        iso::write(&planned, &layout, &mut readers, &mut out).expect("iso::write must succeed");
         let iso = out.into_inner();
 
         // ASSERT
@@ -208,11 +253,12 @@ mod tests {
             FileMeta::new("overlays/rpi/config.txt", extra_size),
         ];
         let layout = compute(files).expect("compute layout");
+        let planned = iso::plan(&layout).expect("iso::plan must succeed");
 
         // ACT
         let mut out = Cursor::new(Vec::new());
         let mut readers: Vec<&mut dyn std::io::Read> = vec![&mut uki_cursor, &mut extra_cursor];
-        iso::build(&layout, &mut readers, &mut out).expect("iso::build must succeed");
+        iso::write(&planned, &layout, &mut readers, &mut out).expect("iso::write must succeed");
         let iso = out.into_inner();
 
         // ASSERT

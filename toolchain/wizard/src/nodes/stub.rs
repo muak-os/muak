@@ -54,7 +54,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
 
 /// Pulls the stub once and writes its PE binary to the output stream.
 fn run(
-    _kind: NodeKind,
+    kind: NodeKind,
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
@@ -65,7 +65,7 @@ fn run(
         build.stub(),
         &build.arch(),
         None,
-        &koci::progress::Noop,
+        &ctx.reporter(kind),
         |mut entry| {
             if entry.path == STUB_PATH {
                 std::io::copy(&mut entry.reader, &mut output.writer).map_err(KociError::IoError)?;

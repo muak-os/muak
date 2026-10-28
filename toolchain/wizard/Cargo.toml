@@ -44,12 +44,13 @@ koci = { workspace = true, features = ["pull"] }
 miso = { workspace = true}
 ramune = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }
+tui = { workspace = true, optional = true, features = ["live", "size"] }
 uki = { workspace = true }
 yuki = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["anyhow", "clap"]
+cli = ["anyhow", "clap", "dep:tui"]
 
 [dev-dependencies]
 object = { workspace = true }
