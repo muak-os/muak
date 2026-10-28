@@ -207,10 +207,10 @@ mod tests {
     }
 
     fn make_plan(entries: &[TreeEntry], cfg: &crate::MkfsConfig<'_>) -> layout::ImagePlan {
-        let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let mut cursors: Vec<io::Cursor<&mut [u8]>> = datas
+        let mut data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let mut cursors: Vec<io::Cursor<&mut [u8]>> = data
             .iter_mut()
-            .map(|data| io::Cursor::new(data.as_mut_slice()))
+            .map(|bytes| io::Cursor::new(bytes.as_mut_slice()))
             .collect();
         let mut files = crate::testutil::pair_files(entries.to_vec(), &mut cursors);
         layout::plan(&mut files, cfg).expect("plan")
@@ -218,11 +218,11 @@ mod tests {
 
     fn write_image(
         planned: &layout::ImagePlan,
-        datas: &[Vec<u8>],
+        data: &[Vec<u8>],
         cfg: &crate::MkfsConfig<'_>,
     ) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-        let mut cursors = crate::testutil::cursor_set(datas);
+        let mut cursors = crate::testutil::cursor_set(data);
         let mut files = crate::testutil::pair_files(entries, &mut cursors);
 
         let mut buf = Vec::new();
@@ -238,8 +238,8 @@ mod tests {
 
         // ACT
         let planned = make_plan(entries, &cfg);
-        let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let image = write_image(&planned, &datas, &cfg);
+        let data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let image = write_image(&planned, &data, &cfg);
 
         // ASSERT
         let file_inode = planned
@@ -345,8 +345,8 @@ mod tests {
 
         // ACT
         let planned = make_plan(entries, &cfg);
-        let datas = vec![Vec::new(), content.clone()];
-        let image = write_image(&planned, &datas, &cfg);
+        let data = vec![Vec::new(), content.clone()];
+        let image = write_image(&planned, &data, &cfg);
 
         // ASSERT
         let file = planned

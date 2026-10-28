@@ -233,14 +233,14 @@ mod tests {
         }
     }
 
-    fn build_image(entries: &[Entry], datas: &[Vec<u8>]) -> Result<Image> {
-        let mut readers: Vec<&[u8]> = datas.iter().map(Vec::as_slice).collect();
+    fn build_image(entries: &[Entry], data: &[Vec<u8>]) -> Result<Image> {
+        let mut readers: Vec<&[u8]> = data.iter().map(Vec::as_slice).collect();
         let mut views = read_views(&mut readers);
         Image::build(entries, &mut views, &config())
     }
 
-    fn write_image(image: &Image, datas: &[Vec<u8>]) -> Vec<u8> {
-        let mut readers: Vec<&[u8]> = datas.iter().map(Vec::as_slice).collect();
+    fn write_image(image: &Image, data: &[Vec<u8>]) -> Vec<u8> {
+        let mut readers: Vec<&[u8]> = data.iter().map(Vec::as_slice).collect();
         let mut views = read_views(&mut readers);
 
         let mut buf = Vec::new();
@@ -267,10 +267,10 @@ mod tests {
                 symlink_target: Vec::new(),
             },
         ];
-        let datas = vec![Vec::new(), b"hello".to_vec(), b"conf".to_vec()];
+        let data = vec![Vec::new(), b"hello".to_vec(), b"conf".to_vec()];
 
         // ACT
-        let image = build_image(&entries, &datas).expect("build image");
+        let image = build_image(&entries, &data).expect("build image");
 
         // ASSERT
         assert!(!image.is_empty());
@@ -289,11 +289,11 @@ mod tests {
                 symlink_target: Vec::new(),
             },
         ];
-        let datas = vec![Vec::new(), b"data....".to_vec()];
-        let image = build_image(&entries, &datas).expect("build image");
+        let data = vec![Vec::new(), b"data....".to_vec()];
+        let image = build_image(&entries, &data).expect("build image");
 
         // ACT
-        let buf = write_image(&image, &datas);
+        let buf = write_image(&image, &data);
 
         // ASSERT
         assert_eq!(u64::try_from(buf.len()).unwrap_or(0), image.len());
@@ -311,13 +311,13 @@ mod tests {
                 symlink_target: Vec::new(),
             },
         ];
-        let datas = vec![Vec::new(), b"abc".to_vec()];
+        let data = vec![Vec::new(), b"abc".to_vec()];
 
         // ACT
-        let image1 = build_image(&entries, &datas).expect("build image");
-        let image2 = build_image(&entries, &datas).expect("build image");
-        let buf1 = write_image(&image1, &datas);
-        let buf2 = write_image(&image2, &datas);
+        let image1 = build_image(&entries, &data).expect("build image");
+        let image2 = build_image(&entries, &data).expect("build image");
+        let buf1 = write_image(&image1, &data);
+        let buf2 = write_image(&image2, &data);
 
         // ASSERT
         assert_eq!(buf1, buf2);
@@ -332,10 +332,10 @@ mod tests {
             mode: 0o100_644,
             symlink_target: Vec::new(),
         }];
-        let datas = vec![b"x".to_vec()];
+        let data = vec![b"x".to_vec()];
 
         // ACT
-        let result = build_image(&entries, &datas);
+        let result = build_image(&entries, &data);
 
         // ASSERT
         assert!(result.is_err());
@@ -353,10 +353,10 @@ mod tests {
                 symlink_target: b"/target".to_vec(),
             },
         ];
-        let datas: Vec<Vec<u8>> = vec![Vec::new(), Vec::new()];
+        let data: Vec<Vec<u8>> = vec![Vec::new(), Vec::new()];
 
         // ACT
-        let image = build_image(&entries, &datas).expect("build image");
+        let image = build_image(&entries, &data).expect("build image");
 
         // ASSERT
         assert!(

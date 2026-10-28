@@ -530,8 +530,8 @@ mod tests {
 
     fn run_write(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-        let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let mut cursors = crate::testutil::cursor_set(&datas);
+        let data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let mut cursors = crate::testutil::cursor_set(&data);
         let mut files = crate::testutil::pair_files(entries, &mut cursors);
 
         let mut buf = Vec::new();

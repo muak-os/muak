@@ -156,10 +156,9 @@ pub(crate) mod testutil {
     pub(crate) type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
 
     /// Builds one independent cursor set over shared content (test support).
-    pub(crate) fn cursor_set(datas: &[Vec<u8>]) -> CursorSet<'_> {
-        datas
-            .iter()
-            .map(|data| std::io::Cursor::new(data.as_slice()))
+    pub(crate) fn cursor_set(data: &[Vec<u8>]) -> CursorSet<'_> {
+        data.iter()
+            .map(|bytes| std::io::Cursor::new(bytes.as_slice()))
             .collect()
     }
 }
@@ -180,21 +179,21 @@ mod tests {
         data_map: &std::collections::HashMap<String, Vec<u8>>,
         config: &MkfsConfig<'_>,
     ) -> Vec<u8> {
-        let datas: Vec<Vec<u8>> = entries
+        let data: Vec<Vec<u8>> = entries
             .iter()
             .map(|e| data_map.get(&e.rel_path).cloned().unwrap_or_default())
             .collect();
 
-        let mut pass1: Vec<Cursor<&[u8]>> = datas
+        let mut pass1: Vec<Cursor<&[u8]>> = data
             .iter()
-            .map(|data| Cursor::new(data.as_slice()))
+            .map(|bytes| Cursor::new(bytes.as_slice()))
             .collect();
         let mut files1 = testutil::pair_files(entries.clone(), &mut pass1);
         let planned = layout::plan(&mut files1, config).expect("plan");
 
-        let mut pass2: Vec<Cursor<&[u8]>> = datas
+        let mut pass2: Vec<Cursor<&[u8]>> = data
             .iter()
-            .map(|data| Cursor::new(data.as_slice()))
+            .map(|bytes| Cursor::new(bytes.as_slice()))
             .collect();
         let mut files = testutil::pair_files(entries, &mut pass2);
 

@@ -158,10 +158,10 @@ mod tests {
     use crate::tree::TreeEntry;
 
     fn plan_from_entries(entries: &[TreeEntry], cfg: &MkfsConfig<'_>) -> layout::ImagePlan {
-        let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let mut cursors: Vec<io::Cursor<&mut [u8]>> = datas
+        let mut data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let mut cursors: Vec<io::Cursor<&mut [u8]>> = data
             .iter_mut()
-            .map(|data| io::Cursor::new(data.as_mut_slice()))
+            .map(|bytes| io::Cursor::new(bytes.as_mut_slice()))
             .collect();
         let mut files = crate::testutil::pair_files(entries.to_vec(), &mut cursors);
 
@@ -170,8 +170,8 @@ mod tests {
 
     fn run_write(planned: &layout::ImagePlan, cfg: &MkfsConfig<'_>) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-        let datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let mut cursors = crate::testutil::cursor_set(&datas);
+        let data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+        let mut cursors = crate::testutil::cursor_set(&data);
         let mut files = crate::testutil::pair_files(entries, &mut cursors);
 
         let mut image = Vec::new();
@@ -547,10 +547,10 @@ mod tests {
 
         // ACT
         let image = {
-            let mut datas: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-            let last = datas.last_mut().expect("data slot");
+            let mut data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
+            let last = data.last_mut().expect("data slot");
             last.copy_from_slice(&expected);
-            let mut cursors = crate::testutil::cursor_set(&datas);
+            let mut cursors = crate::testutil::cursor_set(&data);
             let inodes: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
             let mut files = crate::testutil::pair_files(inodes, &mut cursors);
             let mut buf = Vec::new();
@@ -609,9 +609,9 @@ mod tests {
         // ACT
         let planned = plan_from_entries(entries, &cfg);
         let image = {
-            let datas: Vec<Vec<u8>> = vec![Vec::new(), expected.clone()];
+            let data: Vec<Vec<u8>> = vec![Vec::new(), expected.clone()];
             let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
-            let mut cursors = crate::testutil::cursor_set(&datas);
+            let mut cursors = crate::testutil::cursor_set(&data);
             let mut files = crate::testutil::pair_files(entries, &mut cursors);
             let mut buf = Vec::new();
             super::image(&mut buf, &planned, &mut files, &cfg).expect("image");
