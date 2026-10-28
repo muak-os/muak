@@ -391,12 +391,12 @@ mod tests {
         let key = generate_test_key();
 
         let manifest_bare = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 2_i32,
             "mediaType": "application/vnd.oci.image.manifest.v1+json",
             "config": {
                 "mediaType": "application/vnd.oci.image.config.v1+json",
                 "digest": "sha256:f572bca63a6f63ee16e3ff053a27f8b0afaa510bd9a474b4412c48ec8351c225",
-                "size": 100
+                "size": 100_i32
             },
             "layers": []
         });
@@ -432,8 +432,8 @@ mod tests {
         let key = generate_test_key();
 
         let manifest_bare = serde_json::json!({
-            "schemaVersion": 2,
-            "config": {"digest": "sha256:abc", "size": 1},
+            "schemaVersion": 2_i32,
+            "config": {"digest": "sha256:abc", "size": 1_i32},
             "layers": []
         });
         let manifest_bare_json = serde_json::to_string(&manifest_bare).expect("serialize manifest");
@@ -447,7 +447,7 @@ mod tests {
             .expect("test manifest is an object");
         tampered_object.insert(
             "layers".to_owned(),
-            serde_json::json!([{"digest":"sha256:evil","size":999}]),
+            serde_json::json!([{"digest":"sha256:evil","size":999_i32}]),
         );
         tampered_object.insert(
             "annotations".to_owned(),

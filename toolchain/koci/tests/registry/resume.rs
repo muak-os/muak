@@ -201,7 +201,7 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]
     if content_type == "application/octet-stream" {
         // Truncate blob transfers mid-body to force a Range resume.
         stream
-            .write_all(body.get(..body.len() >> 1).unwrap_or(body))
+            .write_all(body.get(..body.len() >> 1_usize).unwrap_or(body))
             .expect("write partial body");
     } else {
         stream.write_all(body).expect("write body");

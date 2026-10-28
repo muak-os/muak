@@ -237,7 +237,7 @@ fn encode_byte(byte: u8, encoded: &mut String) {
     }
 
     encoded.push('%');
-    if let Some(digit) = HEX_DIGITS.get(usize::from(byte >> 4)) {
+    if let Some(digit) = HEX_DIGITS.get(usize::from(byte >> 4_u8)) {
         encoded.push(*digit);
     }
     if let Some(digit) = HEX_DIGITS.get(usize::from(byte & 0x0F)) {

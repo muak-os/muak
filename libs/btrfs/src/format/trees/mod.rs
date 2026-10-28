@@ -1384,7 +1384,7 @@ mod tests {
         let fs_root = item_payload(&result, 3);
         assert_eq!(le64(fs_root, 160), 7);
         assert_eq!(le64(fs_root, 176), fixture.layout.meta_block(BLK_FS));
-        assert_eq!(le64(fs_root, 64), 1_u64 << 31);
+        assert_eq!(le64(fs_root, 64), 1_u64 << 31_u32);
         assert_eq!(
             fs_root.get(247..263),
             Some(fixture.fs_uuid.as_bytes().as_slice())

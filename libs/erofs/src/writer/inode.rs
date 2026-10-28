@@ -161,7 +161,7 @@ mod tests {
                 .try_into()
                 .expect("2b"),
         );
-        let datalayout = (i_format >> 1) & 0x07;
+        let datalayout = (i_format >> 1_u16) & 0x07;
 
         // ASSERT
         assert_eq!(datalayout, EROFS_INODE_COMPRESSED_COMPACT);

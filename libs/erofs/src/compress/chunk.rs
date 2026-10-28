@@ -225,9 +225,9 @@ mod tests {
         let mut state = seed;
         let mut out = Vec::with_capacity(len);
         while out.len() < len {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
+            state ^= state << 13_u32;
+            state ^= state >> 17_u32;
+            state ^= state << 5_u32;
             out.extend_from_slice(&state.to_le_bytes());
         }
         out.truncate(len);

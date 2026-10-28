@@ -351,7 +351,7 @@ pub(super) fn pack_bits_le(
             .ok_or(ErofsError::Internal("bit index does not fit u32"))?;
         if value & 1_u32.checked_shl(shift).unwrap_or(0) != 0 {
             let position = bit_offset.saturating_add(bit_index);
-            let byte_index = position >> 3;
+            let byte_index = position >> 3_usize;
             let bit_shift = u32::try_from(position & 7)
                 .ok()
                 .ok_or(ErofsError::Internal("bit position does not fit u32"))?;
@@ -680,7 +680,7 @@ mod tests {
                 .try_into()
                 .expect("2b"),
         );
-        let expected = (u16::from(Z_EROFS_LCLUSTER_TYPE_HEAD1) << 12) | 0x0388;
+        let expected = (u16::from(Z_EROFS_LCLUSTER_TYPE_HEAD1) << 12_u16) | 0x0388;
         assert_eq!(encoded_first, expected);
 
         let trailer_blkaddr = u32::from_le_bytes(

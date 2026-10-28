@@ -83,7 +83,7 @@ pub fn create(tap_name: &str) -> Result<()> {
 
     let set_persist = unsafe {
         // SAFETY: `Setter::new` packages the persistence flag for `TUNSETPERSIST`.
-        Setter::<TUNSETPERSIST, i32>::new(1)
+        Setter::<TUNSETPERSIST, i32>::new(1_i32)
     };
     unsafe {
         // SAFETY: The setter opcode and argument layout match the `TUNSETPERSIST` ioctl contract.

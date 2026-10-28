@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result, bail};
 
 // Wait for a device node to appear.
 pub fn wait_for_device(device: &str) -> Result<()> {
-    for _ in 0..30 {
+    for _ in 0_i32..30_i32 {
         if Path::new(device).exists() {
             return Ok(());
         }

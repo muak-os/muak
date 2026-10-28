@@ -84,7 +84,7 @@ mod tests {
         ]);
 
         // ASSERT
-        assert_eq!(args.compression_level, 9);
+        assert_eq!(args.compression_level, 9_i32);
     }
 
     #[test]

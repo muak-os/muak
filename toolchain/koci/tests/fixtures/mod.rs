@@ -128,7 +128,7 @@ fn manifest_with_layers_and_annotations_json(
     architecture: &str,
 ) -> Result<Vec<u8>, serde_json::Error> {
     let mut manifest = json!({
-        "schemaVersion": 2,
+        "schemaVersion": 2_i32,
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
         "config": {
             "mediaType": "application/vnd.oci.image.config.v1+json",

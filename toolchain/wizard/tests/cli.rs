@@ -63,7 +63,7 @@ mod tests {
             .expect("failed to run muak-wizard profile-id");
 
         // ASSERT
-        assert_eq!(process_output.status.code(), Some(0));
+        assert_eq!(process_output.status.code(), Some(0_i32));
         let id = String::from_utf8_lossy(&process_output.stdout)
             .trim()
             .to_owned();
@@ -90,6 +90,6 @@ mod tests {
             .expect("failed to run muak-wizard profile-id");
 
         // ASSERT
-        assert_eq!(process_output.status.code(), Some(1));
+        assert_eq!(process_output.status.code(), Some(1_i32));
     }
 }

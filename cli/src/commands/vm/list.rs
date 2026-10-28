@@ -48,7 +48,7 @@ pub async fn handle(client: &mut VmServiceClient<Channel>, console: &Console) ->
 fn vm_rows(table: Table, vm: &VmInfo) -> Table {
     let created = format_timestamp(vm.created_at);
 
-    let pid_str = if vm.pid == -1 {
+    let pid_str = if vm.pid == -1_i32 {
         "-".to_owned()
     } else {
         vm.pid.to_string()
@@ -58,7 +58,7 @@ fn vm_rows(table: Table, vm: &VmInfo) -> Table {
     let config = vm.config.as_ref();
     let cpus = config.map_or(0, |cfg| cfg.cpus);
     let memory_mb = config.map_or(0, |cfg| cfg.memory_mb);
-    let hypervisor = config.map_or(0, |cfg| cfg.hypervisor);
+    let hypervisor = config.map_or(0_i32, |cfg| cfg.hypervisor);
     let vmm_str = hypervisor_to_string(hypervisor);
 
     let disk_str = if let Some(usage) = vm.disk_usage.as_ref() {

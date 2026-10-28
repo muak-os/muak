@@ -150,7 +150,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
 
         if restart::RestartQueue::should_restart(state, exit_code) {
             self.restart_queue.schedule(state);
-        } else if exit_code == Some(0) {
+        } else if exit_code == Some(0_i32) {
             state.status = ServiceStatus::Stopping;
             kmsg::info!("Service {} exited cleanly, will not restart", name);
         } else {
@@ -373,7 +373,7 @@ mod tests {
         injector: &ExitInjector,
     ) {
         for _ in 0..restart::MAX_RESTART_ATTEMPTS {
-            injector.inject("svc", Some(1));
+            injector.inject("svc", Some(1_i32));
             let exits = sup.reaper.wait_for_exits().await;
             sup.process_exits(exits);
             let due = sup.restart_queue.take_due(|_| true);
@@ -429,7 +429,7 @@ mod tests {
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        injector.inject("svc", Some(1));
+        injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
         sup.process_exits(exits);
 
@@ -448,7 +448,7 @@ mod tests {
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        injector.inject("svc", Some(0));
+        injector.inject("svc", Some(0_i32));
         let exits = sup.reaper.wait_for_exits().await;
         sup.process_exits(exits);
 
@@ -468,7 +468,7 @@ mod tests {
 
         // ACT
         exhaust_restart_attempts(&mut sup, &injector).await;
-        injector.inject("svc", Some(1));
+        injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
         sup.process_exits(exits);
 
@@ -680,7 +680,7 @@ mod tests {
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.handle_service_exit("svc", 1234, None, Some(9));
+        sup.handle_service_exit("svc", 1234, None, Some(9_i32));
 
         // ASSERT
         assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
@@ -713,7 +713,7 @@ mod tests {
         let mut sup = make_supervisor(vec![], spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.handle_service_exit("ghost", 9999, Some(1), None);
+        sup.handle_service_exit("ghost", 9999, Some(1_i32), None);
     }
 
     #[tokio::test]
@@ -725,7 +725,7 @@ mod tests {
         let services = vec![make_service("svc", &[])];
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
-        injector.inject("svc", Some(1));
+        injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
         sup.process_exits(exits);
         assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));

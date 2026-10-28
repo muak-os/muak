@@ -138,7 +138,7 @@ fn reap_children() {
     loop {
         match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) if status.exited() => {
-                let exit_status = status.exit_status().unwrap_or(0);
+                let exit_status = status.exit_status().unwrap_or(0_i32);
                 println!(
                     "Child {} exited with status {}",
                     pid.as_raw_nonzero(),
@@ -146,7 +146,7 @@ fn reap_children() {
                 );
             }
             Ok(Some((pid, status))) if status.signaled() => {
-                let signal = status.terminating_signal().unwrap_or(0);
+                let signal = status.terminating_signal().unwrap_or(0_i32);
                 println!("Child {} killed by signal {}", pid.as_raw_nonzero(), signal);
             }
             Ok(None) | Err(_) => break,

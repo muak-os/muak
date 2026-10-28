@@ -342,10 +342,10 @@ mod tests {
         let mut payload = Payload::new("p");
         let mut state = 0xdead_beef_u64;
         let mut data = Vec::with_capacity(8192);
-        for _ in 0..8192 {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
+        for _ in 0_i32..8_192_i32 {
+            state ^= state << 13_u64;
+            state ^= state >> 7_u64;
+            state ^= state << 17_u64;
             data.push(u8::try_from(state & 0xff).unwrap_or(0));
         }
         let (entry, mut data) = file("/usr/bin/tool", data.len(), &data);

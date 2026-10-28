@@ -113,17 +113,17 @@ fn write_text_section_header(buf: &mut [u8], optional_header_offset: usize, num_
     write_u32(
         buf,
         section_headers_offset.saturating_add(8),
-        u32::try_from(512).unwrap_or(0),
+        u32::try_from(512_i32).unwrap_or(0),
     );
     write_u32(
         buf,
         section_headers_offset.saturating_add(12),
-        u32::try_from(4096).unwrap_or(0),
+        u32::try_from(4_096_i32).unwrap_or(0),
     );
     write_u32(
         buf,
         section_headers_offset.saturating_add(16),
-        u32::try_from(512).unwrap_or(0),
+        u32::try_from(512_i32).unwrap_or(0),
     );
 
     let section_rva = u32::try_from(
@@ -170,7 +170,7 @@ fn write_pe_headers(buf: &mut [u8], coff_offset: usize, num_sections: u16) {
     write_u16(buf, off, num_sections);
     off = off.saturating_add(2);
     off = off.saturating_add(12);
-    write_u16(buf, off, u16::try_from(240).unwrap_or(0));
+    write_u16(buf, off, u16::try_from(240_i32).unwrap_or(0));
     off = off.saturating_add(2);
     let characteristics: u16 =
         pe::IMAGE_FILE_EXECUTABLE_IMAGE | pe::IMAGE_FILE_LARGE_ADDRESS_AWARE | pe::IMAGE_FILE_DLL;

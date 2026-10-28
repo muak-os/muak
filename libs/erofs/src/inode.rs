@@ -104,7 +104,7 @@ mod tests {
         // ASSERT
         let fmt = u16::from_le_bytes(buf[0..2].try_into().expect("2 bytes"));
         assert_eq!(fmt & 0x01, 0);
-        assert_eq!((fmt >> 1) & 0x07, EROFS_INODE_FLAT_INLINE);
+        assert_eq!((fmt >> 1_u16) & 0x07, EROFS_INODE_FLAT_INLINE);
         let mode = u16::from_le_bytes(buf[4..6].try_into().expect("2 bytes"));
         assert_eq!(mode, 0o100_644);
         let size = u32::from_le_bytes(buf[8..12].try_into().expect("4 bytes"));

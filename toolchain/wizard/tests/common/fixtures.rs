@@ -68,7 +68,7 @@ fn build_manifest_layers(layers: &[&[u8]], media_type: &str) -> FixtureImage {
     }
 
     let manifest = serde_json::to_vec(&json!({
-        "schemaVersion": 2,
+        "schemaVersion": 2_i32,
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
         "config": {
             "mediaType": "application/vnd.oci.image.config.v1+json",
@@ -126,9 +126,9 @@ pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
     let mut state = seed;
     let mut bytes = Vec::with_capacity(len);
     for _ in 0..len {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
+        state ^= state << 13_u64;
+        state ^= state >> 7_u64;
+        state ^= state << 17_u64;
         bytes.push(u8::try_from(state & 0xff).unwrap_or_default());
     }
 
@@ -139,7 +139,7 @@ pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
 pub fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
-        out.push(char::from_digit(u32::from(byte >> 4), 16).unwrap_or('0'));
+        out.push(char::from_digit(u32::from(byte >> 4_u8), 16).unwrap_or('0'));
         out.push(char::from_digit(u32::from(byte & 0x0f), 16).unwrap_or('0'));
     }
 

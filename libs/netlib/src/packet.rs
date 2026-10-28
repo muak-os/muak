@@ -236,7 +236,7 @@ mod tests {
         // ASSERT
         assert_eq!(addr.family, AddressFamily::PACKET.as_raw());
         assert_eq!(addr.protocol, ETH_PROTOCOL_IP);
-        assert_eq!(addr.if_index, 7);
+        assert_eq!(addr.if_index, 7_i32);
         assert_eq!(addr.hardware_addr_len, ETH_ALEN_U8);
         assert_eq!(&addr.address[..ETH_ALEN], &mac);
         assert_eq!(&addr.address[ETH_ALEN..], &[0, 0]);

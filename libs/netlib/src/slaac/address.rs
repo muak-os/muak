@@ -29,7 +29,7 @@ pub fn generate(prefix: Ipv6Addr, prefix_len: u8, mac: &[u8; 6]) -> Option<Ipv6A
     let prefix_bytes = prefix.octets();
     let eui64 = mac_to_eui64(mac);
 
-    let prefix_bytes_count = usize::from(prefix_len >> 3);
+    let prefix_bytes_count = usize::from(prefix_len >> 3_u8);
     let mut addr = [0_u8; 16];
 
     if let (Some(dst), Some(src)) = (

@@ -594,7 +594,7 @@ mod tests {
             serde_json::json!({
                 "type": "tpm2",
                 "keyslots": ["0"],
-                "tpm2-pcrs": [11],
+                "tpm2-pcrs": [11_u32],
                 "tpm2-hash-alg": "sha256",
                 "tpm2-blob": "blob",
                 "tpm2-policy-hash": "policy"

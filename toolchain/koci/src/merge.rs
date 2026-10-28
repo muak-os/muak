@@ -175,7 +175,7 @@ fn manifest_size(len: usize) -> Result<u64> {
 /// Serialize the OCI index wrapping the given descriptors.
 fn build_index(descriptors: &[Descriptor]) -> Result<Bytes> {
     let index = serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": 2_i32,
         "mediaType": OCI_IMAGE_INDEX_MEDIA_TYPE,
         "manifests": descriptors,
     });

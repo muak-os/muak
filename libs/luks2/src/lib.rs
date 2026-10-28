@@ -119,9 +119,9 @@ pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
 
     let dev_size_bytes = device_size(device)?;
     let data_size_bytes = dev_size_bytes.saturating_sub(data_offset);
-    let size_sectors = data_size_bytes >> 9;
+    let size_sectors = data_size_bytes >> 9_u64;
 
-    let offset_sectors = data_offset >> 9;
+    let offset_sectors = data_offset >> 9_u64;
 
     let dm_uuid = format!("CRYPT-LUKS2-{}", hdr.uuid_str().replace('-', ""));
 

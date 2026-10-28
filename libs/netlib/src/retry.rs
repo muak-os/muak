@@ -125,13 +125,13 @@ mod tests {
         // ARRANGE
         let tries = AtomicU8::new(0);
         let next_try = || tries.fetch_add(1, Relaxed);
-        let operation = || ready((next_try() > 0).then_some(42).ok_or("not yet"));
+        let operation = || ready((next_try() > 0).then_some(42_i32).ok_or("not yet"));
 
         // ACT
         let result = run(operation, 3, 0, "operation timed out").await;
 
         // ASSERT
-        assert_eq!(result.expect("operation should succeed"), 42);
+        assert_eq!(result.expect("operation should succeed"), 42_i32);
         assert_eq!(tries.load(Relaxed), 2);
     }
 

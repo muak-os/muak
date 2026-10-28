@@ -103,7 +103,7 @@ impl Driver {
     pub fn stop(pid: u32, force: bool) -> Result<()> {
         let signal = if force { Signal::KILL } else { Signal::TERM };
         kill_process(
-            Pid::from_raw(i32::try_from(pid).unwrap_or(0))
+            Pid::from_raw(i32::try_from(pid).unwrap_or(0_i32))
                 .ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
             signal,
         )?;

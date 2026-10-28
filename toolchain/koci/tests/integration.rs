@@ -673,7 +673,7 @@ mod tests {
         .expect("config json");
         let config_digest = sha256_digest(&config);
         let manifest = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 2_i32,
             "mediaType": "application/vnd.oci.image.manifest.v1+json",
             "config": {
                 "mediaType": "application/vnd.oci.image.config.v1+json",
@@ -754,7 +754,7 @@ mod tests {
         .expect("config json");
         let config_digest = sha256_digest(&config);
         let platform = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 2_i32,
             "mediaType": "application/vnd.oci.image.manifest.v1+json",
             "config": {
                 "mediaType": "application/vnd.oci.image.config.v1+json",
@@ -770,7 +770,7 @@ mod tests {
         .expect("platform manifest json");
         let platform_digest = sha256_digest(&platform);
         let index = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 2_i32,
             "mediaType": "application/vnd.oci.image.index.v1+json",
             "manifests": [{
                 "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -1805,7 +1805,7 @@ mod tests {
         let manifest =
             manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
                 .expect("build manifest json");
-        let split = layer.len() >> 1;
+        let split = layer.len() >> 1_usize;
         let cache = TempDir::new().expect("create cache dir");
         cache::Store::set_dir(cache.path().to_path_buf());
         let server = ResumeServer::start(layer, manifest);

@@ -188,13 +188,13 @@ impl ProvisionService for ServiceImpl {
             .map_err(|e| Status::internal(format!("Task failed: {e}")))?;
 
         let (proto_status, error) = match status {
-            update::UpdateStatus::Unknown => (0, String::new()),
+            update::UpdateStatus::Unknown => (0_i32, String::new()),
             update::UpdateStatus::Pending => {
                 update::signal_cli_contact();
-                (1, String::new())
+                (1_i32, String::new())
             }
-            update::UpdateStatus::Committed => (2, String::new()),
-            update::UpdateStatus::RolledBack(reason) => (3, reason),
+            update::UpdateStatus::Committed => (2_i32, String::new()),
+            update::UpdateStatus::RolledBack(reason) => (3_i32, reason),
         };
 
         Ok(Response::new(GetUpdateStatusResponse {

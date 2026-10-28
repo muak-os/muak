@@ -95,8 +95,8 @@ fn xor_block(block: &mut [u8], tweak: &[u8; 16]) {
 fn gf128_mul_x(tweak: &mut [u8; 16]) {
     let mut carry = 0_u8;
     for byte in tweak.iter_mut() {
-        let new_carry = *byte >> 7;
-        *byte = (*byte << 1) | carry;
+        let new_carry = *byte >> 7_u8;
+        *byte = (*byte << 1_u8) | carry;
         carry = new_carry;
     }
     // If the MSB was set, reduce with the polynomial x^128 + x^7 + x^2 + x + 1 (0x87)

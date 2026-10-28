@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(dates, [FIXED_DATE; 3], "creation, access and write dates");
         assert_eq!(times, [FIXED_TIME; 2], "creation and write times");
         for date in dates {
-            assert_eq!((date >> 5) & 0xF, 1, "month must be January");
+            assert_eq!((date >> 5_u16) & 0xF, 1, "month must be January");
             assert_eq!(date & 0x1F, 1, "day must be the first");
         }
     }

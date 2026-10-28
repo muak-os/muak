@@ -138,7 +138,7 @@ fn checksum_words(mut sum: u32, data: &[u8]) -> u32 {
 
 /// Folds `sum` into the final one's complement checksum.
 fn finish_checksum(mut sum: u32) -> u16 {
-    while sum >> 16 != 0 {
+    while sum >> 16_u32 != 0 {
         sum = (sum & 0xFFFF).saturating_add(sum >> 16);
     }
 

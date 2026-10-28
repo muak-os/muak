@@ -199,7 +199,6 @@ multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencie
 arbitrary_source_item_ordering = "allow"
 big_endian_bytes = "allow"
 cognitive_complexity = "allow"
-default_numeric_fallback = "allow"
 definition_in_module_root = "allow"
 disallowed_script_idents = "allow"
 exhaustive_enums = "allow"

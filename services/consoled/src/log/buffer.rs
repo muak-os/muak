@@ -84,7 +84,7 @@ mod tests {
     fn push_and_visible_window_shows_tail() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..5 {
+        for i in 0_i32..5_i32 {
             buf.push(format!("line {i}"));
         }
 
@@ -96,7 +96,7 @@ mod tests {
     fn scroll_up_shifts_window_back() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..10 {
+        for i in 0_i32..10_i32 {
             buf.push(format!("line {i}"));
         }
 
@@ -111,7 +111,7 @@ mod tests {
     fn scroll_down_moves_toward_live() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..10 {
+        for i in 0_i32..10_i32 {
             buf.push(format!("line {i}"));
         }
         buf.scroll_up(4, 3);
@@ -127,7 +127,7 @@ mod tests {
     fn snap_to_live_resets_offset() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..5 {
+        for i in 0_i32..5_i32 {
             buf.push(format!("line {i}"));
         }
         buf.scroll_up(3, 2);
@@ -162,7 +162,7 @@ mod tests {
     fn visible_window_spans_the_ring_seam() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..100 {
+        for i in 0_i32..100_i32 {
             buf.push(format!("line {i}"));
         }
         buf.scroll_up(50, 10);
@@ -187,7 +187,7 @@ mod tests {
     fn scroll_up_clamps_to_max() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..5 {
+        for i in 0_i32..5_i32 {
             buf.push(format!("line {i}"));
         }
 
@@ -235,7 +235,7 @@ mod tests {
     fn is_live_reflects_scroll_state() {
         // ARRANGE
         let mut buf = Buffer::new();
-        for i in 0..5 {
+        for i in 0_i32..5_i32 {
             buf.push(format!("line {i}"));
         }
 

@@ -574,9 +574,9 @@ mod tests {
         let _path_guard = KmsgPathGuard::set(&path);
 
         // ACT
-        error!("failed {}", 1);
-        warn!(@ "net", "warn {}", 2);
-        info!("ready {}", 3);
+        error!("failed {}", 1_i32);
+        warn!(@ "net", "warn {}", 2_i32);
+        info!("ready {}", 3_i32);
         debug!("trace {}", 4);
 
         // ASSERT

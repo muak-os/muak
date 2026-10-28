@@ -34,7 +34,7 @@ fn build_request() -> [u8; NTP_PACKET_SIZE] {
     let mut packet = [0_u8; NTP_PACKET_SIZE];
 
     // LI = 0 (no warning), VN = 4 (NTPv4), Mode = 3 (client)
-    packet[field::LI_VN_MODE] = (NTP_VERSION << 3) | MODE_CLIENT;
+    packet[field::LI_VN_MODE] = (NTP_VERSION << 3_u8) | MODE_CLIENT;
 
     packet
 }
@@ -63,7 +63,7 @@ fn parse_response(packet: &[u8; NTP_PACKET_SIZE]) -> Result<Timespec> {
         .checked_sub(NTP_EPOCH_OFFSET)
         .ok_or_else(|| anyhow::anyhow!("NTP timestamp before Unix epoch"))?;
 
-    let nanos = ((u64::from(frac)) * 1_000_000_000) >> 32;
+    let nanos = ((u64::from(frac)) * 1_000_000_000) >> 32_u64;
 
     Ok(Timespec {
         tv_sec: i64::try_from(unix_secs)?,
@@ -124,8 +124,8 @@ mod tests {
         );
 
         // ACT
-        let li = (packet[0] >> 6) & 0x03;
-        let vn = (packet[0] >> 3) & 0x07;
+        let li = (packet[0] >> 6_u8) & 0x03;
+        let vn = (packet[0] >> 3_u8) & 0x07;
         let mode = packet[0] & 0x07;
 
         // ASSERT

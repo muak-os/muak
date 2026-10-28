@@ -56,7 +56,9 @@ impl VmEntry {
             name: self.config.name.clone(),
             state: self.state.into(),
             config: Some(self.config.clone()),
-            pid: self.pid.map_or(0, |pid| i32::try_from(pid).unwrap_or(0)),
+            pid: self
+                .pid
+                .map_or(0_i32, |pid| i32::try_from(pid).unwrap_or(0_i32)),
             created_at: self.created_at,
             started_at: self.started_at.unwrap_or(0),
             tap_device: self

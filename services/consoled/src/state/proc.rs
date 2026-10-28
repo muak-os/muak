@@ -151,9 +151,9 @@ fn parse_cpu(line: &str, prev: &mut CpuTicks) -> CpuUsage {
             .saturating_sub(delta_idle)
             .saturating_mul(1000)
             .div_euclid(delta_total);
-        f64::from(u32::try_from(permille).unwrap_or(0)) / 10.0
+        f64::from(u32::try_from(permille).unwrap_or(0)) / 10.0_f64
     } else {
-        0.0
+        0.0_f64
     };
 
     *prev = CpuTicks { idle, total };

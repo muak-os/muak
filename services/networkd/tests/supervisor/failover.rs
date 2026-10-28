@@ -227,7 +227,7 @@ async fn rapid_primary_failover_and_recovery() {
     let name = Name::new("eth0").expect("valid name");
 
     // ACT
-    for _ in 0..5 {
+    for _ in 0_i32..5_i32 {
         drop(
             event_tx
                 .send(Event::Down {

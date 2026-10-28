@@ -110,6 +110,6 @@ mod tests {
         let exit_code = run_with(["kata", "publish", "--release", "v1.2.3", "--dir", dir]);
 
         // ASSERT
-        assert_eq!(exit_code, 1);
+        assert_eq!(exit_code, 1_i32);
     }
 }

@@ -623,9 +623,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut state = 0xDEAD_BEEF_u32;
         let random_data: Vec<u8> = repeat_with(|| {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
+            state ^= state << 13_u32;
+            state ^= state >> 17_u32;
+            state ^= state << 5_u32;
             u8::try_from(state & 0xFF).expect("masked byte fits u8")
         })
         .take(8192)
@@ -855,9 +855,9 @@ mod tests {
         std::fs::write(dir.path().join("compressible"), vec![0_u8; 8192]).expect("write");
         let mut state = 0xCAFE_BABE_u32;
         let random_data: Vec<u8> = repeat_with(|| {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
+            state ^= state << 13_u32;
+            state ^= state >> 17_u32;
+            state ^= state << 5_u32;
             u8::try_from(state & 0xFF).expect("masked byte fits u8")
         })
         .take(8192)

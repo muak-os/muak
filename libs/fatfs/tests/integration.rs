@@ -92,7 +92,7 @@ mod tests {
     fn more_than_nine_collisions_keep_unique_aliases() {
         // ARRANGE
         let payload = [0x11_u8; 16];
-        let names: Vec<String> = (0..15)
+        let names: Vec<String> = (0_usize..15_usize)
             .map(|index| format!("overlay-with-a-long-name-{index}.dtbo"))
             .collect();
         let files: Vec<(&str, &[u8])> = names
@@ -170,7 +170,7 @@ mod tests {
     fn directory_with_hundreds_of_files_spans_clusters() {
         // ARRANGE
         let payload = [0x99_u8; 40];
-        let names: Vec<String> = (0..400)
+        let names: Vec<String> = (0_usize..400_usize)
             .map(|index| format!("overlays/overlay-with-a-long-name-{index}.dtbo"))
             .collect();
         let files: Vec<(&str, &[u8])> = names

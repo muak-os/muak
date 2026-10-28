@@ -171,7 +171,9 @@ pub(crate) async fn exists(handle: &Handle, name: &str) -> Result<bool> {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
         Err(rtnetlink::Error::NetlinkError(ref msg))
-            if msg.code.is_some_and(|code| matches!(code.get(), -19 | -2)) =>
+            if msg
+                .code
+                .is_some_and(|code| matches!(code.get(), -19_i32 | -2_i32)) =>
         {
             Ok(false)
         }
@@ -268,7 +270,9 @@ async fn exists_by_name(handle: &Handle, name: &str) -> Result<bool> {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
         Err(rtnetlink::Error::NetlinkError(ref msg))
-            if msg.code.is_some_and(|code| matches!(code.get(), -19 | -2)) =>
+            if msg
+                .code
+                .is_some_and(|code| matches!(code.get(), -19_i32 | -2_i32)) =>
         {
             Ok(false)
         }

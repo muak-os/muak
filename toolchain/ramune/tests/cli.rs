@@ -46,7 +46,7 @@ mod tests {
             .expect("failed to run ramune create");
 
         // ASSERT
-        assert_eq!(process_output.status.code(), Some(0));
+        assert_eq!(process_output.status.code(), Some(0_i32));
         assert!(
             String::from_utf8_lossy(&process_output.stdout)
                 .contains("Successfully created initramfs at")
@@ -78,7 +78,7 @@ mod tests {
             .expect("failed to run ramune create");
 
         // ASSERT
-        assert_eq!(process_output.status.code(), Some(1));
+        assert_eq!(process_output.status.code(), Some(1_i32));
         assert!(
             String::from_utf8_lossy(&process_output.stderr).contains("Failed to open 'init' at")
         );

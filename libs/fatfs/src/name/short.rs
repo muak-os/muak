@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn colliding_names_get_sequential_tails() {
         // ARRANGE
-        let names: Vec<String> = (0..12)
+        let names: Vec<String> = (0_usize..12_usize)
             .map(|index| format!("bcm2711-rpi-4-b-{index}.dtb"))
             .collect();
         let borrowed: Vec<&str> = names.iter().map(String::as_str).collect();

@@ -21,7 +21,7 @@ pub(crate) fn create_icmpv6_filter() -> Icmp6Filter {
         data: [0xFFFF_FFFF; 8],
     };
     let ra_type = usize::from(ICMPV6_ROUTER_ADVERTISEMENT);
-    let word = ra_type >> 5;
+    let word = ra_type >> 5_usize;
     let bit = ra_type & 31;
     if let Some(word_ref) = filter.data.get_mut(word) {
         *word_ref &= !(1 << bit);
@@ -40,7 +40,7 @@ pub(crate) fn set_icmpv6_filter<Fd: AsFd>(fd: Fd, filter: &Icmp6Filter) -> Resul
             libc::socklen_t::try_from(core::mem::size_of::<Icmp6Filter>()).unwrap_or(0),
         )
     };
-    if ret < 0 {
+    if ret < 0_i32 {
         bail!("setsockopt ICMP6_FILTER failed");
     }
     Ok(())
@@ -57,7 +57,7 @@ mod tests {
         // ARRANGE / ACT
         let filter = create_icmpv6_filter();
         let ra_type = usize::from(ICMPV6_ROUTER_ADVERTISEMENT);
-        let word = filter.data.get(ra_type >> 5).copied().unwrap_or(0);
+        let word = filter.data.get(ra_type >> 5_usize).copied().unwrap_or(0);
         let bit = word & (1 << (ra_type & 31));
 
         // ASSERT
@@ -76,7 +76,7 @@ mod tests {
             .filter(|icmp| *icmp != ICMPV6_ROUTER_ADVERTISEMENT)
         {
             let idx = usize::from(icmp_type);
-            let word = filter.data.get(idx >> 5).copied().unwrap_or(0);
+            let word = filter.data.get(idx >> 5_usize).copied().unwrap_or(0);
             let bit = word & (1 << (idx & 31));
             assert_ne!(bit, 0, "type {icmp_type} should be blocked");
         }
@@ -90,7 +90,7 @@ mod tests {
         // ASSERT
         let pass_count = (0..256)
             .filter(|&i| {
-                let word = filter.data.get(i >> 5).copied().unwrap_or(0);
+                let word = filter.data.get(i >> 5_usize).copied().unwrap_or(0);
                 word & (1 << (i & 31)) == 0
             })
             .count();

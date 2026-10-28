@@ -96,7 +96,7 @@ mod tests {
         let result = validate_level(0);
 
         // ASSERT
-        assert_eq!(result.expect("zero compression level"), 0);
+        assert_eq!(result.expect("zero compression level"), 0_i32);
     }
 
     #[test]

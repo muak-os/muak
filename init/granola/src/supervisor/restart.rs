@@ -34,7 +34,7 @@ impl RestartQueue {
             return false;
         }
 
-        if exit_code == Some(0) {
+        if exit_code == Some(0_i32) {
             return false;
         }
 
@@ -153,7 +153,7 @@ mod tests {
         let state = make_state(ServiceStatus::Failed);
 
         // ACT & ASSERT
-        assert!(!RestartQueue::should_restart(&state, Some(0)));
+        assert!(!RestartQueue::should_restart(&state, Some(0_i32)));
     }
 
     #[test]
@@ -162,7 +162,7 @@ mod tests {
         let state = make_state(ServiceStatus::Failed);
 
         // ACT & ASSERT
-        assert!(RestartQueue::should_restart(&state, Some(1)));
+        assert!(RestartQueue::should_restart(&state, Some(1_i32)));
     }
 
     #[test]
@@ -182,7 +182,7 @@ mod tests {
         state.last_restart = Some(Instant::now());
 
         // ACT & ASSERT
-        assert!(!RestartQueue::should_restart(&state, Some(1)));
+        assert!(!RestartQueue::should_restart(&state, Some(1_i32)));
     }
 
     #[test]
@@ -193,7 +193,7 @@ mod tests {
         state.last_restart = Some(Instant::now());
 
         // ACT & ASSERT
-        assert!(RestartQueue::should_restart(&state, Some(1)));
+        assert!(RestartQueue::should_restart(&state, Some(1_i32)));
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
         state.last_restart = long_ago;
 
         // ACT & ASSERT
-        assert!(RestartQueue::should_restart(&state, Some(1)));
+        assert!(RestartQueue::should_restart(&state, Some(1_i32)));
     }
 
     #[test]

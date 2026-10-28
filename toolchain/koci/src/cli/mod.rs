@@ -239,6 +239,6 @@ mod tests {
         ]);
 
         // ASSERT
-        assert_eq!(exit_code, 1);
+        assert_eq!(exit_code, 1_i32);
     }
 }

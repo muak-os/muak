@@ -42,7 +42,7 @@ pub(crate) fn build(
 ) -> Result<Bytes> {
     let layers = layers.iter().map(layer_value).collect::<Vec<_>>();
     let mut body = serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": 2_i32,
         "mediaType": OCI_MANIFEST_MEDIA_TYPE,
         "config": {
             "mediaType": OCI_CONFIG_MEDIA_TYPE,

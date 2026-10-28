@@ -200,7 +200,7 @@ async fn rapid_link_events_do_not_crash_supervisor() {
     let name = Name::new("eth0").expect("valid name");
 
     // ACT
-    for _ in 0..10 {
+    for _ in 0_i32..10_i32 {
         drop(
             event_tx
                 .send(Event::Down {

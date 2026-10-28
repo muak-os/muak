@@ -51,11 +51,11 @@ pub(super) fn xxhash32(input: &[u8], seed: u32) -> u32 {
         offset = offset.saturating_add(1);
     }
 
-    hash_accumulator ^= hash_accumulator >> 15;
+    hash_accumulator ^= hash_accumulator >> 15_u32;
     hash_accumulator = hash_accumulator.wrapping_mul(PRIME2);
-    hash_accumulator ^= hash_accumulator >> 13;
+    hash_accumulator ^= hash_accumulator >> 13_u32;
     hash_accumulator = hash_accumulator.wrapping_mul(PRIME3);
-    hash_accumulator ^= hash_accumulator >> 16;
+    hash_accumulator ^= hash_accumulator >> 16_u32;
     hash_accumulator
 }
 

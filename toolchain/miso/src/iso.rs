@@ -132,9 +132,9 @@ fn write_system_area<W: Write>(
     efi_offset_bytes: u64,
     efi_size_bytes: u64,
 ) -> Result<()> {
-    let start_lba = u32::try_from(efi_offset_bytes >> 9)
+    let start_lba = u32::try_from(efi_offset_bytes >> 9_u64)
         .map_err(|_err| MisoError::Iso("EFI image offset sectors must fit in u32".to_owned()))?;
-    let size_lba = u32::try_from(efi_size_bytes >> 9)
+    let size_lba = u32::try_from(efi_size_bytes >> 9_u64)
         .map_err(|_err| MisoError::Iso("EFI image size sectors must fit in u32".to_owned()))?;
 
     let entry = PartitionEntry {
@@ -150,7 +150,7 @@ fn write_system_area<W: Write>(
     }
     writer.write_all(&sector)?;
 
-    for _ in 1..16 {
+    for _ in 1_u32..16_u32 {
         writer.write_all(&ZERO_SECTOR)?;
     }
 

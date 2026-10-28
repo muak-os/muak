@@ -31,7 +31,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     let mut blkpg_part = BlkpgPartition {
         start: 0,
         length: 0,
-        pno: i32::try_from(partition_num).unwrap_or(0),
+        pno: i32::try_from(partition_num).unwrap_or(0_i32),
         devname,
         volname,
     };
@@ -39,7 +39,7 @@ pub fn delete_partition_blkpg(disk: &str, partition_num: u32) -> Result<()> {
     let blkpg_arg = BlkpgIoctlArg {
         op: BLKPG_DEL_PARTITION,
         flags: 0,
-        datalen: i32::try_from(mem::size_of::<BlkpgPartition>()).unwrap_or(0),
+        datalen: i32::try_from(mem::size_of::<BlkpgPartition>()).unwrap_or(0_i32),
         data: &raw mut blkpg_part,
     };
 
@@ -122,7 +122,7 @@ pub fn add_partition_blkpg(
     let mut blkpg_part = BlkpgPartition {
         start: i64::try_from(start_bytes).unwrap_or(0),
         length: i64::try_from(length_bytes).unwrap_or(0),
-        pno: i32::try_from(partition_num).unwrap_or(0),
+        pno: i32::try_from(partition_num).unwrap_or(0_i32),
         devname,
         volname,
     };
@@ -130,7 +130,7 @@ pub fn add_partition_blkpg(
     let blkpg_arg = BlkpgIoctlArg {
         op: BLKPG_ADD_PARTITION,
         flags: 0,
-        datalen: i32::try_from(mem::size_of::<BlkpgPartition>()).unwrap_or(0),
+        datalen: i32::try_from(mem::size_of::<BlkpgPartition>()).unwrap_or(0_i32),
         data: &raw mut blkpg_part,
     };
 

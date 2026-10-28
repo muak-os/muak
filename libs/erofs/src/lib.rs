@@ -325,7 +325,7 @@ mod tests {
                 .try_into()
                 .expect("2b"),
         );
-        assert_eq!(avail_algs & (1 << 3), 1 << 3, "zstd bit set");
+        assert_eq!(avail_algs & (1 << 3_u16), 1 << 3_u16, "zstd bit set");
     }
 
     #[test]
@@ -690,7 +690,7 @@ mod tests {
             },
         ];
         let cfg = MkfsConfig {
-            compression: Compression::Zstd { level: 1 },
+            compression: Compression::Zstd { level: 1_i32 },
             ..test_config(0)
         };
         let mut map = std::collections::HashMap::new();
