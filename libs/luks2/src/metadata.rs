@@ -11,7 +11,7 @@ const AF_STRIPES: u32 = 4000;
 const CIPHER_SPEC: &str = "aes-xts-plain64";
 const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
 const DEFAULT_JSON_SIZE: u64 = 12288;
-const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 32768;
+const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 0x8000;
 const DEFAULT_KEYSLOT_AREA_SIZE: u64 = 64 * 4000;
 const DEFAULT_KEYSLOTS_SIZE: u64 = 16_744_448;
 const VOLUME_KEY_SIZE_U32: u32 = 64;
@@ -176,7 +176,7 @@ impl Metadata {
                 r#type: String::from("argon2id"),
                 salt: Base64::encode_string(kdf_salt),
                 time: Some(1),
-                memory: Some(65_536),
+                memory: Some(0x0001_0000),
                 cpus: Some(4),
             },
             af: AntiForensic {
@@ -435,7 +435,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(keyslot.kdf.time, Some(1));
-        assert_eq!(keyslot.kdf.memory, Some(65536));
+        assert_eq!(keyslot.kdf.memory, Some(0x0001_0000));
         assert_eq!(keyslot.kdf.cpus, Some(4));
     }
 

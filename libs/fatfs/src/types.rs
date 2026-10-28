@@ -36,7 +36,7 @@ pub(crate) const BACKUP_BOOT_SECTOR: u16 = 6;
 pub(crate) const MIN_RESERVED_SECTORS: u64 = 7;
 
 /// Minimum cluster count for FAT32.
-pub(crate) const FAT32_MIN_CLUSTERS: u64 = 65525;
+pub(crate) const FAT32_MIN_CLUSTERS: u64 = 0xFFF5;
 /// Sectors reserved before the first FAT copy.
 pub(crate) const RESERVED_SECTORS: u64 = 8;
 /// Bytes per FAT32 table entry.

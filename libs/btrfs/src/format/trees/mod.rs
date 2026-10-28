@@ -922,7 +922,7 @@ mod tests {
     use super::*;
 
     const DEVICE_5G: u64 = 5_368_709_120;
-    const META_STRIPE: u64 = 268_435_456;
+    const META_STRIPE: u64 = 0x1000_0000;
     const META_BYTES_USED: u64 = 147_456;
     const FS_UUID_OBJECTID: u64 = 0x0807_0605_0403_0201;
     const FS_UUID_OFFSET: u64 = 0x100F_0E0D_0C0B_0A09;

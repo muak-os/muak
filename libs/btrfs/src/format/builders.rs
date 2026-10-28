@@ -404,12 +404,12 @@ mod tests {
         // ASSERT
         assert_eq!(u64::from_le_bytes(item.inode.generation), 1);
         assert_eq!(u64::from_le_bytes(item.inode.size), 3);
-        assert_eq!(u64::from_le_bytes(item.inode.nbytes), 16_384);
+        assert_eq!(u64::from_le_bytes(item.inode.nbytes), 0x4000);
         assert_eq!(u32::from_le_bytes(item.inode.nlink), 1);
         assert_eq!(u32::from_le_bytes(item.inode.mode), 0o040_755);
         assert_eq!(u64::from_le_bytes(item.generation), 1);
         assert_eq!(u64::from_le_bytes(item.generation_v2), 1);
-        assert_eq!(u64::from_le_bytes(item.bytes_used), 16_384);
+        assert_eq!(u64::from_le_bytes(item.bytes_used), 0x4000);
         assert_eq!(u32::from_le_bytes(item.refs), 1);
         assert_eq!(u64::from_le_bytes(item.bytenr), 0);
         assert_eq!(item.uuid, [0; 16]);
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(u64::from_le_bytes(item.generation), 1);
         assert_eq!(u32::from_le_bytes(item.nlink), 1);
         assert_eq!(u32::from_le_bytes(item.mode), 0o040_755);
-        assert_eq!(u64::from_le_bytes(item.nbytes), 16_384);
+        assert_eq!(u64::from_le_bytes(item.nbytes), 0x4000);
         assert_eq!(u64::from_le_bytes(item.atime.sec), 0);
     }
 
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn inode_ref_rejects_names_longer_than_u16() {
         // ARRANGE
-        let name = vec![b'a'; 65_536];
+        let name = vec![b'a'; 0x0001_0000];
 
         // ACT
         let result = build_inode_ref(&name);
@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn dir_item_rejects_names_longer_than_u16() {
         // ARRANGE
-        let name = vec![b'n'; 65_536];
+        let name = vec![b'n'; 0x0001_0000];
 
         // ACT
         let result = build_dir_item(1, 1, &name, 1);

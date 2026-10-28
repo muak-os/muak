@@ -209,7 +209,7 @@ mod tests {
         let header = sample_header();
 
         // ACT
-        let sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+        let sector = header.encode(false, 0x4000, 512, 0xDEAD_BEEF);
         let decoded = GptHeader::parse(&sector).expect("header must parse");
 
         // ASSERT
@@ -226,7 +226,7 @@ mod tests {
     fn parse_rejects_corrupted_header_crc() {
         // ARRANGE
         let header = sample_header();
-        let mut sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+        let mut sector = header.encode(false, 0x4000, 512, 0xDEAD_BEEF);
 
         // ACT
         if let Some(byte) = sector.get_mut(40) {
@@ -244,7 +244,7 @@ mod tests {
     fn parse_rejects_invalid_signature() {
         // ARRANGE
         let header = sample_header();
-        let mut sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+        let mut sector = header.encode(false, 0x4000, 512, 0xDEAD_BEEF);
         sector[0] = b'X';
 
         // ACT
@@ -260,7 +260,7 @@ mod tests {
     fn parse_rejects_low_revision() {
         // ARRANGE
         let header = sample_header();
-        let mut sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+        let mut sector = header.encode(false, 0x4000, 512, 0xDEAD_BEEF);
 
         // ACT
         if let Some(revision) = sector.get_mut(8..12) {
@@ -278,7 +278,7 @@ mod tests {
     fn parse_rejects_small_header_size() {
         // ARRANGE
         let header = sample_header();
-        let mut sector = header.encode(false, 16_384, 512, 0xDEAD_BEEF);
+        let mut sector = header.encode(false, 0x4000, 512, 0xDEAD_BEEF);
 
         // ACT
         if let Some(size) = sector.get_mut(12..16) {
@@ -308,7 +308,7 @@ mod tests {
     fn backup_encode_places_header_at_end_of_disk() {
         // ARRANGE
         let header = sample_header();
-        let sector_count = 16_384;
+        let sector_count = 0x4000;
 
         // ACT
         let sector = header.encode(true, sector_count, 512, 0xDEAD_BEEF);

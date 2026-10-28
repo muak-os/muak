@@ -28,7 +28,7 @@ const CIPHER_SPEC: &str = "aes-xts-plain64";
 const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
 const DEFAULT_JSON_SIZE: u64 = 12288;
 const DEFAULT_JSON_SIZE_USIZE: usize = 12288;
-const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 32768;
+const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 0x8000;
 const VOLUME_KEY_SIZE: usize = 64;
 
 /// Formats a block device with LUKS2 encryption.

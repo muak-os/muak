@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn plan_is_deterministic_over_identical_content() {
         // ARRANGE
-        let content = vec![0xAB_u8; 16_384];
+        let content = vec![0xAB_u8; 0x4000];
         let build = |data: Vec<u8>| {
             let (entry, mut reader) = file("/f", data.len(), &data);
             let mut payload = Payload::new("p");
@@ -437,8 +437,8 @@ mod tests {
     #[test]
     fn plan_size_tracks_content_changes() {
         // ARRANGE
-        let small = vec![0xAB_u8; 16_384];
-        let large = vec![0xAB_u8; 32_768];
+        let small = vec![0xAB_u8; 0x4000];
+        let large = vec![0xAB_u8; 0x8000];
         let plan_for = |data: Vec<u8>| {
             let (entry, mut reader) = file("/f", data.len(), &data);
             let mut payload = Payload::new("p");

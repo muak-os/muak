@@ -269,7 +269,7 @@ pub fn assert_boot_sector(volume: &Volume<'_>) {
         "total sectors must cover the image"
     );
     assert!(
-        volume.cluster_count() >= 65_525,
+        volume.cluster_count() >= 0xFFF5,
         "FAT32 needs at least 65525 clusters, got {}",
         volume.cluster_count()
     );

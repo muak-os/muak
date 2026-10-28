@@ -22,7 +22,7 @@ pub(super) const DM_UUID_LEN: usize = 129;
 const DM_VERSION: [u32; 3] = [4, 0, 0];
 
 pub(super) const DM_CONTROL_PATH: &str = "/dev/mapper/control";
-pub(super) const DM_TABLE_BUF_SIZE: usize = 16_384;
+pub(super) const DM_TABLE_BUF_SIZE: usize = 0x4000;
 pub(super) const TARGET_TYPE: &[u8] = b"crypt";
 
 pub(super) const DM_DEV_CREATE: Opcode =

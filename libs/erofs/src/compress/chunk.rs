@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn each_pcluster_fits_in_one_block() {
         // ARRANGE
-        let data = vec![0_u8; 131_072];
+        let data = vec![0_u8; 0x0002_0000];
 
         // ACT
         let layout = measure(&data, 3).expect("measure").expect("layout");
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn all_input_consumed() {
         // ARRANGE
-        let data = vec![0_u8; 131_072];
+        let data = vec![0_u8; 0x0002_0000];
 
         // ACT
         let layout = measure(&data, 3).expect("measure").expect("layout");

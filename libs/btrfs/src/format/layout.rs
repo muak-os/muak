@@ -34,13 +34,13 @@ pub(super) const BTRFS_DATA_RELOC_TREE_OBJECTID: u64 = u64::MAX - 8;
 pub(super) const BTRFS_FIRST_CHUNK_TREE_OBJECTID: u64 = 256;
 
 /// Default node size used by mkfs in bytes.
-pub(super) const BTRFS_DEFAULT_NODESIZE: u32 = 16_384;
+pub(super) const BTRFS_DEFAULT_NODESIZE: u32 = 0x4000;
 
 /// Default node size as a 64-bit byte count.
-pub(super) const BTRFS_DEFAULT_NODESIZE_U64: u64 = 16_384;
+pub(super) const BTRFS_DEFAULT_NODESIZE_U64: u64 = 0x4000;
 
 /// Default node size as a `usize` byte count.
-pub(super) const BTRFS_DEFAULT_NODESIZE_USIZE: usize = 16_384;
+pub(super) const BTRFS_DEFAULT_NODESIZE_USIZE: usize = 0x4000;
 
 /// Default sector size used by mkfs in bytes.
 pub(super) const BTRFS_DEFAULT_SECTORSIZE: u32 = 4096;
@@ -49,7 +49,7 @@ pub(super) const BTRFS_DEFAULT_SECTORSIZE: u32 = 4096;
 pub(super) const BTRFS_DEFAULT_SECTORSIZE_U64: u64 = 4096;
 
 /// Stripe length used for generated chunk items.
-pub(super) const BTRFS_STRIPE_LEN: u64 = 65_536;
+pub(super) const BTRFS_STRIPE_LEN: u64 = 0x0001_0000;
 
 /// Reserved area before filesystem data.
 pub(super) const BTRFS_MKFS_RESERVED_SIZE: u64 = 1024 * 1024;
@@ -377,7 +377,7 @@ mod tests {
         let stripe = compute_dup_meta_stripe_size(device_size);
 
         // ASSERT
-        assert_eq!(stripe, 268_435_456);
+        assert_eq!(stripe, 0x1000_0000);
     }
 
     #[test]
@@ -389,22 +389,22 @@ mod tests {
         let stripe = compute_dup_meta_stripe_size(device_size);
 
         // ASSERT
-        assert_eq!(stripe, 1_073_741_824);
+        assert_eq!(stripe, 0x4000_0000);
     }
 
     #[test]
     fn small_devices_clamp_metadata_stripes_to_minimum() {
         // ARRANGE
         let hundred_mib = 104_857_600_u64;
-        let one_mib = 1_048_576_u64;
+        let one_mib = 0x0010_0000_u64;
 
         // ACT
         let stripe_small = compute_dup_meta_stripe_size(hundred_mib);
         let stripe_tiny = compute_dup_meta_stripe_size(one_mib);
 
         // ASSERT
-        assert_eq!(stripe_small, 33_554_432);
-        assert_eq!(stripe_tiny, 33_554_432);
+        assert_eq!(stripe_small, 0x0200_0000);
+        assert_eq!(stripe_tiny, 0x0200_0000);
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(layout.sys_phys_0(), 22_020_096);
         assert_eq!(layout.sys_phys_1(), 30_408_704);
         assert_eq!(layout.meta_logical(), 30_408_704);
-        assert_eq!(layout.meta_stripe_size(), 268_435_456);
+        assert_eq!(layout.meta_stripe_size(), 0x1000_0000);
         assert_eq!(layout.meta_phys_0(), 38_797_312);
         assert_eq!(layout.meta_phys_1(), 307_232_768);
         assert_eq!(layout.chunk_tree_logical(), 22_036_480);
@@ -504,9 +504,9 @@ mod tests {
         assert_eq!(
             layout.min_device_size(),
             BTRFS_MKFS_RESERVED_SIZE
-                .saturating_add(8_388_608)
+                .saturating_add(0x0080_0000)
                 .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE.saturating_mul(2))
-                .saturating_add(268_435_456_u64.saturating_mul(2))
+                .saturating_add(0x1000_0000_u64.saturating_mul(2))
         );
         assert_eq!(DiskLayout::total_bytes_used(), 163_840);
         assert_eq!(DiskLayout::meta_bytes_used(), 147_456);

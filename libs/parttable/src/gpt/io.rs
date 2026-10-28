@@ -9,7 +9,7 @@ use crate::error::{ParttableError, Result};
 use crate::mbr::protective_bytes;
 
 /// Total size in bytes of a 128-entry partition entries array.
-const ENTRIES_BYTES: usize = 16_384;
+const ENTRIES_BYTES: usize = 0x4000;
 
 /// Reads a GPT table from a forward-only reader.
 ///

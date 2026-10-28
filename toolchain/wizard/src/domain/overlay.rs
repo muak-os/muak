@@ -258,7 +258,7 @@ mod tests {
         // ASSERT
         assert!(matches!(
             placement,
-            Some(Placement::Blob { offset, ref file }) if offset == 32768 && file == "u-boot.bin"
+            Some(Placement::Blob { offset, ref file }) if offset == 0x8000 && file == "u-boot.bin"
         ));
     }
 

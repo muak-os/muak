@@ -37,7 +37,7 @@ const BTRFS_MAGIC: u64 = 0x4D5F_5366_5248_425F;
 const BTRFS_MAGIC_TEMPORARY: u64 = 0x4D5F_5366_5248_4221;
 
 /// Primary superblock offset.
-const BTRFS_SUPER_INFO_OFFSET: u64 = 65_536;
+const BTRFS_SUPER_INFO_OFFSET: u64 = 0x0001_0000;
 
 /// Serialized superblock size as a 64-bit byte count.
 const BTRFS_SUPER_INFO_SIZE_U64: u64 = 4096;
@@ -100,8 +100,8 @@ const BTRFS_SUPER_FLAG_WRITTEN: u64 = 1 << 0;
 const fn btrfs_sb_offset(mirror: u32) -> u64 {
     match mirror {
         0 => BTRFS_SUPER_INFO_OFFSET,
-        1 => 67_108_864,
-        _ => 274_877_906_944,
+        1 => 0x0400_0000,
+        _ => 0x0040_0000_0000,
     }
 }
 
@@ -483,10 +483,10 @@ mod tests {
     #[test]
     fn superblock_offsets_match_mirror_positions() {
         // ASSERT
-        assert_eq!(btrfs_sb_offset(0), 65_536);
-        assert_eq!(btrfs_sb_offset(1), 67_108_864);
-        assert_eq!(btrfs_sb_offset(2), 274_877_906_944);
-        assert_eq!(btrfs_sb_offset(9), 274_877_906_944);
+        assert_eq!(btrfs_sb_offset(0), 0x0001_0000);
+        assert_eq!(btrfs_sb_offset(1), 0x0400_0000);
+        assert_eq!(btrfs_sb_offset(2), 0x0040_0000_0000);
+        assert_eq!(btrfs_sb_offset(9), 0x0040_0000_0000);
     }
 
     #[test]
@@ -539,7 +539,7 @@ mod tests {
         let node = context.build_node(123_456, 5, &items, &data).unwrap();
 
         // ASSERT
-        assert_eq!(node.len(), 16_384);
+        assert_eq!(node.len(), 0x4000);
         assert_eq!(
             u64::from_le_bytes(node[48..56].try_into().unwrap()),
             123_456
@@ -559,7 +559,7 @@ mod tests {
         assert_eq!(node.get(100), Some(&0));
         assert_eq!(u64::from_le_bytes(node[101..109].try_into().unwrap()), 1);
         assert_eq!(node.get(109), Some(&84));
-        assert_eq!(node.get(16_380..16_384), Some([0xAB; 4].as_slice()));
+        assert_eq!(node.get(16_380..0x4000), Some([0xAB; 4].as_slice()));
         assert_eq!(
             node.get(0..4),
             Some(compute_checksum(&node[32..]).as_slice())
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn make_btrfs_rejects_devices_below_minimum_size() {
         // ARRANGE
-        let mut context = MkfsContext::new(dev_null(), 1_048_576, "small".to_owned());
+        let mut context = MkfsContext::new(dev_null(), 0x0010_0000, "small".to_owned());
 
         // ACT
         let result = context.make_btrfs();

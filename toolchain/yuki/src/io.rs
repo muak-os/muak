@@ -13,7 +13,7 @@ pub(crate) fn copy_exact<R: Read + ?Sized, W: Write>(
     name: &'static str,
     on_chunk: &mut dyn FnMut(&[u8]),
 ) -> Result<()> {
-    let mut buffer = [0_u8; 16384];
+    let mut buffer = [0_u8; 0x4000];
     let mut limited = reader.take(len);
     let mut copied = 0_u64;
     loop {

@@ -332,7 +332,7 @@ mod tests {
     fn mkfs_compressed_reproducible() {
         // ARRANGE
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("data"), vec![0_u8; 16384]).expect("write");
+        std::fs::write(dir.path().join("data"), vec![0_u8; 0x4000]).expect("write");
         let config = MkfsConfig {
             uuid: [2_u8; 16],
             ..compress_config(1000)
@@ -679,7 +679,7 @@ mod tests {
             TreeEntry {
                 rel_path: "/zeros".to_owned(),
                 file_type: EROFS_FT_REG_FILE,
-                size: 32_768,
+                size: 0x8000,
                 mode: 0o644,
                 uid: 0,
                 gid: 0,
@@ -694,7 +694,7 @@ mod tests {
             ..test_config(0)
         };
         let mut map = std::collections::HashMap::new();
-        map.insert("/zeros".to_owned(), vec![0_u8; 32_768]);
+        map.insert("/zeros".to_owned(), vec![0_u8; 0x8000]);
 
         // ACT
         let image = run_mock(entries, &map, &cfg);

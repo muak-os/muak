@@ -153,14 +153,14 @@ mod tests {
     #[test]
     fn single_chunk_encodes_header_and_one_stripe() {
         // ARRANGE
-        let builder = ChunkBuilder::single(8_388_608, BTRFS_BLOCK_GROUP_DATA, 0x2000_0000);
+        let builder = ChunkBuilder::single(0x0080_0000, BTRFS_BLOCK_GROUP_DATA, 0x2000_0000);
 
         // ACT
         let bytes = builder.build(&dev_uuid()).unwrap();
 
         // ASSERT
         assert_eq!(bytes.len(), 80);
-        assert_eq!(le64(&bytes, 0), 8_388_608);
+        assert_eq!(le64(&bytes, 0), 0x0080_0000);
         assert_eq!(le64(&bytes, 8), BTRFS_EXTENT_TREE_OBJECTID);
         assert_eq!(le64(&bytes, 16), BTRFS_STRIPE_LEN);
         assert_eq!(le64(&bytes, 24), BTRFS_BLOCK_GROUP_DATA);
@@ -178,7 +178,7 @@ mod tests {
     fn dup_chunk_sets_flag_and_two_stripes() {
         // ARRANGE
         let builder = ChunkBuilder::dup(
-            8_388_608,
+            0x0080_0000,
             BTRFS_BLOCK_GROUP_SYSTEM,
             0x1000_0000,
             0x1400_0000,

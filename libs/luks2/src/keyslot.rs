@@ -23,7 +23,7 @@ pub fn derive_key(passphrase: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
         .map_err(|_error| Luks2Error::InvalidField("invalid key size".into()))?;
 
     let t_cost = keyslot.kdf.time.unwrap_or(4);
-    let m_cost = keyslot.kdf.memory.unwrap_or(1_048_576);
+    let m_cost = keyslot.kdf.memory.unwrap_or(0x0010_0000);
     let p_cost = keyslot.kdf.cpus.unwrap_or(4);
 
     let params =
@@ -184,7 +184,7 @@ mod tests {
                 r#type: "argon2id".to_owned(),
                 salt: base64ct::Base64::encode_string(&[0x42_u8; 64]),
                 time: Some(1),
-                memory: Some(65536),
+                memory: Some(0x0001_0000),
                 cpus: Some(4),
             },
             af: AntiForensic {

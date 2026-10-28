@@ -176,7 +176,7 @@ mod tests {
         packet[field::TX_TIMESTAMP_SECS..field::TX_TIMESTAMP_SECS + 4]
             .copy_from_slice(&ntp_secs.to_be_bytes());
 
-        let frac: u32 = 2_147_483_648;
+        let frac: u32 = 0x8000_0000;
         packet[field::TX_TIMESTAMP_FRAC..field::TX_TIMESTAMP_FRAC + 4]
             .copy_from_slice(&frac.to_be_bytes());
 
