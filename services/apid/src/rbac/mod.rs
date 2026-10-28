@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn known_methods_not_empty() {
-        // ARRANG
+        // ARRANGE
         let count = KNOWN_METHODS.len();
 
         // ASSERT

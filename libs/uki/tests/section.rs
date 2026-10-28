@@ -85,7 +85,7 @@ mod tests {
     fn parse_unrecognized_section_skipped() {
         // ARRANGE
         let mut data = build_test_pe();
-        add_section(&mut data, *b".unknwn\0", b"ignored");
+        add_section(&mut data, *b".ignore\0", b"ignored");
         add_section(&mut data, *b".kernel\0", b"kernel");
 
         // ACT

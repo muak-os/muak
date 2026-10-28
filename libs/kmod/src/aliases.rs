@@ -190,11 +190,11 @@ mod tests {
     fn glob_question() {
         // ARRANGE
         let test_cases = [
-            ("fo?", "foo", true),
-            ("f??", "foo", true),
-            ("fo?", "fo", false),
-            ("fo?", "fooo", false),
-            ("f??", "FOO", true),
+            ("a?", "ab", true),
+            ("a??", "abc", true),
+            ("a?", "a", false),
+            ("a?", "abcd", false),
+            ("a??", "ABC", true),
         ];
 
         // ACT & ASSERT
