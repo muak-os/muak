@@ -38,7 +38,7 @@ WORKDIR /build
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
-  cargo install --locked cargo-chef
+  cargo install --locked cargo-chef@0.1.78
 
 COPY rust-toolchain.toml .
 RUN rustup toolchain install --profile minimal
