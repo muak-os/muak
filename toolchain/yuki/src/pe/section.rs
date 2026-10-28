@@ -254,7 +254,7 @@ mod tests {
     use crate::error::YukiError;
 
     fn byte_range(bytes: &[u8], range: core::ops::Range<usize>) -> &[u8] {
-        bytes.get(range).unwrap()
+        &bytes[range]
     }
 
     fn create_test_metadata() -> Metadata {
@@ -331,8 +331,8 @@ mod tests {
         // ASSERT
         assert_eq!(state.sections.len(), 3);
         for i in 1..state.sections.len() {
-            let prev = state.sections.get(i - 1).unwrap();
-            let curr = state.sections.get(i).unwrap();
+            let prev = &state.sections[i - 1];
+            let curr = &state.sections[i];
             assert!(
                 curr.file_offset >= prev.file_offset + prev.size,
                 "section {} should start after section {}",
@@ -359,7 +359,7 @@ mod tests {
             IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
         );
         assert_eq!(
-            state.headers.get(1).unwrap().characteristics.get(LE),
+            state.headers[1].characteristics.get(LE),
             IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
         );
     }
@@ -501,10 +501,7 @@ mod tests {
                 state.headers.first().unwrap().virtual_size.get(LE),
                 metadata.section_alignment,
             ));
-        assert_eq!(
-            state.headers.get(1).unwrap().virtual_address.get(LE),
-            first_end
-        );
+        assert_eq!(state.headers[1].virtual_address.get(LE), first_end);
     }
 
     #[test]
@@ -536,7 +533,7 @@ mod tests {
             "first section should have an offset"
         );
         assert!(
-            state.sections.get(1).unwrap().file_offset
+            state.sections[1].file_offset
                 > state.sections.first().unwrap().file_offset
                     + state.sections.first().unwrap().size
         );

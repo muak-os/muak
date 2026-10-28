@@ -353,7 +353,7 @@ mod tests {
         let serialized = header.serialize(true).unwrap();
 
         // ASSERT
-        assert_eq!(serialized.get(0..6).unwrap(), &LUKS_MAGIC);
+        assert_eq!(&serialized[0..6], &LUKS_MAGIC);
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
         let serialized = header.serialize(true).unwrap();
 
         // ASSERT
-        let version_bytes = serialized.get(6..8).unwrap().try_into().unwrap();
+        let version_bytes = serialized[6..8].try_into().unwrap();
         let version = u16::from_be_bytes(version_bytes);
         assert_eq!(version, LUKS2_VERSION);
     }
@@ -383,7 +383,7 @@ mod tests {
         result.unwrap();
 
         // ARRANGE
-        *serialized.get_mut(100).unwrap() ^= 0xFF;
+        serialized[100] ^= 0xFF;
 
         // ACT & ASSERT
         let result = Header::parse(&serialized);
@@ -398,7 +398,7 @@ mod tests {
         let mut serialized = header.serialize(true).unwrap();
 
         let checksum_start = CHECKSUM_OFFSET;
-        *serialized.get_mut(checksum_start).unwrap() ^= 0xFF;
+        serialized[checksum_start] ^= 0xFF;
 
         // ACT
         let result = Header::parse(&serialized);
@@ -414,8 +414,8 @@ mod tests {
         let mut header = Header::new(uuid, "test").unwrap();
         let mut serialized = header.serialize(true).unwrap();
 
-        *serialized.get_mut(0).unwrap() = 0x00;
-        *serialized.get_mut(1).unwrap() = 0x00;
+        serialized[0] = 0x00;
+        serialized[1] = 0x00;
 
         // ACT
         let result = Header::parse(&serialized);
@@ -431,10 +431,7 @@ mod tests {
         let mut header = Header::new(uuid, "test").unwrap();
         let mut serialized = header.serialize(true).unwrap();
 
-        serialized
-            .get_mut(6..8)
-            .unwrap()
-            .copy_from_slice(&1_u16.to_be_bytes());
+        serialized[6..8].copy_from_slice(&1_u16.to_be_bytes());
 
         // ACT
         let result = Header::parse(&serialized);
@@ -480,11 +477,7 @@ mod tests {
         let serialized_primary = header.serialize(true).unwrap();
 
         // ASSERT
-        let offset_primary_bytes = serialized_primary
-            .get(256..264)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let offset_primary_bytes = serialized_primary[256..264].try_into().unwrap();
         let offset_primary = u64::from_be_bytes(offset_primary_bytes);
         assert_eq!(offset_primary, 0);
 
@@ -492,11 +485,7 @@ mod tests {
         let serialized_secondary = header.serialize(false).unwrap();
 
         // ASSERT
-        let offset_secondary_bytes = serialized_secondary
-            .get(256..264)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let offset_secondary_bytes = serialized_secondary[256..264].try_into().unwrap();
         let offset_secondary = u64::from_be_bytes(offset_secondary_bytes);
         assert_eq!(offset_secondary, DEFAULT_HEADER_SIZE);
     }
@@ -515,12 +504,8 @@ mod tests {
         let serialized2 = header2.serialize(true).unwrap();
 
         // ASSERT
-        let checksum1 = serialized1
-            .get(CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN)
-            .unwrap();
-        let checksum2 = serialized2
-            .get(CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN)
-            .unwrap();
+        let checksum1 = &serialized1[CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN];
+        let checksum2 = &serialized2[CHECKSUM_OFFSET..CHECKSUM_OFFSET + SHA256_LEN];
 
         assert_ne!(checksum1, checksum2);
     }
@@ -535,7 +520,7 @@ mod tests {
         let serialized = header.serialize(true).unwrap();
 
         // ASSERT
-        let alg_bytes = serialized.get(72..104).unwrap();
+        let alg_bytes = &serialized[72..104];
         let alg_str = core::str::from_utf8(alg_bytes)
             .unwrap()
             .trim_end_matches('\0');

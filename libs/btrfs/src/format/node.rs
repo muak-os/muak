@@ -169,7 +169,7 @@ mod tests {
 
         // ASSERT
         let first = items.first().unwrap();
-        let second = items.get(1).unwrap();
+        let second = &items[1];
         assert_eq!(u32::from_le_bytes(first.offset), LEAF_CAPACITY - 1);
         assert_eq!(u32::from_le_bytes(second.offset), LEAF_CAPACITY - 3);
         assert_eq!(data, vec![0xBB, 0xCC, 0xAA]);

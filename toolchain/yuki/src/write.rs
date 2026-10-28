@@ -161,16 +161,12 @@ mod tests {
 
     fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
         let end = offset.checked_add(4).unwrap();
-        buf.get_mut(offset..end)
-            .unwrap()
-            .copy_from_slice(&value.to_le_bytes());
+        buf[offset..end].copy_from_slice(&value.to_le_bytes());
     }
 
     fn write_u16(buf: &mut [u8], offset: usize, value: u16) {
         let end = offset.checked_add(2).unwrap();
-        buf.get_mut(offset..end)
-            .unwrap()
-            .copy_from_slice(&value.to_le_bytes());
+        buf[offset..end].copy_from_slice(&value.to_le_bytes());
     }
 
     fn minimal_stub() -> Vec<u8> {
@@ -181,9 +177,9 @@ mod tests {
         let total_size = headers_aligned.saturating_add(512);
 
         let mut stub = vec![0_u8; total_size];
-        stub.get_mut(0..2).unwrap().copy_from_slice(b"MZ");
+        stub[0..2].copy_from_slice(b"MZ");
         write_u32(&mut stub, 0x3C, 64);
-        stub.get_mut(64..68).unwrap().copy_from_slice(b"PE\0\0");
+        stub[64..68].copy_from_slice(b"PE\0\0");
         write_u16(&mut stub, 68, 0x8664);
         write_u16(&mut stub, 70, 1);
         write_u16(&mut stub, 84, 240);
@@ -197,9 +193,7 @@ mod tests {
             u32::try_from(headers_aligned).unwrap(),
         );
         write_u16(&mut stub, opt_start.saturating_add(68), 10);
-        stub.get_mut(section_start..section_start.saturating_add(5))
-            .unwrap()
-            .copy_from_slice(b".text");
+        stub[section_start..section_start.saturating_add(5)].copy_from_slice(b".text");
         write_u32(&mut stub, section_start.saturating_add(8), 512);
         write_u32(&mut stub, section_start.saturating_add(12), 4096);
         write_u32(&mut stub, section_start.saturating_add(16), 512);
@@ -335,7 +329,7 @@ mod tests {
                 .expect("section should exist");
             let offset = usize::try_from(section.pointer_to_raw_data.get(LE)).unwrap();
             let size = usize::try_from(section.virtual_size.get(LE)).unwrap();
-            let section_bytes = uki_out.get(offset..offset + size).unwrap();
+            let section_bytes = &uki_out[offset..offset + size];
             assert_eq!(section_bytes, data);
         }
     }
@@ -383,7 +377,7 @@ mod tests {
             let offset = usize::try_from(section.pointer_to_raw_data.get(LE)).unwrap();
             let size = usize::try_from(section.virtual_size.get(LE)).unwrap();
             let raw_size = usize::try_from(section.size_of_raw_data.get(LE)).unwrap();
-            let padding = output.get(offset + size..offset + raw_size).unwrap();
+            let padding = &output[offset + size..offset + raw_size];
             assert!(
                 padding.iter().all(|&byte| byte == 0),
                 "padding after section should be zeroed"
@@ -534,8 +528,8 @@ mod tests {
             .find(|sec| sec.name.starts_with(b".text"))
             .expect("output should keep the stub .text section");
         let out_offset = usize::try_from(out_text.pointer_to_raw_data.get(LE)).unwrap();
-        let out_bytes = uki_out.get(out_offset..out_offset + text_size).unwrap();
-        let stub_bytes = stub.get(text_offset..text_offset + text_size).unwrap();
+        let out_bytes = &uki_out[out_offset..out_offset + text_size];
+        let stub_bytes = &stub[text_offset..text_offset + text_size];
         assert_eq!(
             out_bytes, stub_bytes,
             "original stub section bytes should be preserved"
@@ -593,8 +587,8 @@ mod tests {
 
         // ASSERT
         let consumed_usize = usize::try_from(consumed).unwrap();
-        let remainder = output.get(consumed_usize..stub.len()).unwrap();
-        let expected = stub.get(consumed_usize..).unwrap();
+        let remainder = &output[consumed_usize..stub.len()];
+        let expected = &stub[consumed_usize..];
         assert_eq!(
             remainder, expected,
             "stub bytes after the probed header must be preserved verbatim"
@@ -646,7 +640,7 @@ mod tests {
             .find(|section| section.name == OSREL)
             .expect("osrel section should be planned");
         let offset = osrel_section.file_offset;
-        let written = uki_out.get(offset..offset + osrel.len()).unwrap();
+        let written = &uki_out[offset..offset + osrel.len()];
         assert_eq!(written, osrel.as_slice());
     }
 

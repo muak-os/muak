@@ -283,7 +283,7 @@ mod tests {
         assert!(meta.digests.is_empty());
 
         assert_eq!(meta.segments.len(), 1);
-        let segment = meta.segments.get("0").unwrap();
+        let segment = &meta.segments["0"];
         assert_eq!(segment.offset, DEFAULT_HEADER_SIZE.to_string());
         assert_eq!(segment.r#type, "crypt");
         assert_eq!(segment.encryption, CIPHER_SPEC);
@@ -305,7 +305,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(meta.keyslots.len(), 1);
-        let keyslot = meta.keyslots.get("0").unwrap();
+        let keyslot = &meta.keyslots["0"];
 
         assert_eq!(keyslot.r#type, "luks2");
         assert_eq!(keyslot.key_size, VOLUME_KEY_SIZE_U32);
@@ -362,8 +362,8 @@ mod tests {
         assert_eq!(deserialized.segments.len(), meta.segments.len());
         assert_eq!(deserialized.config.json_size, meta.config.json_size);
 
-        let original_keyslot = meta.keyslots.get("0").unwrap();
-        let deserialized_keyslot = deserialized.keyslots.get("0").unwrap();
+        let original_keyslot = &meta.keyslots["0"];
+        let deserialized_keyslot = &deserialized.keyslots["0"];
         assert_eq!(deserialized_keyslot.key_size, original_keyslot.key_size);
         assert_eq!(deserialized_keyslot.kdf.r#type, original_keyslot.kdf.r#type);
     }
@@ -411,7 +411,7 @@ mod tests {
         let meta = Metadata::new(sector_size);
 
         // ACT
-        let segment = meta.segments.get("0").unwrap();
+        let segment = &meta.segments["0"];
 
         // ASSERT
         assert_eq!(segment.r#type, "crypt");
@@ -431,7 +431,7 @@ mod tests {
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
-        let keyslot = meta.keyslots.get("0").unwrap();
+        let keyslot = &meta.keyslots["0"];
 
         // ASSERT
         assert_eq!(keyslot.kdf.time, Some(1));
@@ -448,7 +448,7 @@ mod tests {
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
-        let keyslot = meta.keyslots.get("0").unwrap();
+        let keyslot = &meta.keyslots["0"];
 
         // ASSERT
         assert_eq!(keyslot.area.r#type, "raw");
@@ -467,7 +467,7 @@ mod tests {
 
         // ACT
         meta.add_keyslot("0", &kdf_salt);
-        let keyslot = meta.keyslots.get("0").unwrap();
+        let keyslot = &meta.keyslots["0"];
 
         // ASSERT
         assert_eq!(keyslot.af.r#type, "luks1");
@@ -492,7 +492,7 @@ mod tests {
         // ACT & ASSERT
         for &sector_size in &[512, 1024, 2048, 4096, 8192] {
             let meta = Metadata::new(sector_size);
-            let segment = meta.segments.get("0").unwrap();
+            let segment = &meta.segments["0"];
             assert_eq!(segment.sector_size, sector_size);
         }
     }
@@ -556,10 +556,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(meta.tokens.len(), 1);
-        assert_eq!(
-            meta.tokens.get("7").unwrap().get("tpm2-blob").unwrap(),
-            "new"
-        );
+        assert_eq!(meta.tokens["7"].get("tpm2-blob").unwrap(), "new");
     }
 
     #[test]

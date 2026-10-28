@@ -386,21 +386,11 @@ mod tests {
     }
 
     fn le64(data: &[u8], at: usize) -> u64 {
-        u64::from_le_bytes(
-            data.get(at..at.saturating_add(8))
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        )
+        u64::from_le_bytes(data[at..at.saturating_add(8)].try_into().unwrap())
     }
 
     fn le16(data: &[u8], at: usize) -> u16 {
-        u16::from_le_bytes(
-            data.get(at..at.saturating_add(2))
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        )
+        u16::from_le_bytes(data[at..at.saturating_add(2)].try_into().unwrap())
     }
 
     #[test]

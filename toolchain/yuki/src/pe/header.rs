@@ -119,13 +119,7 @@ mod tests {
 
         // ASSERT
         let count_offset = section_count_offset(&metadata);
-        let count = u16::from_le_bytes(
-            prefix
-                .get(count_offset..count_offset + 2)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        );
+        let count = u16::from_le_bytes(prefix[count_offset..count_offset + 2].try_into().unwrap());
         assert_eq!(count, metadata.existing_section_count + 1);
     }
 
@@ -143,13 +137,8 @@ mod tests {
 
         // ASSERT
         let soi_offset = size_of_image_offset(&metadata);
-        let size_of_image = u32::from_le_bytes(
-            prefix
-                .get(soi_offset..soi_offset + 4)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        );
+        let size_of_image =
+            u32::from_le_bytes(prefix[soi_offset..soi_offset + 4].try_into().unwrap());
         assert!(size_of_image > 0);
     }
 
@@ -170,9 +159,9 @@ mod tests {
         let hdr_size = core::mem::size_of::<ImageSectionHeader>();
         let first_new =
             metadata.section_table_offset + usize::from(metadata.existing_section_count) * hdr_size;
-        assert_eq!(prefix.get(first_new..first_new + 8).unwrap(), b".cmdline");
+        assert_eq!(&prefix[first_new..first_new + 8], b".cmdline");
         let second_new = first_new + hdr_size;
-        assert_eq!(prefix.get(second_new..second_new + 7).unwrap(), b".kernel");
+        assert_eq!(&prefix[second_new..second_new + 7], b".kernel");
     }
 
     #[test]

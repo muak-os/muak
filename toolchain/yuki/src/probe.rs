@@ -75,16 +75,12 @@ mod tests {
 
     fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
         let end = offset.checked_add(4).unwrap();
-        buf.get_mut(offset..end)
-            .unwrap()
-            .copy_from_slice(&value.to_le_bytes());
+        buf[offset..end].copy_from_slice(&value.to_le_bytes());
     }
 
     fn write_u16(buf: &mut [u8], offset: usize, value: u16) {
         let end = offset.checked_add(2).unwrap();
-        buf.get_mut(offset..end)
-            .unwrap()
-            .copy_from_slice(&value.to_le_bytes());
+        buf[offset..end].copy_from_slice(&value.to_le_bytes());
     }
 
     fn minimal_stub() -> Vec<u8> {
@@ -95,9 +91,9 @@ mod tests {
         let total_size = headers_aligned.saturating_add(512);
 
         let mut stub = vec![0_u8; total_size];
-        stub.get_mut(0..2).unwrap().copy_from_slice(b"MZ");
+        stub[0..2].copy_from_slice(b"MZ");
         write_u32(&mut stub, 0x3C, 64);
-        stub.get_mut(64..68).unwrap().copy_from_slice(b"PE\0\0");
+        stub[64..68].copy_from_slice(b"PE\0\0");
         write_u16(&mut stub, 68, 0x8664);
         write_u16(&mut stub, 70, 1);
         write_u16(&mut stub, 84, 240);
@@ -111,9 +107,7 @@ mod tests {
             u32::try_from(headers_aligned).unwrap(),
         );
         write_u16(&mut stub, opt_start.saturating_add(68), 10);
-        stub.get_mut(section_start..section_start.saturating_add(5))
-            .unwrap()
-            .copy_from_slice(b".text");
+        stub[section_start..section_start.saturating_add(5)].copy_from_slice(b".text");
         write_u32(&mut stub, section_start.saturating_add(8), 512);
         write_u32(&mut stub, section_start.saturating_add(12), 4096);
         write_u32(&mut stub, section_start.saturating_add(16), 512);

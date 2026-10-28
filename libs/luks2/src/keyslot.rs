@@ -427,8 +427,8 @@ mod tests {
         let stripes = 100;
 
         let mut split = af_split(&key, stripes).unwrap();
-        *split.get_mut(0).unwrap() ^= 0xFF;
-        *split.get_mut(10).unwrap() ^= 0xFF;
+        split[0] ^= 0xFF;
+        split[10] ^= 0xFF;
 
         // ACT
         let merged = af_merge(&split, key.len(), stripes).unwrap();

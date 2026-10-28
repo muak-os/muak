@@ -541,11 +541,11 @@ mod tests {
         // ASSERT
         assert_eq!(node.len(), 16_384);
         assert_eq!(
-            u64::from_le_bytes(node.get(48..56).unwrap().try_into().unwrap()),
+            u64::from_le_bytes(node[48..56].try_into().unwrap()),
             123_456
         );
         assert_eq!(
-            u64::from_le_bytes(node.get(56..64).unwrap().try_into().unwrap()),
+            u64::from_le_bytes(node[56..64].try_into().unwrap()),
             0x0100_0000_0000_0001
         );
         assert_eq!(node.get(32..48), Some(context.fsid.as_bytes().as_slice()));
@@ -553,28 +553,16 @@ mod tests {
             node.get(64..80),
             Some(context.chunk_uuid.as_bytes().as_slice())
         );
-        assert_eq!(
-            u64::from_le_bytes(node.get(80..88).unwrap().try_into().unwrap()),
-            1
-        );
-        assert_eq!(
-            u64::from_le_bytes(node.get(88..96).unwrap().try_into().unwrap()),
-            5
-        );
-        assert_eq!(
-            u32::from_le_bytes(node.get(96..100).unwrap().try_into().unwrap()),
-            1
-        );
+        assert_eq!(u64::from_le_bytes(node[80..88].try_into().unwrap()), 1);
+        assert_eq!(u64::from_le_bytes(node[88..96].try_into().unwrap()), 5);
+        assert_eq!(u32::from_le_bytes(node[96..100].try_into().unwrap()), 1);
         assert_eq!(node.get(100), Some(&0));
-        assert_eq!(
-            u64::from_le_bytes(node.get(101..109).unwrap().try_into().unwrap()),
-            1
-        );
+        assert_eq!(u64::from_le_bytes(node[101..109].try_into().unwrap()), 1);
         assert_eq!(node.get(109), Some(&84));
         assert_eq!(node.get(16_380..16_384), Some([0xAB; 4].as_slice()));
         assert_eq!(
             node.get(0..4),
-            Some(compute_checksum(node.get(32..).unwrap()).as_slice())
+            Some(compute_checksum(&node[32..]).as_slice())
         );
     }
 

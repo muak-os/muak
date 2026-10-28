@@ -179,14 +179,11 @@ mod tests {
         let params_end = params_offset + expected_params.len();
 
         assert_eq!(
-            buffer.get(params_offset..params_end).unwrap(),
+            &buffer[params_offset..params_end],
             expected_params.as_bytes()
         );
-        assert_eq!(*buffer.get(params_end).unwrap(), 0);
-        assert_eq!(
-            buffer.get(header_size + 24..header_size + 29).unwrap(),
-            TARGET_TYPE
-        );
+        assert_eq!(buffer[params_end], 0);
+        assert_eq!(&buffer[header_size + 24..header_size + 29], TARGET_TYPE);
     }
 
     #[test]

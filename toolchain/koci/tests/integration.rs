@@ -247,8 +247,8 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert_eq!(files.first().unwrap().path, "etc/motd");
         assert_eq!(&files.first().unwrap().contents, b"hello from koci\n");
-        assert_eq!(files.get(1).unwrap().path, "usr/share/koci/message.txt");
-        assert_eq!(&files.get(1).unwrap().contents, b"integration test\n");
+        assert_eq!(files[1].path, "usr/share/koci/message.txt");
+        assert_eq!(&files[1].contents, b"integration test\n");
     }
 
     #[test]

@@ -960,12 +960,7 @@ mod tests {
     }
 
     fn le64(data: &[u8], at: usize) -> u64 {
-        u64::from_le_bytes(
-            data.get(at..at.saturating_add(8))
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        )
+        u64::from_le_bytes(data[at..at.saturating_add(8)].try_into().unwrap())
     }
 
     fn item_key(item: &BtrfsItem) -> (u64, u8, u64) {
@@ -992,7 +987,7 @@ mod tests {
             .skip(index.saturating_add(1))
             .map(item_size)
             .sum();
-        let end = start.saturating_add(item_size(result.items.get(index).unwrap()));
+        let end = start.saturating_add(item_size(&result.items[index]));
         result.data.get(start..end).unwrap_or(&[])
     }
 
