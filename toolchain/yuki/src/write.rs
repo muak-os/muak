@@ -169,6 +169,12 @@ mod tests {
         buf[offset..end].copy_from_slice(&value.to_le_bytes());
     }
 
+    fn len_u64(len: usize) -> Result<u64> {
+        u64::try_from(len).map_err(|error| {
+            YukiError::InvalidPeStructure(format!("length does not fit u64: {error}"))
+        })
+    }
+
     fn minimal_stub() -> Vec<u8> {
         let opt_start = 88_usize;
         let section_start = opt_start.saturating_add(240);
@@ -223,17 +229,17 @@ mod tests {
         initrd: &[u8],
         osrel: &[u8],
     ) -> Result<(Vec<u8>, Vec<Section>)> {
-        let stub_size = u64::try_from(stub_bytes.len()).unwrap();
+        let stub_size = len_u64(stub_bytes.len())?;
         let mut stub = Cursor::new(stub_bytes);
         let probe = probe::probe(&mut stub)?;
         let manifest = prepare::prepare(
             probe,
             stub_size,
             prepare::Components {
-                cmdline: u64::try_from(cmdline.len()).unwrap(),
-                kernel: u64::try_from(kernel.len()).unwrap(),
-                initramfs: u64::try_from(initrd.len()).unwrap(),
-                osrel: u64::try_from(osrel.len()).unwrap(),
+                cmdline: len_u64(cmdline.len())?,
+                kernel: len_u64(kernel.len())?,
+                initramfs: len_u64(initrd.len())?,
+                osrel: len_u64(osrel.len())?,
             },
         )?;
 
@@ -248,19 +254,19 @@ mod tests {
             &mut stub,
             Input {
                 reader: &mut cmdline_r,
-                size: u64::try_from(cmdline.len()).unwrap(),
+                size: len_u64(cmdline.len())?,
             },
             Input {
                 reader: &mut kernel_r,
-                size: u64::try_from(kernel.len()).unwrap(),
+                size: len_u64(kernel.len())?,
             },
             Input {
                 reader: &mut initrd_r,
-                size: u64::try_from(initrd.len()).unwrap(),
+                size: len_u64(initrd.len())?,
             },
             Input {
                 reader: &mut osrel_r,
-                size: u64::try_from(osrel.len()).unwrap(),
+                size: len_u64(osrel.len())?,
             },
             &mut output,
         )?;

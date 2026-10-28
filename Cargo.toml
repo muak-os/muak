@@ -231,7 +231,6 @@ single_char_lifetime_names = "allow"
 std_instead_of_core = "allow" # TODO: remove when we have a stable core::io
 string_add = "allow"
 unnecessary_rest_pattern = "allow"
-unwrap_in_result = "allow"
 use_debug = "allow"
 
 blanket_clippy_restriction_lints = "allow"

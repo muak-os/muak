@@ -266,8 +266,8 @@ mod tests {
             state.pid = Some(pid);
             state.status = ServiceStatus::Starting;
 
-            let (r1, _w1) = std::io::pipe().expect("pipe");
-            let (r2, _w2) = std::io::pipe().expect("pipe");
+            let (r1, _w1) = std::io::pipe()?;
+            let (r2, _w2) = std::io::pipe()?;
 
             Ok(SpawnResult {
                 pid,
