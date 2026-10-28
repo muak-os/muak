@@ -14,13 +14,17 @@ pub(super) fn draw<S: Screen>(screen: &mut S, state: &SystemState, row: u16) -> 
     let uptime = &state.uptime;
     let total = units::bytes(state.memory.total_kb.saturating_mul(1024));
 
+    let cpu_permille = state.cpu.permille;
+    let ram_permille = state.memory.permille();
     let summary = format!(
-        "up {}d {}h {}m, {total} RAM, CPU {:.1}%, RAM {:.1}%",
+        "up {}d {}h {}m, {total} RAM, CPU {}.{}%, RAM {}.{}%",
         uptime.days,
         uptime.hours,
         uptime.minutes,
-        state.cpu.percent,
-        state.memory.percent(),
+        cpu_permille.div_euclid(10),
+        cpu_permille.rem_euclid(10),
+        ram_permille.div_euclid(10),
+        ram_permille.rem_euclid(10),
     );
 
     let mut line = Line::new(0);

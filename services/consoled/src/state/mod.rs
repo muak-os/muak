@@ -43,7 +43,7 @@ pub struct Uptime {
 
 #[derive(Debug, Clone, Default)]
 pub struct CpuUsage {
-    pub percent: f64,
+    pub permille: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,12 +78,11 @@ pub struct PollState {
 }
 
 impl MemoryInfo {
-    pub fn percent(&self) -> f64 {
+    pub fn permille(&self) -> u64 {
         if self.total_kb == 0 {
-            return 0.0;
+            return 0;
         }
-        let permille = self.used_kb.saturating_mul(1000).div_euclid(self.total_kb);
-        f64::from(u32::try_from(permille).unwrap_or(0)) / 10.0
+        self.used_kb.saturating_mul(1000).div_euclid(self.total_kb)
     }
 }
 
@@ -128,7 +127,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        assert!((memory.percent() - 0.0).abs() < f64::EPSILON);
+        assert_eq!(memory.permille(), 0);
     }
 
     #[test]
@@ -140,7 +139,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        assert!((memory.percent() - 50.0).abs() < f64::EPSILON);
+        assert_eq!(memory.permille(), 500);
     }
 
     #[test]

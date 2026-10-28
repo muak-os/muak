@@ -146,19 +146,18 @@ fn parse_cpu(line: &str, prev: &mut CpuTicks) -> CpuUsage {
 
     let delta_total = total.saturating_sub(prev.total);
     let delta_idle = idle.saturating_sub(prev.idle);
-    let percent = if delta_total > 0 {
-        let permille = delta_total
+    let permille = if delta_total > 0 {
+        delta_total
             .saturating_sub(delta_idle)
             .saturating_mul(1000)
-            .div_euclid(delta_total);
-        f64::from(u32::try_from(permille).unwrap_or(0)) / 10.0_f64
+            .div_euclid(delta_total)
     } else {
-        0.0_f64
+        0
     };
 
     *prev = CpuTicks { idle, total };
 
-    CpuUsage { percent }
+    CpuUsage { permille }
 }
 
 fn parse_memory(content: &str) -> MemoryInfo {
@@ -201,8 +200,8 @@ mod tests {
         let next = parse_cpu(second, &mut prev);
 
         // ASSERT: no delta on the first poll, 50% busy ticks on the second.
-        assert!(initial.percent.abs() < f64::EPSILON);
-        assert!((next.percent - 50.0).abs() < f64::EPSILON);
+        assert_eq!(initial.permille, 0);
+        assert_eq!(next.permille, 500);
     }
 
     #[test]
@@ -214,7 +213,7 @@ mod tests {
         let usage = parse_cpu("cpu  1 2", &mut prev);
 
         // ASSERT
-        assert!(usage.percent.abs() < f64::EPSILON);
+        assert_eq!(usage.permille, 0);
     }
 
     #[test]

@@ -85,7 +85,7 @@ mod tests {
                 hours: 2,
                 minutes: 30,
             },
-            cpu: CpuUsage { percent: 14.2 },
+            cpu: CpuUsage { permille: 142 },
             memory: MemoryInfo {
                 total_kb: 4_000_000,
                 used_kb: 2_500_000,
