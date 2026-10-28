@@ -27,16 +27,35 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  typos:
+    name: Typos
+    runs-on: ubuntu-26.04
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: just@1.58.0,typos@1.51.1
+          fallback: none
+
+      - run: just spell
+
   lint:
     name: Lint
     runs-on: ubuntu-26.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
           tool: just@1.58.0
+          fallback: none
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
@@ -48,10 +67,13 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
           tool: just@1.58.0,cargo-deny@0.20.2
+          fallback: none
 
       - run: just deny licenses bans sources
 
@@ -61,10 +83,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
           tool: just@1.58.0,cargo-nextest@0.9.146
+          fallback: none
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
@@ -76,10 +101,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
           tool: just@1.58.0,cargo-hack@0.6.45
+          fallback: none
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
@@ -91,10 +119,13 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
           tool: just@1.58.0
+          fallback: none
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
@@ -103,7 +134,7 @@ jobs:
   ci-success:
     name: CI success
     if: always()
-    needs: [lint, deny, test, features, docs]
+    needs: [typos, lint, deny, test, features, docs]
     runs-on: ubuntu-26.04
     steps:
       - name: Check required jobs
