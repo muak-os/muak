@@ -3,39 +3,13 @@
 use core::net::Ipv4Addr;
 
 /// `DHCPv4` option codes.
-pub(crate) mod option {
-    pub const SUBNET_MASK: u8 = 1;
-    pub const ROUTER: u8 = 3;
-    pub const DNS_SERVER: u8 = 6;
-    pub const REQUESTED_IP: u8 = 50;
-    pub const LEASE_TIME: u8 = 51;
-    pub const MESSAGE_TYPE: u8 = 53;
-    pub const SERVER_ID: u8 = 54;
-    pub const PARAM_REQUEST_LIST: u8 = 55;
-    pub const END: u8 = 255;
-}
+pub(crate) mod option;
 
 /// `DHCPv4` message type values.
-pub(crate) mod message_type {
-    pub const DISCOVER: u8 = 1;
-    pub const OFFER: u8 = 2;
-    pub const REQUEST: u8 = 3;
-    pub const ACK: u8 = 5;
-    pub const NAK: u8 = 6;
-}
+pub(crate) mod message_type;
 
 /// RFC 2131 fixed-header field offsets.
-pub(crate) mod field {
-    pub const OP: usize = 0;
-    pub const HTYPE: usize = 1;
-    pub const HLEN: usize = 2;
-    pub const HOPS: usize = 3;
-    pub const XID: usize = 4;
-    pub const FLAGS: usize = 10;
-    pub const YIADDR: usize = 16;
-    pub const CHADDR: usize = 28;
-    pub const HEADER_LEN: usize = 236;
-}
+pub(crate) mod field;
 
 pub(crate) const MAGIC_COOKIE: [u8; 4] = [99, 130, 83, 99];
 pub(crate) const BOOTREQUEST: u8 = 1;
@@ -104,6 +78,7 @@ pub(crate) fn build_request_message(
     msg.extend(&assigned_ip.octets());
     append_param_request_list(&mut msg);
     msg.push(option::END);
+
     msg
 }
 
@@ -113,6 +88,7 @@ pub(crate) fn build_unicast_header(xid: u32, mac: [u8; 6]) -> Vec<u8> {
     if let Some(slot) = buf.get_mut(field::FLAGS..field::FLAGS + 2) {
         slot.copy_from_slice(&0_u16.to_be_bytes());
     }
+
     buf
 }
 
@@ -164,6 +140,7 @@ mod tests {
         if let Some(slot) = pkt.get_mut(field::YIADDR..field::YIADDR + 4) {
             slot.copy_from_slice(&yiaddr_val.octets());
         }
+
         pkt
     }
 

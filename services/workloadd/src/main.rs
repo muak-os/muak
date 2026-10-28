@@ -41,6 +41,10 @@ use tonic::transport::Server;
     clippy::too_many_lines,
     reason = "generated protobuf code"
 )]
+#[expect(
+    clippy::inline_modules,
+    reason = "generated protobuf modules are included inline"
+)]
 pub mod proto {
     pub mod vm {
         tonic::include_proto!("muak.vm.v1");

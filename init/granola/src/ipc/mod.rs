@@ -14,6 +14,7 @@ pub mod process;
     clippy::doc_paragraphs_missing_punctuation,
     clippy::empty_structs_with_brackets,
     clippy::excessive_nesting,
+    clippy::inline_modules,
     clippy::module_name_repetitions,
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,

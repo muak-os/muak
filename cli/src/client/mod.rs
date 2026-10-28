@@ -1,3 +1,8 @@
+#![expect(
+    clippy::inline_modules,
+    reason = "generated protobuf modules are included inline"
+)]
+
 mod connector;
 pub mod upload;
 
