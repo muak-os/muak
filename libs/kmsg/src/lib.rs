@@ -292,9 +292,7 @@ mod tests {
     }
 
     fn temp_kmsg_file(name: &str) -> PathBuf {
-        let mut path = std::env::temp_dir();
-        path.push(format!("kmsg-{name}-{}", std::process::id()));
-        path
+        std::env::temp_dir().join(format!("kmsg-{name}-{}", std::process::id()))
     }
 
     fn prepare_output_file(name: &str) -> PathBuf {
@@ -625,8 +623,8 @@ mod tests {
     fn falls_back_cleanly_when_open_fails() {
         // ARRANGE
         let _guard = env_lock().lock().expect("env lock must not be poisoned");
-        let mut missing_path = std::env::temp_dir();
-        missing_path.push(format!("missing-dir-{}/kmsg", std::process::id()));
+        let missing_path =
+            std::env::temp_dir().join(format!("missing-dir-{}/kmsg", std::process::id()));
         let _path_guard = KmsgPathGuard::set(&missing_path);
 
         // ACT
