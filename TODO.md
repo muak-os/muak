@@ -1,9 +1,18 @@
 # TODO
 
+- Harden CI with supply chain security of the CI itself
+
+- Remove duplicated console.rs in wizard, koci & cli and consolidate in tui.
+- Remove Tracker & Writer in each cli too
+
+- Nighly/edge images ready for usage, leveraging channels
+
 - Support RISC-V architecture
   - https://github.com/rust-lang/rust/issues/148920
   - https://github.com/llvm/llvm-project/pull/148045
   - https://github.com/MicrosoftDocs/win32/pull/2075
+
+- Automatically bump toolchain in all organization on release
 
 - Fix secureboot not enrolling properly in edk2 on real hardware.
 
@@ -20,16 +29,20 @@
   - Add extensions to the CLI itself?
   - Allow for `muakctl update --overlays` to update overlays files (full reboot instead of kexec?)
   - E2E encryption between CLI and the daemon?
+  - Add a way to see performance (cpu/ram/disk/network)
 
 - Enhance `wizard`:
   - Parallel preflights
+  - Rework erofs creation to prevent double pass
+  - Deadlock guard for arbitrary eStargz, enforce expected asset order in the demux
   - Allow for easier support of cloud providers like AWS, GCP etc with correct format & codec output.
   - Add SBOM precursor generation for each artifact
+  - Add VEX metadata generation for each artifact
   - Allow customizing kernel parameters?
   - Bring your own secure boot keys?
   - Parametize secure boot (for easier platform support)
 
-- Enchance `koci`:
+- Enhance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
 
@@ -40,7 +53,7 @@
 - Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
 - Deterministic simulation tests?
 
-- Enchance `workloadd`:
+- Enhance `workloadd`:
   - Allow ISO images for VMS
   - Rework commands to be pass through to the hypervisor
   - Make it an extension
@@ -56,7 +69,7 @@
     - AArch64: `aarch64-unknown-none-softfloat`
     - RISC-V 64: `riscv64gc-unknown-none-elf`
 
-- Orchestrator for multipe node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
+- Orchestrator for multiple node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
   - WireGuard tunnel?
   - Service accounts based on auth TOFU we have.
 
