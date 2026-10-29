@@ -4,7 +4,7 @@
 #   - just
 #   - rustup
 #   - cargo-nextest, cargo-hack, cargo-llvm-cov, cargo-flamegraph, cargo-deny, typos
-#   - git, bash, GNU coreutils, GNU grep, sed, tr
+#   - git, bash, GNU coreutils, GNU grep, jq, sed, tr
 #   - podman, or docker with the buildx plugin
 #   - qemu-system-x86_64, qemu-img and KVM access (start, e2e)
 #   - Linux perf (flame)
@@ -319,13 +319,13 @@ test *pkgs:
     export RUSTFLAGS="${RUSTFLAGS:-} -D warnings"
     printf "{{ cyan }}Running tests{{ reset }}\n"
     just _test-run "cargo nextest run --locked --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
-    printf "{{ cyan }}Running doctests{{ reset }}\n"
-    if [ -n "{{ pkgs }}" ]; then
-        for pkg in {{ pkgs }}; do
-            cargo test --doc --locked -p "$pkg"
-        done
+    doc_args=$(cargo metadata --locked --no-deps --format-version 1 \
+        | jq -r '($ARGS.positional) as $s | .packages[] | select(any(.targets[]; .kind[] == "lib") and (if $s == [] then .name != "e2e" else .name | IN($s[]) end)) | "-p \(.name)"' --args {{ pkgs }})
+    if [ -n "$doc_args" ]; then
+        printf "{{ cyan }}Running doctests{{ reset }}\n"
+        xargs cargo test --doc --locked <<< "$doc_args"
     else
-        cargo test --doc --locked --workspace --exclude e2e
+        printf "{{ cyan }}Skipping doctests{{ reset }}\n"
     fi
 
 # Build documentation and deny rustdoc warnings.
