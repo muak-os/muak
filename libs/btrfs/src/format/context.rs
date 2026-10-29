@@ -96,15 +96,6 @@ const BTRFS_MIXED_BACKREF_REV: u64 = 1;
 /// Superblock written flag.
 const BTRFS_SUPER_FLAG_WRITTEN: u64 = 1 << 0;
 
-/// Superblock mirror offset for the requested mirror index.
-const fn btrfs_sb_offset(mirror: u32) -> u64 {
-    match mirror {
-        0 => BTRFS_SUPER_INFO_OFFSET,
-        1 => 0x0400_0000,
-        _ => 0x0040_0000_0000,
-    }
-}
-
 /// Context for creating a btrfs filesystem.
 ///
 /// This struct orchestrates the creation of all btrfs structures
@@ -449,6 +440,15 @@ impl MkfsContext {
     pub fn sync_device(&mut self) -> Result<()> {
         self.device.sync_all()?;
         Ok(())
+    }
+}
+
+/// Superblock mirror offset for the requested mirror index.
+const fn btrfs_sb_offset(mirror: u32) -> u64 {
+    match mirror {
+        0 => BTRFS_SUPER_INFO_OFFSET,
+        1 => 0x0400_0000,
+        _ => 0x0040_0000_0000,
     }
 }
 

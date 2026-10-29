@@ -55,6 +55,11 @@ impl ShortNames {
     }
 }
 
+struct Split<'a> {
+    root: &'a [u8],
+    ext: &'a [u8],
+}
+
 /// Returns whether `alias` is the plain 8.3 form of `name`.
 pub(crate) fn fits(alias: &[u8; NAME_LEN], name: &str) -> bool {
     identity(name).is_some_and(|identity| identity == *alias)
@@ -149,11 +154,6 @@ fn sanitize(byte: u8) -> u8 {
     } else {
         b'_'
     }
-}
-
-struct Split<'a> {
-    root: &'a [u8],
-    ext: &'a [u8],
 }
 
 fn split(upper: &[u8]) -> Split<'_> {

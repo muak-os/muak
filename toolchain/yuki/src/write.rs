@@ -159,6 +159,18 @@ mod tests {
     use crate::prepare;
     use crate::probe;
 
+    struct ErrorWriter;
+
+    impl Write for ErrorWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected write failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
         let end = offset.checked_add(4).unwrap();
         buf[offset..end].copy_from_slice(&value.to_le_bytes());
@@ -272,18 +284,6 @@ mod tests {
         )?;
 
         Ok((output, sections))
-    }
-
-    struct ErrorWriter;
-
-    impl Write for ErrorWriter {
-        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("injected write failure"))
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
     }
 
     fn prepare_uki(

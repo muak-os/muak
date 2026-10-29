@@ -7,8 +7,8 @@ mod compress;
 mod cpio;
 pub mod error;
 
-/// An archive entry to include in a CPIO archive.
-pub type Entry = archive::Entry;
-
 /// Default zstd compression level.
 pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 6;
+
+/// An archive entry to include in a CPIO archive.
+pub type Entry = archive::Entry;

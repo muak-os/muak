@@ -5,9 +5,6 @@ use core::fmt;
 use kata::schema::view::{EntryRef, Role};
 use sha2::{Digest as _, Sha256};
 
-const PROFILE_API_VERSION: &str = "muak.dev/profile/v1-beta";
-const RESOLUTION_API_VERSION: &str = "muak.dev/resolution/v1-beta";
-
 macro_rules! id_type {
     ($name:ident, $doc:literal) => {
         /// Content-addressed identity type.
@@ -26,6 +23,9 @@ macro_rules! id_type {
         }
     };
 }
+
+const PROFILE_API_VERSION: &str = "muak.dev/profile/v1-beta";
+const RESOLUTION_API_VERSION: &str = "muak.dev/resolution/v1-beta";
 
 id_type!(
     ProfileId,

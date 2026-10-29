@@ -79,14 +79,6 @@ impl Reporter for Tracked {
     }
 }
 
-fn building(artifacts: usize) -> String {
-    if artifacts == 1 {
-        "Building 1 artifact".to_owned()
-    } else {
-        format!("Building {artifacts} artifacts")
-    }
-}
-
 // Bytes written so far to each artifact target.
 #[derive(Default)]
 struct State {
@@ -108,6 +100,14 @@ impl State {
             self.artifacts.push((artifact, current));
             self.current = self.current.saturating_add(current);
         }
+    }
+}
+
+fn building(artifacts: usize) -> String {
+    if artifacts == 1 {
+        "Building 1 artifact".to_owned()
+    } else {
+        format!("Building {artifacts} artifacts")
     }
 }
 

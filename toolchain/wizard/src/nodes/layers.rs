@@ -29,10 +29,10 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
+static STAGED: Mutex<Option<Staged>> = Mutex::new(None);
+
 /// Payloads staged by preflight for [`run`]: one pull and one EROFS plan per build instead of two.
 type Staged = Vec<(mumi::payload::Payload, mumi::payload::Planned)>;
-
-static STAGED: Mutex<Option<Staged>> = Mutex::new(None);
 
 /// One layer payload.
 pub(crate) struct Layer {

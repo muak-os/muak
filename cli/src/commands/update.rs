@@ -19,6 +19,58 @@ use crate::client::{
 };
 use crate::console::Console;
 
+const UNKNOWN_WARN_THRESHOLD: u32 = 30;
+
+enum PollOutcome {
+    Done,
+    Failed(String),
+    Pending,
+    Unknown,
+    Unreachable(String),
+}
+
+struct PollFeedback {
+    unreachable: u32,
+    unknown: u32,
+    unknown_warned: bool,
+}
+
+impl PollFeedback {
+    fn on_pending(&mut self, steps: &Steps) {
+        if self.unreachable > 0 {
+            steps.start(format!(
+                "Update pending (reachable again after {} failed poll(s))",
+                self.unreachable
+            ));
+        }
+        self.unreachable = 0;
+        self.unknown = 0;
+        self.unknown_warned = false;
+    }
+
+    fn on_unknown(&mut self, steps: &Steps, update_id: &str) {
+        self.unreachable = 0;
+        self.unknown = self.unknown.saturating_add(1);
+        if self.unknown >= UNKNOWN_WARN_THRESHOLD && !self.unknown_warned {
+            self.unknown_warned = true;
+            steps.start(format!(
+                "Server does not recognize update {update_id}; it may have rolled \
+                 back without a journal entry. Check 'muakctl rollback history'."
+            ));
+        }
+    }
+
+    fn on_unreachable(&mut self, steps: &Steps, err: &str) {
+        self.unreachable = self.unreachable.saturating_add(1);
+        if self.unreachable == 1 || self.unreachable.is_multiple_of(5) {
+            steps.start(format!(
+                "Waiting for system ({} failed polls): {err}",
+                self.unreachable
+            ));
+        }
+    }
+}
+
 /// Handles the update command.
 pub async fn handle(
     ctx: &ServerContext,
@@ -123,58 +175,6 @@ pub async fn handle(
     steps.start("Waiting for system to come back online...");
 
     wait_for_update_completion(ctx, &update_id, steps).await
-}
-
-enum PollOutcome {
-    Done,
-    Failed(String),
-    Pending,
-    Unknown,
-    Unreachable(String),
-}
-
-const UNKNOWN_WARN_THRESHOLD: u32 = 30;
-
-struct PollFeedback {
-    unreachable: u32,
-    unknown: u32,
-    unknown_warned: bool,
-}
-
-impl PollFeedback {
-    fn on_pending(&mut self, steps: &Steps) {
-        if self.unreachable > 0 {
-            steps.start(format!(
-                "Update pending (reachable again after {} failed poll(s))",
-                self.unreachable
-            ));
-        }
-        self.unreachable = 0;
-        self.unknown = 0;
-        self.unknown_warned = false;
-    }
-
-    fn on_unknown(&mut self, steps: &Steps, update_id: &str) {
-        self.unreachable = 0;
-        self.unknown = self.unknown.saturating_add(1);
-        if self.unknown >= UNKNOWN_WARN_THRESHOLD && !self.unknown_warned {
-            self.unknown_warned = true;
-            steps.start(format!(
-                "Server does not recognize update {update_id}; it may have rolled \
-                 back without a journal entry. Check 'muakctl rollback history'."
-            ));
-        }
-    }
-
-    fn on_unreachable(&mut self, steps: &Steps, err: &str) {
-        self.unreachable = self.unreachable.saturating_add(1);
-        if self.unreachable == 1 || self.unreachable.is_multiple_of(5) {
-            steps.start(format!(
-                "Waiting for system ({} failed polls): {err}",
-                self.unreachable
-            ));
-        }
-    }
 }
 
 async fn wait_for_update_completion(

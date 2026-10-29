@@ -40,6 +40,9 @@ mod tests {
     const MODULE_FILE_CONTEXTS: &[u8] = b"/lib/modules    system_u:object_r:modules_t:s0\n\
                                           /lib/modules/.* system_u:object_r:modules_t:s0\n";
 
+    /// Release line the fixture catalogs publish.
+    const RELEASE: &str = "v1.2.3";
+
     struct TestImages {
         installer: FixtureImage,
         stub: FixtureImage,
@@ -71,6 +74,11 @@ mod tests {
     }
 
     /// One registry, one wizard config, and one cache per test process.
+    struct BaseUki {
+        bytes: Vec<u8>,
+        sections: Vec<uki::measure::MeasuredSection>,
+    }
+
     fn env() -> &'static Env {
         static ENV: OnceLock<Env> = OnceLock::new();
         ENV.get_or_init(|| {
@@ -119,9 +127,6 @@ mod tests {
         )
         .expect("warm cache pull");
     }
-
-    /// Release line the fixture catalogs publish.
-    const RELEASE: &str = "v1.2.3";
 
     fn install_routes(routes: &mut Routes, images: &TestImages) {
         install_image(routes, "installer", "latest", &images.installer);
@@ -392,11 +397,6 @@ digest = "{unsorted}"
             CustomizationSpec::new(Vec::new()).expect("empty customization"),
             KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
         )
-    }
-
-    struct BaseUki {
-        bytes: Vec<u8>,
-        sections: Vec<uki::measure::MeasuredSection>,
     }
 
     fn base_uki() -> &'static BaseUki {

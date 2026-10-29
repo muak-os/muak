@@ -1,3 +1,5 @@
+pub mod cli;
+
 use std::io::Write;
 use std::path::Path;
 
@@ -5,8 +7,6 @@ use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 use erofs::source;
 use mumi::rootfs;
-
-pub mod cli;
 
 fn main() -> Result<()> {
     run(&cli::Args::parse())

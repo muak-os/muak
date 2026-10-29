@@ -74,6 +74,12 @@ impl Credentials {
     }
 }
 
+#[derive(Deserialize)]
+struct TokenResponse {
+    token: Option<String>,
+    access_token: Option<String>,
+}
+
 /// Resolve the `Authorization` header value for requests against one image.
 ///
 /// # Errors
@@ -181,12 +187,6 @@ fn bearer_token_url(
     }
 
     Ok(url)
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    token: Option<String>,
-    access_token: Option<String>,
 }
 
 fn parse_token_response(body: &[u8], registry: &str) -> Result<String> {

@@ -18,32 +18,6 @@ use super::proto::auth::{
 };
 use crate::secrets::SECRETS_DIR;
 
-fn pending_dir() -> PathBuf {
-    Path::new(SECRETS_DIR).join("pending")
-}
-
-fn staging_dir() -> PathBuf {
-    Path::new(SECRETS_DIR).join("staging")
-}
-
-fn ca_cert_path() -> PathBuf {
-    Path::new(SECRETS_DIR).join("ca.crt")
-}
-
-fn epoch_seconds_string(timestamp: std::time::SystemTime) -> String {
-    timestamp
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or_default(|duration| duration.as_secs().to_string())
-}
-
-fn ca_key_path() -> PathBuf {
-    Path::new(SECRETS_DIR).join("ca.key")
-}
-
-pub fn service() -> AuthServiceServer<ServiceImpl> {
-    AuthServiceServer::new(ServiceImpl)
-}
-
 pub struct ServiceImpl;
 
 #[tonic::async_trait]
@@ -256,6 +230,32 @@ impl AuthService for ServiceImpl {
 
         Ok(Response::new(AckEnrollmentResponse {}))
     }
+}
+
+fn pending_dir() -> PathBuf {
+    Path::new(SECRETS_DIR).join("pending")
+}
+
+fn staging_dir() -> PathBuf {
+    Path::new(SECRETS_DIR).join("staging")
+}
+
+fn ca_cert_path() -> PathBuf {
+    Path::new(SECRETS_DIR).join("ca.crt")
+}
+
+fn epoch_seconds_string(timestamp: std::time::SystemTime) -> String {
+    timestamp
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or_default(|duration| duration.as_secs().to_string())
+}
+
+fn ca_key_path() -> PathBuf {
+    Path::new(SECRETS_DIR).join("ca.key")
+}
+
+pub fn service() -> AuthServiceServer<ServiceImpl> {
+    AuthServiceServer::new(ServiceImpl)
 }
 
 /// Returns the path for a pending CSR.

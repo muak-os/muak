@@ -5,14 +5,15 @@ mod config;
 mod model;
 mod zstd;
 
-pub type Compression = config::Compression;
-pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = config::DEFAULT_ZSTD_COMPRESSION_LEVEL;
-pub type CompressedLayout = model::CompressedLayout;
-pub(super) const CHUNK_MAX: usize = chunk::CHUNK_MAX;
-
 use std::io::Read;
 
 use crate::error::{ErofsError, Result};
+
+pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = config::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+pub(super) const CHUNK_MAX: usize = chunk::CHUNK_MAX;
+
+pub type Compression = config::Compression;
+pub type CompressedLayout = model::CompressedLayout;
 
 /// Measure file data into layout-only pclusters without retaining bytes (pass 1).
 pub(crate) fn compress_file(

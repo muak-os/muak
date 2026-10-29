@@ -1,17 +1,17 @@
 //! `DHCPv4` lease types, state machine, and expiry calculation.
 
+pub mod client;
+pub(crate) mod codec;
+pub(crate) mod framing;
+pub mod manager;
+pub(crate) mod packet;
+
 use core::fmt;
 use core::net::Ipv4Addr;
 use core::time::Duration;
 use std::time::SystemTime;
 
 use crate::statemachine::StateMachine;
-
-pub mod client;
-pub(crate) mod codec;
-pub(crate) mod framing;
-pub mod manager;
-pub(crate) mod packet;
 
 /// RFC 2131 DHCP client state machine phases.
 #[derive(Debug, Clone, PartialEq)]

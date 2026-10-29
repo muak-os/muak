@@ -6,9 +6,15 @@ pub mod error;
 mod user;
 
 // Include the generated RBAC rules from build.rs
-include!(concat!(env!("OUT_DIR"), "/rbac_rules.rs"));
+#[expect(clippy::inline_modules, reason = "generated RBAC rules")]
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/rbac_rules.rs"));
+}
 
 use error::RbacError;
+#[cfg(test)]
+use generated::{KNOWN_METHODS, MAINTENANCE_METHODS, UNAUTHENTICATED_METHODS};
+pub(crate) use generated::{MethodRequirement, method_permission};
 use user::AuthenticatedUser;
 
 /// Checks if a request is authorized based on the path and client fingerprint.

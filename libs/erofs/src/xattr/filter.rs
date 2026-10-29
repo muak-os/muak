@@ -1,10 +1,10 @@
 //! Name-filter computation for inline xattr lookups.
 
+use super::hash::xxhash32;
+
 pub(super) const XATTR_FILTER_SEED: u32 = 0x25BB_E08F;
 const XATTR_FILTER_DEFAULT: u32 = u32::MAX;
 const XATTR_FILTER_BITS: u32 = 32;
-
-use super::hash::xxhash32;
 
 /// Compute the xattr name filter bloom-bit for an xattr.
 pub(super) fn compute_name_filter(base_index: u8, name_suffix: &[u8]) -> u32 {

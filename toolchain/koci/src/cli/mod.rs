@@ -1,15 +1,5 @@
 //! Command-line interface for koci.
 
-use std::ffi::OsString;
-use std::io;
-use std::path::Path;
-
-use anyhow::{Context as _, Result};
-use clap::{Parser, Subcommand};
-use oci::arch::Arch;
-use tui::output::Flags;
-use tui::style;
-
 mod console;
 mod copy;
 mod digest;
@@ -19,7 +9,16 @@ mod push;
 mod repack;
 mod sign;
 
+use std::ffi::OsString;
+use std::io;
+use std::path::Path;
+
+use anyhow::{Context as _, Result};
+use clap::{Parser, Subcommand};
 use console::Console;
+use oci::arch::Arch;
+use tui::output::Flags;
+use tui::style;
 
 // Top-level CLI arguments.
 #[derive(Parser, Debug)]

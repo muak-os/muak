@@ -19,9 +19,6 @@ use header::Header;
 use metadata::Metadata;
 use zeroize::Zeroize as _;
 
-/// Represents a TPM2 token stored in the LUKS2 JSON metadata.
-pub type Tpm2Token = metadata::Tpm2Token;
-
 const BINARY_HEADER_SIZE: usize = 4096;
 const BINARY_HEADER_SIZE_U64: u64 = 4096;
 const CIPHER_SPEC: &str = "aes-xts-plain64";
@@ -30,6 +27,9 @@ const DEFAULT_JSON_SIZE: u64 = 12288;
 const DEFAULT_JSON_SIZE_USIZE: usize = 12288;
 const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 0x8000;
 const VOLUME_KEY_SIZE: usize = 64;
+
+/// Represents a TPM2 token stored in the LUKS2 JSON metadata.
+pub type Tpm2Token = metadata::Tpm2Token;
 
 /// Formats a block device with LUKS2 encryption.
 ///

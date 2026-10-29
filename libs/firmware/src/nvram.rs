@@ -12,11 +12,14 @@ pub const EFI_IMAGE_SECURITY_DATABASE: Guid = guid!("d719b2cb-3d3a-4596-a3bc-dad
 
 /// Storage for UEFI firmware variables.
 pub trait VariableStore {
-    /// Returns whether the system was booted through EFI firmware.
-    fn is_boot(&self) -> bool;
+    /// Returns whether a firmware variable exists.
+    fn exists(&self, id: &Id) -> bool;
 
     /// Returns whether firmware variable storage is currently available.
     fn is_available(&self) -> bool;
+
+    /// Returns whether the system was booted through EFI firmware.
+    fn is_boot(&self) -> bool;
 
     /// Prepares firmware variable storage and reports whether it is ready.
     ///
@@ -24,9 +27,6 @@ pub trait VariableStore {
     ///
     /// Returns an error if the store cannot prepare firmware variable storage.
     fn prepare(&self) -> Result<bool>;
-
-    /// Returns whether a firmware variable exists.
-    fn exists(&self, id: &Id) -> bool;
 
     /// Reads a firmware variable payload without platform storage metadata.
     ///
@@ -41,30 +41,6 @@ pub trait VariableStore {
     ///
     /// Returns an error if the store cannot write the firmware variable.
     fn write(&self, update: Update<'_>) -> Result<()>;
-}
-
-/// Reads a firmware variable from `store` and decodes it as a UTF-16 string.
-///
-/// # Errors
-///
-/// Returns an error if the store cannot read the firmware variable.
-pub fn read_string<S: VariableStore>(store: &S, id: &Id) -> Result<Option<String>> {
-    Ok(store.read(id)?.map(|bytes| decode_string(&bytes)))
-}
-
-fn decode_string(bytes: &[u8]) -> String {
-    let mut units: Vec<u16> = bytes
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|chunk| u16::from_le_bytes(*chunk))
-        .collect();
-
-    while units.last() == Some(&0) {
-        units.pop();
-    }
-
-    String::from_utf16_lossy(&units)
 }
 
 /// Identifies a UEFI firmware variable.
@@ -129,6 +105,30 @@ impl<'a> Update<'a> {
     pub const fn data(&self) -> &'a [u8] {
         self.data
     }
+}
+
+/// Reads a firmware variable from `store` and decodes it as a UTF-16 string.
+///
+/// # Errors
+///
+/// Returns an error if the store cannot read the firmware variable.
+pub fn read_string<S: VariableStore>(store: &S, id: &Id) -> Result<Option<String>> {
+    Ok(store.read(id)?.map(|bytes| decode_string(&bytes)))
+}
+
+fn decode_string(bytes: &[u8]) -> String {
+    let mut units: Vec<u16> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| u16::from_le_bytes(*chunk))
+        .collect();
+
+    while units.last() == Some(&0) {
+        units.pop();
+    }
+
+    String::from_utf16_lossy(&units)
 }
 
 #[cfg(test)]

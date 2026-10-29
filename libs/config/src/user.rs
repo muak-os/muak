@@ -64,20 +64,6 @@ impl PendingEnrollment {
     }
 }
 
-fn config_dir() -> Result<PathBuf> {
-    let home = std::env::var("HOME").context("HOME environment variable not set")?;
-
-    Ok(PathBuf::from(home).join(".config/muak"))
-}
-
-fn config_file_path() -> Result<PathBuf> {
-    if let Ok(path) = std::env::var("MUAK_CONFIG") {
-        return Ok(PathBuf::from(path));
-    }
-
-    Ok(config_dir()?.join(CONFIG_FILE))
-}
-
 impl ClientConfig {
     /// Load config from disk. Returns empty config if file doesn't exist.
     ///
@@ -274,6 +260,20 @@ impl ServerContext {
     pub fn has_credentials(&self) -> bool {
         self.ca.is_some() && self.crt.is_some() && self.key.is_some()
     }
+}
+
+fn config_dir() -> Result<PathBuf> {
+    let home = std::env::var("HOME").context("HOME environment variable not set")?;
+
+    Ok(PathBuf::from(home).join(".config/muak"))
+}
+
+fn config_file_path() -> Result<PathBuf> {
+    if let Ok(path) = std::env::var("MUAK_CONFIG") {
+        return Ok(PathBuf::from(path));
+    }
+
+    Ok(config_dir()?.join(CONFIG_FILE))
 }
 
 fn resolve_name_collision(existing: &HashMap<String, ServerContext>, base_name: &str) -> String {

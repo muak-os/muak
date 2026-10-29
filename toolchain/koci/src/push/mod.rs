@@ -1,5 +1,8 @@
 //! OCI image push.
 
+mod entry;
+mod layer;
+
 use std::path::PathBuf;
 
 use bytes::Bytes;
@@ -15,9 +18,6 @@ use crate::image::{config, manifest, upload};
 use crate::progress::{ByteSample, Event, Operation, Phase, Reporter, Unit};
 use crate::registry;
 use crate::runtime;
-
-mod entry;
-mod layer;
 
 /// One file packed into a pushed image, created via [`Entry::parse`].
 #[derive(Debug, Clone)]
@@ -35,6 +35,26 @@ pub struct Pushed {
     pub digest: String,
     /// Tags the manifest was published under.
     pub tags: Vec<String>,
+}
+
+struct UploadReporter<'a>(&'a dyn Reporter);
+
+impl BlobProgress for UploadReporter<'_> {
+    fn progress(&self, sent: u64, total: u64) {
+        self.0.bytes(ByteSample {
+            phase: Phase::Upload,
+            index: None,
+            current: sent,
+            total,
+        });
+    }
+
+    fn skipped(&self, digest: &str) {
+        self.0.report(Event::ItemSkipped {
+            phase: Phase::Upload,
+            digest,
+        });
+    }
 }
 
 /// Pack `entries` into one uncompressed tar layer and push a scratch image.
@@ -92,26 +112,6 @@ pub(crate) async fn pack(
     let digest = format!("sha256:{}", sha256_hex(&bytes));
 
     Ok((bytes, digest))
-}
-
-struct UploadReporter<'a>(&'a dyn Reporter);
-
-impl BlobProgress for UploadReporter<'_> {
-    fn progress(&self, sent: u64, total: u64) {
-        self.0.bytes(ByteSample {
-            phase: Phase::Upload,
-            index: None,
-            current: sent,
-            total,
-        });
-    }
-
-    fn skipped(&self, digest: &str) {
-        self.0.report(Event::ItemSkipped {
-            phase: Phase::Upload,
-            digest,
-        });
-    }
 }
 
 async fn push_files(

@@ -29,6 +29,28 @@ pub struct State {
     pub pk_present: bool,
 }
 
+/// Secure Boot enforcement posture reported by firmware.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    /// Firmware is enforcing Secure Boot.
+    Enabled,
+    /// Keys are enrolled but enforcement is not active yet.
+    Pending,
+    /// No keys are enrolled and enforcement is off.
+    Disabled,
+}
+
+/// Disagreement between the configured intent and the firmware state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mismatch {
+    /// Configuration enables Secure Boot but no Platform Key is enrolled.
+    NotEnrolled,
+    /// Configuration disables Secure Boot but a Platform Key is still enrolled.
+    KeysRemain,
+    /// Configuration disables Secure Boot but firmware still enforces it.
+    EnforcingWhileDisabled,
+}
+
 /// Reads Secure Boot state from the active variable store.
 ///
 /// # Errors
@@ -82,28 +104,6 @@ pub fn setup_mode<S: VariableStore>(store: &S) -> Result<bool> {
 /// Returns an error if the Platform Key variable cannot be read.
 pub fn pk_present<S: VariableStore>(store: &S) -> Result<bool> {
     Ok(store.read(&PK)?.is_some_and(|data| !data.is_empty()))
-}
-
-/// Secure Boot enforcement posture reported by firmware.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
-    /// Firmware is enforcing Secure Boot.
-    Enabled,
-    /// Keys are enrolled but enforcement is not active yet.
-    Pending,
-    /// No keys are enrolled and enforcement is off.
-    Disabled,
-}
-
-/// Disagreement between the configured intent and the firmware state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mismatch {
-    /// Configuration enables Secure Boot but no Platform Key is enrolled.
-    NotEnrolled,
-    /// Configuration disables Secure Boot but a Platform Key is still enrolled.
-    KeysRemain,
-    /// Configuration disables Secure Boot but firmware still enforces it.
-    EnforcingWhileDisabled,
 }
 
 /// Derives the firmware Secure Boot posture from `state`.

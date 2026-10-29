@@ -34,6 +34,18 @@ const DM_STATE: &str = disk::Role::State.dm_name();
 const DM_DATA: &str = disk::Role::Data.dm_name();
 
 /// Installs Muak to the disks assigned in `config`, with the given configuration.
+struct PkiResult {
+    client_result: InstallResult,
+    auth_config: config::auth::State,
+    server_pki: pki::Server,
+}
+
+struct PartitionInfo {
+    efi: String,
+    state: String,
+    data: String,
+}
+
 pub async fn run(
     force: bool,
     config: &system::Config,
@@ -151,12 +163,6 @@ async fn enroll_secureboot_keys(
     Ok(())
 }
 
-struct PkiResult {
-    client_result: InstallResult,
-    auth_config: config::auth::State,
-    server_pki: pki::Server,
-}
-
 async fn generate_keys(
     admin_csr_pem: &str,
     progress: &mpsc::Sender<InstallProgress>,
@@ -263,12 +269,6 @@ fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Pro
         customization,
         booted.kernel().clone(),
     ))
-}
-
-struct PartitionInfo {
-    efi: String,
-    state: String,
-    data: String,
 }
 
 async fn partition_disks(

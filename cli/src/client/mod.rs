@@ -6,11 +6,6 @@
 mod connector;
 pub mod upload;
 
-use anyhow::{Context as _, Result, bail};
-use config::user::ServerContext;
-use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
-
 // The modules below contain machine-generated protobuf/tonic code, so the
 // strict workspace lints are allowed here rather than in the generated output.
 #[allow(
@@ -27,6 +22,7 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod process_service {
@@ -47,6 +43,7 @@ pub mod process_service {
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod vm_service {
@@ -67,6 +64,7 @@ pub mod vm_service {
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod provision_service {
@@ -87,6 +85,7 @@ pub mod provision_service {
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod auth_service {
@@ -107,6 +106,7 @@ pub mod auth_service {
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod security_service {
@@ -127,6 +127,7 @@ pub mod security_service {
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod log_service {
@@ -147,11 +148,17 @@ pub mod log_service {
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
+    clippy::arbitrary_source_item_ordering,
     reason = "generated protobuf code"
 )]
 pub mod version_service {
     tonic::include_proto!("muak.version.v1");
 }
+
+use anyhow::{Context as _, Result, bail};
+use config::user::ServerContext;
+use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
 /// Connects using a server context with mTLS.
 pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {

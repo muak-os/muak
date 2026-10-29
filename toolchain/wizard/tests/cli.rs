@@ -3,12 +3,12 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
+    const PROFILE_TOML: &[u8] =
+        b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []";
+
     fn wizard_bin() -> PathBuf {
         PathBuf::from(env!("CARGO_BIN_EXE_wizard"))
     }
-
-    const PROFILE_TOML: &[u8] =
-        b"[kernel]\nsource = \"muak-os/linux\"\n[customization]\nextensions = []";
 
     #[test]
     fn cli_help_exits_successfully() {

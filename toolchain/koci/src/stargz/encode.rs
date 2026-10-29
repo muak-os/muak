@@ -48,6 +48,23 @@ impl Uncompressed {
 /// # Errors
 ///
 /// Returns an error when the header metadata is invalid or gzip writing fails.
+struct HashingRead<'a, R: Read> {
+    inner: R,
+    digest: &'a mut Sha256,
+    uncompressed: &'a mut Uncompressed,
+}
+
+impl<R: Read> Read for HashingRead<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let copied = self.inner.read(buf)?;
+        let chunk = buf.get(..copied).unwrap_or(buf);
+        self.digest.update(chunk);
+        self.uncompressed.update(chunk);
+
+        Ok(copied)
+    }
+}
+
 pub(crate) fn emit(
     bytes: &mut Vec<u8>,
     uncompressed: &mut Uncompressed,
@@ -145,21 +162,4 @@ fn pad_member(
     io::copy(&mut zeros.as_slice(), encoded).map_err(KociError::IoError)?;
 
     Ok(())
-}
-
-struct HashingRead<'a, R: Read> {
-    inner: R,
-    digest: &'a mut Sha256,
-    uncompressed: &'a mut Uncompressed,
-}
-
-impl<R: Read> Read for HashingRead<'_, R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let copied = self.inner.read(buf)?;
-        let chunk = buf.get(..copied).unwrap_or(buf);
-        self.digest.update(chunk);
-        self.uncompressed.update(chunk);
-
-        Ok(copied)
-    }
 }

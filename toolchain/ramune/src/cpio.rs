@@ -146,19 +146,6 @@ pub(crate) fn usize_to_u32(value: usize, context: &str) -> Result<u32> {
 mod tests {
     use super::*;
 
-    fn run_with_data(data: &[u8]) -> Vec<u8> {
-        let mut buf = Vec::new();
-        let size = u32::try_from(data.len()).expect("data fits u32");
-        write_entry(&mut buf, 1, "init", 0o100_755, size, |w| {
-            w.write_all(data)
-                .map_err(|e| RamuneError::CpioError(format!("{e}")))
-        })
-        .expect("write_entry");
-        write_trailer(&mut buf).expect("write_trailer");
-
-        buf
-    }
-
     struct FailingWriter {
         fail_on_call: usize,
         calls: usize,
@@ -175,6 +162,19 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    fn run_with_data(data: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let size = u32::try_from(data.len()).expect("data fits u32");
+        write_entry(&mut buf, 1, "init", 0o100_755, size, |w| {
+            w.write_all(data)
+                .map_err(|e| RamuneError::CpioError(format!("{e}")))
+        })
+        .expect("write_entry");
+        write_trailer(&mut buf).expect("write_trailer");
+
+        buf
     }
 
     fn writer_entry_data<W: Write>(w: &mut W, data: &[u8]) -> Result<()> {

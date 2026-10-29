@@ -94,22 +94,6 @@ struct ServerState {
     shutdown: Arc<AtomicBool>,
 }
 
-/// Wait for a connection, returning `None` when the server must shut down.
-fn wait_for_connection(listener: &TcpListener, shutdown: &AtomicBool) -> Option<TcpStream> {
-    loop {
-        if shutdown.load(Ordering::SeqCst) {
-            return None;
-        }
-        match listener.accept() {
-            Ok((stream, _)) => return Some(stream),
-            Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(10));
-            }
-            Err(_) => return None,
-        }
-    }
-}
-
 impl ServerState {
     fn serve(self) {
         let Self {
@@ -124,6 +108,40 @@ impl ServerState {
             && let Some(stream) = wait_for_connection(&listener, &shutdown)
         {
             answer_one(stream, &layer, &manifest, &resumed_offset, &resumed_bytes);
+        }
+    }
+}
+
+struct RequestHead {
+    path: String,
+    range_value: Option<String>,
+}
+
+impl RequestHead {
+    /// The staged offset requested in the `Range` header, if any.
+    fn range_offset(&self) -> Option<usize> {
+        self.range_value
+            .as_deref()?
+            .strip_prefix("bytes=")?
+            .split('-')
+            .next()?
+            .parse()
+            .ok()
+    }
+}
+
+/// Wait for a connection, returning `None` when the server must shut down.
+fn wait_for_connection(listener: &TcpListener, shutdown: &AtomicBool) -> Option<TcpStream> {
+    loop {
+        if shutdown.load(Ordering::SeqCst) {
+            return None;
+        }
+        match listener.accept() {
+            Ok((stream, _)) => return Some(stream),
+            Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
         }
     }
 }
@@ -207,24 +225,6 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]
         stream.write_all(body).expect("write body");
     }
     stream.flush().expect("flush response");
-}
-
-struct RequestHead {
-    path: String,
-    range_value: Option<String>,
-}
-
-impl RequestHead {
-    /// The staged offset requested in the `Range` header, if any.
-    fn range_offset(&self) -> Option<usize> {
-        self.range_value
-            .as_deref()?
-            .strip_prefix("bytes=")?
-            .split('-')
-            .next()?
-            .parse()
-            .ok()
-    }
 }
 
 /// Read an HTTP request head from `stream`, extracting path and Range value.

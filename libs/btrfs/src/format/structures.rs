@@ -31,14 +31,6 @@ pub trait AsBytes: Sized {
     }
 }
 
-fn as_bytes<T>(value: &T, len: usize) -> &[u8] {
-    let ptr = ptr::from_ref(value).cast::<u8>();
-
-    // SAFETY: Callers only pass references to `repr(C, packed)` on-disk structures and a
-    // length that does not exceed the backing object size.
-    unsafe { slice::from_raw_parts(ptr, len) }
-}
-
 /// Disk key for btrfs items.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -421,6 +413,14 @@ impl Default for BtrfsSuperBlock {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn as_bytes<T>(value: &T, len: usize) -> &[u8] {
+    let ptr = ptr::from_ref(value).cast::<u8>();
+
+    // SAFETY: Callers only pass references to `repr(C, packed)` on-disk structures and a
+    // length that does not exceed the backing object size.
+    unsafe { slice::from_raw_parts(ptr, len) }
 }
 
 #[cfg(test)]

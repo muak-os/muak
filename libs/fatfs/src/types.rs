@@ -54,18 +54,6 @@ const _: () = assert!(
 /// Smallest total image size in bytes that the builder can format as FAT32.
 pub const MIN_IMAGE_SIZE: u64 = min_image_size();
 
-const fn min_image_size() -> u64 {
-    let entries_per_sector = SECTOR_SIZE.div_euclid(FAT_ENTRY_SIZE);
-    let fat_sectors = FAT32_MIN_CLUSTERS
-        .saturating_add(2)
-        .div_ceil(entries_per_sector.saturating_sub(FAT_COUNT));
-    let total_sectors = FAT32_MIN_CLUSTERS
-        .saturating_add(RESERVED_SECTORS)
-        .saturating_add(FAT_COUNT.saturating_mul(fat_sectors));
-
-    total_sectors.saturating_mul(SECTOR_SIZE)
-}
-
 /// Largest total image size in bytes the builder can format as FAT32.
 pub const MAX_IMAGE_SIZE: u64 = 0xFFFF_FFFF_u64.saturating_mul(SECTOR_SIZE);
 
@@ -141,4 +129,16 @@ pub(crate) struct ClusterMap {
     pub file_starts: Vec<u32>,
     pub file_counts: Vec<u64>,
     pub file_sizes: Vec<u64>,
+}
+
+const fn min_image_size() -> u64 {
+    let entries_per_sector = SECTOR_SIZE.div_euclid(FAT_ENTRY_SIZE);
+    let fat_sectors = FAT32_MIN_CLUSTERS
+        .saturating_add(2)
+        .div_ceil(entries_per_sector.saturating_sub(FAT_COUNT));
+    let total_sectors = FAT32_MIN_CLUSTERS
+        .saturating_add(RESERVED_SECTORS)
+        .saturating_add(FAT_COUNT.saturating_mul(fat_sectors));
+
+    total_sectors.saturating_mul(SECTOR_SIZE)
 }

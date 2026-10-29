@@ -23,11 +23,6 @@ use crate::streaming;
 use crate::template;
 use crate::update;
 
-/// Creates the `ProvisionService` gRPC server.
-pub fn service() -> ProvisionServiceServer<ServiceImpl> {
-    ProvisionServiceServer::new(ServiceImpl)
-}
-
 /// Implementation of the `ProvisionService` gRPC interface.
 pub struct ServiceImpl;
 
@@ -420,6 +415,11 @@ impl ProvisionService for ServiceImpl {
 }
 
 /// Extracts the mTLS client certificate fingerprint from the request metadata.
+/// Creates the `ProvisionService` gRPC server.
+pub fn service() -> ProvisionServiceServer<ServiceImpl> {
+    ProvisionServiceServer::new(ServiceImpl)
+}
+
 fn extract_author<T>(request: &Request<T>) -> String {
     request
         .metadata()

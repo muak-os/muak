@@ -172,10 +172,6 @@ impl MockNetlinkOps {
     }
 }
 
-fn link_state_kind(up: bool) -> State {
-    if up { State::Up } else { State::Down }
-}
-
 impl link::Ops for MockNetlinkOps {
     fn exists(&self, name: &str) -> impl Future<Output = link::Result<bool>> {
         std::future::ready(Ok(self.lock().links.contains_key(name)))
@@ -398,12 +394,16 @@ impl net_iface::Ops for MockNetlinkOps {
     }
 }
 
+impl netlink::Ops for MockNetlinkOps {}
+
+fn link_state_kind(up: bool) -> State {
+    if up { State::Up } else { State::Down }
+}
+
 /// Builds an `Ethernet` snapshot from a mock link.
 fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
     Ethernet::new(name, link.index, link.mac, link_state_kind(link.up))
 }
-
-impl netlink::Ops for MockNetlinkOps {}
 
 fn make_config() -> Arc<network::Config> {
     Arc::new(network::Config::default())

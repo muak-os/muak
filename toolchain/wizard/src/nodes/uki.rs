@@ -35,6 +35,12 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     run,
 };
 
+/// Lower bound on the UKI size in bytes; below this the ESP image cannot be formatted as FAT32.
+const MIN_UKI_BYTES: u64 = 32 << 20;
+
+/// Upper bound on the UKI size in bytes; above this the payload exceeds the FAT32 ceiling.
+const MAX_UKI_BYTES: u64 = 512 << 20;
+
 /// Stub and initramfs from the installer and kernel and cmdline from their sources.
 fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     vec![
@@ -57,12 +63,6 @@ fn produces(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifac
         vec![(UKI_OUTPUT, Artifact::Uki)]
     }
 }
-
-/// Lower bound on the UKI size in bytes; below this the ESP image cannot be formatted as FAT32.
-const MIN_UKI_BYTES: u64 = 32 << 20;
-
-/// Upper bound on the UKI size in bytes; above this the payload exceeds the FAT32 ceiling.
-const MAX_UKI_BYTES: u64 = 512 << 20;
 
 /// Probes the bounded stub header prefix and plans the UKI layout to get the size.
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {

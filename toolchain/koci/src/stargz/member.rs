@@ -20,6 +20,44 @@ const LANDMARK_CONTENT: [u8; 1] = [0x0f];
 
 /// Returns whether `path` is an eStargz bookkeeping entry, not real content.
 #[must_use]
+/// One member of the assembled blob: directory, regular file, or bytes.
+pub(crate) enum Member {
+    Dir {
+        path: String,
+    },
+    Mem {
+        path: String,
+        mode: u32,
+        data: Vec<u8>,
+    },
+    File {
+        path: String,
+        mode: u32,
+        file: File,
+    },
+}
+
+impl Member {
+    fn name(&self) -> &str {
+        match *self {
+            Self::Dir { ref path } | Self::Mem { ref path, .. } | Self::File { ref path, .. } => {
+                path
+            }
+        }
+    }
+
+    fn toc_name(&self) -> &str {
+        self.name().strip_suffix('/').unwrap_or(self.name())
+    }
+
+    fn entry_type(&self) -> tar::EntryType {
+        match *self {
+            Self::Dir { .. } => tar::EntryType::Directory,
+            Self::Mem { .. } | Self::File { .. } => tar::EntryType::Regular,
+        }
+    }
+}
+
 pub(crate) fn is_bookkeeping(path: &str) -> bool {
     path == PREFETCH_LANDMARK || path == NO_PREFETCH_LANDMARK
 }
@@ -59,44 +97,6 @@ pub(crate) fn plan(entries: &[Entry]) -> Result<Vec<Member>> {
     members.insert(0, no_prefetch_landmark());
 
     Ok(members)
-}
-
-/// One member of the assembled blob: directory, regular file, or bytes.
-pub(crate) enum Member {
-    Dir {
-        path: String,
-    },
-    Mem {
-        path: String,
-        mode: u32,
-        data: Vec<u8>,
-    },
-    File {
-        path: String,
-        mode: u32,
-        file: File,
-    },
-}
-
-impl Member {
-    fn name(&self) -> &str {
-        match *self {
-            Self::Dir { ref path } | Self::Mem { ref path, .. } | Self::File { ref path, .. } => {
-                path
-            }
-        }
-    }
-
-    fn toc_name(&self) -> &str {
-        self.name().strip_suffix('/').unwrap_or(self.name())
-    }
-
-    fn entry_type(&self) -> tar::EntryType {
-        match *self {
-            Self::Dir { .. } => tar::EntryType::Directory,
-            Self::Mem { .. } | Self::File { .. } => tar::EntryType::Regular,
-        }
-    }
 }
 
 /// The no-prefetch landmark member written first in every blob.

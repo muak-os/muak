@@ -16,14 +16,14 @@ use crate::response::ResponseBody;
 
 /// A TPM command that can be encoded, sent to the device, and decoded.
 pub(crate) trait TpmCommand {
+    const COMMAND_CODE: u32;
+    const TAG: u16;
+
     type Output;
 
-    const TAG: u16;
-    const COMMAND_CODE: u32;
+    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output>;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()>;
-
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output>;
 }
 
 /// Execute a TPM command by encoding it, sending it to the device, and decoding the response.

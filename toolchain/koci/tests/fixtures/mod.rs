@@ -20,6 +20,8 @@ const GZIP_LAYER_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+gzip
 
 pub(crate) const PLAIN_LAYER_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 
+const FIXTURE_ARCH: &str = "amd64";
+
 pub(crate) struct TestKeys {
     pub(crate) private_key_pem: String,
     pub(crate) public_key_pem: String,
@@ -43,8 +45,6 @@ pub(crate) fn generate_test_keys() -> Result<TestKeys, Box<dyn Error>> {
         public_key_pem,
     })
 }
-
-const FIXTURE_ARCH: &str = "amd64";
 
 pub(crate) fn manifest_json(
     layer_digest: &str,

@@ -13,6 +13,9 @@ mod tests {
     use parttable::gpt::layout::ALIGN_1_MIB_SECTORS;
     use parttable::mbr::MBR_PROTECTIVE_GPT_TYPE;
 
+    const GPT_HEADER_OFFSET: usize = 512;
+    const GPT_DISK_GUID_OFFSET: usize = 56;
+
     fn fake_uki(size: usize) -> Vec<u8> {
         let mut uki = Vec::with_capacity(size);
         uki.extend_from_slice(b"MZ");
@@ -20,9 +23,6 @@ mod tests {
 
         uki
     }
-
-    const GPT_HEADER_OFFSET: usize = 512;
-    const GPT_DISK_GUID_OFFSET: usize = 56;
 
     fn byte_at(data: &[u8], offset: usize) -> u8 {
         data.get(offset).copied().expect("byte must exist")

@@ -39,20 +39,6 @@ mod tests {
     use super::registry::resume::ResumeServer;
     use super::registry::{HttpResponse, MockRegistry, RecordedRequest, get, head, post, put};
 
-    fn required_request(registry: &MockRegistry, method: &str, path: &str) -> RecordedRequest {
-        match registry
-            .request(method, path)
-            .expect("read mock registry request log")
-        {
-            Some(request) => request,
-            None => panic!("missing {method} request for {path}"),
-        }
-    }
-
-    fn koci_bin() -> &'static Path {
-        Path::new(env!("CARGO_BIN_EXE_koci"))
-    }
-
     /// Serializes tests that reconfigure the process-wide cache directory.
     static CACHE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -60,24 +46,6 @@ mod tests {
     struct CollectedFile {
         path: String,
         contents: Vec<u8>,
-    }
-
-    fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
-        let mut files = Vec::new();
-        pull::files(reference, &arch, None, &Noop, |entry| {
-            let path = entry.path.clone();
-            let mut contents = Vec::new();
-            entry.reader.read_to_end(&mut contents)?;
-            files.push(CollectedFile { path, contents });
-            Ok(())
-        })
-        .expect("stream files should succeed");
-        files
-    }
-
-    fn expect_stream_error(reference: &str) -> KociError {
-        pull::files(reference, &Arch::Amd64, None, &Noop, |_entry| Ok(()))
-            .expect_err("stream should fail")
     }
 
     /// Progress observer counting per-layer scan and extraction passes.
@@ -132,6 +100,38 @@ mod tests {
                 | Event::Done { .. } => (),
             }
         }
+    }
+
+    fn required_request(registry: &MockRegistry, method: &str, path: &str) -> RecordedRequest {
+        match registry
+            .request(method, path)
+            .expect("read mock registry request log")
+        {
+            Some(request) => request,
+            None => panic!("missing {method} request for {path}"),
+        }
+    }
+
+    fn koci_bin() -> &'static Path {
+        Path::new(env!("CARGO_BIN_EXE_koci"))
+    }
+
+    fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
+        let mut files = Vec::new();
+        pull::files(reference, &arch, None, &Noop, |entry| {
+            let path = entry.path.clone();
+            let mut contents = Vec::new();
+            entry.reader.read_to_end(&mut contents)?;
+            files.push(CollectedFile { path, contents });
+            Ok(())
+        })
+        .expect("stream files should succeed");
+        files
+    }
+
+    fn expect_stream_error(reference: &str) -> KociError {
+        pull::files(reference, &Arch::Amd64, None, &Noop, |_entry| Ok(()))
+            .expect_err("stream should fail")
     }
 
     fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {

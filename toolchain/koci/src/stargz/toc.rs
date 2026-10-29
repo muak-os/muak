@@ -19,12 +19,6 @@ pub const TOC_DIGEST_ANNOTATION: &str = "containerd.io/snapshot/stargz/toc.diges
 /// Layer descriptor annotation carrying the layer's uncompressed byte count.
 pub const UNCOMPRESSED_SIZE_ANNOTATION: &str = "io.containers.estargz.uncompressed-size";
 
-/// Returns whether `annotations` mark a layer as eStargz.
-#[must_use]
-pub fn is_estargz<S: BuildHasher>(annotations: &HashMap<String, String, S>) -> bool {
-    annotations.contains_key(TOC_DIGEST_ANNOTATION)
-}
-
 /// gzip header magic and flags of the footer member.
 const FOOTER_HEAD: [u8; 10] = [0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
@@ -91,6 +85,12 @@ pub struct Record {
     /// SHA-256 of this chunk of the payload, required for non-empty files.
     #[serde(rename = "chunkDigest", skip_serializing_if = "Option::is_none")]
     pub chunk_digest: Option<String>,
+}
+
+/// Returns whether `annotations` mark a layer as eStargz.
+#[must_use]
+pub fn is_estargz<S: BuildHasher>(annotations: &HashMap<String, String, S>) -> bool {
+    annotations.contains_key(TOC_DIGEST_ANNOTATION)
 }
 
 /// Encodes the 51-byte footer member pointing at `offset`.

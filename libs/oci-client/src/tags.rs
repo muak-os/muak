@@ -12,6 +12,11 @@ use crate::http::{collect_body, get};
 const PAGE_SIZE: usize = 1000;
 const TAGS_ACCEPT: &str = "application/json";
 
+#[derive(Deserialize)]
+struct TagList {
+    tags: Option<Vec<String>>,
+}
+
 /// Build the paginated `tags/list` URL for a repository image.
 #[must_use]
 pub fn build_url(image: &Image) -> String {
@@ -48,11 +53,6 @@ pub async fn list(client: &Client) -> Result<Vec<String>> {
         };
         url = next;
     }
-}
-
-#[derive(Deserialize)]
-struct TagList {
-    tags: Option<Vec<String>>,
 }
 
 fn parse_tags(body: &[u8]) -> Result<Vec<String>> {

@@ -7,6 +7,31 @@ use crate::error::{KataError, Result};
 use crate::schema::documents::{ExtensionDocument, OverlayDocument};
 use crate::schema::entries::{NamedEntry, SourcedEntry};
 
+trait NamedEntries {
+    fn named_entries_mut(&mut self) -> &mut [NamedEntry];
+    fn push_named(&mut self, entry: NamedEntry);
+}
+
+impl NamedEntries for OverlayDocument {
+    fn named_entries_mut(&mut self) -> &mut [NamedEntry] {
+        &mut self.overlays
+    }
+
+    fn push_named(&mut self, entry: NamedEntry) {
+        self.overlays.push(entry);
+    }
+}
+
+impl NamedEntries for ExtensionDocument {
+    fn named_entries_mut(&mut self) -> &mut [NamedEntry] {
+        &mut self.extensions
+    }
+
+    fn push_named(&mut self, entry: NamedEntry) {
+        self.extensions.push(entry);
+    }
+}
+
 /// Write every pin into its document entry, inserting introductions.
 ///
 /// # Errors
@@ -186,29 +211,4 @@ fn retag_named_entries<T: NamedEntries>(document: &mut T, name: &str, pin: &Pinn
 
 fn missing_document(dir: &str, pin: &Pinned) -> KataError {
     KataError::Document(format!("no {dir} document to retag {}", pin.identity))
-}
-
-trait NamedEntries {
-    fn named_entries_mut(&mut self) -> &mut [NamedEntry];
-    fn push_named(&mut self, entry: NamedEntry);
-}
-
-impl NamedEntries for OverlayDocument {
-    fn named_entries_mut(&mut self) -> &mut [NamedEntry] {
-        &mut self.overlays
-    }
-
-    fn push_named(&mut self, entry: NamedEntry) {
-        self.overlays.push(entry);
-    }
-}
-
-impl NamedEntries for ExtensionDocument {
-    fn named_entries_mut(&mut self) -> &mut [NamedEntry] {
-        &mut self.extensions
-    }
-
-    fn push_named(&mut self, entry: NamedEntry) {
-        self.extensions.push(entry);
-    }
 }

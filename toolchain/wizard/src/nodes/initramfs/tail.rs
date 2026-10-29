@@ -32,6 +32,11 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// One stream per initramfs payload layer, in canonical source order.
+struct MetadataFile<'data> {
+    name: &'static str,
+    bytes: Cow<'data, [u8]>,
+}
+
 fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     let mut dependencies = Vec::with_capacity(ctx.build.payload_layer_count());
     for index in 0..ctx.build.payload_layer_count() {
@@ -148,11 +153,6 @@ fn run(
         .map_err(|e| WizardError::BuildError(format!("build initramfs tail: {e}")))?;
 
     Ok(None)
-}
-
-struct MetadataFile<'data> {
-    name: &'static str,
-    bytes: Cow<'data, [u8]>,
 }
 
 fn parent_dir_entries<'a>(paths: impl IntoIterator<Item = &'a str>) -> Vec<Entry> {

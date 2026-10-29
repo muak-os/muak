@@ -2,6 +2,8 @@
 
 pub extern crate kmsg;
 
+pub mod runtime;
+
 // A proc-macro can only be re-exported with `pub use`; there is no
 // `pub extern crate` equivalent that lands in the macro namespace.
 #[expect(
@@ -10,5 +12,3 @@ pub extern crate kmsg;
     reason = "re-exporting a proc-macro requires `pub use`"
 )]
 pub use granola_macros::service;
-
-pub mod runtime;

@@ -152,29 +152,6 @@ impl From<DiskUsage> for ProtoDiskUsage {
     }
 }
 
-fn reset_if_running(
-    entry: &mut VmEntry,
-    was_running: bool,
-    vm_id: &str,
-    auto_restart: bool,
-    pending_restarts: &mut Vec<String>,
-) {
-    if !was_running {
-        return;
-    }
-    entry.state = VmState::Stopped;
-    entry.tap_device = None;
-    if auto_restart {
-        pending_restarts.push(vm_id.to_owned());
-        println!("VM {} was running, will restart", entry.config.name);
-    } else {
-        println!(
-            "VM {} was running, but auto-restart is disabled",
-            entry.config.name
-        );
-    }
-}
-
 impl VmActor {
     pub fn new(
         netlink_handle: rtnetlink::Handle,
@@ -549,6 +526,29 @@ impl VmActor {
         } else {
             Ok(content)
         }
+    }
+}
+
+fn reset_if_running(
+    entry: &mut VmEntry,
+    was_running: bool,
+    vm_id: &str,
+    auto_restart: bool,
+    pending_restarts: &mut Vec<String>,
+) {
+    if !was_running {
+        return;
+    }
+    entry.state = VmState::Stopped;
+    entry.tap_device = None;
+    if auto_restart {
+        pending_restarts.push(vm_id.to_owned());
+        println!("VM {} was running, will restart", entry.config.name);
+    } else {
+        println!(
+            "VM {} was running, but auto-restart is disabled",
+            entry.config.name
+        );
     }
 }
 

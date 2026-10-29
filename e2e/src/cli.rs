@@ -7,6 +7,44 @@ use config::system;
 use tempfile::{NamedTempFile, TempDir};
 use tokio::process::Command;
 
+/// Asserts that `muakctl` exits successfully and returns stdout.
+///
+/// Usage: `assert_success!(cli, ["arg1", "arg2"])`.
+#[macro_export]
+macro_rules! assert_success {
+    ($cli:expr, $args:expr) => {
+        $cli.assert_success_impl($args, false)
+    };
+}
+
+/// Asserts that `muakctl --insecure` exits successfully and returns stdout.
+///
+/// Usage: `assert_success_insecure!(cli, ["arg1", "arg2"])`.
+#[macro_export]
+macro_rules! assert_success_insecure {
+    ($cli:expr, $args:expr) => {
+        $cli.assert_success_impl($args, true)
+    };
+}
+
+/// Asserts that `muakctl` stdout contains the given needle.
+#[macro_export]
+macro_rules! assert_output_contains {
+    ($cli:expr, $args:expr, $needle:expr) => {
+        $cli.assert_output_contains_impl($args, $needle, false)
+    };
+}
+
+/// Asserts that `muakctl --insecure` stdout contains the given needle.
+///
+/// Usage: `assert_output_contains_insecure!(cli, ["arg1"], "needle")`.
+#[macro_export]
+macro_rules! assert_output_contains_insecure {
+    ($cli:expr, $args:expr, $needle:expr) => {
+        $cli.assert_output_contains_impl($args, $needle, true)
+    };
+}
+
 /// Drives the real `muakctl` binary with per-test isolation via a temporary config directory.
 pub struct Cli {
     bin: PathBuf,
@@ -122,42 +160,4 @@ impl Cli {
         std::fs::write(tmp.path(), patched).context("failed to write config tempfile")?;
         Ok(tmp)
     }
-}
-
-/// Asserts that `muakctl` exits successfully and returns stdout.
-///
-/// Usage: `assert_success!(cli, ["arg1", "arg2"])`.
-#[macro_export]
-macro_rules! assert_success {
-    ($cli:expr, $args:expr) => {
-        $cli.assert_success_impl($args, false)
-    };
-}
-
-/// Asserts that `muakctl --insecure` exits successfully and returns stdout.
-///
-/// Usage: `assert_success_insecure!(cli, ["arg1", "arg2"])`.
-#[macro_export]
-macro_rules! assert_success_insecure {
-    ($cli:expr, $args:expr) => {
-        $cli.assert_success_impl($args, true)
-    };
-}
-
-/// Asserts that `muakctl` stdout contains the given needle.
-#[macro_export]
-macro_rules! assert_output_contains {
-    ($cli:expr, $args:expr, $needle:expr) => {
-        $cli.assert_output_contains_impl($args, $needle, false)
-    };
-}
-
-/// Asserts that `muakctl --insecure` stdout contains the given needle.
-///
-/// Usage: `assert_output_contains_insecure!(cli, ["arg1"], "needle")`.
-#[macro_export]
-macro_rules! assert_output_contains_insecure {
-    ($cli:expr, $args:expr, $needle:expr) => {
-        $cli.assert_output_contains_impl($args, $needle, true)
-    };
 }

@@ -1,16 +1,5 @@
 //! Remote OCI registry pull orchestration.
 
-use alloc::collections::BTreeMap;
-
-use oci::arch::Arch;
-use oci_client::auth::Access;
-
-use crate::error::Result;
-use crate::progress::Reporter;
-use crate::registry;
-use crate::runtime;
-use crate::signature::Verification;
-
 pub(crate) mod blobinfo;
 pub mod cache;
 pub(crate) mod content;
@@ -26,6 +15,17 @@ pub(crate) mod resolve;
 pub(crate) mod scan;
 pub mod session;
 pub mod toc;
+
+use alloc::collections::BTreeMap;
+
+use oci::arch::Arch;
+use oci_client::auth::Access;
+
+use crate::error::Result;
+use crate::progress::Reporter;
+use crate::registry;
+use crate::runtime;
+use crate::signature::Verification;
 
 /// Resolution of a pull to one platform manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]

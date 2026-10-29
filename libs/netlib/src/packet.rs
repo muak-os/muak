@@ -14,6 +14,13 @@ use tokio::io::unix::AsyncFd;
 
 use crate::socket::{Failure as SocketFailure, bind_device};
 
+const ETH_ALEN: usize = 6;
+const ETH_ALEN_U8: u8 = 6;
+const ETH_PROTOCOL_IP: u16 = 0x0800_u16.to_be();
+const SOCK_ADDR_LL_LEN: SocketAddrLen = 20;
+/// Standard link-layer broadcast address.
+pub const ETH_BROADCAST: [u8; ETH_ALEN] = [0xff; ETH_ALEN];
+
 /// Packet socket operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
@@ -48,13 +55,6 @@ pub enum Failure {
 
 /// Packet socket result type.
 pub type Result<T> = core::result::Result<T, Failure>;
-
-const ETH_ALEN: usize = 6;
-const ETH_ALEN_U8: u8 = 6;
-const ETH_PROTOCOL_IP: u16 = 0x0800_u16.to_be();
-const SOCK_ADDR_LL_LEN: SocketAddrLen = 20;
-/// Standard link-layer broadcast address.
-pub const ETH_BROADCAST: [u8; ETH_ALEN] = [0xff; ETH_ALEN];
 
 /// Stable kernel UAPI `struct sockaddr_ll` from `<linux/if_packet.h>`.
 #[repr(C)]

@@ -39,6 +39,12 @@ pub struct MeasuredSection {
     pub hash: [u8; 32],
 }
 
+struct RawHeader {
+    name: [u8; 8],
+    content: u32,
+    offset: u32,
+}
+
 /// Reads the measured UKI sections from the PE image at `path`, in section-table order.
 ///
 /// # Errors
@@ -113,12 +119,6 @@ pub fn from_file(path: &Path) -> Result<Vec<MeasuredSection>> {
     }
 
     Ok(records)
-}
-
-struct RawHeader {
-    name: [u8; 8],
-    content: u32,
-    offset: u32,
 }
 
 fn push_record(

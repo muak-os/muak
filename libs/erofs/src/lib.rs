@@ -17,6 +17,13 @@ pub mod tree;
 pub mod writer;
 mod xattr;
 
+/// Default zstd compression level for EROFS images.
+pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+/// Block size used throughout EROFS images (4 KiB).
+pub const BLOCK_SIZE: u32 = 4096;
+/// Slot size: every inode occupies an integer number of 32-byte slots.
+pub const SLOT_SIZE: usize = 32;
+
 /// EROFS compression algorithm and level.
 pub type Compression = compress::Compression;
 /// `SELinux` file context rules for labeling EROFS inodes.
@@ -27,23 +34,6 @@ pub type InodeLayout = layout::InodeLayout;
 pub type ImagePlan = layout::ImagePlan;
 /// A sized file entry with metadata and a reader.
 pub type SizedFile<'a> = source::SizedFile<'a>;
-
-/// Default zstd compression level for EROFS images.
-pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;
-
-/// Validate a zstd compression level for EROFS images.
-///
-/// # Errors
-///
-/// Returns an [`error::ErofsError::InvalidCompressionLevel`] error when `level`
-/// is neither `0` nor within the zstd-supported compression level range.
-pub fn validate_compression_level(level: i32) -> error::Result<i32> {
-    compress::validate_compression_level(level)
-}
-/// Block size used throughout EROFS images (4 KiB).
-pub const BLOCK_SIZE: u32 = 4096;
-/// Slot size: every inode occupies an integer number of 32-byte slots.
-pub const SLOT_SIZE: usize = 32;
 
 /// Configuration for EROFS image creation.
 #[derive(Debug)]
@@ -60,6 +50,16 @@ pub struct MkfsConfig<'a> {
     pub force_gid: Option<u16>,
     /// Compression algorithm and level.
     pub compression: Compression,
+}
+
+/// Validate a zstd compression level for EROFS images.
+///
+/// # Errors
+///
+/// Returns an [`error::ErofsError::InvalidCompressionLevel`] error when `level`
+/// is neither `0` nor within the zstd-supported compression level range.
+pub fn validate_compression_level(level: i32) -> error::Result<i32> {
+    compress::validate_compression_level(level)
 }
 
 /// Build an EROFS filesystem image from sized file entries.
@@ -90,6 +90,9 @@ pub(crate) mod testutil {
     use crate::layout::InodeLayout;
     use crate::source::SizedFile;
     use crate::tree::TreeEntry;
+
+    /// Cursor set over shared content (test support).
+    pub(crate) type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
 
     /// Returns a minimal uncompressed [`MkfsConfig`] for use in unit tests.
     pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
@@ -151,9 +154,6 @@ pub(crate) mod testutil {
             .map(|(entry, reader)| SizedFile { entry, reader })
             .collect()
     }
-
-    /// Cursor set over shared content (test support).
-    pub(crate) type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
 
     /// Builds one independent cursor set over shared content (test support).
     pub(crate) fn cursor_set(data: &[Vec<u8>]) -> CursorSet<'_> {

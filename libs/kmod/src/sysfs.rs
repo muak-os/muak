@@ -62,6 +62,8 @@ mod tests {
 
     use super::*;
 
+    type MockDevices<'a> = &'a [(&'a str, Option<&'a str>)];
+
     fn collect_modaliases(sys_bus: &Path) -> std::io::Result<Vec<String>> {
         let mut collected = Vec::new();
         for_each_modalias_in(sys_bus, &mut |modalias| {
@@ -132,8 +134,6 @@ mod tests {
         // ASSERT
         assert_eq!(result, None);
     }
-
-    type MockDevices<'a> = &'a [(&'a str, Option<&'a str>)];
 
     fn create_mock_sysfs(base: &Path, buses: &[(&str, MockDevices<'_>)]) {
         for &(bus_name, devices) in buses {

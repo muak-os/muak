@@ -44,6 +44,28 @@ impl NamedEntries for ExtensionDocument {
 }
 
 /// Assemble the base documents and record each entry's origin.
+trait SetRelease {
+    fn set_release(&mut self, release: String);
+}
+
+impl SetRelease for CoreDocument {
+    fn set_release(&mut self, release: String) {
+        self.release = release;
+    }
+}
+
+impl SetRelease for OverlayDocument {
+    fn set_release(&mut self, release: String) {
+        self.release = release;
+    }
+}
+
+impl SetRelease for ExtensionDocument {
+    fn set_release(&mut self, release: String) {
+        self.release = release;
+    }
+}
+
 pub(crate) fn assemble(output: &Bases, carried: Option<&Bases>, release: &str) -> (Bases, Origins) {
     let mut origins = Origins::new();
     let carried_core = carried.and_then(|bases| bases.core.as_ref());
@@ -184,28 +206,6 @@ fn fill_core(base: &mut CoreDocument, carried: &CoreDocument, origins: &mut Orig
             origins.insert(identity, Action::Carry);
             base.kernels.push(kernel.clone());
         }
-    }
-}
-
-trait SetRelease {
-    fn set_release(&mut self, release: String);
-}
-
-impl SetRelease for CoreDocument {
-    fn set_release(&mut self, release: String) {
-        self.release = release;
-    }
-}
-
-impl SetRelease for OverlayDocument {
-    fn set_release(&mut self, release: String) {
-        self.release = release;
-    }
-}
-
-impl SetRelease for ExtensionDocument {
-    fn set_release(&mut self, release: String) {
-        self.release = release;
     }
 }
 

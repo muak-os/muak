@@ -226,13 +226,13 @@ impl ByteSample {
 
 /// Observer of structured progress events.
 pub trait Reporter: Send + Sync {
-    /// Reports one event.
-    fn report(&self, event: Event<'_>);
-
     /// Reports one byte progress sample.
     fn bytes(&self, sample: ByteSample) {
         self.report(sample.event());
     }
+
+    /// Reports one event.
+    fn report(&self, event: Event<'_>);
 }
 
 /// Reporter that ignores every event.

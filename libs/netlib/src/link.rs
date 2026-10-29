@@ -75,30 +75,23 @@ impl fmt::Display for State {
 
 /// Trait covering all link-layer netlink operations.
 pub trait Ops: Clone + Send + Sync + 'static {
+    /// Brings a link down by its index.
+    fn bring_down(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Brings a link up by its index.
+    fn bring_up(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Deletes a link by its index.
+    fn delete(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Brings a named link up, returning its index.
+    fn ensure_up(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
+
     /// Returns whether a link with the given name exists.
     fn exists(&self, name: &str) -> impl Future<Output = Result<bool>> + Send;
 
     /// Returns the kernel interface index for a named link.
     fn index(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
-
-    /// Brings a named link up, returning its index.
-    fn ensure_up(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
-
-    /// Brings a link up by its index.
-    fn bring_up(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
-
-    /// Brings a link down by its index.
-    fn bring_down(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
-
-    /// Attaches a slave interface to a master (bridge) interface.
-    fn set_master(
-        &self,
-        slave_index: u32,
-        master_index: u32,
-    ) -> impl Future<Output = Result<()>> + Send;
-
-    /// Deletes a link by its index.
-    fn delete(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
 
     /// Polls interfaces for carrier, returning a map of index to carrier-present.
     fn probe_carriers(
@@ -106,6 +99,13 @@ pub trait Ops: Clone + Send + Sync + 'static {
         interfaces: &[(u32, &str)],
         timeout: Duration,
     ) -> impl Future<Output = HashMap<u32, bool>> + Send;
+
+    /// Attaches a slave interface to a master (bridge) interface.
+    fn set_master(
+        &self,
+        slave_index: u32,
+        master_index: u32,
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
 impl Ops for Rtnl {

@@ -8,11 +8,6 @@ use super::proto::security::{
     GetSecurityStateRequest, GetSecurityStateResponse, SecureBootDeviation, SecureBootState,
 };
 
-/// Creates the `SecurityService` gRPC server.
-pub fn service() -> SecurityServiceServer<ServiceImpl> {
-    SecurityServiceServer::new(ServiceImpl)
-}
-
 /// Implementation of the `SecurityService` gRPC interface.
 pub struct ServiceImpl;
 
@@ -30,6 +25,11 @@ impl SecurityService for ServiceImpl {
 
         Ok(Response::new(response(state, config_enabled)))
     }
+}
+
+/// Creates the `SecurityService` gRPC server.
+pub fn service() -> SecurityServiceServer<ServiceImpl> {
+    SecurityServiceServer::new(ServiceImpl)
 }
 
 fn response(state: secureboot::State, config_enabled: bool) -> GetSecurityStateResponse {

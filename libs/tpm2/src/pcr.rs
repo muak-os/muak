@@ -2,11 +2,11 @@
 
 use sha2::{Digest as _, Sha256};
 
-pub(crate) type Digest = [u8; 32];
-
 const TPM2_CC_POLICY_PCR: u32 = 0x0000_017F;
 const PCR11_SELECTION: [u8; 10] = [0, 0, 0, 1, 0, 0x0B, 3, 0, 8, 0];
 const SHA256_DIGEST_SIZE: usize = 32;
+
+pub(crate) type Digest = [u8; 32];
 
 /// Computes the expected PCR#11 value by simulating extend operations
 /// using pre-computed SHA-256 hashes of each section's data.

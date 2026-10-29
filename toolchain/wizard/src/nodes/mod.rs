@@ -22,9 +22,6 @@ use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::NodePorts;
 
-/// Manifest annotation carrying the disk layout required by a board image.
-pub(crate) const DISK_ANNOTATION: &str = "dev.muak.disk";
-
 /// Generates the `NodeKind` enum, its `ALL` table, and the descriptor dispatch from the single node registry.
 macro_rules! node_registry {
     ( $( $kind:ident => $descriptor:path ),+ $(,)? ) => {
@@ -45,20 +42,8 @@ macro_rules! node_registry {
     };
 }
 
-node_registry! {
-    InstallerPull => installer::DESCRIPTOR,
-    StubPull => stub::DESCRIPTOR,
-    KernelPull => kernel::DESCRIPTOR,
-    LayerPayloads => layers::DESCRIPTOR,
-    InitramfsTail => initramfs::tail::DESCRIPTOR,
-    Concat => initramfs::concat::DESCRIPTOR,
-    Uki => uki::DESCRIPTOR,
-    Sign => sign::DESCRIPTOR,
-    Iso => media::iso::DESCRIPTOR,
-    Raw => media::raw::DESCRIPTOR,
-    OverlayPull => overlay::pull::DESCRIPTOR,
-    OverlayTar => overlay::tar::DESCRIPTOR,
-}
+/// Manifest annotation carrying the disk layout required by a board image.
+pub(crate) const DISK_ANNOTATION: &str = "dev.muak.disk";
 
 impl NodeKind {
     /// Short human-readable node name used in progress output.
@@ -87,6 +72,21 @@ pub(crate) struct NodeDescriptor {
     pub(crate) preflight: fn(&mut Graph, NodeId, &BuildContext<'_, '_>) -> Result<()>,
     pub(crate) run:
         fn(NodeKind, &mut NodePorts<'_, '_>, &BuildContext<'_, '_>) -> Result<NodeReport>,
+}
+
+node_registry! {
+    InstallerPull => installer::DESCRIPTOR,
+    StubPull => stub::DESCRIPTOR,
+    KernelPull => kernel::DESCRIPTOR,
+    LayerPayloads => layers::DESCRIPTOR,
+    InitramfsTail => initramfs::tail::DESCRIPTOR,
+    Concat => initramfs::concat::DESCRIPTOR,
+    Uki => uki::DESCRIPTOR,
+    Sign => sign::DESCRIPTOR,
+    Iso => media::iso::DESCRIPTOR,
+    Raw => media::raw::DESCRIPTOR,
+    OverlayPull => overlay::pull::DESCRIPTOR,
+    OverlayTar => overlay::tar::DESCRIPTOR,
 }
 
 /// Declared inputs of a planned kind, read from its descriptor.

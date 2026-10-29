@@ -59,6 +59,16 @@ enum RbacRequirement {
     MaintenanceOrPermission(String),
 }
 
+/// Shared state while parsing a proto file.
+struct ProtoParser<'a> {
+    lines: &'a [&'a str],
+    package: &'a str,
+    filename: &'a str,
+    perm_map: &'a HashMap<&'a str, &'a str>,
+    methods: Vec<RpcMethod>,
+    errors: Vec<String>,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
     let out_dir = env::var("OUT_DIR")?;
@@ -181,16 +191,6 @@ fn extract_package(content: &str) -> &str {
             }
         })
         .unwrap_or("")
-}
-
-/// Shared state while parsing a proto file.
-struct ProtoParser<'a> {
-    lines: &'a [&'a str],
-    package: &'a str,
-    filename: &'a str,
-    perm_map: &'a HashMap<&'a str, &'a str>,
-    methods: Vec<RpcMethod>,
-    errors: Vec<String>,
 }
 
 /// Parses a single `rpc` line and appends the resulting method or error.

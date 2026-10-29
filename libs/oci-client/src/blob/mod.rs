@@ -13,6 +13,12 @@ use crate::endpoint;
 use crate::error::{ClientError, Result};
 use crate::http;
 
+/// Size below which the blob still travels in one request.
+const SMALL_BLOB_LIMIT: usize = 4 * 1024 * 1024;
+
+/// Maximum PATCH chunk size for the chunked upload path.
+const CHUNK_SIZE: usize = 2 * 1024 * 1024;
+
 /// Build the blob URL for a given image reference and digest.
 #[must_use]
 pub fn build_url(image: &Image, digest: &str) -> String {
@@ -42,12 +48,6 @@ pub async fn exists(client: &Client, digest: &str) -> Result<bool> {
         ))),
     }
 }
-
-/// Size below which the blob still travels in one request.
-const SMALL_BLOB_LIMIT: usize = 4 * 1024 * 1024;
-
-/// Maximum PATCH chunk size for the chunked upload path.
-const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
 /// Upload a blob via the POST-then-PUT dance of the distribution spec.
 ///

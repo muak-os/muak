@@ -11,6 +11,13 @@ use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
+
+/// Deadline for establishing a TCP connection to a registry.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Shared transports per registry host, so connection pools and TLS sessions are reused across pulls.
+static TRANSPORTS: OnceLock<Mutex<HashMap<String, Transport>>> = OnceLock::new();
+
 #[cfg(feature = "https")]
 type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
 
@@ -19,13 +26,6 @@ type Connector = HttpConnector;
 
 /// Cloneable HTTP client for all registries.
 pub type Transport = Client<Connector, Full<Bytes>>;
-
-/// Deadline for establishing a TCP connection to a registry.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Shared transports per registry host, so connection pools and TLS sessions
-/// are reused across pulls.
-static TRANSPORTS: OnceLock<Mutex<HashMap<String, Transport>>> = OnceLock::new();
 
 /// Build a reusable client supporting both HTTPS and plain HTTP.
 #[cfg(feature = "https")]

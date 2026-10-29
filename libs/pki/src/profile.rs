@@ -120,13 +120,6 @@ impl BuilderProfile for MuakServer {
     }
 }
 
-fn collect_dns_names(dns_names: &[String]) -> Vec<GeneralName> {
-    dns_names
-        .iter()
-        .filter_map(|dns_name| Ia5String::new(dns_name).ok().map(GeneralName::DnsName))
-        .collect()
-}
-
 /// Custom profile for Muak client certificates.
 pub struct MuakClient {
     /// Client certificate issuer name.
@@ -171,6 +164,13 @@ impl BuilderProfile for MuakClient {
 
         Ok(extensions)
     }
+}
+
+fn collect_dns_names(dns_names: &[String]) -> Vec<GeneralName> {
+    dns_names
+        .iter()
+        .filter_map(|dns_name| Ia5String::new(dns_name).ok().map(GeneralName::DnsName))
+        .collect()
 }
 
 fn authority_key_identifier(

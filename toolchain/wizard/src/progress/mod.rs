@@ -4,6 +4,9 @@ pub(crate) mod koci;
 
 use crate::artifact::Artifact;
 
+/// Shared [`Noop`] reporter for requests without progress reporting.
+pub const NOOP: Noop = Noop;
+
 /// State of one pipeline node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeState {
@@ -85,9 +88,6 @@ pub struct Noop;
 impl Reporter for Noop {
     fn report(&self, _event: Event<'_>) {}
 }
-
-/// Shared [`Noop`] reporter for requests without progress reporting.
-pub const NOOP: Noop = Noop;
 
 #[cfg(test)]
 mod tests {

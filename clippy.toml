@@ -6,3 +6,6 @@ allow-expect-in-tests = true
 allow-indexing-slicing-in-tests = true
 allowed-idents-below-min-chars = ["..", "e"]
 excessive-nesting-threshold = 3
+source-item-ordering = ["module", "trait"]
+trait-assoc-item-kinds-order = ["const", "type", "fn"]
+trait-impl-item-order = "trait_item_ordering"

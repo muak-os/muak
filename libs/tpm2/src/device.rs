@@ -12,16 +12,32 @@ const RESPONSE_HEADER_SIZE: usize = 10;
 const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
 const TPM2_ST_SESSIONS: u16 = 0x8002;
 
+/// An open handle to the TPM resource manager.
+pub(crate) type Device = std::fs::File;
+
+impl TpmDevice for Device {}
+
+/// A trait for sending commands to a TPM device and receiving responses.
+pub(crate) trait TpmDevice: Read + Write {
+    fn transact(&mut self, command: &[u8]) -> Result<Vec<u8>> {
+        self.write_all(command)?;
+        self.flush()?;
+
+        let mut response = vec![0_u8; MAX_RESPONSE_SIZE];
+        let read_len = self.read(&mut response)?;
+        response.truncate(read_len);
+
+        validate_response(&response)?;
+
+        Ok(response)
+    }
+}
+
 /// Returns true if the TPM2 resource manager device exists.
 #[must_use]
 pub fn is_available(path: Option<&Path>) -> bool {
     path.unwrap_or_else(|| Path::new(TPM_DEVICE)).exists()
 }
-
-/// An open handle to the TPM resource manager.
-pub(crate) type Device = std::fs::File;
-
-impl TpmDevice for Device {}
 
 /// Opens the provided TPM device path, defaulting to `/dev/tpmrm0`.
 ///
@@ -41,22 +57,6 @@ pub(crate) fn open(path: Option<&Path>) -> Result<Device> {
             Err(Tpm2Error::DeviceNotFound)
         }
         Err(error) => Err(Tpm2Error::Io(error)),
-    }
-}
-
-/// A trait for sending commands to a TPM device and receiving responses.
-pub(crate) trait TpmDevice: Read + Write {
-    fn transact(&mut self, command: &[u8]) -> Result<Vec<u8>> {
-        self.write_all(command)?;
-        self.flush()?;
-
-        let mut response = vec![0_u8; MAX_RESPONSE_SIZE];
-        let read_len = self.read(&mut response)?;
-        response.truncate(read_len);
-
-        validate_response(&response)?;
-
-        Ok(response)
     }
 }
 

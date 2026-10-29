@@ -1,19 +1,5 @@
 //! Composing a release line from carried and selected payloads.
 
-use std::path::{Path, PathBuf};
-
-use koci::registry;
-
-use crate::error::{KataError, Result};
-use crate::ops::reference;
-use crate::ops::verify;
-use crate::repository;
-use crate::schema::documents;
-use crate::schema::documents::Document;
-use crate::schema::kinds::Kind;
-use crate::schema::parse::validate_release;
-use crate::version;
-
 pub(crate) mod apply;
 pub(crate) mod auto;
 pub(crate) mod bases;
@@ -25,8 +11,21 @@ pub(crate) mod pins;
 pub mod plan;
 pub(crate) mod selection;
 
+use std::path::{Path, PathBuf};
+
 use bases::{output_documents, parent_bases, parent_line};
+use koci::registry;
 use plan::{Auto, Selections};
+
+use crate::error::{KataError, Result};
+use crate::ops::reference;
+use crate::ops::verify;
+use crate::repository;
+use crate::schema::documents;
+use crate::schema::documents::Document;
+use crate::schema::kinds::Kind;
+use crate::schema::parse::validate_release;
+use crate::version;
 
 /// Tag policy for entries without an explicit selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

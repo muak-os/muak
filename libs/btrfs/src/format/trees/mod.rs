@@ -247,20 +247,6 @@ impl TreeBuilder for ChunkTreeBuilder {
     }
 }
 
-/// Build a `BtrfsDevItem`.
-fn build_dev_item(ctx: &TreeContext) -> BtrfsDevItem {
-    let mut dev = BtrfsDevItem::new();
-    write_u64(&mut dev.devid, 1);
-    write_u64(&mut dev.total_bytes, ctx.device_size);
-    write_u64(&mut dev.bytes_used, ctx.layout.dev_bytes_used());
-    write_u32(&mut dev.io_align, BTRFS_DEFAULT_SECTORSIZE);
-    write_u32(&mut dev.io_width, BTRFS_DEFAULT_SECTORSIZE);
-    write_u32(&mut dev.sector_size, BTRFS_DEFAULT_SECTORSIZE);
-    write_uuid(&mut dev.uuid, ctx.dev_uuid);
-    write_uuid(&mut dev.fsid, ctx.fsid);
-    dev
-}
-
 // Dev tree builder
 pub struct DevTreeBuilder;
 
@@ -373,24 +359,6 @@ impl TreeBuilder for ExtentTreeBuilder {
     }
 }
 
-/// Add an inline extent item with `TREE_BLOCK_REF`.
-fn add_extent_item(builder: &mut LeafBuilder, blk_offset: u64, owner: u64, generation: u64) {
-    let mut extent = BtrfsExtentItem {
-        refs: [0; 8],
-        generation: [0; 8],
-        flags: [0; 8],
-    };
-    write_u64(&mut extent.refs, 1);
-    write_u64(&mut extent.generation, generation);
-    write_u64(&mut extent.flags, BTRFS_EXTENT_FLAG_TREE_BLOCK);
-
-    let mut data = extent.to_vec();
-    data.push(BTRFS_TREE_BLOCK_REF_KEY);
-    data.extend_from_slice(&owner.to_le_bytes());
-
-    builder.add_item(blk_offset, BTRFS_METADATA_ITEM_KEY, 0, data);
-}
-
 // Block group tree builder
 pub struct BlockGroupTreeBuilder;
 
@@ -447,30 +415,6 @@ impl TreeBuilder for BlockGroupTreeBuilder {
             data,
         ))
     }
-}
-
-/// Add a block group item.
-fn add_block_group_item(
-    builder: &mut LeafBuilder,
-    group_offset: u64,
-    group_size: u64,
-    used: u64,
-    flags: u64,
-) {
-    let mut bg = BtrfsBlockGroupItem {
-        used: [0; 8],
-        chunk_objectid: [0; 8],
-        flags: [0; 8],
-    };
-    write_u64(&mut bg.used, used);
-    write_u64(&mut bg.chunk_objectid, BTRFS_FIRST_CHUNK_TREE_OBJECTID);
-    write_u64(&mut bg.flags, flags);
-    builder.add_item(
-        group_offset,
-        BTRFS_BLOCK_GROUP_ITEM_KEY,
-        group_size,
-        bg.to_vec(),
-    );
 }
 
 // Free space tree builder
@@ -581,26 +525,6 @@ impl TreeBuilder for FreeSpaceTreeBuilder {
             data,
         ))
     }
-}
-
-/// Add a free space info item.
-fn add_free_space_info(
-    builder: &mut LeafBuilder,
-    group_offset: u64,
-    group_size: u64,
-    extent_count: u32,
-) {
-    let mut info = BtrfsFreeSpaceInfo {
-        extent_count: [0; 4],
-        flags: [0; 4],
-    };
-    write_u32(&mut info.extent_count, extent_count);
-    builder.add_item(
-        group_offset,
-        BTRFS_FREE_SPACE_INFO_KEY,
-        group_size,
-        info.to_vec(),
-    );
 }
 
 // FS tree builder
@@ -879,11 +803,6 @@ impl RootTreeBuilder {
     }
 }
 
-fn add_root_item(builder: &mut LeafBuilder, objectid: u64, bytenr: u64) {
-    let ri = RootItemBuilder::new().bytenr(bytenr).build();
-    builder.add_item(objectid, BTRFS_ROOT_ITEM_KEY, 0, ri.to_vec());
-}
-
 impl TreeBuilder for RootTreeBuilder {
     fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
@@ -900,6 +819,88 @@ impl TreeBuilder for RootTreeBuilder {
             data,
         ))
     }
+}
+
+/// Build a `BtrfsDevItem`.
+fn build_dev_item(ctx: &TreeContext) -> BtrfsDevItem {
+    let mut dev = BtrfsDevItem::new();
+    write_u64(&mut dev.devid, 1);
+    write_u64(&mut dev.total_bytes, ctx.device_size);
+    write_u64(&mut dev.bytes_used, ctx.layout.dev_bytes_used());
+    write_u32(&mut dev.io_align, BTRFS_DEFAULT_SECTORSIZE);
+    write_u32(&mut dev.io_width, BTRFS_DEFAULT_SECTORSIZE);
+    write_u32(&mut dev.sector_size, BTRFS_DEFAULT_SECTORSIZE);
+    write_uuid(&mut dev.uuid, ctx.dev_uuid);
+    write_uuid(&mut dev.fsid, ctx.fsid);
+
+    dev
+}
+
+/// Add an inline extent item with `TREE_BLOCK_REF`.
+fn add_extent_item(builder: &mut LeafBuilder, blk_offset: u64, owner: u64, generation: u64) {
+    let mut extent = BtrfsExtentItem {
+        refs: [0; 8],
+        generation: [0; 8],
+        flags: [0; 8],
+    };
+    write_u64(&mut extent.refs, 1);
+    write_u64(&mut extent.generation, generation);
+    write_u64(&mut extent.flags, BTRFS_EXTENT_FLAG_TREE_BLOCK);
+
+    let mut data = extent.to_vec();
+    data.push(BTRFS_TREE_BLOCK_REF_KEY);
+    data.extend_from_slice(&owner.to_le_bytes());
+
+    builder.add_item(blk_offset, BTRFS_METADATA_ITEM_KEY, 0, data);
+}
+
+/// Add a block group item.
+fn add_block_group_item(
+    builder: &mut LeafBuilder,
+    group_offset: u64,
+    group_size: u64,
+    used: u64,
+    flags: u64,
+) {
+    let mut bg = BtrfsBlockGroupItem {
+        used: [0; 8],
+        chunk_objectid: [0; 8],
+        flags: [0; 8],
+    };
+    write_u64(&mut bg.used, used);
+    write_u64(&mut bg.chunk_objectid, BTRFS_FIRST_CHUNK_TREE_OBJECTID);
+    write_u64(&mut bg.flags, flags);
+    builder.add_item(
+        group_offset,
+        BTRFS_BLOCK_GROUP_ITEM_KEY,
+        group_size,
+        bg.to_vec(),
+    );
+}
+
+/// Add a free space info item.
+fn add_free_space_info(
+    builder: &mut LeafBuilder,
+    group_offset: u64,
+    group_size: u64,
+    extent_count: u32,
+) {
+    let mut info = BtrfsFreeSpaceInfo {
+        extent_count: [0; 4],
+        flags: [0; 4],
+    };
+    write_u32(&mut info.extent_count, extent_count);
+    builder.add_item(
+        group_offset,
+        BTRFS_FREE_SPACE_INFO_KEY,
+        group_size,
+        info.to_vec(),
+    );
+}
+
+fn add_root_item(builder: &mut LeafBuilder, objectid: u64, bytenr: u64) {
+    let ri = RootItemBuilder::new().bytenr(bytenr).build();
+    builder.add_item(objectid, BTRFS_ROOT_ITEM_KEY, 0, ri.to_vec());
 }
 
 #[cfg(test)]
@@ -935,16 +936,6 @@ mod tests {
         fs_uuid: Uuid,
     }
 
-    fn fixture() -> Fixture {
-        Fixture {
-            layout: DiskLayout::new(DEVICE_5G),
-            fsid: Uuid::from_u128(0x0A01),
-            chunk_uuid: Uuid::from_u128(0x0A02),
-            dev_uuid: Uuid::from_u128(0x0A03),
-            fs_uuid: Uuid::from_u128(0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10),
-        }
-    }
-
     impl Fixture {
         fn context(&self) -> TreeContext<'_> {
             TreeContext::new(
@@ -956,6 +947,16 @@ mod tests {
                 7,
                 DEVICE_5G,
             )
+        }
+    }
+
+    fn fixture() -> Fixture {
+        Fixture {
+            layout: DiskLayout::new(DEVICE_5G),
+            fsid: Uuid::from_u128(0x0A01),
+            chunk_uuid: Uuid::from_u128(0x0A02),
+            dev_uuid: Uuid::from_u128(0x0A03),
+            fs_uuid: Uuid::from_u128(0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10),
         }
     }
 

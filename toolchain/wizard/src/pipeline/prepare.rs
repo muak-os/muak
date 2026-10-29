@@ -15,6 +15,68 @@ pub(crate) struct PreparedNode<'name, 'writer> {
     pub(crate) ports: NodePorts<'name, 'writer>,
 }
 
+/// Construction-time ownership ledger for pipe and fused endpoints.
+struct PortTable<'name, 'writer> {
+    inputs: Vec<Vec<Option<InputStream<'name>>>>,
+    outputs: Vec<Option<OutputStream<'writer>>>,
+}
+
+impl<'name, 'writer> PortTable<'name, 'writer> {
+    fn with_capacity(streams: usize) -> Self {
+        Self {
+            inputs: Vec::with_capacity(streams),
+            outputs: Vec::with_capacity(streams),
+        }
+    }
+
+    fn push_stream(
+        &mut self,
+        readers: Vec<Option<InputStream<'name>>>,
+        output: OutputStream<'writer>,
+    ) {
+        self.inputs.push(readers);
+        self.outputs.push(Some(output));
+    }
+
+    fn take_input(&mut self, stream: StreamId) -> Result<InputStream<'name>> {
+        self.inputs
+            .get_mut(stream.0)
+            .and_then(Vec::pop)
+            .flatten()
+            .ok_or_else(|| {
+                WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
+            })
+    }
+
+    fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'writer>> {
+        self.outputs
+            .get_mut(stream.0)
+            .and_then(Option::take)
+            .ok_or_else(|| {
+                WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
+            })
+    }
+
+    fn assert_empty(self) -> Result<()> {
+        if self
+            .inputs
+            .iter()
+            .any(|slots| slots.iter().any(Option::is_some))
+        {
+            return Err(WizardError::BuildError(
+                "unconsumed stream input endpoint".to_owned(),
+            ));
+        }
+        if let Some(index) = self.outputs.iter().position(Option::is_some) {
+            return Err(WizardError::BuildError(format!(
+                "unconsumed endpoint for stream {index}"
+            )));
+        }
+
+        Ok(())
+    }
+}
+
 /// Binds the preflighted graph into owned `PreparedNode` values with pipe
 /// endpoints, fusing terminal artifact streams into the user's writers.
 pub(crate) fn bind_nodes<'name, 'writer>(
@@ -103,68 +165,6 @@ fn allocate<'name, 'writer>(
 
 fn missing_writer(artifact: Artifact) -> WizardError {
     WizardError::BuildError(format!("missing target writer for {artifact}"))
-}
-
-/// Construction-time ownership ledger for pipe and fused endpoints.
-struct PortTable<'name, 'writer> {
-    inputs: Vec<Vec<Option<InputStream<'name>>>>,
-    outputs: Vec<Option<OutputStream<'writer>>>,
-}
-
-impl<'name, 'writer> PortTable<'name, 'writer> {
-    fn with_capacity(streams: usize) -> Self {
-        Self {
-            inputs: Vec::with_capacity(streams),
-            outputs: Vec::with_capacity(streams),
-        }
-    }
-
-    fn push_stream(
-        &mut self,
-        readers: Vec<Option<InputStream<'name>>>,
-        output: OutputStream<'writer>,
-    ) {
-        self.inputs.push(readers);
-        self.outputs.push(Some(output));
-    }
-
-    fn take_input(&mut self, stream: StreamId) -> Result<InputStream<'name>> {
-        self.inputs
-            .get_mut(stream.0)
-            .and_then(Vec::pop)
-            .flatten()
-            .ok_or_else(|| {
-                WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
-            })
-    }
-
-    fn take_output(&mut self, stream: StreamId) -> Result<OutputStream<'writer>> {
-        self.outputs
-            .get_mut(stream.0)
-            .and_then(Option::take)
-            .ok_or_else(|| {
-                WizardError::BuildError(format!("endpoint for stream {stream:?} unavailable"))
-            })
-    }
-
-    fn assert_empty(self) -> Result<()> {
-        if self
-            .inputs
-            .iter()
-            .any(|slots| slots.iter().any(Option::is_some))
-        {
-            return Err(WizardError::BuildError(
-                "unconsumed stream input endpoint".to_owned(),
-            ));
-        }
-        if let Some(index) = self.outputs.iter().position(Option::is_some) {
-            return Err(WizardError::BuildError(format!(
-                "unconsumed endpoint for stream {index}"
-            )));
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]

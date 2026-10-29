@@ -25,30 +25,13 @@ const PREFIX_WINDOW: usize = 16 * 1024;
 /// Sequence number for unique ingest file names.
 static INGEST_SEQ: AtomicUsize = AtomicUsize::new(0);
 
+/// Staging files claimed by an in-progress ingest, per digest.
+static CLAIMED_STAGES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
 /// A content-addressed store holding layer blobs under `blobs/sha256/`.
 #[derive(Clone, Debug)]
 pub struct Content {
     root: Option<PathBuf>,
-}
-
-/// Staging files claimed by an in-progress ingest, per digest.
-static CLAIMED_STAGES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-
-fn claim_staging(path: &Path) -> bool {
-    let claimed = CLAIMED_STAGES.get_or_init(|| Mutex::new(HashSet::new()));
-    let mut claimed = claimed.lock().unwrap_or_else(PoisonError::into_inner);
-
-    claimed.insert(path.to_string_lossy().into_owned())
-}
-
-fn release_staging(path: &Path) {
-    let Some(claimed) = CLAIMED_STAGES.get() else {
-        return;
-    };
-    claimed
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(&path.to_string_lossy().into_owned());
 }
 
 impl Content {
@@ -160,35 +143,6 @@ impl Content {
     }
 }
 
-fn pump_prefix(read: &mut impl Read, verifier: &mut Verifier) -> Result<u64> {
-    let mut buffer = [0_u8; PREFIX_WINDOW];
-    let mut hashed = 0_u64;
-    loop {
-        let chunk_len = read.read(&mut buffer).map_err(KociError::IoError)?;
-        if chunk_len == 0 {
-            return Ok(hashed);
-        }
-        if let Some(chunk) = buffer.get(..chunk_len) {
-            verifier.update(chunk);
-        }
-        hashed = hashed.saturating_add(u64::try_from(chunk_len).unwrap_or(u64::MAX));
-    }
-}
-
-fn stale_staging(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    let Ok(modified) = metadata.modified() else {
-        return false;
-    };
-
-    SystemTime::now()
-        .duration_since(modified)
-        .unwrap_or_default()
-        > STALE_INGEST
-}
-
 /// A streaming write end for a blob being fetched, with atomic commitment.
 pub struct Ingest {
     staging_path: PathBuf,
@@ -278,6 +232,52 @@ impl Drop for Ingest {
         }
         release_staging(&self.staging_path);
     }
+}
+
+fn claim_staging(path: &Path) -> bool {
+    let claimed = CLAIMED_STAGES.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut claimed = claimed.lock().unwrap_or_else(PoisonError::into_inner);
+
+    claimed.insert(path.to_string_lossy().into_owned())
+}
+
+fn release_staging(path: &Path) {
+    let Some(claimed) = CLAIMED_STAGES.get() else {
+        return;
+    };
+    claimed
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&path.to_string_lossy().into_owned());
+}
+
+fn pump_prefix(read: &mut impl Read, verifier: &mut Verifier) -> Result<u64> {
+    let mut buffer = [0_u8; PREFIX_WINDOW];
+    let mut hashed = 0_u64;
+    loop {
+        let chunk_len = read.read(&mut buffer).map_err(KociError::IoError)?;
+        if chunk_len == 0 {
+            return Ok(hashed);
+        }
+        if let Some(chunk) = buffer.get(..chunk_len) {
+            verifier.update(chunk);
+        }
+        hashed = hashed.saturating_add(u64::try_from(chunk_len).unwrap_or(u64::MAX));
+    }
+}
+
+fn stale_staging(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+
+    SystemTime::now()
+        .duration_since(modified)
+        .unwrap_or_default()
+        > STALE_INGEST
 }
 
 #[cfg(test)]

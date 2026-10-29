@@ -21,6 +21,9 @@ use crate::error::{KociError, Result};
 use crate::progress::sink::{Sink, Tracker};
 use crate::progress::{ByteSample, Phase};
 
+/// HTTP status code for a staging prefix that overshoots the blob.
+const RANGE_NOT_SATISFIABLE: u16 = 416;
+
 /// Where a layer blob's bytes come from.
 #[derive(Debug)]
 pub enum BlobSource<'bytes> {
@@ -57,35 +60,6 @@ impl Read for LayerReader<'_> {
     }
 }
 
-/// How a layer blob is compressed, derived from its media type.
-enum Codec {
-    Gzip,
-    Plain,
-}
-
-fn codec(media_type: Option<&str>) -> Result<Codec> {
-    match media_type {
-        Some(OCI_LAYER_GZIP_MEDIA_TYPE | DOCKER_LAYER_GZIP_MEDIA_TYPE) => Ok(Codec::Gzip),
-        Some(OCI_LAYER_MEDIA_TYPE | DOCKER_LAYER_MEDIA_TYPE) | None => Ok(Codec::Plain),
-        Some(other) => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
-    }
-}
-
-/// Wrap a blob source in the appropriate streaming decompressor.
-///
-/// # Errors
-///
-/// Returns an error when the layer media type is not supported.
-pub(crate) fn decompress<'bytes>(
-    source: BlobSource<'bytes>,
-    media_type: Option<&str>,
-) -> Result<LayerReader<'bytes>> {
-    match codec(media_type)? {
-        Codec::Gzip => Ok(LayerReader::Gzipped(MultiGzDecoder::new(source))),
-        Codec::Plain => Ok(LayerReader::Plain(source)),
-    }
-}
-
 /// Byte samples for one layer blob, sent to the pull scheduler.
 #[derive(Clone, Debug)]
 pub(crate) struct ByteProgress {
@@ -113,6 +87,35 @@ impl Tracker for ByteProgress {
             current,
             total: self.total,
         });
+    }
+}
+
+/// How a layer blob is compressed, derived from its media type.
+enum Codec {
+    Gzip,
+    Plain,
+}
+
+fn codec(media_type: Option<&str>) -> Result<Codec> {
+    match media_type {
+        Some(OCI_LAYER_GZIP_MEDIA_TYPE | DOCKER_LAYER_GZIP_MEDIA_TYPE) => Ok(Codec::Gzip),
+        Some(OCI_LAYER_MEDIA_TYPE | DOCKER_LAYER_MEDIA_TYPE) | None => Ok(Codec::Plain),
+        Some(other) => Err(KociError::UnsupportedLayerMediaType(other.to_owned())),
+    }
+}
+
+/// Wrap a blob source in the appropriate streaming decompressor.
+///
+/// # Errors
+///
+/// Returns an error when the layer media type is not supported.
+pub(crate) fn decompress<'bytes>(
+    source: BlobSource<'bytes>,
+    media_type: Option<&str>,
+) -> Result<LayerReader<'bytes>> {
+    match codec(media_type)? {
+        Codec::Gzip => Ok(LayerReader::Gzipped(MultiGzDecoder::new(source))),
+        Codec::Plain => Ok(LayerReader::Plain(source)),
     }
 }
 
@@ -165,9 +168,6 @@ pub(crate) async fn fetch_into_store(
 
     ingest.commit(verifier)
 }
-
-/// HTTP status code for a staging prefix that overshoots the blob.
-const RANGE_NOT_SATISFIABLE: u16 = 416;
 
 /// Stream the blob body into `ingest`, resuming staged bytes via Range.
 async fn stream_blob(

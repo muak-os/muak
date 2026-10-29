@@ -4,10 +4,6 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
-fn readonly_flag(readonly: bool) -> &'static str {
-    if readonly { ",readonly=on" } else { "" }
-}
-
 pub struct Driver {
     binary_path: String,
 }
@@ -109,4 +105,8 @@ impl Driver {
         )?;
         Ok(())
     }
+}
+
+fn readonly_flag(readonly: bool) -> &'static str {
+    if readonly { ",readonly=on" } else { "" }
 }

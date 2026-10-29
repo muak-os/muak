@@ -105,20 +105,6 @@ mod tests {
 
     use super::*;
 
-    fn lease() -> Lease {
-        Lease {
-            obtained_at: SystemTime::UNIX_EPOCH,
-            lease_time: Duration::from_secs(60),
-            renewal_time: Duration::from_secs(30),
-            rebind_time: Duration::from_secs(45),
-            server_ip: Ipv4Addr::new(192, 168, 1, 1),
-            assigned_ip: Ipv4Addr::new(192, 168, 1, 2),
-            prefix_len: 24,
-            gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
-            dns_servers: Vec::new(),
-        }
-    }
-
     struct StubAttempts<'a> {
         counter: &'a mut u32,
         succeed_on: u32,
@@ -136,6 +122,20 @@ mod tests {
             (*self.counter == self.succeed_on)
                 .then(lease)
                 .ok_or_else(|| anyhow::anyhow!("no server replied"))
+        }
+    }
+
+    fn lease() -> Lease {
+        Lease {
+            obtained_at: SystemTime::UNIX_EPOCH,
+            lease_time: Duration::from_secs(60),
+            renewal_time: Duration::from_secs(30),
+            rebind_time: Duration::from_secs(45),
+            server_ip: Ipv4Addr::new(192, 168, 1, 1),
+            assigned_ip: Ipv4Addr::new(192, 168, 1, 2),
+            prefix_len: 24,
+            gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
+            dns_servers: Vec::new(),
         }
     }
 

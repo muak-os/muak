@@ -8,6 +8,10 @@ use erofs::{Compression, MkfsConfig};
 
 use crate::error::{MumiError, Result};
 
+const S_IFMT: u32 = 0o170_000;
+const S_IFDIR: u32 = 0o040_000;
+const S_IFLNK: u32 = 0o120_000;
+
 /// `SELinux` file context rules for labeling EROFS inodes.
 #[derive(Debug, Clone)]
 pub struct FileContexts {
@@ -168,10 +172,6 @@ fn mkfs_config(file_contexts: Option<&FileContexts>, compression: Compression) -
         compression,
     }
 }
-
-const S_IFMT: u32 = 0o170_000;
-const S_IFDIR: u32 = 0o040_000;
-const S_IFLNK: u32 = 0o120_000;
 
 /// Reconstructs the source entry metadata from a planned inode.
 fn inode_entry(inode: &erofs::InodeLayout) -> TreeEntry {

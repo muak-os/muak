@@ -1,22 +1,21 @@
 //! Command-line interface for the wizard.
 
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-
-use anyhow::{Context as _, Result};
-use clap::{Parser, Subcommand};
-use koci::arch::Arch;
-use tui::output::Flags;
-use wizard::domain::profile::Profile;
-use wizard::request::Request;
-use wizard::resolver;
-
 mod build;
 mod console;
 mod tracked;
 mod writer;
 
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context as _, Result};
+use clap::{Parser, Subcommand};
 use console::Console;
+use koci::arch::Arch;
+use tui::output::Flags;
+use wizard::domain::profile::Profile;
+use wizard::request::Request;
+use wizard::resolver;
 
 #[derive(Debug, Parser)]
 #[command(name = "wizard")]

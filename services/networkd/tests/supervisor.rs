@@ -4,10 +4,6 @@ extern crate alloc;
 
 #[cfg(test)]
 mod supervisor {
-    pub(super) use networkd::supervisor;
-
-    pub(super) use super::*;
-
     mod discovery;
     mod dispatch;
     mod dns;
@@ -15,6 +11,10 @@ mod supervisor {
     mod lifecycle;
     mod provision;
     mod reconcile;
+
+    pub(super) use networkd::supervisor;
+
+    pub(super) use super::*;
 }
 
 mod fixtures;

@@ -13,14 +13,14 @@ pub struct ChildExit {
 
 /// Abstraction over child-process reaping.
 pub trait Reap {
+    /// Non-blocking drain of all already-terminated children.
+    fn reap_all(&mut self) -> Vec<(String, ChildExit)>;
+
     /// Registers a PID as belonging to a named supervised service.
     fn track(&mut self, pid: i32, name: String);
 
     /// Waits for the next batch of child exits (may block).
     fn wait_for_exits(&mut self) -> impl Future<Output = Vec<(String, ChildExit)>> + Send;
-
-    /// Non-blocking drain of all already-terminated children.
-    fn reap_all(&mut self) -> Vec<(String, ChildExit)>;
 }
 
 /// PID 1 child reaper using SIGCHLD and `waitpid(-1, WNOHANG)`.

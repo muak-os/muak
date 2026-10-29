@@ -45,6 +45,56 @@ pub enum Failure {
 /// Bridge operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
+/// Trait covering bridge netlink operations.
+pub trait Ops: Clone + Send + Sync + 'static {
+    /// Attaches a named interface to a named bridge.
+    fn attach_to_bridge(
+        &self,
+        iface_name: &str,
+        bridge_name: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Creates a bridge with the given configuration and attaches a physical interface.
+    fn ensure_bridge(
+        &self,
+        bridge_name: &str,
+        physical_iface: &str,
+        gateway: Option<Ipv4Addr>,
+        stp: bool,
+    ) -> impl Future<Output = Result<()>> + Send;
+}
+
+impl Ops for Rtnl {
+    async fn ensure_bridge(
+        &self,
+        bridge_name: &str,
+        physical_iface: &str,
+        gateway: Option<Ipv4Addr>,
+        stp: bool,
+    ) -> Result<()> {
+        let phys_index = link::get_index(&self.handle, physical_iface).await?;
+        let br_index = create_or_reconfigure_bridge(&self.handle, bridge_name, stp).await?;
+        enslave_interface_to_bridge(
+            &self.handle,
+            phys_index,
+            br_index,
+            physical_iface,
+            bridge_name,
+        )
+        .await?;
+        transfer_ip_to_bridge(&self.handle, phys_index, br_index, bridge_name, gateway).await
+    }
+
+    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> Result<()> {
+        println!("Attaching {iface_name} to bridge {bridge_name}");
+        let iface_index = link::get_index(&self.handle, iface_name).await?;
+        let bridge_index = link::get_index(&self.handle, bridge_name).await?;
+        link::set_master(&self.handle, iface_index, bridge_index).await?;
+        println!("{iface_name} attached to bridge {bridge_name}");
+        Ok(())
+    }
+}
+
 async fn create_or_reconfigure_bridge(
     handle: &Handle,
     bridge_name: &str,
@@ -151,54 +201,4 @@ async fn transfer_ip_to_bridge(
     }
 
     Ok(())
-}
-
-/// Trait covering bridge netlink operations.
-pub trait Ops: Clone + Send + Sync + 'static {
-    /// Creates a bridge with the given configuration and attaches a physical interface.
-    fn ensure_bridge(
-        &self,
-        bridge_name: &str,
-        physical_iface: &str,
-        gateway: Option<Ipv4Addr>,
-        stp: bool,
-    ) -> impl Future<Output = Result<()>> + Send;
-
-    /// Attaches a named interface to a named bridge.
-    fn attach_to_bridge(
-        &self,
-        iface_name: &str,
-        bridge_name: &str,
-    ) -> impl Future<Output = Result<()>> + Send;
-}
-
-impl Ops for Rtnl {
-    async fn ensure_bridge(
-        &self,
-        bridge_name: &str,
-        physical_iface: &str,
-        gateway: Option<Ipv4Addr>,
-        stp: bool,
-    ) -> Result<()> {
-        let phys_index = link::get_index(&self.handle, physical_iface).await?;
-        let br_index = create_or_reconfigure_bridge(&self.handle, bridge_name, stp).await?;
-        enslave_interface_to_bridge(
-            &self.handle,
-            phys_index,
-            br_index,
-            physical_iface,
-            bridge_name,
-        )
-        .await?;
-        transfer_ip_to_bridge(&self.handle, phys_index, br_index, bridge_name, gateway).await
-    }
-
-    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> Result<()> {
-        println!("Attaching {iface_name} to bridge {bridge_name}");
-        let iface_index = link::get_index(&self.handle, iface_name).await?;
-        let bridge_index = link::get_index(&self.handle, bridge_name).await?;
-        link::set_master(&self.handle, iface_index, bridge_index).await?;
-        println!("{iface_name} attached to bridge {bridge_name}");
-        Ok(())
-    }
 }

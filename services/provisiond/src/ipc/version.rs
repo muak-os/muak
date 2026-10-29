@@ -5,11 +5,6 @@ use tonic::{Request, Response, Status};
 use super::proto::version::version_service_server::{VersionService, VersionServiceServer};
 use super::proto::version::{GetVersionRequest, GetVersionResponse};
 
-/// Creates the `VersionService` gRPC server.
-pub fn service() -> VersionServiceServer<ServiceImpl> {
-    VersionServiceServer::new(ServiceImpl)
-}
-
 /// Implementation of the `VersionService` gRPC interface.
 pub struct ServiceImpl;
 
@@ -23,4 +18,9 @@ impl VersionService for ServiceImpl {
             version: env!("CARGO_PKG_VERSION").to_owned(),
         }))
     }
+}
+
+/// Creates the `VersionService` gRPC server.
+pub fn service() -> VersionServiceServer<ServiceImpl> {
+    VersionServiceServer::new(ServiceImpl)
 }

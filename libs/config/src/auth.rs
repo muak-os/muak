@@ -16,13 +16,13 @@ pub const AUTH_PATH: &str = "/run/state/auth.toml";
 /// File extension for auth state files.
 pub const AUTH_EXTENSION: &str = "toml";
 
+static AUTH_CACHE: OnceLock<AuthCache> = OnceLock::new();
+
 /// Cached auth state with mtime-based invalidation.
 struct AuthCache {
     data: RwLock<Arc<State>>,
     mtime: AtomicU64,
 }
-
-static AUTH_CACHE: OnceLock<AuthCache> = OnceLock::new();
 
 /// Authentication and authorization configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

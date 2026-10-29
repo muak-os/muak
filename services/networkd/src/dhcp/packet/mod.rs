@@ -1,7 +1,5 @@
 //! Raw `DHCPv4` packet construction and field extraction (RFC 2131).
 
-use core::net::Ipv4Addr;
-
 /// `DHCPv4` option codes.
 pub(crate) mod option;
 
@@ -10,6 +8,8 @@ pub(crate) mod message_type;
 
 /// RFC 2131 fixed-header field offsets.
 pub(crate) mod field;
+
+use core::net::Ipv4Addr;
 
 pub(crate) const MAGIC_COOKIE: [u8; 4] = [99, 130, 83, 99];
 pub(crate) const BOOTREQUEST: u8 = 1;

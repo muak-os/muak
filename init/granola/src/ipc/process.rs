@@ -3,10 +3,6 @@ use tonic::{Request, Response, Status};
 use super::proto::process::process_service_server::{ProcessService, ProcessServiceServer};
 use super::proto::process::{ListProcessesRequest, ListProcessesResponse, ProcessInfo};
 
-pub fn service() -> ProcessServiceServer<ServiceImpl> {
-    ProcessServiceServer::new(ServiceImpl)
-}
-
 pub struct ServiceImpl;
 
 #[tonic::async_trait]
@@ -61,6 +57,10 @@ async fn read_process_info(pid: i32) -> Result<ProcessInfo, std::io::Error> {
         status,
         started_at,
     })
+}
+
+pub fn service() -> ProcessServiceServer<ServiceImpl> {
+    ProcessServiceServer::new(ServiceImpl)
 }
 
 fn parse_process_status(stat: &str) -> String {

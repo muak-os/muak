@@ -4,6 +4,23 @@ use semver::Version;
 
 use crate::error::{ConfigError, Result};
 
+/// Result of comparing CLI and server versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompatibilityStatus {
+    /// Versions are fully compatible.
+    Compatible,
+    /// Versions differ only in minor/patch, still compatible.
+    MinorDrift {
+        /// Whether the CLI version is newer than the server version.
+        cli_newer: bool,
+    },
+    /// Major version mismatch, may be incompatible.
+    MajorMismatch {
+        /// Whether the CLI version is newer than the server version.
+        cli_newer: bool,
+    },
+}
+
 /// Parses a catalog release (`vMAJOR.MINOR.PATCH[-PRERELEASE]`).
 ///
 /// # Errors
@@ -34,23 +51,6 @@ pub fn check_no_downgrade(new_release: &str, current_release: &str) -> Result<()
     }
 
     Ok(())
-}
-
-/// Result of comparing CLI and server versions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompatibilityStatus {
-    /// Versions are fully compatible.
-    Compatible,
-    /// Versions differ only in minor/patch, still compatible.
-    MinorDrift {
-        /// Whether the CLI version is newer than the server version.
-        cli_newer: bool,
-    },
-    /// Major version mismatch, may be incompatible.
-    MajorMismatch {
-        /// Whether the CLI version is newer than the server version.
-        cli_newer: bool,
-    },
 }
 
 /// Compares CLI and server versions; unparsable versions count as compatible.

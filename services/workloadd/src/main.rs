@@ -8,6 +8,33 @@ mod hypervisor;
 mod ipc;
 mod persistence;
 
+#[expect(
+    clippy::absolute_paths,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::arbitrary_source_item_ordering,
+    clippy::as_conversions,
+    clippy::clone_on_ref_ptr,
+    clippy::default_trait_access,
+    clippy::doc_markdown,
+    clippy::doc_paragraphs_missing_punctuation,
+    clippy::empty_structs_with_brackets,
+    clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
+    clippy::inline_modules,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::pattern_type_mismatch,
+    clippy::std_instead_of_core,
+    clippy::too_many_lines,
+    reason = "generated protobuf code"
+)]
+pub mod proto {
+    pub mod vm {
+        tonic::include_proto!("muak.vm.v1");
+    }
+}
+
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -21,35 +48,6 @@ use tokio::fs::create_dir_all;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
-
-#[expect(
-    clippy::absolute_paths,
-    clippy::allow_attributes,
-    clippy::allow_attributes_without_reason,
-    clippy::as_conversions,
-    clippy::clone_on_ref_ptr,
-    clippy::default_trait_access,
-    clippy::doc_markdown,
-    clippy::doc_paragraphs_missing_punctuation,
-    clippy::empty_structs_with_brackets,
-    clippy::excessive_nesting,
-    clippy::impl_trait_in_params,
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::pattern_type_mismatch,
-    clippy::std_instead_of_core,
-    clippy::too_many_lines,
-    reason = "generated protobuf code"
-)]
-#[expect(
-    clippy::inline_modules,
-    reason = "generated protobuf modules are included inline"
-)]
-pub mod proto {
-    pub mod vm {
-        tonic::include_proto!("muak.vm.v1");
-    }
-}
 
 const STATE_DIR: &str = "/run/state/workloadd";
 

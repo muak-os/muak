@@ -121,13 +121,6 @@ impl spki::EncodePublicKey for Verifier {
     }
 }
 
-fn public_key_algorithm() -> spki::AlgorithmIdentifier<Any> {
-    spki::AlgorithmIdentifier {
-        oid: EC_PUBLIC_KEY_OID,
-        parameters: Some(Any::from(&SECP256R1_OID)),
-    }
-}
-
 impl signature::Keypair for Signer {
     type VerifyingKey = Verifier;
 
@@ -161,6 +154,13 @@ impl signature::Signer<Signature> for Signer {
         let signature: EcdsaSignature = self.key.sign(msg);
 
         Ok(Signature(signature.to_der().as_ref().to_vec()))
+    }
+}
+
+fn public_key_algorithm() -> spki::AlgorithmIdentifier<Any> {
+    spki::AlgorithmIdentifier {
+        oid: EC_PUBLIC_KEY_OID,
+        parameters: Some(Any::from(&SECP256R1_OID)),
     }
 }
 

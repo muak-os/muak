@@ -4,18 +4,6 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
-fn readonly_flag(readonly: bool) -> &'static str {
-    if readonly { ",readonly=on" } else { "" }
-}
-
-/// Returns the QEMU system binary path for the current host architecture.
-fn qemu_binary_path() -> &'static str {
-    match std::env::consts::ARCH {
-        "aarch64" => "/usr/bin/qemu-system-aarch64",
-        _ => "/usr/bin/qemu-system-x86_64",
-    }
-}
-
 pub struct Driver {
     binary_path: String,
 }
@@ -98,5 +86,17 @@ impl Driver {
             signal,
         )?;
         Ok(())
+    }
+}
+
+fn readonly_flag(readonly: bool) -> &'static str {
+    if readonly { ",readonly=on" } else { "" }
+}
+
+/// Returns the QEMU system binary path for the current host architecture.
+fn qemu_binary_path() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "/usr/bin/qemu-system-aarch64",
+        _ => "/usr/bin/qemu-system-x86_64",
     }
 }

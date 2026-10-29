@@ -148,6 +148,81 @@ impl Ops for Rtnl {
     }
 }
 
+/// Interface selection logic for choosing the best primary and backup interfaces.
+pub struct Selector;
+
+impl Selector {
+    /// Selects the highest-priority interface as the primary.
+    #[must_use]
+    pub fn select_primary(interfaces: &[Ethernet]) -> Option<&Ethernet> {
+        if interfaces.is_empty() {
+            return None;
+        }
+
+        interfaces
+            .iter()
+            .max_by(|left, right| Self::compare_interfaces(left, right))
+    }
+
+    /// Returns all non-primary interfaces sorted by descending priority.
+    #[must_use]
+    pub fn select_backups<'a>(
+        interfaces: &'a [Ethernet],
+        primary_name: &Name,
+    ) -> Vec<&'a Ethernet> {
+        let mut backups: Vec<&Ethernet> = interfaces
+            .iter()
+            .filter(|interface| &interface.name != primary_name)
+            .collect();
+
+        backups.sort_by(|left, right| Self::compare_interfaces(left, right).reverse());
+
+        backups
+    }
+
+    fn compare_interfaces(left: &Ethernet, right: &Ethernet) -> Ordering {
+        let score_left = Self::score_interface(left);
+        let score_right = Self::score_interface(right);
+
+        score_left
+            .cmp(&score_right)
+            .then_with(|| right.index.cmp(&left.index))
+    }
+
+    fn score_interface(interface: &Ethernet) -> u32 {
+        let mut score = 0_u32;
+
+        if interface.has_carrier() {
+            score = score.saturating_add(2000);
+        }
+
+        if interface.link_state != State::Down {
+            score = score.saturating_add(1000);
+        }
+
+        score = score.saturating_add(Self::score_naming(&interface.name));
+
+        score
+    }
+
+    fn score_naming(name: &Name) -> u32 {
+        let interface_name = name.as_str();
+        if interface_name.starts_with("eno") {
+            500
+        } else if interface_name.starts_with("ens") {
+            400
+        } else if interface_name.starts_with("enp") {
+            300
+        } else if interface_name.starts_with("end") {
+            200
+        } else if interface_name.starts_with("eth") {
+            100
+        } else {
+            50
+        }
+    }
+}
+
 async fn discover_ethernet(handle: &Handle) -> Result<Vec<Ethernet>> {
     let mut interfaces = Vec::new();
     let mut links = handle.link().get().execute();
@@ -227,90 +302,15 @@ pub fn is_ethernet(name: &str) -> bool {
         || name.starts_with("end")
 }
 
-/// Interface selection logic for choosing the best primary and backup interfaces.
-pub struct Selector;
-
-impl Selector {
-    /// Selects the highest-priority interface as the primary.
-    #[must_use]
-    pub fn select_primary(interfaces: &[Ethernet]) -> Option<&Ethernet> {
-        if interfaces.is_empty() {
-            return None;
-        }
-
-        interfaces
-            .iter()
-            .max_by(|left, right| Self::compare_interfaces(left, right))
-    }
-
-    /// Returns all non-primary interfaces sorted by descending priority.
-    #[must_use]
-    pub fn select_backups<'a>(
-        interfaces: &'a [Ethernet],
-        primary_name: &Name,
-    ) -> Vec<&'a Ethernet> {
-        let mut backups: Vec<&Ethernet> = interfaces
-            .iter()
-            .filter(|interface| &interface.name != primary_name)
-            .collect();
-
-        backups.sort_by(|left, right| Self::compare_interfaces(left, right).reverse());
-
-        backups
-    }
-
-    fn compare_interfaces(left: &Ethernet, right: &Ethernet) -> Ordering {
-        let score_left = Self::score_interface(left);
-        let score_right = Self::score_interface(right);
-
-        score_left
-            .cmp(&score_right)
-            .then_with(|| right.index.cmp(&left.index))
-    }
-
-    fn score_interface(interface: &Ethernet) -> u32 {
-        let mut score = 0_u32;
-
-        if interface.has_carrier() {
-            score = score.saturating_add(2000);
-        }
-
-        if interface.link_state != State::Down {
-            score = score.saturating_add(1000);
-        }
-
-        score = score.saturating_add(Self::score_naming(&interface.name));
-
-        score
-    }
-
-    fn score_naming(name: &Name) -> u32 {
-        let interface_name = name.as_str();
-        if interface_name.starts_with("eno") {
-            500
-        } else if interface_name.starts_with("ens") {
-            400
-        } else if interface_name.starts_with("enp") {
-            300
-        } else if interface_name.starts_with("end") {
-            200
-        } else if interface_name.starts_with("eth") {
-            100
-        } else {
-            50
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use rtnetlink::packet_route::link::InfoKind;
+
     use super::*;
     use crate::link::State as LinkStateKind;
 
     type Interface = Ethernet;
     type InterfaceSelector = Selector;
-
-    use rtnetlink::packet_route::link::InfoKind;
 
     fn make_interface(name: &str, link_state: LinkStateKind) -> Interface {
         make_interface_with_index(name, 0, link_state)

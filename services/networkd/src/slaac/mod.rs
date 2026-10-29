@@ -9,12 +9,12 @@ use anyhow::{Result, bail};
 pub(crate) use netlib::slaac::icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
 
 /// `ICMPv6` router-advertisement type for the raw socket filter.
+pub(crate) const ICMP6_FILTER: libc::c_int = 1;
+
 #[repr(C)]
 pub(crate) struct Icmp6Filter {
     pub data: [u32; 8],
 }
-
-pub(crate) const ICMP6_FILTER: libc::c_int = 1;
 
 pub(crate) fn create_icmpv6_filter() -> Icmp6Filter {
     let mut filter = Icmp6Filter {

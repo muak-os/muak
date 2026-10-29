@@ -11,6 +11,29 @@ use crate::error::{MumiError, Result};
 /// Required Linux boot directories.
 pub const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services", "etc/selinux"];
 
+/// One sequential `Read` view per entry, for a single consumer pass.
+#[derive(Debug)]
+pub struct FileReaders {
+    files: Vec<Option<std::fs::File>>,
+    empties: Vec<std::io::Empty>,
+}
+
+impl FileReaders {
+    /// Borrows every entry as a `Read` view.
+    pub fn views(&mut self) -> Vec<&mut dyn Read> {
+        self.files
+            .iter_mut()
+            .zip(self.empties.iter_mut())
+            .map(|(file, empty)| -> &mut dyn Read {
+                match file.as_mut() {
+                    Some(file) => file,
+                    None => empty,
+                }
+            })
+            .collect()
+    }
+}
+
 /// Creates required Linux boot directories under `root` if they don't exist.
 ///
 /// # Errors
@@ -53,29 +76,6 @@ pub fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
     })?;
 
     Ok(())
-}
-
-/// One sequential `Read` view per entry, for a single consumer pass.
-#[derive(Debug)]
-pub struct FileReaders {
-    files: Vec<Option<std::fs::File>>,
-    empties: Vec<std::io::Empty>,
-}
-
-impl FileReaders {
-    /// Borrows every entry as a `Read` view.
-    pub fn views(&mut self) -> Vec<&mut dyn Read> {
-        self.files
-            .iter_mut()
-            .zip(self.empties.iter_mut())
-            .map(|(file, empty)| -> &mut dyn Read {
-                match file.as_mut() {
-                    Some(file) => file,
-                    None => empty,
-                }
-            })
-            .collect()
-    }
 }
 
 /// Opens file readers for each entry, using an empty reader for directories and symlinks.

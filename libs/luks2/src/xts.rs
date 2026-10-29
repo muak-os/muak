@@ -12,6 +12,12 @@ use crate::error::{Luks2Error, Result};
 
 const AES_BLOCK_SIZE: usize = 16;
 
+#[derive(Clone, Copy)]
+enum Mode {
+    Encrypt,
+    Decrypt,
+}
+
 /// Encrypts `data` in-place using AES-256-XTS.
 ///
 /// `key` must be 64 bytes (two 256-bit AES keys).
@@ -26,12 +32,6 @@ pub fn encrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
 /// `tweak` is the 16-byte sector/unit number in little-endian.
 pub fn decrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
     xts_process(key, tweak, data, Mode::Decrypt)
-}
-
-#[derive(Clone, Copy)]
-enum Mode {
-    Encrypt,
-    Decrypt,
 }
 
 fn xts_process(key: &[u8], tweak: &[u8; 16], data: &mut [u8], mode: Mode) -> Result<()> {

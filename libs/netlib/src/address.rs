@@ -62,10 +62,27 @@ pub struct Ipv6Config {
 /// Trait covering all address-layer netlink operations.
 pub trait Ops: Clone + Send + Sync + 'static {
     /// Adds or confirms an IPv4 address on an interface.
+    /// Adds an IPv4 address to an interface.
+    fn add_ipv4(
+        &self,
+        index: u32,
+        ip: Ipv4Addr,
+        prefix: u8,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Adds or confirms an IPv4 address on an interface.
     fn ensure_ipv4(
         &self,
         index: u32,
         ip: Ipv4Addr,
+        prefix: u8,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Adds or confirms an IPv6 address on an interface.
+    fn ensure_ipv6(
+        &self,
+        index: u32,
+        ip: Ipv6Addr,
         prefix: u8,
     ) -> impl Future<Output = Result<()>> + Send;
 
@@ -75,24 +92,8 @@ pub trait Ops: Clone + Send + Sync + 'static {
     /// Returns whether an interface has at least one IPv4 address.
     fn has_ipv4(&self, index: u32) -> impl Future<Output = Result<bool>> + Send;
 
-    /// Adds an IPv4 address to an interface.
-    fn add_ipv4(
-        &self,
-        index: u32,
-        ip: Ipv4Addr,
-        prefix: u8,
-    ) -> impl Future<Output = Result<()>> + Send;
-
     /// Removes an IPv4 address from an interface.
     fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> impl Future<Output = Result<()>> + Send;
-
-    /// Adds or confirms an IPv6 address on an interface.
-    fn ensure_ipv6(
-        &self,
-        index: u32,
-        ip: Ipv6Addr,
-        prefix: u8,
-    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Removes an IPv6 address from an interface.
     fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> impl Future<Output = Result<()>> + Send;

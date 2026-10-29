@@ -13,6 +13,10 @@ use crate::layout::{self, InodeLayout};
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 const RECOMPRESS_DST_LEN: usize = 4096 + 32;
+pub(super) const Z_EROFS_LI_D0_CBLKCNT: u16 = 1 << 11;
+pub(super) const Z_EROFS_LCLUSTER_TYPE_PLAIN: u8 = 0;
+pub(super) const Z_EROFS_LCLUSTER_TYPE_HEAD1: u8 = 1;
+pub(super) const Z_EROFS_LCLUSTER_TYPE_NONHEAD: u8 = 2;
 
 #[derive(Clone, Copy)]
 pub(super) struct LegacyIndexEntry {
@@ -22,11 +26,6 @@ pub(super) struct LegacyIndexEntry {
     pub(super) delta0: u16,
     pub(super) delta1: u16,
 }
-
-pub(super) const Z_EROFS_LI_D0_CBLKCNT: u16 = 1 << 11;
-pub(super) const Z_EROFS_LCLUSTER_TYPE_PLAIN: u8 = 0;
-pub(super) const Z_EROFS_LCLUSTER_TYPE_HEAD1: u8 = 1;
-pub(super) const Z_EROFS_LCLUSTER_TYPE_NONHEAD: u8 = 2;
 
 impl LegacyIndexEntry {
     pub(super) const fn plain(clusterofs: u16, blkaddr: u32) -> Self {

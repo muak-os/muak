@@ -1,14 +1,14 @@
 //! Command-line interface for the catalog publisher.
 
-use std::ffi::OsString;
-
-use anyhow::Result;
-use clap::{Parser, Subcommand};
-
 mod compose;
 mod publish;
 mod remove;
 mod verify;
+
+use std::ffi::OsString;
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]

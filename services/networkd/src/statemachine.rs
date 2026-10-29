@@ -10,9 +10,6 @@ pub struct InvalidTransition<S: fmt::Display> {
 
 /// Enforces a finite set of valid transitions between states.
 pub trait StateMachine: Sized + Clone + PartialEq + fmt::Display + 'static {
-    /// Returns the set of states reachable from the current state.
-    fn valid_next_states(&self) -> &'static [Self];
-
     /// Advances to `to` if the transition is valid, otherwise returns an error.
     ///
     /// # Errors
@@ -29,6 +26,9 @@ pub trait StateMachine: Sized + Clone + PartialEq + fmt::Display + 'static {
             })
         }
     }
+
+    /// Returns the set of states reachable from the current state.
+    fn valid_next_states(&self) -> &'static [Self];
 }
 
 impl<S: fmt::Display> fmt::Display for InvalidTransition<S> {

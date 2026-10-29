@@ -7,6 +7,7 @@ pub mod process;
     clippy::absolute_paths,
     clippy::allow_attributes,
     clippy::allow_attributes_without_reason,
+    clippy::arbitrary_source_item_ordering,
     clippy::as_conversions,
     clippy::clone_on_ref_ptr,
     clippy::default_trait_access,

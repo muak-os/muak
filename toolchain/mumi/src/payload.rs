@@ -112,6 +112,23 @@ impl Planned {
     }
 }
 
+/// A `Read` view over a byte slice, without allocation or seeking.
+pub(crate) struct SliceReader<'a> {
+    data: &'a [u8],
+}
+
+impl Read for SliceReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = buf.len().min(self.data.len());
+        let (head, tail) = self.data.split_at(n);
+        let (dst, _) = buf.split_at_mut(n);
+        dst.copy_from_slice(head);
+        self.data = tail;
+
+        Ok(n)
+    }
+}
+
 /// Plans one payload per source, measuring each into a layout-only [`Planned`].
 ///
 /// # Errors
@@ -202,23 +219,6 @@ pub(crate) fn read_views<R: Read>(readers: &mut [R]) -> Vec<&mut dyn Read> {
         .iter_mut()
         .map(|reader| -> &mut dyn Read { reader })
         .collect()
-}
-
-/// A `Read` view over a byte slice, without allocation or seeking.
-pub(crate) struct SliceReader<'a> {
-    data: &'a [u8],
-}
-
-impl Read for SliceReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let n = buf.len().min(self.data.len());
-        let (head, tail) = self.data.split_at(n);
-        let (dst, _) = buf.split_at_mut(n);
-        dst.copy_from_slice(head);
-        self.data = tail;
-
-        Ok(n)
-    }
 }
 
 #[cfg(test)]

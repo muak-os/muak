@@ -30,6 +30,8 @@ use crate::interface::{Actor, ActorHandle};
 use crate::supervisor::snapshot::NetworkSnapshot;
 use crate::supervisor::state::NetworkState;
 
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
+
 struct NetworkSupervisor<N: Ops> {
     ops: N,
     config: Arc<network::Config>,
@@ -51,8 +53,6 @@ enum SupervisorEvent {
     PrimaryChanged,
     ReconcileTick,
 }
-
-const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 
 impl<N: Ops> NetworkSupervisor<N> {
     fn new(

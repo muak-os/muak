@@ -5,6 +5,9 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+/// Known permission categories that support wildcards.
+const CATEGORIES: &[&str] = &["vm", "system", "auth", "process", "security"];
+
 /// Fine-grained permissions for RBAC.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Permission {
@@ -103,9 +106,6 @@ impl FromStr for Permission {
         }
     }
 }
-
-/// Known permission categories that support wildcards.
-const CATEGORIES: &[&str] = &["vm", "system", "auth", "process", "security"];
 
 impl Permission {
     /// Returns all permissions in a category.

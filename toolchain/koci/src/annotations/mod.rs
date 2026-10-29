@@ -13,6 +13,25 @@ use crate::registry;
 use crate::runtime;
 use crate::signature;
 
+/// One manifest rewrite.
+#[derive(Clone, Copy)]
+enum Mutation<'a> {
+    /// Sign the canonical manifest payload with `key`.
+    Sign {
+        key: &'a SigningKey,
+        annotation: &'a str,
+    },
+}
+
+impl Mutation<'_> {
+    /// Transform one manifest, returning its new body and content type.
+    fn transform(self, _client: &Client, manifest_json: &str) -> Result<(Bytes, String)> {
+        match self {
+            Mutation::Sign { key, annotation } => signature::inject(manifest_json, key, annotation),
+        }
+    }
+}
+
 /// Sign an OCI image manifest in the registry under `annotation`.
 ///
 /// # Errors
@@ -71,23 +90,4 @@ async fn rewrite(reference: &str, mutation: Mutation<'_>) -> Result<()> {
     manifest::put(&client, &client.image().manifest_ref, &content_type, body).await?;
 
     Ok(())
-}
-
-/// One manifest rewrite.
-#[derive(Clone, Copy)]
-enum Mutation<'a> {
-    /// Sign the canonical manifest payload with `key`.
-    Sign {
-        key: &'a SigningKey,
-        annotation: &'a str,
-    },
-}
-
-impl Mutation<'_> {
-    /// Transform one manifest, returning its new body and content type.
-    fn transform(self, _client: &Client, manifest_json: &str) -> Result<(Bytes, String)> {
-        match self {
-            Mutation::Sign { key, annotation } => signature::inject(manifest_json, key, annotation),
-        }
-    }
 }

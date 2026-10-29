@@ -112,6 +112,8 @@ mod tests {
     use crate::testutil::{compress_config, test_config};
     use crate::tree::TreeEntry;
 
+    const FIRST_NID: usize = super::META_START.div_euclid(SLOT_SIZE);
+
     fn assert_reference_nids(planned: &ImagePlan) {
         let inodes = &planned.inodes;
         let root = inodes.first().expect("root inode");
@@ -175,8 +177,6 @@ mod tests {
             compressed: None,
         }
     }
-
-    const FIRST_NID: usize = super::META_START.div_euclid(SLOT_SIZE);
 
     #[test]
     fn first_nid_is_36() {

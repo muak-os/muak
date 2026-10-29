@@ -1,10 +1,10 @@
+pub mod sources;
+
 use alloc::collections::VecDeque;
 use std::collections::HashMap;
 use std::time::Instant;
 
 use tokio::sync::{broadcast, mpsc, oneshot};
-
-pub mod sources;
 
 /// Maximum log entries kept per service.
 const MAX_ENTRIES_PER_SERVICE: usize = 2000;

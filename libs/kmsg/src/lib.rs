@@ -16,134 +16,6 @@ use rustix::fs::{Mode, OFlags, open};
 use rustix::io::write;
 use thiserror::Error;
 
-/// Maximum atomic write size for `/dev/kmsg`.
-const MAX_KMSG_SIZE: usize = 992;
-
-const TRUNCATED_WARNING: &[u8] = b" [TRUNCATED]\n";
-const KMSG_PATH_ENV: &str = "MUAK_KMSG_PATH";
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy)]
-/// Kernel log severity levels.
-pub enum Level {
-    /// Error message (kernel log level 3).
-    Error = 3,
-    /// Warning message (kernel log level 4).
-    Warn = 4,
-    /// Informational message (kernel log level 6).
-    Info = 6,
-    /// Debug message (kernel log level 7).
-    Debug = 7,
-}
-
-static DEFAULT_COMPONENT: OnceLock<String> = OnceLock::new();
-
-impl From<Level> for u8 {
-    fn from(level: Level) -> Self {
-        match level {
-            Level::Error => 3,
-            Level::Warn => 4,
-            Level::Info => 6,
-            Level::Debug => 7,
-        }
-    }
-}
-
-fn kmsg_path() -> Cow<'static, str> {
-    std::env::var(KMSG_PATH_ENV).map_or_else(|_err| Cow::Borrowed("/dev/kmsg"), Cow::Owned)
-}
-
-fn prepare_data_to_write(data: &[u8]) -> Cow<'_, [u8]> {
-    if data.len() <= MAX_KMSG_SIZE {
-        return Cow::Borrowed(data);
-    }
-
-    let available = MAX_KMSG_SIZE.saturating_sub(TRUNCATED_WARNING.len());
-    let prefix = data.get(..available).unwrap_or(data);
-    let mut truncated = Vec::with_capacity(MAX_KMSG_SIZE);
-    truncated.extend_from_slice(prefix);
-    truncated.extend_from_slice(TRUNCATED_WARNING);
-    Cow::Owned(truncated)
-}
-
-fn write_to_kmsg_or_stderr(data: &[u8]) {
-    let data_to_write = prepare_data_to_write(data);
-
-    debug_assert!(
-        data.len() <= MAX_KMSG_SIZE,
-        "kmsg message exceeds MAX_KMSG_SIZE ({} bytes, got {} bytes). \
-         Messages larger than {} bytes may be split or interleaved by the kernel. \
-         Please make the message shorter!",
-        MAX_KMSG_SIZE,
-        data.len(),
-        MAX_KMSG_SIZE
-    );
-
-    let written = open(
-        kmsg_path().as_ref(),
-        OFlags::WRONLY | OFlags::CLOEXEC | OFlags::APPEND,
-        Mode::empty(),
-    )
-    .ok()
-    .and_then(|file| write(file.as_fd(), data_to_write.as_ref()).ok())
-    .is_some_and(|written| written == data_to_write.len());
-
-    if !written {
-        let mut stderr = std::io::stderr();
-        let message = format_stderr_fallback_message(data);
-        drop(stderr.write_all(message.as_bytes()));
-    }
-}
-
-fn format_stderr_fallback_message(data: &[u8]) -> String {
-    format!(
-        "Failed to write to kmsg (falling back to stderr): {}",
-        String::from_utf8_lossy(data)
-    )
-}
-
-/// Initializes the default component used by logging macros and functions.
-///
-/// # Errors
-///
-/// Returns [`InitError::AlreadyInitialized`] when initialization has already happened.
-pub fn init(component: &str) -> Result<(), InitError> {
-    DEFAULT_COMPONENT
-        .set(component.to_owned())
-        .map_err(|_already_initialized| InitError::AlreadyInitialized)
-}
-
-/// Error type for logger initialization.
-#[derive(Debug, Error)]
-pub enum InitError {
-    /// The kmsg logger has already been initialized.
-    #[error("logger already initialized")]
-    AlreadyInitialized,
-}
-
-fn format_log(level: Level, component: &str, message: &str) -> String {
-    if component.is_empty() {
-        format!("<{}> {}\n", u8::from(level), message)
-    } else {
-        format!("<{}>[{}] {}\n", u8::from(level), component, message)
-    }
-}
-
-/// Writes a formatted log message to kmsg (or stderr as fallback).
-pub fn write_log(level: Level, component: Option<&str>, message: &str) {
-    let comp = component
-        .or_else(|| DEFAULT_COMPONENT.get().map(String::as_str))
-        .unwrap_or("");
-
-    write_to_kmsg_or_stderr(format_log(level, comp, message).as_bytes());
-}
-
-/// Writes a plain message to kmsg with a trailing newline.
-pub fn print(message: &str) {
-    let formatted = format!("{message}\n");
-    write_to_kmsg_or_stderr(formatted.as_bytes());
-}
-
 /// Log an error message (priority 3).
 ///
 /// # Examples
@@ -249,6 +121,133 @@ macro_rules! debug {
     ($($arg:tt)*) => {};
 }
 
+/// Maximum atomic write size for `/dev/kmsg`.
+const MAX_KMSG_SIZE: usize = 992;
+static DEFAULT_COMPONENT: OnceLock<String> = OnceLock::new();
+
+const TRUNCATED_WARNING: &[u8] = b" [TRUNCATED]\n";
+const KMSG_PATH_ENV: &str = "MUAK_KMSG_PATH";
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+/// Kernel log severity levels.
+pub enum Level {
+    /// Error message (kernel log level 3).
+    Error = 3,
+    /// Warning message (kernel log level 4).
+    Warn = 4,
+    /// Informational message (kernel log level 6).
+    Info = 6,
+    /// Debug message (kernel log level 7).
+    Debug = 7,
+}
+
+impl From<Level> for u8 {
+    fn from(level: Level) -> Self {
+        match level {
+            Level::Error => 3,
+            Level::Warn => 4,
+            Level::Info => 6,
+            Level::Debug => 7,
+        }
+    }
+}
+
+/// Error type for logger initialization.
+#[derive(Debug, Error)]
+pub enum InitError {
+    /// The kmsg logger has already been initialized.
+    #[error("logger already initialized")]
+    AlreadyInitialized,
+}
+
+fn kmsg_path() -> Cow<'static, str> {
+    std::env::var(KMSG_PATH_ENV).map_or_else(|_err| Cow::Borrowed("/dev/kmsg"), Cow::Owned)
+}
+
+fn prepare_data_to_write(data: &[u8]) -> Cow<'_, [u8]> {
+    if data.len() <= MAX_KMSG_SIZE {
+        return Cow::Borrowed(data);
+    }
+
+    let available = MAX_KMSG_SIZE.saturating_sub(TRUNCATED_WARNING.len());
+    let prefix = data.get(..available).unwrap_or(data);
+    let mut truncated = Vec::with_capacity(MAX_KMSG_SIZE);
+    truncated.extend_from_slice(prefix);
+    truncated.extend_from_slice(TRUNCATED_WARNING);
+    Cow::Owned(truncated)
+}
+
+fn write_to_kmsg_or_stderr(data: &[u8]) {
+    let data_to_write = prepare_data_to_write(data);
+
+    debug_assert!(
+        data.len() <= MAX_KMSG_SIZE,
+        "kmsg message exceeds MAX_KMSG_SIZE ({} bytes, got {} bytes). \
+         Messages larger than {} bytes may be split or interleaved by the kernel. \
+         Please make the message shorter!",
+        MAX_KMSG_SIZE,
+        data.len(),
+        MAX_KMSG_SIZE
+    );
+
+    let written = open(
+        kmsg_path().as_ref(),
+        OFlags::WRONLY | OFlags::CLOEXEC | OFlags::APPEND,
+        Mode::empty(),
+    )
+    .ok()
+    .and_then(|file| write(file.as_fd(), data_to_write.as_ref()).ok())
+    .is_some_and(|written| written == data_to_write.len());
+
+    if !written {
+        let mut stderr = std::io::stderr();
+        let message = format_stderr_fallback_message(data);
+        drop(stderr.write_all(message.as_bytes()));
+    }
+}
+
+fn format_stderr_fallback_message(data: &[u8]) -> String {
+    format!(
+        "Failed to write to kmsg (falling back to stderr): {}",
+        String::from_utf8_lossy(data)
+    )
+}
+
+/// Initializes the default component used by logging macros and functions.
+///
+/// # Errors
+///
+/// Returns [`InitError::AlreadyInitialized`] when initialization has already happened.
+pub fn init(component: &str) -> Result<(), InitError> {
+    DEFAULT_COMPONENT
+        .set(component.to_owned())
+        .map_err(|_already_initialized| InitError::AlreadyInitialized)
+}
+
+fn format_log(level: Level, component: &str, message: &str) -> String {
+    if component.is_empty() {
+        format!("<{}> {}\n", u8::from(level), message)
+    } else {
+        format!("<{}>[{}] {}\n", u8::from(level), component, message)
+    }
+}
+
+/// Writes a formatted log message to kmsg (or stderr as fallback).
+pub fn write_log(level: Level, component: Option<&str>, message: &str) {
+    let comp = component
+        .or_else(|| DEFAULT_COMPONENT.get().map(String::as_str))
+        .unwrap_or("");
+
+    write_to_kmsg_or_stderr(format_log(level, comp, message).as_bytes());
+}
+
+/// Writes a plain message to kmsg with a trailing newline.
+pub fn print(message: &str) {
+    let formatted = format!("{message}\n");
+    write_to_kmsg_or_stderr(formatted.as_bytes());
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -259,10 +258,6 @@ mod tests {
     use super::*;
 
     static ENV_LOCK: TestOnceLock<Mutex<()>> = TestOnceLock::new();
-
-    fn env_lock() -> &'static Mutex<()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct KmsgPathGuard {
         previous: Option<OsString>,
@@ -289,6 +284,10 @@ mod tests {
                 None => unsafe { std::env::remove_var(KMSG_PATH_ENV) },
             }
         }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
     }
 
     fn temp_kmsg_file(name: &str) -> PathBuf {

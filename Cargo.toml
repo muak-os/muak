@@ -198,7 +198,6 @@ suspicious = { level = "warn", priority = -1 }
 multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencies
 
 # Restriction
-arbitrary_source_item_ordering = "allow"
 big_endian_bytes = "allow"
 cognitive_complexity = "allow"
 definition_in_module_root = "allow"

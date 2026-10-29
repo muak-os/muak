@@ -21,6 +21,41 @@ mod tests {
     use super::fixtures::components::{fake_initrd, fake_kernel, sample_cmdline, sample_osrel};
     use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count, write_u32};
 
+    struct FailWriter;
+
+    impl Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected write failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct LimitedWriter {
+        written: u64,
+        fail_after: u64,
+    }
+
+    impl Write for LimitedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let allowed = usize::try_from(self.fail_after.saturating_sub(self.written))
+                .unwrap_or(usize::MAX)
+                .min(buf.len());
+            let allowed = non_zero_allowed(allowed)?;
+
+            self.written = self
+                .written
+                .saturating_add(u64::try_from(allowed.get()).unwrap_or(u64::MAX));
+            Ok(allowed.get())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn build_to_vec(
         stub_bytes: &[u8],
         cmdline: &[u8],
@@ -86,41 +121,6 @@ mod tests {
     fn non_zero_allowed(allowed: usize) -> std::io::Result<core::num::NonZeroUsize> {
         core::num::NonZeroUsize::new(allowed)
             .ok_or_else(|| std::io::Error::other("writer failed after limit"))
-    }
-
-    struct FailWriter;
-
-    impl Write for FailWriter {
-        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("injected write failure"))
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct LimitedWriter {
-        written: u64,
-        fail_after: u64,
-    }
-
-    impl Write for LimitedWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let allowed = usize::try_from(self.fail_after.saturating_sub(self.written))
-                .unwrap_or(usize::MAX)
-                .min(buf.len());
-            let allowed = non_zero_allowed(allowed)?;
-
-            self.written = self
-                .written
-                .saturating_add(u64::try_from(allowed.get()).unwrap_or(u64::MAX));
-            Ok(allowed.get())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
     }
 
     #[test]

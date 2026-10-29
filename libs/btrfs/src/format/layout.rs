@@ -83,6 +83,21 @@ const TOTAL_TREE_BYTES_USED: u64 =
 const META_TREE_BYTES_USED: u64 =
     BTRFS_MKFS_METADATA_TREE_BLOCK_COUNT.saturating_mul(BTRFS_DEFAULT_NODESIZE_U64);
 
+/// Metadata tree block indices within `meta_blocks`.
+pub const BLK_BLOCK_GROUP: usize = 0;
+pub const BLK_DEV: usize = 1;
+pub const BLK_FS: usize = 2;
+pub const BLK_UUID: usize = 3;
+pub const BLK_CSUM: usize = 4;
+pub const BLK_DATA_RELOC: usize = 5;
+pub const BLK_FREE_SPACE: usize = 6;
+pub const BLK_EXTENT: usize = 7;
+pub const BLK_ROOT: usize = 8;
+
+// Temporary chunk sizes used for layout calculation
+const BTRFS_MKFS_TEMP_SYSTEM_SIZE: u64 = 4 * 1024 * 1024;
+const BTRFS_MKFS_TEMP_META_SIZE: u64 = 8 * 1024 * 1024;
+
 /// Pre-computed disk layout matching btrfs-progs sequential chunk allocation.
 ///
 /// Physical layout for a 5GiB device:
@@ -115,17 +130,6 @@ pub struct DiskLayout {
     /// Logical offsets for the metadata tree blocks (inside metadata DUP chunk).
     meta_blocks: [u64; META_BLOCK_COUNT],
 }
-
-/// Metadata tree block indices within `meta_blocks`.
-pub const BLK_BLOCK_GROUP: usize = 0;
-pub const BLK_DEV: usize = 1;
-pub const BLK_FS: usize = 2;
-pub const BLK_UUID: usize = 3;
-pub const BLK_CSUM: usize = 4;
-pub const BLK_DATA_RELOC: usize = 5;
-pub const BLK_FREE_SPACE: usize = 6;
-pub const BLK_EXTENT: usize = 7;
-pub const BLK_ROOT: usize = 8;
 
 impl DiskLayout {
     /// Create a new disk layout for the given device size.
@@ -349,10 +353,6 @@ pub fn compute_dup_meta_stripe_size(device_size: u64) -> u64 {
 fn round_down(value: u64, align: u64) -> u64 {
     value & !align.saturating_sub(1)
 }
-
-// Temporary chunk sizes used for layout calculation
-const BTRFS_MKFS_TEMP_SYSTEM_SIZE: u64 = 4 * 1024 * 1024;
-const BTRFS_MKFS_TEMP_META_SIZE: u64 = 8 * 1024 * 1024;
 
 #[cfg(test)]
 mod tests {

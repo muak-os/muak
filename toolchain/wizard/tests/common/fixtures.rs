@@ -5,6 +5,9 @@ use sha2::{Digest as _, Sha256};
 
 use crate::common::server::{HttpResponse, Routes, get};
 
+/// Architecture reported by the single-arch fixture config.
+const FIXTURE_ARCH: &str = "amd64";
+
 /// An OCI image whose layers are eStargz blobs.
 pub struct FixtureImage {
     pub manifest: Vec<u8>,
@@ -30,9 +33,6 @@ fn build_layer_image(entries: &[(&str, &[u8])], media_type: &str) -> FixtureImag
     let packed = stargz_layer(entries);
     build_manifest_image(&packed, media_type)
 }
-
-/// Architecture reported by the single-arch fixture config.
-const FIXTURE_ARCH: &str = "amd64";
 
 /// Image config blob served for single-arch wizard fixtures.
 pub fn config_blob() -> Vec<u8> {

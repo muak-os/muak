@@ -32,6 +32,12 @@ pub struct DiskUsage {
     pub usage_percent: u16,
 }
 
+/// Parsed search header from a tree-search response.
+struct ParsedSearchHeader {
+    type_: u32,
+    len: usize,
+}
+
 /// Enable Btrfs quota on a mounted partition.
 ///
 /// # Errors
@@ -207,11 +213,6 @@ fn calculate_usage_percent(used: u64, quota: u64) -> u16 {
     };
 
     u16::try_from(percent).unwrap_or(u16::MAX)
-}
-
-struct ParsedSearchHeader {
-    type_: u32,
-    len: usize,
 }
 
 fn parse_search_header(buf: &[u8], offset: usize) -> Option<ParsedSearchHeader> {

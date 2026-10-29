@@ -83,24 +83,6 @@ impl Profile {
     }
 }
 
-/// Sorts extension names and rejects duplicates.
-///
-/// # Errors
-///
-/// Returns an error when two names normalize to the same identity.
-fn canonical_extensions(names: &[String]) -> Result<Vec<String>> {
-    let mut names = names.to_vec();
-    names.sort_unstable();
-
-    if names.windows(2).any(|pair| pair.first() == pair.get(1)) {
-        return Err(WizardError::ProfileValidation(
-            "duplicate extension name".to_owned(),
-        ));
-    }
-
-    Ok(names)
-}
-
 /// Optional overlay that selects a board-specific boot asset set from an OCI image.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -184,6 +166,24 @@ impl CustomizationSpec {
     pub fn extensions(&self) -> &[String] {
         &self.extensions
     }
+}
+
+/// Sorts extension names and rejects duplicates.
+///
+/// # Errors
+///
+/// Returns an error when two names normalize to the same identity.
+fn canonical_extensions(names: &[String]) -> Result<Vec<String>> {
+    let mut names = names.to_vec();
+    names.sort_unstable();
+
+    if names.windows(2).any(|pair| pair.first() == pair.get(1)) {
+        return Err(WizardError::ProfileValidation(
+            "duplicate extension name".to_owned(),
+        ));
+    }
+
+    Ok(names)
 }
 
 #[cfg(test)]

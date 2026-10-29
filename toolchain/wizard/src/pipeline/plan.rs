@@ -10,52 +10,6 @@ use crate::pipeline::dependency::Dependency;
 use crate::pipeline::graph::Graph;
 use crate::pipeline::node::{NodeId, PortId, StreamId};
 
-/// Builds the logical DAG for the requested artifacts.
-///
-/// # Errors
-///
-/// Returns an error when an artifact has no unique producer or a dependency
-/// is cyclic.
-pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
-    let mut planner = Planner::new(ctx);
-    for artifact in artifacts {
-        if *artifact == Artifact::Overlays && ctx.build.overlay().is_none() {
-            return Err(WizardError::BuildError(
-                "overlays requested but the profile has no overlay".to_owned(),
-            ));
-        }
-        let (producer, producer_port) = artifact_source(*artifact, ctx)?;
-        planner.ensure(producer)?;
-        planner.request(producer, producer_port, *artifact)?;
-    }
-    planner.bind_all()?;
-
-    Ok(planner.graph)
-}
-
-fn artifact_source(artifact: Artifact, ctx: &BuildContext<'_, '_>) -> Result<(NodeKind, PortId)> {
-    let declarations = NodeKind::ALL
-        .iter()
-        .copied()
-        .flat_map(|kind| {
-            nodes::produces(kind, ctx)
-                .into_iter()
-                .map(move |(port, produced)| (kind, port, produced))
-        })
-        .filter(|&(.., produced)| produced == artifact);
-    let mut source = None;
-    for (kind, port, _) in declarations {
-        if source.is_some() {
-            return Err(WizardError::BuildError(format!(
-                "artifact {artifact} is produced by more than one node"
-            )));
-        }
-        source = Some((kind, port));
-    }
-
-    source.ok_or_else(|| WizardError::BuildError(format!("no node produces {artifact}")))
-}
-
 /// Depth-first instantiation of the dependency graph, with memoization.
 struct Planner<'a, 'data, 'sign> {
     ctx: &'a BuildContext<'data, 'sign>,
@@ -63,12 +17,6 @@ struct Planner<'a, 'data, 'sign> {
     instances: HashMap<NodeKind, NodeId>,
     outputs: HashMap<(NodeKind, PortId), StreamId>,
     states: HashMap<NodeKind, VisitState>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum VisitState {
-    InProgress,
-    Done,
 }
 
 impl<'a, 'data, 'sign> Planner<'a, 'data, 'sign> {
@@ -171,6 +119,58 @@ impl<'a, 'data, 'sign> Planner<'a, 'data, 'sign> {
 
         Ok(stream)
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VisitState {
+    InProgress,
+    Done,
+}
+
+/// Builds the logical DAG for the requested artifacts.
+///
+/// # Errors
+///
+/// Returns an error when an artifact has no unique producer or a dependency
+/// is cyclic.
+pub(crate) fn plan(ctx: &BuildContext<'_, '_>, artifacts: &[Artifact]) -> Result<Graph> {
+    let mut planner = Planner::new(ctx);
+    for artifact in artifacts {
+        if *artifact == Artifact::Overlays && ctx.build.overlay().is_none() {
+            return Err(WizardError::BuildError(
+                "overlays requested but the profile has no overlay".to_owned(),
+            ));
+        }
+        let (producer, producer_port) = artifact_source(*artifact, ctx)?;
+        planner.ensure(producer)?;
+        planner.request(producer, producer_port, *artifact)?;
+    }
+    planner.bind_all()?;
+
+    Ok(planner.graph)
+}
+
+fn artifact_source(artifact: Artifact, ctx: &BuildContext<'_, '_>) -> Result<(NodeKind, PortId)> {
+    let declarations = NodeKind::ALL
+        .iter()
+        .copied()
+        .flat_map(|kind| {
+            nodes::produces(kind, ctx)
+                .into_iter()
+                .map(move |(port, produced)| (kind, port, produced))
+        })
+        .filter(|&(.., produced)| produced == artifact);
+    let mut source = None;
+    for (kind, port, _) in declarations {
+        if source.is_some() {
+            return Err(WizardError::BuildError(format!(
+                "artifact {artifact} is produced by more than one node"
+            )));
+        }
+        source = Some((kind, port));
+    }
+
+    source.ok_or_else(|| WizardError::BuildError(format!("no node produces {artifact}")))
 }
 
 #[cfg(test)]

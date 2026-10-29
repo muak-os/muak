@@ -18,6 +18,15 @@ use crate::progress::{Event, NodeState};
 /// What a node reports on success: PE sections when it produced any.
 pub(crate) type NodeReport = Option<Vec<MeasuredSection>>;
 
+impl PreparedNode<'_, '_> {
+    fn run(self, ctx: &BuildContext<'_, '_>) -> Result<NodeReport> {
+        let PreparedNode { kind, mut ports } = self;
+        let node = nodes::descriptor(kind);
+
+        (node.run)(kind, &mut ports, ctx)
+    }
+}
+
 /// Preflights and executes the normalized graph.
 ///
 /// # Errors
@@ -74,15 +83,6 @@ fn run_node(
     });
 
     report
-}
-
-impl PreparedNode<'_, '_> {
-    fn run(self, ctx: &BuildContext<'_, '_>) -> Result<NodeReport> {
-        let PreparedNode { kind, mut ports } = self;
-        let node = nodes::descriptor(kind);
-
-        (node.run)(kind, &mut ports, ctx)
-    }
 }
 
 fn join_all(joins: Vec<thread::ScopedJoinHandle<'_, Result<NodeReport>>>) -> Result<Metadata> {

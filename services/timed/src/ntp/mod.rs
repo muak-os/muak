@@ -1,5 +1,7 @@
 //! SNTP client implementation (RFC 4330 / `NTPv4` wire format).
 
+mod field;
+
 use core::time::Duration;
 use std::net::ToSocketAddrs as _;
 
@@ -22,9 +24,6 @@ const NTP_EPOCH_OFFSET: u64 = 2_208_988_800;
 
 /// NTP version 4.
 const NTP_VERSION: u8 = 4;
-
-/// `NTPv4` header field offsets.
-mod field;
 
 /// NTP client mode (3).
 const MODE_CLIENT: u8 = 3;

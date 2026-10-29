@@ -1,16 +1,16 @@
 //! Key generation and management.
 
-use std::path::Path;
-
-use x509_cert::Certificate;
-
-use crate::error::{Result, SboltError};
-
 pub mod cert;
 pub mod hierarchy;
 mod profile;
 pub mod rsa2048;
 pub mod storage;
+
+use std::path::Path;
+
+use x509_cert::Certificate;
+
+use crate::error::{Result, SboltError};
 
 /// References to the key material needed for Authenticode PE signing.
 pub struct SigningPair<'a> {

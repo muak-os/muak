@@ -24,11 +24,6 @@ pub const Z_EROFS_MAP_HEADER_SIZE: usize = 8;
 /// Zstandard compression algorithm identifier.
 pub const Z_EROFS_COMPRESSION_ZSTD: u8 = 3;
 
-/// Encode the `i_format` field for a compact inode.
-pub fn encode_i_format_compact(datalayout: u16) -> u16 {
-    (datalayout << 1) | EROFS_INODE_LAYOUT_COMPACT
-}
-
 /// Parameters for writing a compact inode.
 pub struct CompactInodeParams {
     pub datalayout: u16,
@@ -41,6 +36,11 @@ pub struct CompactInodeParams {
     pub uid: u16,
     pub gid: u16,
     pub reserved2: u32,
+}
+
+/// Encode the `i_format` field for a compact inode.
+pub fn encode_i_format_compact(datalayout: u16) -> u16 {
+    (datalayout << 1) | EROFS_INODE_LAYOUT_COMPACT
 }
 
 /// Serialize a 32-byte compact inode into the provided buffer.

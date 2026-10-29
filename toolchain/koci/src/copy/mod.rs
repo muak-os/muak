@@ -1,5 +1,7 @@
 //! Raw-byte image copies between registries.
 
+pub(crate) mod tree;
+
 use alloc::collections::BTreeMap;
 
 use bytes::Bytes;
@@ -15,8 +17,6 @@ use crate::progress::sink::{Reported, Sink};
 use crate::progress::{Event, Operation, Phase, Reporter, Unit};
 use crate::registry;
 use crate::runtime;
-
-pub(crate) mod tree;
 
 /// How many index levels a copy follows before refusing deeper nesting.
 const MAX_INDEX_DEPTH: usize = 8;

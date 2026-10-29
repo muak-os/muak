@@ -9,6 +9,9 @@ use tokio::time::{sleep, timeout};
 use crate::artifacts::Artifacts;
 use crate::port;
 
+pub const APID_PORT: u16 = 50051;
+const APID_READY_MARKER: &str = "[apid] API daemon ready, listening on";
+
 /// Wraps a [`Vm`] and dumps the serial log and stderr when panic occurs.
 pub struct TestFixture {
     pub vm: Vm,
@@ -53,9 +56,6 @@ impl Drop for TestFixture {
         }
     }
 }
-
-pub const APID_PORT: u16 = 50051;
-const APID_READY_MARKER: &str = "[apid] API daemon ready, listening on";
 
 /// Boot mode for the VM.
 #[derive(Clone, Copy)]
