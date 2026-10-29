@@ -194,8 +194,10 @@ restriction = { level = "warn", priority = -1 }
 style = { level = "warn", priority = -1 }
 suspicious = { level = "warn", priority = -1 }
 
+# Cargo
 multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencies
 
+# Restriction
 arbitrary_source_item_ordering = "allow"
 big_endian_bytes = "allow"
 cognitive_complexity = "allow"
@@ -224,11 +226,11 @@ shadow_same = "allow"
 shadow_unrelated = "allow"
 single_call_fn = "allow"
 single_char_lifetime_names = "allow"
-std_instead_of_core = "allow" # TODO: remove when we have a stable core::io
+std_instead_of_core = "allow" # TODO: remove when rust has a stable core::io
 string_add = "allow"
-unnecessary_rest_pattern = "allow"
 use_debug = "allow"
 
+# Suspicious
 blanket_clippy_restriction_lints = "allow"
 
 [workspace.lints.rust]
