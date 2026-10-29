@@ -14,9 +14,14 @@ impl VersionService for ServiceImpl {
         &self,
         _request: Request<GetVersionRequest>,
     ) -> Result<Response<GetVersionResponse>, Status> {
-        Ok(Response::new(GetVersionResponse {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-        }))
+        let version = config::system::host()
+            .map_err(|error| {
+                Status::failed_precondition(format!("configuration unavailable: {error}"))
+            })?
+            .version
+            .clone();
+
+        Ok(Response::new(GetVersionResponse { version }))
     }
 }
 

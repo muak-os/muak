@@ -100,7 +100,7 @@ pub fn collect(poll: &mut PollState) -> SystemState {
 
     SystemState {
         hostname,
-        version: env!("CARGO_PKG_VERSION").to_owned(),
+        version: config::system::host().map_or_default(|host| host.version.clone()),
         uptime,
         cpu,
         memory,
