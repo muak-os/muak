@@ -8,8 +8,8 @@ use kata::ops::publish;
 /// Arguments of the `publish` subcommand.
 #[derive(clap::Args, Debug)]
 pub struct Args {
-    /// Release line to publish (defaults to this binary's version).
-    #[arg(long, default_value = kata::version::LINE)]
+    /// Release line to publish.
+    #[arg(long)]
     release: String,
 
     /// Channel tags to move to this release (e.g. `stable`, `stable,beta`).
@@ -50,17 +50,9 @@ mod tests {
     use crate::cli::{Args as CliArgs, Command};
 
     #[test]
-    fn publish_defaults_release_to_the_baked_line() {
-        // ARRANGE / ACT
-        let args = CliArgs::try_parse_from(["kata", "publish"]).expect("parse");
-
-        // ASSERT
-        let Command::Publish(publish) = args.command else {
-            panic!("expected publish command");
-        };
-        assert_eq!(publish.release, kata::version::LINE);
-        assert_eq!(publish.channel, Vec::<alloc::string::String>::new());
-        assert!(!publish.force);
+    fn publish_requires_release() {
+        // ACT / ASSERT
+        CliArgs::try_parse_from(["kata", "publish"]).expect_err("release must be required");
     }
 
     #[test]

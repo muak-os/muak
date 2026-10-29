@@ -8,8 +8,8 @@ use kata::ops::compose::{self, Policy};
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]
 pub struct Args {
-    /// Release line to compose (defaults to this binary's version).
-    #[arg(long, default_value = kata::version::LINE)]
+    /// Release line to compose.
+    #[arg(long)]
     release: String,
 
     /// Output docs root.
@@ -135,15 +135,9 @@ mod tests {
     }
 
     #[test]
-    fn compose_defaults_release_to_the_baked_line() {
-        // ARRANGE / ACT
-        let args = CliArgs::try_parse_from(["kata", "compose"]).expect("parse compose args");
-
-        // ASSERT
-        let Command::Compose(composed) = args.command else {
-            panic!("expected compose command");
-        };
-        assert_eq!(composed.release, kata::version::LINE);
+    fn compose_requires_release() {
+        // ACT / ASSERT
+        CliArgs::try_parse_from(["kata", "compose"]).expect_err("release must be required");
     }
 
     #[test]

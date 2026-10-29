@@ -50,8 +50,6 @@ pub enum KataError {
     Lineage(String),
 
     /// A release does not correlate with the baked toolchain version.
-    #[error("Version correlation failed: {0}")]
-    Version(String),
 
     /// A catalog schema operation failed.
     #[error(transparent)]

@@ -11,5 +11,3 @@ pub mod schema;
 pub mod ops;
 #[cfg(feature = "cli")]
 pub mod repository;
-#[cfg(feature = "cli")]
-pub mod version;

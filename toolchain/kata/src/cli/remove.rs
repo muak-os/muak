@@ -24,8 +24,8 @@ pub struct Args {
     #[arg(long, value_name = "PATH", default_value = ".")]
     dir: std::path::PathBuf,
 
-    /// Release line (defaults to this binary's version).
-    #[arg(long, default_value = kata::version::LINE)]
+    /// Release line.
+    #[arg(long)]
     release: String,
 }
 
@@ -86,15 +86,9 @@ mod tests {
     }
 
     #[test]
-    fn remove_defaults_release_to_the_baked_line() {
-        // ARRANGE / ACT
-        let args = CliArgs::try_parse_from(["kata", "remove", "--role", "kernel"])
-            .expect("parse remove args");
-
-        // ASSERT
-        let Command::Remove(removed) = args.command else {
-            panic!("expected remove command");
-        };
-        assert_eq!(removed.release, kata::version::LINE);
+    fn remove_requires_release() {
+        // ACT / ASSERT
+        CliArgs::try_parse_from(["kata", "remove", "--role", "kernel"])
+            .expect_err("release must be required");
     }
 }

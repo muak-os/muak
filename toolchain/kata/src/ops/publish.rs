@@ -8,10 +8,10 @@ use koci::{pull, push, registry};
 
 use crate::error::{KataError, Result};
 use crate::ops::verify;
+use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
-use crate::{repository, version};
 
 const DOCUMENT_PATH: &str = "catalog.toml";
 
@@ -28,12 +28,6 @@ pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Resu
     validate_release(release)?;
     for channel in channels {
         validate_release(channel)?;
-    }
-    if !force {
-        let core = super::reference(Kind::Core.dir(), release);
-        let line_published = registry::manifest_exists(&core)
-            .map_err(|error| KataError::Registry(error.to_string()))?;
-        version::ensure_line(release, line_published, false)?;
     }
     let kinds: Vec<Kind> = Kind::all()
         .into_iter()

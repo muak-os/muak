@@ -19,11 +19,10 @@ use plan::{Auto, Selections};
 
 use crate::error::{KataError, Result};
 use crate::ops::{reference, verify};
+use crate::repository;
 use crate::schema::documents;
 use crate::schema::documents::Document;
-use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
-use crate::{repository, version};
 
 /// Tag policy for entries without an explicit selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,11 +58,6 @@ pub struct Input {
 /// fails verification. Nothing is written when any gate or verification fails.
 pub fn run(input: &Input) -> Result<Vec<String>> {
     validate_release(&input.release)?;
-    version::ensure_line(
-        &input.release,
-        repository::document_path(Kind::Core, &input.dir, &input.release).exists(),
-        input.force,
-    )?;
 
     let parent = parent_line(&input.dir, &input.release, input.from_line.as_deref())?;
     let parent_docs = parent
