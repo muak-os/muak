@@ -2,8 +2,7 @@
 
 use core::ffi::c_long;
 use std::fs::{self, OpenOptions};
-use std::io::Error as IoError;
-use std::io::Write as _;
+use std::io::{Error as IoError, Write as _};
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{Mode, OFlags, open};

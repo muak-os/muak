@@ -10,12 +10,10 @@ use oci_client::client::Client;
 use tar::Archive;
 
 use crate::error::{KociError, Result};
-use crate::pull::fetch;
-use crate::pull::{cache, content};
-use crate::registry;
-use crate::runtime;
+use crate::pull::{cache, content, fetch};
 use crate::signature::Verification;
 use crate::stargz::toc::{FOOTER_SIZE, Record, TOC_NAME, Toc, parse_footer};
+use crate::{registry, runtime};
 
 /// The `(path, size)` of one regular-file layer entry, measured without decoding the layer.
 #[derive(Debug, Clone, PartialEq, Eq)]

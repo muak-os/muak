@@ -21,11 +21,9 @@ use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 use wizard::resolver;
 
-use crate::disk;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::journal::{self, ChangeKind, Entry};
-use crate::medium;
-use crate::streaming;
+use crate::{disk, medium, streaming};
 
 /// Staging directory for update operations.
 pub(crate) const UPDATE_DIR: &str = "/run/state/update";

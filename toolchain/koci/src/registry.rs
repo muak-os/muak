@@ -3,9 +3,7 @@
 use oci::digest::sha256_hex;
 use oci_client::auth::Access;
 use oci_client::client::Client;
-use oci_client::http;
-use oci_client::manifest;
-use oci_client::tags;
+use oci_client::{http, manifest, tags};
 
 use crate::error::Result;
 use crate::runtime;

@@ -1,6 +1,7 @@
 //! Format-agnostic serialization codec abstraction.
 
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::error::Result;
 

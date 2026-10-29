@@ -18,14 +18,12 @@ use koci::registry;
 use plan::{Auto, Selections};
 
 use crate::error::{KataError, Result};
-use crate::ops::reference;
-use crate::ops::verify;
-use crate::repository;
+use crate::ops::{reference, verify};
 use crate::schema::documents;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
-use crate::version;
+use crate::{repository, version};
 
 /// Tag policy for entries without an explicit selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

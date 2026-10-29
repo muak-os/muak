@@ -95,8 +95,7 @@ mod tests {
     use uefi::runtime::{Daylight, Time, TimeParams};
 
     use super::*;
-    use crate::keys::cert;
-    use crate::keys::rsa2048;
+    use crate::keys::{cert, rsa2048};
 
     fn signer_and_cert() -> (rsa2048::Signer, Certificate) {
         cert::generate_db("Test DB").expect("generate DB cert")

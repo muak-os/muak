@@ -150,14 +150,12 @@ fn validate_inputs(
 mod tests {
     use std::io::{Cursor, Write, empty};
 
-    use object::LittleEndian as LE;
-    use object::pe as object_pe;
     use object::read::pe::PeFile64;
+    use object::{LittleEndian as LE, pe as object_pe};
     use uki::section::OSREL;
 
     use super::*;
-    use crate::prepare;
-    use crate::probe;
+    use crate::{prepare, probe};
 
     struct ErrorWriter;
 

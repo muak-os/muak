@@ -171,10 +171,9 @@ mod tests {
 
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout;
     use crate::testutil::{entry_of, test_config, zero_data};
     use crate::tree::TreeEntry;
-    use crate::writer;
+    use crate::{layout, writer};
 
     fn root_entry() -> TreeEntry {
         TreeEntry {

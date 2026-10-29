@@ -3,10 +3,9 @@
 use super::super::types::InodeLayout;
 use super::compact::index_bytes;
 use crate::checked::{align_up, u32_from_usize};
-use crate::compress;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::inode::{self, COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, Z_EROFS_MAP_HEADER_SIZE};
-use crate::{BLOCK_SIZE, SLOT_SIZE};
+use crate::{BLOCK_SIZE, SLOT_SIZE, compress};
 
 pub(super) fn meta_slots(inode: &InodeLayout) -> usize {
     if let Some(cf) = inode.compressed.as_ref() {

@@ -181,12 +181,8 @@ mod tests {
 
     use super::*;
     use crate::codec::Codec;
-    use crate::domain::resolution::Extension;
-    use crate::domain::resolution::Kernel;
-    use crate::domain::resolution::Overlay;
-    use crate::domain::resolution::ResolvedBuild;
-    use crate::nodes::kernel;
-    use crate::nodes::uki;
+    use crate::domain::resolution::{Extension, Kernel, Overlay, ResolvedBuild};
+    use crate::nodes::{kernel, uki};
     use crate::pipeline::context::BuildContext;
     use crate::progress::NOOP;
 

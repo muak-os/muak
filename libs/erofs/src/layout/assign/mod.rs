@@ -103,14 +103,13 @@ mod tests {
     use std::io;
 
     use super::nids_and_layouts;
-    use crate::Compression;
-    use crate::SLOT_SIZE;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
     use crate::layout::{ImagePlan, InodeLayout, plan};
     use crate::source::SizedFile;
     use crate::testutil::{compress_config, test_config};
     use crate::tree::TreeEntry;
+    use crate::{Compression, SLOT_SIZE};
 
     const FIRST_NID: usize = super::META_START.div_euclid(SLOT_SIZE);
 

@@ -5,9 +5,8 @@ use tonic::transport::Channel;
 use tui::prompt::Prompter;
 use tui::style::Role;
 
-use crate::client::provision_service::{
-    RebootRequest, ShutdownRequest, provision_service_client::ProvisionServiceClient,
-};
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
+use crate::client::provision_service::{RebootRequest, ShutdownRequest};
 use crate::console::Console;
 
 /// Requests a reboot of the target system.

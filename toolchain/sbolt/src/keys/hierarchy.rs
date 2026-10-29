@@ -2,8 +2,7 @@
 
 use x509_cert::Certificate;
 
-use super::cert;
-use super::rsa2048;
+use super::{cert, rsa2048};
 use crate::error::{Result, SboltError};
 
 /// Type of Secure Boot key.

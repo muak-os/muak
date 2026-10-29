@@ -2,9 +2,8 @@
 mod tests {
     use std::io::Cursor;
 
-    use esp::FileMeta;
-    use esp::image;
     use esp::layout::compute;
+    use esp::{FileMeta, image};
     use fatfs::builder;
 
     const SECTOR_SIZE: usize = 512;

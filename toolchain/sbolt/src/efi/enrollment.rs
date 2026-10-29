@@ -6,11 +6,9 @@ use firmware::secureboot;
 use uefi::runtime::VariableAttributes;
 use x509_cert::Certificate;
 
-use super::authvar;
-use super::siglist;
+use super::{authvar, siglist};
 use crate::error::{Result, SboltError};
-use crate::keys::hierarchy;
-use crate::keys::rsa2048;
+use crate::keys::{hierarchy, rsa2048};
 
 /// Signature authority for an authenticated firmware variable update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

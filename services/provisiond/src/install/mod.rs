@@ -20,12 +20,8 @@ use wizard::artifact::Artifact;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
-use crate::disk;
-use crate::efi;
 use crate::ipc::proto::provision::InstallProgress;
-use crate::medium;
-use crate::secrets;
-use crate::streaming;
+use crate::{disk, efi, medium, secrets, streaming};
 
 /// dm-crypt mapping name for the STATE volume.
 const DM_STATE: &str = disk::Role::State.dm_name();

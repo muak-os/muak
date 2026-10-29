@@ -7,16 +7,14 @@ mod fixtures;
 mod tests {
     use std::io::{Cursor, Write};
 
-    use object::LittleEndian as LE;
-    use object::pe as object_pe;
     use object::read::pe::PeFile64;
+    use object::{LittleEndian as LE, pe as object_pe};
     use uki::measure;
     use uki::section::{CANONICAL_ORDER, OSREL};
     use yuki::error::YukiError;
     use yuki::pe::section::Section;
-    use yuki::prepare;
-    use yuki::probe;
     use yuki::write::{self, Input};
+    use yuki::{prepare, probe};
 
     use super::fixtures::components::{fake_initrd, fake_kernel, sample_cmdline, sample_osrel};
     use super::fixtures::pe::{generate_minimal_stub, generate_stub_with_section_count, write_u32};

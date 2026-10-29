@@ -22,11 +22,10 @@ use super::structures::{
     AsBytes as _, BTRFS_CSUM_SIZE, BTRFS_LABEL_SIZE, BtrfsDevItem, BtrfsDiskKey, BtrfsHeader,
     BtrfsItem, BtrfsSuperBlock,
 };
-use super::trees::{BTRFS_CHUNK_ITEM_KEY, BTRFS_ROOT_TREE_DIR_OBJECTID};
 use super::trees::{
-    BlockGroupTreeBuilder, ChunkTreeBuilder, CsumTreeBuilder, DataRelocTreeBuilder, DevTreeBuilder,
-    ExtentTreeBuilder, FreeSpaceTreeBuilder, FsTreeBuilder, RootTreeBuilder, TreeBuilder,
-    TreeContext, UuidTreeBuilder,
+    BTRFS_CHUNK_ITEM_KEY, BTRFS_ROOT_TREE_DIR_OBJECTID, BlockGroupTreeBuilder, ChunkTreeBuilder,
+    CsumTreeBuilder, DataRelocTreeBuilder, DevTreeBuilder, ExtentTreeBuilder, FreeSpaceTreeBuilder,
+    FsTreeBuilder, RootTreeBuilder, TreeBuilder, TreeContext, UuidTreeBuilder,
 };
 use crate::error::{BtrfsError, Result};
 

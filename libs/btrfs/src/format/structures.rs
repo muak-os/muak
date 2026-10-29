@@ -1,6 +1,5 @@
 use core::mem::size_of;
-use core::ptr;
-use core::slice;
+use core::{ptr, slice};
 
 /// Bytes reserved for a checksum in Btrfs headers.
 pub(super) const BTRFS_CSUM_SIZE: usize = 32;

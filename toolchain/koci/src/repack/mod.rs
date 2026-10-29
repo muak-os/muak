@@ -7,8 +7,7 @@ use oci_client::auth::Access;
 
 use crate::error::Result;
 use crate::progress::Reporter;
-use crate::registry;
-use crate::runtime;
+use crate::{registry, runtime};
 
 /// Repack a published image's layers into eStargz, in place.
 ///

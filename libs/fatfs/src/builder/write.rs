@@ -2,10 +2,9 @@
 
 use std::io::{Read, Write};
 
-use crate::boot;
-use crate::dir;
 use crate::error::{FatError, Result};
 use crate::types::{BACKUP_BOOT_SECTOR, FatLayout, FsInfo, Precomputed, SECTOR_SIZE};
+use crate::{boot, dir};
 
 /// Writer that tracks how many bytes reached the sink.
 pub(crate) struct CountWriter<W: Write> {

@@ -23,10 +23,9 @@ use alloc::collections::BTreeMap;
 use core::error::Error;
 use core::fmt::Write as _;
 use std::collections::HashMap;
-use std::env;
-use std::fs;
 use std::io::Write as _;
 use std::path::Path;
+use std::{env, fs};
 
 /// Valid permission strings that map to Permission enum variants.
 const VALID_PERMISSIONS: &[(&str, &str)] = &[

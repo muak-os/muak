@@ -4,8 +4,7 @@ use core::time::Duration;
 
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use super::*;
 

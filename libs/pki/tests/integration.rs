@@ -10,27 +10,24 @@ mod tests {
 
     use const_oid::db::rfc5280::{ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH};
     use const_oid::db::rfc5912::ECDSA_WITH_SHA_256;
-    use der::{DecodePem as _, EncodePem as _, asn1::BitString, pem::LineEnding};
-    use pki::{
-        cert, csr,
-        error::{PkiError, Result},
-        key::{Signature, Signer},
-        pem,
-        profile::{MuakCa, MuakClient, MuakServer},
-        serial,
-    };
+    use der::asn1::BitString;
+    use der::pem::LineEnding;
+    use der::{DecodePem as _, EncodePem as _};
+    use pki::error::{PkiError, Result};
+    use pki::key::{Signature, Signer};
+    use pki::profile::{MuakCa, MuakClient, MuakServer};
+    use pki::{cert, csr, pem, serial};
     use signature::{Keypair as _, Signer as _};
     use spki::{
         DynSignatureAlgorithmIdentifier as _, EncodePublicKey as _, SignatureBitStringEncoding as _,
     };
-    use x509_cert::{
-        Certificate,
-        builder::{Builder as _, CertificateBuilder, profile::BuilderProfile},
-        ext::pkix::{BasicConstraints, ExtendedKeyUsage, SubjectAltName},
-        name::Name,
-        request::CertReq,
-        time::Validity,
-    };
+    use x509_cert::Certificate;
+    use x509_cert::builder::profile::BuilderProfile;
+    use x509_cert::builder::{Builder as _, CertificateBuilder};
+    use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage, SubjectAltName};
+    use x509_cert::name::Name;
+    use x509_cert::request::CertReq;
+    use x509_cert::time::Validity;
 
     fn make_test_ca() -> Result<(String, String, Signer, Certificate)> {
         let (signer, cert) = cert::generate_ca("Test CA")?;

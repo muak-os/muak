@@ -9,8 +9,7 @@ use ramune::Entry;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::layers;
-use crate::nodes::{NodeDescriptor, NodeKind};
+use crate::nodes::{NodeDescriptor, NodeKind, layers};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;

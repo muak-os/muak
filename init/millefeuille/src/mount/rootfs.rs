@@ -10,8 +10,7 @@ use rustix::mount::{
     fsconfig_set_string, fsmount, fsopen, mount, move_mount,
 };
 
-use super::layers;
-use super::{IMAGE_EXTENSION, IMAGE_FSTYPE};
+use super::{IMAGE_EXTENSION, IMAGE_FSTYPE, layers};
 
 /// Mount the root filesystem with layer images as overlays.
 pub(crate) fn rootfs() -> Result<()> {

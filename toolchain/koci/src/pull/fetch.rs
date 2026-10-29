@@ -11,9 +11,8 @@ use oci_client::transport::Transport;
 
 use super::cache::Store;
 use super::content::Content;
-use super::download;
 use super::download::ByteProgress;
-use super::{blobinfo, scan};
+use super::{blobinfo, download, scan};
 use crate::error::{KociError, Result};
 use crate::progress::{Event, Phase, Reporter, Unit};
 

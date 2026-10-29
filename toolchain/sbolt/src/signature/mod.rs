@@ -11,8 +11,7 @@ use object::pe::{IMAGE_DIRECTORY_ENTRY_SECURITY, ImageDataDirectory, ImageOption
 use ops::{CERT_TABLE_ENTRY_SIZE, build_win_certificate, hash_range_excluding, put_u32_le};
 use sha2::{Digest as _, Sha256};
 use spc::build_spc_indirect_data;
-use uki::align;
-use uki::metadata;
+use uki::{align, metadata};
 use x509_cert::Certificate;
 
 use crate::error::{Result, SboltError};
@@ -265,8 +264,7 @@ mod tests {
     use sha2::Sha256;
 
     use super::*;
-    use crate::keys::cert;
-    use crate::keys::rsa2048;
+    use crate::keys::{cert, rsa2048};
 
     fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
         let end = offset

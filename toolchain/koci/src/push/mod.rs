@@ -16,8 +16,7 @@ use oci_client::client::Client;
 use crate::error::Result;
 use crate::image::{config, manifest, upload};
 use crate::progress::{ByteSample, Event, Operation, Phase, Reporter, Unit};
-use crate::registry;
-use crate::runtime;
+use crate::{registry, runtime};
 
 /// One file packed into a pushed image, created via [`Entry::parse`].
 #[derive(Debug, Clone)]
@@ -145,8 +144,7 @@ async fn push_files(
 #[cfg(test)]
 mod tests {
     use core::fmt::Write as _;
-    use std::io::Read as _;
-    use std::io::Write as _;
+    use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::path::PathBuf;
     use std::thread;

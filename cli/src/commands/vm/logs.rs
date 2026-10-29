@@ -1,7 +1,8 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 
-use crate::client::vm_service::{GetVmSerialLogRequest, vm_service_client::VmServiceClient};
+use crate::client::vm_service::GetVmSerialLogRequest;
+use crate::client::vm_service::vm_service_client::VmServiceClient;
 
 /// Gets VM serial logs.
 pub async fn handle(client: &mut VmServiceClient<Channel>, vm_id: String, tail: i64) -> Result<()> {

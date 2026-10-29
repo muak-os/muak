@@ -3,8 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use pki::csr;
-use pki::pem;
+use pki::{csr, pem};
 use tokio::fs;
 use tonic::{Request, Response, Status};
 

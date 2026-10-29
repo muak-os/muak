@@ -7,8 +7,7 @@ use getrandom::SysRng;
 use oci::arch;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::Generate as _;
-use p256::elliptic_curve::pkcs8::LineEnding;
-use p256::elliptic_curve::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _};
+use p256::elliptic_curve::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _, LineEnding};
 use serde_json::{Map, Value, json};
 use tar::{Builder, Header};
 

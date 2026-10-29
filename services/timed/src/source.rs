@@ -5,8 +5,7 @@ use core::time::Duration;
 
 use anyhow::{Result, bail};
 
-use crate::hypervisor;
-use crate::ntp;
+use crate::{hypervisor, ntp};
 
 /// Selected time source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

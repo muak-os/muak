@@ -4,10 +4,9 @@
 mod tests {
     use std::io::Cursor;
 
-    use esp::EFI_GUID;
-    use esp::FileMeta;
     use esp::arch::Arch;
     use esp::layout::compute;
+    use esp::{EFI_GUID, FileMeta};
     use miso::raw;
     use parttable::gpt::io;
     use parttable::gpt::layout::ALIGN_1_MIB_SECTORS;

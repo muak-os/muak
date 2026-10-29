@@ -9,10 +9,7 @@ use tar::Archive;
 
 use super::cache::Store;
 use super::content::Content;
-use super::download;
-use super::fetch;
-use super::parallel;
-use super::scan;
+use super::{download, fetch, parallel, scan};
 use crate::error::Result;
 use crate::progress::{Event, Phase, Reporter, Unit};
 

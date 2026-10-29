@@ -4,14 +4,13 @@ use super::super::types::InodeLayout;
 use super::compact::index_bytes;
 use super::sizes::{align8, header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
 use crate::checked::align_up;
-use crate::compress;
 use crate::error::{ErofsError, Result};
 use crate::inode::{
     EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     Z_EROFS_MAP_HEADER_SIZE,
 };
 use crate::source::SizedFile;
-use crate::{Compression, SLOT_SIZE};
+use crate::{Compression, SLOT_SIZE, compress};
 
 pub(super) fn symlink(
     inodes: &mut [InodeLayout],

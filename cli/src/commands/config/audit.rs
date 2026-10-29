@@ -5,9 +5,8 @@ use tonic::transport::Channel;
 use tui::style::Role;
 use tui::table::{Cell, Table};
 
-use crate::client::provision_service::{
-    ConfigHistoryEntry, GetConfigHistoryRequest, provision_service_client::ProvisionServiceClient,
-};
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
+use crate::client::provision_service::{ConfigHistoryEntry, GetConfigHistoryRequest};
 use crate::commands::config::fetch_snapshot;
 use crate::console::Console;
 use crate::format::time::format_timestamp;

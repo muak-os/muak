@@ -2,9 +2,8 @@
 
 use std::io::{Read, Write};
 
-use esp::EFI_GUID;
-use esp::image;
 use esp::layout::Layout;
+use esp::{EFI_GUID, image};
 use parttable::gpt;
 use parttable::gpt::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest, Size, Slot, Start};
 use parttable::gpt::plan as gpt_plan;

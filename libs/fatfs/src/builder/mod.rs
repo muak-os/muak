@@ -8,13 +8,11 @@ use std::io::{Read, Write};
 use clusters::assign_clusters;
 use write::{CountWriter, stream_reader, write_boot_sector, write_dir_entries};
 
-use crate::dir;
 use crate::error::{FatError, Result};
-use crate::layout;
 use crate::name::short::{NAME_LEN, ShortNames};
-use crate::table;
 use crate::tree::DirIndex;
 use crate::types::{FileMeta, FsInfo, MAX_IMAGE_SIZE, MIN_IMAGE_SIZE, Precomputed, SECTOR_SIZE};
+use crate::{dir, layout, table};
 
 /// Bytes reserved for directory clusters and FAT overhead when sizing a volume.
 const DIRECTORY_OVERHEAD: u64 = 1 << 20;

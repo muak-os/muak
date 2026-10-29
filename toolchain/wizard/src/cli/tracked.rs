@@ -116,8 +116,7 @@ mod tests {
     use std::io;
     use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
-    use tui::live::Options;
-    use tui::live::Steps;
+    use tui::live::{Options, Steps};
     use tui::screen::Screen;
     use tui::size::Size;
     use tui::style::Theme;

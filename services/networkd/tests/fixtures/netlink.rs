@@ -8,14 +8,9 @@ use core::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use netlib::address;
-use netlib::bridge;
-use netlib::interface;
 use netlib::interface::{Ethernet, Name};
-use netlib::link;
 use netlib::link::{Failure, State};
-use netlib::netlink;
-use netlib::route;
+use netlib::{address, bridge, interface, link, netlink, route};
 
 /// Holds in-memory link and route state for deterministic tests.
 #[derive(Debug, Default)]

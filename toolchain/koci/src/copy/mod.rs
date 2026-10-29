@@ -7,16 +7,13 @@ use alloc::collections::BTreeMap;
 use bytes::Bytes;
 use oci::digest::{Verifier, sha256_hex};
 use oci_client::auth::Access;
-use oci_client::blob;
 use oci_client::client::Client;
-use oci_client::http;
-use oci_client::manifest;
+use oci_client::{blob, http, manifest};
 
 use crate::error::{KociError, Result};
 use crate::progress::sink::{Reported, Sink};
 use crate::progress::{Event, Operation, Phase, Reporter, Unit};
-use crate::registry;
-use crate::runtime;
+use crate::{registry, runtime};
 
 /// How many index levels a copy follows before refusing deeper nesting.
 const MAX_INDEX_DEPTH: usize = 8;

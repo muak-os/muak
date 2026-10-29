@@ -473,14 +473,13 @@ mod tests {
         build_legacy_index_entries, head_offset, nonhead_offset, pack_bits_le, sixteen_entry_pack,
         two_entry_pack, write_indexes, write_pack,
     };
-    use crate::SLOT_SIZE;
     use crate::compress::{self, CompressedLayout};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::COMPACT_INODE_SIZE;
-    use crate::layout;
     use crate::source::SizedFile;
     use crate::testutil::{compress_config, entry_of, zero_data};
     use crate::tree::TreeEntry;
+    use crate::{SLOT_SIZE, layout};
 
     fn measured_layout(data_len: usize) -> CompressedLayout {
         let data = vec![0_u8; data_len];

@@ -9,9 +9,7 @@ use oci_client::manifest;
 use p256::ecdsa::SigningKey;
 
 use crate::error::{KociError, Result};
-use crate::registry;
-use crate::runtime;
-use crate::signature;
+use crate::{registry, runtime, signature};
 
 /// One manifest rewrite.
 #[derive(Clone, Copy)]

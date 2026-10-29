@@ -4,9 +4,8 @@ use std::fs::File;
 
 use tar::Header;
 
-use super::encode;
 use super::toc::Record;
-use super::{Entry, Source, toc as toc_mod};
+use super::{Entry, Source, encode, toc as toc_mod};
 use crate::error::{KociError, Result};
 
 /// Name of the prefetch landmark recorded by stargz-snapshotter tools.

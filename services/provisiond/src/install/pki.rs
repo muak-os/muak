@@ -2,10 +2,8 @@
 
 use anyhow::{Context as _, Result};
 use config::permission::Permission;
-use pki::cert;
-use pki::csr;
 use pki::key::Signer;
-use pki::pem;
+use pki::{cert, csr, pem};
 
 /// PKI materials returned to the client after install.
 pub struct InstallResult {

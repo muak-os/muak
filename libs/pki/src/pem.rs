@@ -1,6 +1,7 @@
 //! PEM and PKCS#8 conversion helpers.
 
-use der::{DecodePem as _, EncodePem as _, pem::LineEnding};
+use der::pem::LineEnding;
+use der::{DecodePem as _, EncodePem as _};
 use x509_cert::Certificate;
 
 use crate::error::{PkiError, Result};

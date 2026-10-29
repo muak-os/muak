@@ -10,14 +10,13 @@ use tokio::time::sleep;
 use tonic::transport::Channel;
 use tui::style::Role;
 
-use crate::client::{
-    auth_service::{
-        AckEnrollmentRequest, ApproveCsrRequest, GetCsrStatusRequest, ListPendingCsrsRequest,
-        ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
-        auth_service_client::AuthServiceClient, get_csr_status_response::Status as CsrStatus,
-    },
-    connect_tls_insecure, connect_tls_pinned,
+use crate::client::auth_service::auth_service_client::AuthServiceClient;
+use crate::client::auth_service::get_csr_status_response::Status as CsrStatus;
+use crate::client::auth_service::{
+    AckEnrollmentRequest, ApproveCsrRequest, GetCsrStatusRequest, ListPendingCsrsRequest,
+    ListUsersRequest, RevokeCertRequest, SubmitCsrRequest,
 };
+use crate::client::{connect_tls_insecure, connect_tls_pinned};
 use crate::console::Console;
 
 #[derive(Subcommand, Clone)]

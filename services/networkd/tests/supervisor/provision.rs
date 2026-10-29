@@ -9,8 +9,7 @@ use networkd::supervisor;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use super::MockNetlinkOps;
-use super::config_bridge;
+use super::{MockNetlinkOps, config_bridge};
 
 fn config_static_ipv4() -> Arc<network::Config> {
     let mut cfg = network::Config::default();

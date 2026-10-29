@@ -3,9 +3,9 @@ use clap::Subcommand;
 use tonic::transport::Channel;
 use tui::style::Role;
 
+use crate::client::security_service::security_service_client::SecurityServiceClient;
 use crate::client::security_service::{
     GetSecurityStateRequest, SecureBootDeviation, SecureBootState,
-    security_service_client::SecurityServiceClient,
 };
 use crate::console::Console;
 

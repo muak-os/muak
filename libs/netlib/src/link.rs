@@ -6,12 +6,10 @@ use core::future::Future;
 use core::time::Duration;
 use std::collections::HashMap;
 
-use rtnetlink::Handle;
-use rtnetlink::LinkUnspec;
-use rtnetlink::MulticastGroup;
 use rtnetlink::packet_core::NetlinkPayload;
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
+use rtnetlink::{Handle, LinkUnspec, MulticastGroup};
 use thiserror::Error;
 use tokio::time::{Instant, timeout as timeout_after};
 use tokio_stream::StreamExt as _;

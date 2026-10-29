@@ -10,12 +10,10 @@ use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
 use tui::live::Steps;
 
-use crate::client::{
-    connect,
-    provision_service::{
-        GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, UpdateRequest,
-        UpdateStatus, provision_service_client::ProvisionServiceClient,
-    },
+use crate::client::connect;
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
+use crate::client::provision_service::{
+    GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, UpdateRequest, UpdateStatus,
 };
 use crate::console::Console;
 

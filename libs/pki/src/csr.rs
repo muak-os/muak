@@ -4,7 +4,8 @@ use core::str::FromStr as _;
 use core::time::Duration;
 
 use base16ct::lower::encode_string;
-use der::{DecodePem as _, Encode as _, EncodePem as _, pem::LineEnding};
+use der::pem::LineEnding;
+use der::{DecodePem as _, Encode as _, EncodePem as _};
 use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
 use sha2::{Digest as _, Sha256};
 use signature::Verifier as _;

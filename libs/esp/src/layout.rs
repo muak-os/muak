@@ -2,9 +2,8 @@
 
 use fatfs::builder::image_size_for;
 
-use crate::FileMeta;
 use crate::error::Result;
-use crate::path;
+use crate::{FileMeta, path};
 
 /// Precomputed layout for an ESP image.
 #[derive(Clone, Debug)]

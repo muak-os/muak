@@ -10,8 +10,7 @@ use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::{DecodePrivateKey as _, EncodePrivateKey as _};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest as _, Sha256};
-use signature::DigestSigner as _;
-use signature::SignatureEncoding as _;
+use signature::{DigestSigner as _, SignatureEncoding as _};
 use spki::AlgorithmIdentifierOwned;
 use zeroize::Zeroizing;
 
@@ -127,8 +126,7 @@ mod tests {
 
     use rsa::traits::PublicKeyParts as _;
     use signature::{Keypair as _, Signer as _};
-    use spki::DynSignatureAlgorithmIdentifier as _;
-    use spki::SignatureBitStringEncoding as _;
+    use spki::{DynSignatureAlgorithmIdentifier as _, SignatureBitStringEncoding as _};
 
     use super::*;
 

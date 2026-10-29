@@ -18,7 +18,8 @@ mod update;
 use std::path::Path;
 
 use anyhow::Context as _;
-use granola::runtime::{signal::shutdown, socket::socket};
+use granola::runtime::signal::shutdown;
+use granola::runtime::socket::socket;
 use tonic::transport::Server;
 
 #[granola::service("provisiond")]

@@ -3,9 +3,8 @@
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::compress;
-use crate::cpio;
 use crate::error::{RamuneError, Result};
+use crate::{compress, cpio};
 
 /// An entry in a CPIO archive.
 pub struct Entry {

@@ -4,12 +4,11 @@ use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
-use crate::client::vm_service::{ListVmsRequest, VmInfo, vm_service_client::VmServiceClient};
+use crate::client::vm_service::vm_service_client::VmServiceClient;
+use crate::client::vm_service::{ListVmsRequest, VmInfo};
 use crate::console::Console;
-use crate::format::{
-    display::{hypervisor_to_string, vm_state_to_string},
-    time::format_timestamp,
-};
+use crate::format::display::{hypervisor_to_string, vm_state_to_string};
+use crate::format::time::format_timestamp;
 
 /// Lists all VMs.
 pub async fn handle(client: &mut VmServiceClient<Channel>, console: &Console) -> Result<()> {

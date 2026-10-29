@@ -1,9 +1,6 @@
 //! High-level layout planning pipeline from sized file entries to assigned inodes.
 
-use super::ImagePlan;
-use super::assign;
-use super::collect;
-use super::indices;
+use super::{ImagePlan, assign, collect, indices};
 use crate::MkfsConfig;
 use crate::error::Result;
 use crate::source::SizedFile;

@@ -7,11 +7,13 @@ use alloc::vec::{self, Vec};
 
 use const_oid::db::rfc5280::{ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH};
 use der::asn1::Ia5String;
-use x509_cert::builder::{Result as BuilderResult, profile::BuilderProfile};
+use x509_cert::builder::Result as BuilderResult;
+use x509_cert::builder::profile::BuilderProfile;
 use x509_cert::certificate::TbsCertificate;
+use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::ext::pkix::{
     AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages,
-    SubjectAltName, SubjectKeyIdentifier, name::GeneralName,
+    SubjectAltName, SubjectKeyIdentifier,
 };
 use x509_cert::ext::{Extension, ToExtension};
 use x509_cert::name::Name;

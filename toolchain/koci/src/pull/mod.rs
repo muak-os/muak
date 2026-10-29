@@ -23,9 +23,8 @@ use oci_client::auth::Access;
 
 use crate::error::Result;
 use crate::progress::Reporter;
-use crate::registry;
-use crate::runtime;
 use crate::signature::Verification;
+use crate::{registry, runtime};
 
 /// Resolution of a pull to one platform manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]

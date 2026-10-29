@@ -12,9 +12,8 @@ use super::lazy::LazyLayers;
 use super::{layer, resolve, scan};
 use crate::error::Result;
 use crate::progress::{Event, Operation, Reporter};
-use crate::registry;
-use crate::runtime;
 use crate::signature::Verification;
+use crate::{registry, runtime};
 
 /// An opened pull session over one image reference.
 pub struct Session {

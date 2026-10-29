@@ -7,11 +7,9 @@ use netlib::link::State;
 use netlib::netlink::Ops;
 use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
 
-use super::NetworkSupervisor;
-use super::provision;
+use super::{NetworkSupervisor, provision};
 use crate::interface::ActorHandle;
-use crate::interface::commands::ApplyMode;
-use crate::interface::commands::Command;
+use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::snapshot::Snapshot;
 use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;

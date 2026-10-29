@@ -9,13 +9,11 @@ use config::system::network::{
 };
 use netlib::interface::Name;
 use netlib::netlink::Ops;
-use tokio::sync::oneshot;
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use super::NetworkSupervisor;
 use crate::interface::ActorHandle;
-use crate::interface::commands::ApplyMode;
-use crate::interface::commands::Command;
+use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::snapshot::Snapshot;
 use crate::interface::state::Lifecycle;
 

@@ -19,16 +19,11 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant, SystemTime};
 
-    use koci::annotations;
     use koci::error::KociError;
-    use koci::merge;
     use koci::progress::{Event, Noop, Phase, Reporter};
-    use koci::pull;
-    use koci::pull::cache;
     use koci::pull::demux::Demux;
-    use koci::pull::session;
-    use koci::push;
-    use koci::repack;
+    use koci::pull::{cache, session};
+    use koci::{annotations, merge, pull, push, repack};
     use oci::arch::Arch;
     use oci::error::OciError;
     use oci_client::error::ClientError;

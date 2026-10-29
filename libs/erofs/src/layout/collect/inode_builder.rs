@@ -2,13 +2,12 @@
 
 use std::path::Path;
 
-use crate::MkfsConfig;
 use crate::dir::{self, EROFS_FT_DIR};
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_PLAIN;
 use crate::layout::types::InodeLayout;
 use crate::tree::TreeEntry;
-use crate::xattr;
+use crate::{MkfsConfig, xattr};
 
 /// Build initial `InodeLayout` entries from tree entries.
 pub fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<Vec<InodeLayout>> {

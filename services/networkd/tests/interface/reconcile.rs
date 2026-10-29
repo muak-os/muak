@@ -6,11 +6,9 @@ use core::time::Duration;
 use config::system::network;
 use netlib::address;
 use netlib::address::IpConfig;
-use networkd::dhcp::Lease;
-use networkd::dhcp::State as DhcpState;
+use networkd::dhcp::{Lease, State as DhcpState};
 use networkd::interface::commands::ApplyMode;
-use tokio::time::sleep;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use super::*;
 

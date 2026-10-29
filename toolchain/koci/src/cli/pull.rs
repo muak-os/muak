@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::Result;
-use koci::error;
-use koci::pull;
 use koci::signature::Verification;
+use koci::{error, pull};
 use oci::arch;
 use oci::arch::Arch;
 use tui::live::summary::Summary;

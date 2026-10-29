@@ -88,7 +88,8 @@ where
 #[cfg(test)]
 mod tests {
     use core::future::ready;
-    use core::sync::atomic::{AtomicU8, Ordering::Relaxed};
+    use core::sync::atomic::AtomicU8;
+    use core::sync::atomic::Ordering::Relaxed;
 
     use super::*;
 

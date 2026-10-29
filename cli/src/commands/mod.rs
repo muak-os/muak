@@ -19,15 +19,14 @@ use anyhow::{Result, bail};
 use tonic::transport::Channel;
 use tui::style::Role;
 
-use crate::client::{
-    connect, connect_tls_insecure,
-    log_service::log_service_client::LogServiceClient,
-    process_service::process_service_client::ProcessServiceClient,
-    provision_service::provision_service_client::ProvisionServiceClient,
-    security_service::security_service_client::SecurityServiceClient,
-    version_service::{GetVersionRequest, version_service_client::VersionServiceClient},
-    vm_service::vm_service_client::VmServiceClient,
-};
+use crate::client::log_service::log_service_client::LogServiceClient;
+use crate::client::process_service::process_service_client::ProcessServiceClient;
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
+use crate::client::security_service::security_service_client::SecurityServiceClient;
+use crate::client::version_service::GetVersionRequest;
+use crate::client::version_service::version_service_client::VersionServiceClient;
+use crate::client::vm_service::vm_service_client::VmServiceClient;
+use crate::client::{connect, connect_tls_insecure};
 use crate::console::Console;
 use crate::{Cli, Commands};
 

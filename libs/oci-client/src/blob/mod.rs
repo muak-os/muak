@@ -9,9 +9,8 @@ use oci::reference::Image;
 use report::BlobProgress;
 
 use crate::client::Client;
-use crate::endpoint;
 use crate::error::{ClientError, Result};
-use crate::http;
+use crate::{endpoint, http};
 
 /// Size below which the blob still travels in one request.
 const SMALL_BLOB_LIMIT: usize = 4 * 1024 * 1024;

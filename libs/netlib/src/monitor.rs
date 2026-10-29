@@ -5,14 +5,14 @@ use std::io;
 
 use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
-use rtnetlink::packet_route::{RouteNetlinkMessage, link::LinkFlags, link::LinkMessage};
+use rtnetlink::packet_route::RouteNetlinkMessage;
+use rtnetlink::packet_route::link::{LinkFlags, LinkMessage};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt as _;
 
 use crate::interface::{Name, is_ethernet};
-use crate::link;
-use crate::mac;
+use crate::{link, mac};
 
 /// Monitor operation failures.
 #[derive(Debug, Error)]

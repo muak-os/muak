@@ -5,16 +5,12 @@ use std::io::{Cursor, Read as _};
 use koci::pull;
 use uki::measure::MeasuredSection;
 use yuki::pe::section::Section;
-use yuki::prepare;
-use yuki::probe;
 use yuki::write::{self, Input};
+use yuki::{prepare, probe};
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::initramfs;
-use crate::nodes::kernel;
-use crate::nodes::stub;
-use crate::nodes::{NodeDescriptor, NodeKind};
+use crate::nodes::{NodeDescriptor, NodeKind, initramfs, kernel, stub};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;

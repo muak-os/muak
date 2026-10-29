@@ -8,9 +8,9 @@ use anyhow::{Context as _, Result};
 use clap::Subcommand;
 use tonic::transport::Channel;
 
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{
     GetConfigRequest, GetConfigSnapshotRequest, GetDefaultConfigRequest,
-    provision_service_client::ProvisionServiceClient,
 };
 use crate::console::Console;
 

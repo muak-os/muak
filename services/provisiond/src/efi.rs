@@ -1,9 +1,8 @@
 //! EFI partition deployment of the Unified Kernel Image and overlay assets.
 
-use std::fs;
-use std::io;
 use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use anyhow::{Context as _, Result, bail};
 use esp::path::validate_relative;

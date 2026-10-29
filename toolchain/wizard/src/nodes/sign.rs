@@ -5,8 +5,7 @@ use sbolt::signature;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::uki;
-use crate::nodes::{NodeDescriptor, NodeKind};
+use crate::nodes::{NodeDescriptor, NodeKind, uki};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;

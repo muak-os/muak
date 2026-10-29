@@ -1,7 +1,6 @@
 //! Platform layout planning driven by the boot image's disk plan.
 
-use ::disk::plan::Document;
-use ::disk::plan::Plan;
+use ::disk::plan::{Document, Plan};
 use ::disk::role::Role;
 use anyhow::{Result, bail};
 

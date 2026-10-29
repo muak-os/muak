@@ -248,8 +248,7 @@ pub fn write_tpm2_token(device: &str, token: &Tpm2Token) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata::Digest;
-    use crate::metadata::Tpm2Token;
+    use crate::metadata::{Digest, Tpm2Token};
 
     fn create_test_device(size: u64) -> tempfile::NamedTempFile {
         let file = tempfile::NamedTempFile::new().unwrap();

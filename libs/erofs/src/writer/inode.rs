@@ -58,14 +58,13 @@ mod tests {
     use std::io;
 
     use super::write_header;
-    use crate::SLOT_SIZE;
-    use crate::compress;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
     use crate::layout::{self, InodeLayout};
     use crate::testutil::{compress_config, entry_of, test_config, zero_data};
     use crate::tree::TreeEntry;
     use crate::writer::image;
+    use crate::{SLOT_SIZE, compress};
 
     fn root_entry() -> TreeEntry {
         TreeEntry {

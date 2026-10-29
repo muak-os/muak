@@ -7,8 +7,7 @@ use uki::measure::{self, MeasuredSection};
 
 use super::{UPDATE_DIR, cache, secureboot};
 use crate::disk::{Role, find_partition_device};
-use crate::efi;
-use crate::secrets;
+use crate::{efi, secrets};
 
 /// Applies a staged update by deploying the UKI and resealing the LUKS key.
 pub async fn apply() -> Result<()> {

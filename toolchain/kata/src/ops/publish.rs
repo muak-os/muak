@@ -4,16 +4,14 @@ use alloc::collections::BTreeMap;
 use std::path::Path;
 
 use koci::arch::Arch;
-use koci::registry;
-use koci::{pull, push};
+use koci::{pull, push, registry};
 
 use crate::error::{KataError, Result};
 use crate::ops::verify;
-use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
-use crate::version;
+use crate::{repository, version};
 
 const DOCUMENT_PATH: &str = "catalog.toml";
 

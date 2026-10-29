@@ -6,8 +6,7 @@ use netlib::mac::format as format_mac;
 use netlib::monitor::Event;
 use netlib::netlink::Ops;
 
-use super::NetworkSupervisor;
-use super::failover;
+use super::{NetworkSupervisor, failover};
 use crate::interface::commands::Command;
 use crate::interface::snapshot::Snapshot;
 use crate::interface::state::Lifecycle;

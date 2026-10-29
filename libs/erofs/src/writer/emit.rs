@@ -5,10 +5,9 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use std::io::{Read, Write};
 
-use super::compressed;
-use super::data;
 use super::inode::write_header;
 use super::sizes::{block_size_usize, slot_offset};
+use super::{compressed, data};
 use crate::checked::{add, align_up, u32_from_usize};
 use crate::dir::EROFS_FT_REG_FILE;
 use crate::error::{ErofsError, Result};
@@ -150,12 +149,10 @@ fn is_inline_regular(inode: &InodeLayout) -> bool {
 mod tests {
     use std::io;
 
-    use crate::MkfsConfig;
-    use crate::SLOT_SIZE;
-    use crate::layout;
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
     use crate::testutil::{compress_config, entry_of, test_config, zero_data};
     use crate::tree::TreeEntry;
+    use crate::{MkfsConfig, SLOT_SIZE, layout};
 
     fn plan_from_entries(entries: &[TreeEntry], cfg: &MkfsConfig<'_>) -> layout::ImagePlan {
         let mut data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();

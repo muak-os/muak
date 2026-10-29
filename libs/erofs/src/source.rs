@@ -1,10 +1,9 @@
 //! Sized file entry type and filesystem directory walking.
 
-use std::fs;
-use std::io;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};

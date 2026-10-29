@@ -10,9 +10,8 @@ use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 use tokio::fs::try_exists;
 
-use crate::constants;
 use crate::proxy::{self, BackendPool};
-use crate::rbac;
+use crate::{constants, rbac};
 
 /// Body type for handler responses - either an error (`Empty`) or proxied stream (`Incoming`).
 pub type Body = Either<Empty<Bytes>, Incoming>;

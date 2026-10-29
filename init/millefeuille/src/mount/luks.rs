@@ -2,9 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use luks2::key::Passphrase;
-use tpm2::blob;
-use tpm2::device;
-use tpm2::operations;
+use tpm2::{blob, device, operations};
 
 /// Resolve the LUKS key for the given device, first trying TPM2 unseal and falling back to cmdline parsing.
 pub(super) fn resolve_key(device: &str) -> Result<Option<Passphrase>> {

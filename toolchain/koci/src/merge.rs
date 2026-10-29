@@ -11,12 +11,10 @@ use oci::media::{
 use oci::model::{Descriptor, Platform};
 use oci_client::auth::Access;
 use oci_client::client::Client;
-use oci_client::http;
-use oci_client::manifest;
+use oci_client::{http, manifest};
 
 use crate::error::{KociError, Result};
-use crate::registry;
-use crate::runtime;
+use crate::{registry, runtime};
 
 /// One per-platform source of a merged index.
 #[derive(Debug, Clone)]

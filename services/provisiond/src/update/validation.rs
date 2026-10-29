@@ -6,10 +6,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use tokio::sync::Notify;
 
-use super::UPDATE_DIR;
-use super::commit;
-use super::rollback;
-use super::snapshot;
+use super::{UPDATE_DIR, commit, rollback, snapshot};
 
 static CLI_CONTACT: Notify = Notify::const_new();
 const CONFIRMATION_WINDOW: Duration = Duration::from_mins(5);

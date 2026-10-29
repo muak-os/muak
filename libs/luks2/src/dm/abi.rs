@@ -2,8 +2,7 @@
 
 use core::ffi::c_void;
 use core::mem::size_of;
-use core::ptr;
-use core::slice;
+use core::{ptr, slice};
 
 use rustix::io::Result as RustixResult;
 use rustix::ioctl::{Ioctl, IoctlOutput, Opcode, opcode};

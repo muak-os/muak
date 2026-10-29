@@ -149,8 +149,7 @@ mod tests {
 
     use super::*;
     use crate::codec::Codec;
-    use crate::domain::resolution::Kernel;
-    use crate::domain::resolution::ResolvedBuild;
+    use crate::domain::resolution::{Kernel, ResolvedBuild};
     use crate::progress::NOOP;
 
     fn build_plan() -> ResolvedBuild {

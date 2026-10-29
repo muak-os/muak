@@ -14,14 +14,7 @@ use super::proto::provision::{
     PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
     UpdateResponse,
 };
-use crate::disk;
-use crate::install;
-use crate::journal;
-use crate::power;
-use crate::reset;
-use crate::streaming;
-use crate::template;
-use crate::update;
+use crate::{disk, install, journal, power, reset, streaming, template, update};
 
 /// Implementation of the `ProvisionService` gRPC interface.
 pub struct ServiceImpl;

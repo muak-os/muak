@@ -2,9 +2,9 @@ use anyhow::Result;
 use tonic::transport::Channel;
 use tui::style::Role;
 
+use crate::client::log_service::log_service_client::LogServiceClient;
 use crate::client::log_service::{
     FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry,
-    log_service_client::LogServiceClient,
 };
 use crate::console::Console;
 

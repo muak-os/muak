@@ -4,9 +4,8 @@ use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
-use crate::client::provision_service::{
-    DiskInfo, ListDisksRequest, provision_service_client::ProvisionServiceClient,
-};
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
+use crate::client::provision_service::{DiskInfo, ListDisksRequest};
 use crate::console::Console;
 
 /// Lists available disks on the system.

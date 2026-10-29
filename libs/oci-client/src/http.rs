@@ -11,10 +11,8 @@ use oci::digest::Verifier;
 use tokio::time::timeout;
 
 use crate::error::{ClientError, Result};
-use crate::redirect;
-use crate::request;
-use crate::retry;
 use crate::transport::Transport;
+use crate::{redirect, request, retry};
 
 /// Deadline for a request to reach its response head.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(1);

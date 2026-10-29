@@ -4,9 +4,8 @@ use tonic::transport::Channel;
 use tui::prompt::Prompter;
 use tui::style::Role;
 
-use crate::client::provision_service::{
-    FactoryResetRequest, provision_service_client::ProvisionServiceClient,
-};
+use crate::client::provision_service::FactoryResetRequest;
+use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::console::Console;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";

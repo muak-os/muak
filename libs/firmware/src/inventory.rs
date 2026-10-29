@@ -1,9 +1,8 @@
 //! Firmware inventory.
 
-use crate::esrt;
-use crate::identity;
 use crate::nvram::VariableStore;
 use crate::platform::Platform;
+use crate::{esrt, identity};
 
 /// Snapshot of platform firmware and its updatable components.
 #[derive(Debug, Clone, PartialEq, Eq)]

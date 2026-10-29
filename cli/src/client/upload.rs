@@ -9,9 +9,8 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Channel;
 
-use super::vm_service::{
-    UploadFileMetadata, UploadFileRequest, upload_file_request, vm_service_client::VmServiceClient,
-};
+use super::vm_service::vm_service_client::VmServiceClient;
+use super::vm_service::{UploadFileMetadata, UploadFileRequest, upload_file_request};
 
 const CHUNK_SIZE: usize = 1024 * 1024;
 
