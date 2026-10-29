@@ -2,7 +2,6 @@
 name = "sbolt"
 description = "Secure Boot key management library for UEFI systems"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

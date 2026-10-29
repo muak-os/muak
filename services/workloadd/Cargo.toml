@@ -2,7 +2,6 @@
 name = "workloadd"
 description = "Virtual machine management daemon"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

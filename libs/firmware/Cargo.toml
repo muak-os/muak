@@ -2,7 +2,6 @@
 name = "firmware"
 description = "Platform firmware identity, ESRT components, and Secure Boot state"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

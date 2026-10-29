@@ -2,7 +2,6 @@
 name = "oci"
 description = "Open Container Initiative specification"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

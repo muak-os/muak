@@ -2,7 +2,6 @@
 name = "tpm2"
 description = "Library to interact with TPM2 devices"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

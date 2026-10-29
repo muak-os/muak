@@ -2,7 +2,6 @@
 name = "luks2"
 description = "LUKS2 encryption helpers"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

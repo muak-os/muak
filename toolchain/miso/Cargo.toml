@@ -2,7 +2,6 @@
 name = "miso"
 description = "Bootable image builder"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

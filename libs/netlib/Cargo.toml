@@ -2,7 +2,6 @@
 name = "netlib"
 description = "A library of networking primitives and utilities"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -2,7 +2,6 @@
 name = "yuki"
 description = "A tool for working with UKIs"
 edition.workspace = true
-version.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true

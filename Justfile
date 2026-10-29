@@ -141,15 +141,14 @@ release version: lint test deny
         printf "{{ red }}{{ bold }}Error:{{ reset }} master is not in sync with origin\n"
         exit 1
     fi
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        printf "{{ red }}{{ bold }}Error:{{ reset }} working tree has uncommitted changes\n"
+        exit 1
+    fi
 
-    current="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
     re='^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-0-9A-Za-z.]+)?$'
     if ! [[ "$arg" =~ $re ]]; then
         printf "{{ red }}{{ bold }}Error:{{ reset }} '$arg' is not a release version (vX.Y.Z or vX.Y.Z-suffix)\n"
-        exit 1
-    fi
-    if [[ "$next" == "$current" ]]; then
-        printf "{{ red }}{{ bold }}Error:{{ reset }} version is already $current\n"
         exit 1
     fi
     if git rev-parse -q --verify "refs/tags/v$next" > /dev/null; then
@@ -157,13 +156,9 @@ release version: lint test deny
         exit 1
     fi
 
-    sed -i "s/^version = \".*\"/version = \"$next\"/" Cargo.toml
-    cargo update -w --offline
-    git add Cargo.toml Cargo.lock
-    git commit -m "chore(release): v$next"
     git tag -s "v$next" -m "v$next"
-    git push origin master "v$next"
-    printf "{{ green }}Release {{ bold }}v$next{{ reset }} {{ green }}pushed{{ reset }}\n"
+    git push origin "v$next"
+    printf "{{ green }}Release {{ bold }}v$next{{ reset }} {{ green }}tag pushed{{ reset }}\n"
 
 # Compose and publish the local development catalog.
 [group('build')]
