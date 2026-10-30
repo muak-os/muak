@@ -241,10 +241,12 @@ async fn handle_cmd(
                 )
             })?;
             let config = ClientConfig::load()?;
-            let ctx = config
+            let mut ctx = config
                 .get_context(ctx_name)
-                .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?;
-            update::handle(ctx, version, config_path, console).await
+                .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?
+                .clone();
+            ctx.endpoint = endpoint;
+            update::handle(&ctx, version, config_path, console).await
         }
         Commands::Disks => {
             let mut client = ProvisionServiceClient::new(channel);
