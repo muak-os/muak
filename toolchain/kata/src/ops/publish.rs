@@ -177,10 +177,11 @@ fn publish_one(
     }
 
     let image = format!("{}/{}", super::registry(), kind.dir());
+    let image_ref = format!("{image}:{release}");
     let mut tags = vec![release.to_owned()];
     tags.extend(channels.iter().cloned());
     let pushed = push::files(
-        &image,
+        &image_ref,
         &tags,
         &Arch::Amd64,
         &[push::Entry {
@@ -190,7 +191,7 @@ fn publish_one(
         &koci::progress::Noop,
     )
     .map_err(|error| KataError::Registry(error.to_string()))?;
-    eprintln!("Published {image}:{release}");
+    eprintln!("Published {image_ref}");
     for channel in channels {
         eprintln!("Moved channel {image}:{channel} → {release}");
     }
