@@ -181,7 +181,7 @@ jobs:
       open_pr: false
       auto: false
       force: true
-      artifact: catalog-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact: catalog-${{ github.run_id }}
 
   catalog-publish:
     name: Publish nightly catalog
@@ -195,4 +195,4 @@ jobs:
       release: ${{ needs.prepare.outputs.tag }}
       channels: nightly
       toolchain: ${{ needs.build-toolchain.outputs.ref }}
-      artifact: catalog-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact: catalog-${{ github.run_id }}
