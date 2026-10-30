@@ -3,6 +3,15 @@ name: Build CLI
 on:
   workflow_call:
     inputs:
+      ref:
+        description: "Git ref to build"
+        required: false
+        type: string
+        default: ""
+      tag:
+        description: "Final image tag"
+        required: true
+        type: string
       toolchain:
         description: "Toolchain image reference for fresh toolchain builds"
         required: false
@@ -17,5 +26,7 @@ jobs:
     uses: ./.github/workflows/_template.yaml
     with:
       image: muakctl
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       recipe: oci cli
       toolchain: ${{ inputs.toolchain }}

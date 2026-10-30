@@ -4,15 +4,15 @@ on:
   pull_request:
   push:
     branches: [master]
-    tags: ["v[0-9]+.*"]
   merge_group:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      build:
-        description: "Build and push images, ignoring the change detection"
+      ref:
+        description: "Git ref to test; defaults to the workflow commit"
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: ""
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -34,6 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -50,6 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -68,6 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -84,6 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -102,6 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -120,6 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -142,76 +148,3 @@ jobs:
           if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
             exit 1
           fi
-
-  changes:
-    name: Changes
-    needs: ci-success
-    if: |
-      (github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))) ||
-      (github.event_name == 'workflow_dispatch' && inputs.build)
-    permissions:
-      contents: read
-    uses: ./.github/workflows/changes.yaml
-    with:
-      force_all: ${{ github.event_name == 'workflow_dispatch' && inputs.build }}
-
-  build-toolchain:
-    name: Build toolchain
-    needs: [ci-success, changes]
-    if: needs.changes.result == 'success'
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/build-toolchain.yaml
-
-  build-packages:
-    name: Build packages
-    needs: [ci-success, changes, build-toolchain]
-    if: |
-      always() &&
-      needs.ci-success.result == 'success' &&
-      needs.changes.result == 'success' &&
-      needs.changes.outputs.packages != '[]' &&
-      (needs.build-toolchain.result == 'success' || needs.build-toolchain.result == 'skipped')
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/build-packages.yaml
-    with:
-      toolchain: ${{ needs.build-toolchain.outputs.ref }}
-      packages: ${{ needs.changes.outputs.packages }}
-
-  build-cli:
-    name: Build CLI
-    needs: [ci-success, changes, build-toolchain]
-    if: |
-      always() &&
-      needs.ci-success.result == 'success' &&
-      needs.changes.result == 'success' &&
-      needs.changes.outputs.cli == 'true' &&
-      (needs.build-toolchain.result == 'success' || needs.build-toolchain.result == 'skipped')
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/build-cli.yaml
-    with:
-      toolchain: ${{ needs.build-toolchain.outputs.ref }}
-
-  build-installer:
-    name: Build installer
-    needs: [ci-success, changes, build-toolchain, build-packages, build-cli]
-    if: |
-      always() &&
-      needs.ci-success.result == 'success' &&
-      needs.changes.result == 'success' &&
-      needs.changes.outputs.installer == 'true' &&
-      (needs.build-toolchain.result == 'success' || needs.build-toolchain.result == 'skipped') &&
-      (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped') &&
-      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped')
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/build-installer.yaml
-    with:
-      toolchain: ${{ needs.build-toolchain.outputs.ref }}
-    secrets: inherit

@@ -2,13 +2,17 @@ name: Build Toolchain
 
 on:
   workflow_call:
-    outputs:
+    inputs:
+      ref:
+        description: "Git ref to build"
+        required: false
+        type: string
+        default: ""
       tag:
-        description: "Resolved toolchain tag"
-        value: ${{ jobs.build.outputs.tag }}
-      repository:
-        description: "Resolved toolchain repository"
-        value: ${{ jobs.build.outputs.repository }}
+        description: "Final toolchain tag"
+        required: true
+        type: string
+    outputs:
       ref:
         description: "Resolved toolchain reference"
         value: ${{ jobs.build.outputs.ref }}
@@ -21,5 +25,7 @@ jobs:
     uses: ./.github/workflows/_template.yaml
     with:
       image: toolchain
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       recipe: oci toolchain
       arch_matrix: '["amd64","arm64"]'

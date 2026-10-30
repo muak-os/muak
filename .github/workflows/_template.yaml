@@ -4,13 +4,17 @@ on:
   workflow_call:
     inputs:
       image:
-        description: "Image name used for cache refs and summary (e.g. muakctl, installer)"
+        description: "Full image path"
         type: string
         required: true
-      image_prefix:
-        description: "Optional registry path prefix before image (e.g. 'pkgs/' for packages)"
+      ref:
+        description: "Git ref to build; defaults to the workflow commit"
         type: string
         default: ""
+      tag:
+        description: "Final image tag"
+        type: string
+        required: true
       toolchain:
         description: "Toolchain image reference for fresh toolchain builds"
         type: string
@@ -28,12 +32,6 @@ on:
         type: string
         default: '["amd64","arm64"]'
     outputs:
-      tag:
-        description: "Resolved image tag"
-        value: ${{ jobs.manifest.outputs.tag }}
-      repository:
-        description: "Resolved image repository"
-        value: ${{ jobs.manifest.outputs.repository }}
       ref:
         description: "Resolved image reference"
         value: ${{ jobs.manifest.outputs.ref }}
@@ -57,12 +55,10 @@ jobs:
             runner: ubuntu-26.04-arm
 
     runs-on: ${{ matrix.runner }}
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
         id: buildx
@@ -81,15 +77,6 @@ jobs:
         if: inputs.toolchain != ''
         run: |
           printf 'TOOLCHAIN=%s\n' "${{ inputs.toolchain }}" >> "$GITHUB_ENV"
-
-      - name: Determine tag
-        id: tag
-        run: |
-          set -euo pipefail
-
-          tag="$(git describe --tags --always --dirty --match 'v[0-9]*' 2>/dev/null || true)"
-          [ -n "$tag" ] || tag="0.0.0-dev"
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Build ${{ inputs.image }} (${{ matrix.arch }})
         env:
@@ -110,14 +97,14 @@ jobs:
     runs-on: ubuntu-26.04
     env:
       CONTAINER_RUNTIME: docker
+      IMAGE: ${{ inputs.image }}
+      TAG: ${{ inputs.tag }}
     outputs:
-      tag: ${{ steps.metadata.outputs.tag }}
-      repository: ${{ steps.metadata.outputs.repository }}
       ref: ${{ steps.metadata.outputs.ref }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
         with:
@@ -125,30 +112,21 @@ jobs:
 
       - name: Resolve image metadata
         id: metadata
-        env:
-          IMAGE_PREFIX: ${{ inputs.image_prefix }}
-          IMAGE: ${{ inputs.image }}
         run: |
-          tag="${{ needs.build.outputs.tag }}"
-          repository="ghcr.io/${{ github.repository_owner }}/${IMAGE_PREFIX}${IMAGE}"
-          printf 'tag=%s\nrepository=%s\nref=%s\n' \
-            "$tag" "$repository" "$repository:$tag" >> "$GITHUB_OUTPUT"
+          repository="ghcr.io/${{ github.repository_owner }}/${IMAGE}"
+          printf 'ref=%s\n' "$repository:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Select toolchain
         if: inputs.toolchain != ''
         run: |
           printf 'TOOLCHAIN=%s\n' "${{ inputs.toolchain }}" >> "$GITHUB_ENV"
 
-      - name: Create multi-arch manifest (${{ needs.build.outputs.tag }})
+      - name: Create multi-arch manifest (${{ inputs.tag }})
         env:
-          TAG: ${{ needs.build.outputs.tag }}
-          IMAGE_PREFIX: ${{ inputs.image_prefix }}
-          IMAGE: ${{ inputs.image }}
           KOCI_REGISTRY_USERNAME: ${{ github.actor }}
           KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NAME="${IMAGE_PREFIX}${IMAGE}"
-          just merge "$NAME" amd64=ci-amd64 arm64=ci-arm64
+          just merge "$IMAGE" amd64=ci-amd64 arm64=ci-arm64
 
       - name: Setup cosign key
         if: inputs.sign
@@ -164,7 +142,6 @@ jobs:
         if: inputs.sign
         env:
           CONTAINER_RUNTIME: docker
-          TAG: ${{ needs.build.outputs.tag }}
           SIGNATURE: cosign.key
           KOCI_REGISTRY_USERNAME: ${{ github.actor }}
           KOCI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -175,11 +152,6 @@ jobs:
         run: rm -f cosign.key
 
       - name: Build summary
-        env:
-          IMAGE_PREFIX: ${{ inputs.image_prefix }}
-          IMAGE: ${{ inputs.image }}
-          TAG: ${{ needs.build.outputs.tag }}
         run: |
-          NAME="${IMAGE_PREFIX}${IMAGE}"
           printf '### Multi-arch manifest created for %s\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
-          printf -- '- **Tag:** `%s:%s`\n' "$NAME" "$TAG" >> "$GITHUB_STEP_SUMMARY"
+          printf -- '- **Tag:** `%s:%s`\n' "$IMAGE" "$TAG" >> "$GITHUB_STEP_SUMMARY"
