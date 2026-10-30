@@ -165,3 +165,34 @@ jobs:
       toolchain: ${{ needs.build-toolchain.outputs.ref }}
     secrets:
       COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+
+  catalog-compose:
+    name: Compose nightly catalog
+    needs: [prepare, build-toolchain, build-installer]
+    if: needs.build-installer.result == 'success'
+    permissions:
+      contents: read
+      packages: read
+    uses: muak-os/catalog/.github/workflows/compose.yaml@master
+    with:
+      release: ${{ needs.prepare.outputs.tag }}
+      installer: ${{ needs.prepare.outputs.tag }}
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
+      open_pr: false
+      auto: false
+      force: true
+      artifact: catalog-${{ github.run_id }}-${{ github.run_attempt }}
+
+  catalog-publish:
+    name: Publish nightly catalog
+    needs: [prepare, build-toolchain, catalog-compose]
+    if: needs.catalog-compose.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    uses: muak-os/catalog/.github/workflows/publish.yaml@master
+    with:
+      release: ${{ needs.prepare.outputs.tag }}
+      channels: nightly
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
+      artifact: catalog-${{ github.run_id }}-${{ github.run_attempt }}
