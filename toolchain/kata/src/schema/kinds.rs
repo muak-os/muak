@@ -39,10 +39,16 @@ impl Kind {
         }
     }
 
-    /// Every kind, in publication order.
+    /// Every kind.
     #[must_use]
     pub const fn all() -> [Self; 3] {
         [Self::Core, Self::Overlays, Self::Extensions]
+    }
+
+    /// Publication order, with the resolver entry point last.
+    #[must_use]
+    pub const fn publish() -> [Self; 3] {
+        [Self::Overlays, Self::Extensions, Self::Core]
     }
 }
 
@@ -57,5 +63,14 @@ mod tests {
 
         // ASSERT
         assert_eq!(dirs, ["core", "overlays", "extensions"]);
+    }
+
+    #[test]
+    fn publication_order_publishes_core_last() {
+        // ARRANGE / ACT
+        let dirs: Vec<&str> = Kind::publish().iter().map(|kind| kind.dir()).collect();
+
+        // ASSERT
+        assert_eq!(dirs, ["overlays", "extensions", "core"]);
     }
 }

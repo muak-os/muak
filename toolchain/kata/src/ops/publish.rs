@@ -29,7 +29,7 @@ pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Resu
     for channel in channels {
         validate_release(channel)?;
     }
-    let kinds: Vec<Kind> = Kind::all()
+    let kinds: Vec<Kind> = Kind::publish()
         .into_iter()
         .filter(|kind| repository::document_path(*kind, root, release).exists())
         .collect();
