@@ -1,0 +1,167 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to build"
+        required: false
+        type: string
+        default: master
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve nightly
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Resolve commit
+        id: meta
+        run: |
+          set -euo pipefail
+
+          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: CI
+    needs: resolve
+    uses: ./.github/workflows/ci.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  prepare:
+    name: Prepare nightly
+    needs: [resolve, ci]
+    if: needs.ci.result == 'success'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      packages: ${{ steps.meta.outputs.packages }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: just@1.58.0
+
+      - name: Resolve tag and packages
+        id: meta
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          utc_date="$(date -u +%F)"
+          short_sha="${SHA:0:8}"
+
+          latest_stable="$(git tag --merged HEAD --list 'v[0-9]*' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -1 || true)"
+          if [ -n "$latest_stable" ]; then
+            core="${latest_stable#v}"
+          else
+            latest="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+            core="${latest#v}"
+            core="${core%%-*}"
+          fi
+
+          if [ -z "$core" ]; then
+            major=0
+            minor=0
+          else
+            IFS=. read -r major minor _ <<< "$core"
+          fi
+
+          tag="v${major}.$((minor + 1)).0-nightly.${utc_date}.g${short_sha}"
+          packages="$(just --evaluate components \
+            | tr ' ' '\n' \
+            | sed '/^$/d' \
+            | sort -u \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+
+          printf 'tag=%s\npackages=%s\n' "$tag" "$packages" >> "$GITHUB_OUTPUT"
+
+  build-toolchain:
+    name: Build toolchain
+    needs: [resolve, ci, prepare]
+    if: |
+      needs.ci.result == 'success' &&
+      needs.prepare.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-toolchain.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      tag: ${{ needs.prepare.outputs.tag }}
+
+  build-packages:
+    name: Build packages
+    needs: [resolve, ci, prepare, build-toolchain]
+    if: |
+      needs.ci.result == 'success' &&
+      needs.prepare.result == 'success' &&
+      needs.build-toolchain.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-packages.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
+      packages: ${{ needs.prepare.outputs.packages }}
+
+  build-cli:
+    name: Build CLI
+    needs: [resolve, ci, prepare, build-toolchain]
+    if: |
+      needs.ci.result == 'success' &&
+      needs.prepare.result == 'success' &&
+      needs.build-toolchain.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-cli.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
+
+  build-installer:
+    name: Build installer
+    needs: [resolve, ci, prepare, build-toolchain, build-packages]
+    if: |
+      needs.ci.result == 'success' &&
+      needs.prepare.result == 'success' &&
+      needs.build-toolchain.result == 'success' &&
+      needs.build-packages.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-installer.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      toolchain: ${{ needs.build-toolchain.outputs.ref }}
+    secrets:
+      COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
