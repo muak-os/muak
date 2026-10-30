@@ -585,7 +585,7 @@ digest = "{unsorted}"
         let mut kernel_out = Vec::new();
 
         // ACT
-        request(RELEASE)
+        let report = request(RELEASE)
             .arch(Arch::Amd64)
             .progress(&recorded)
             .artifact(Artifact::Kernel, &mut kernel_out)
@@ -594,8 +594,17 @@ digest = "{unsorted}"
             .expect("build kernel");
 
         // ASSERT
+        let identity = report.identity.expect("build identity");
+        assert_eq!(identity.release(), RELEASE);
+        assert_eq!(identity.profile().to_string().len(), 64);
+        assert_eq!(identity.resolution().to_string().len(), 64);
+        assert!(identity.catalog().pinned().contains("/core@sha256:"));
         let events = recorded.0.lock().expect("unpoisoned");
         let rendered = events.join("\n");
+        assert!(rendered.contains("profile id "), "events: {rendered}");
+        assert!(rendered.contains("release "), "events: {rendered}");
+        assert!(rendered.contains("catalog "), "events: {rendered}");
+        assert!(rendered.contains("resolution "), "events: {rendered}");
         assert!(rendered.contains("Resolving sources"), "events: {rendered}");
         assert!(
             rendered.contains("Planning build graph"),

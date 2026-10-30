@@ -1,18 +1,22 @@
 //! Build subcommand.
 
+use std::fmt::Write as _;
 use std::fs::{self, File};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
+use sha2::{Digest as _, Sha256};
 use tui::live::summary::Summary;
 use tui::{progress, units};
 use wizard::artifact::Artifact;
 use wizard::codec::Codec;
 use wizard::config;
 use wizard::domain::profile::Profile;
+use wizard::domain::resolution::BuildIdentity;
 use wizard::request::Request;
 
 use super::console::Console;
@@ -79,7 +83,7 @@ pub(super) fn run(args: &Args, console: &Console) -> Result<()> {
     let codec = args.compression.unwrap_or_default();
     let started = Instant::now();
 
-    console.tracked(|reporter| {
+    let metadata = console.tracked(|reporter| {
         let mut files: Vec<(Artifact, CountingWriter<'_>)> = Vec::new();
         for &artifact in &args.artifacts {
             let output_path = args.output_dir.join(artifact.output_name(codec));
@@ -104,12 +108,16 @@ pub(super) fn run(args: &Args, console: &Console) -> Result<()> {
             None => request,
         };
 
-        request.build(&profile).context("build artifacts")?;
-
-        Ok(())
+        request.build(&profile).context("build artifacts")
     })?;
 
-    report_outputs(args, codec, started.elapsed(), console);
+    report_outputs(
+        args,
+        codec,
+        started.elapsed(),
+        console,
+        metadata.identity.as_ref(),
+    );
 
     Ok(())
 }
@@ -127,28 +135,71 @@ fn parse_artifact(input: &str) -> Result<Artifact> {
     }
 }
 
-fn report_outputs(args: &Args, codec: Codec, elapsed: Duration, console: &Console) {
+fn report_outputs(
+    args: &Args,
+    codec: Codec,
+    elapsed: Duration,
+    console: &Console,
+    identity: Option<&BuildIdentity>,
+) {
     let title = format!(
         "Built {} artifacts in {}",
         args.artifacts.len(),
         progress::clock(elapsed)
     );
-    let rows: Vec<(String, String)> = args
-        .artifacts
-        .iter()
-        .map(|&artifact| {
-            let path = args.output_dir.join(artifact.output_name(codec));
-            let size = fs::metadata(&path).map_or(0, |meta| meta.len());
-            (
-                artifact.filename().to_owned(),
-                format!("{} ({})", path.display(), units::bytes(size)),
-            )
-        })
-        .collect();
+    let multiple = args.artifacts.len() > 1;
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for &artifact in &args.artifacts {
+        let path = args.output_dir.join(artifact.output_name(codec));
+        let size = fs::metadata(&path).map_or(0, |meta| meta.len());
+        rows.push((
+            artifact.filename().to_owned(),
+            format!("{} ({})", path.display(), units::bytes(size)),
+        ));
+        let label = if multiple {
+            format!("sha256 {}", artifact.filename())
+        } else {
+            "sha256".to_owned()
+        };
+        let digest = digest(&path).unwrap_or_else(|_error| "unavailable".to_owned());
+        rows.push((label, digest));
+    }
+    if let Some(identity) = identity {
+        rows.push(("resolution".to_owned(), identity.resolution().to_string()));
+        rows.push(("profile".to_owned(), identity.profile().to_string()));
+        rows.push(("release".to_owned(), identity.release().to_owned()));
+        rows.push(("catalog".to_owned(), identity.catalog().pinned()));
+    }
     let borrowed: Vec<(&str, &str)> = rows
         .iter()
         .map(|row| (row.0.as_str(), row.1.as_str()))
         .collect();
 
     console.report(&Summary::new(&title, &borrowed));
+}
+
+fn digest(path: &Path) -> Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        let Some(chunk) = buffer.get(..read) else {
+            break;
+        };
+        if chunk.is_empty() {
+            break;
+        }
+        hasher.update(chunk);
+    }
+
+    let mut value = String::with_capacity(71);
+    value.push_str("sha256:");
+    for byte in hasher.finalize() {
+        if write!(&mut value, "{byte:02x}").is_err() {
+            bail!("format artifact digest");
+        }
+    }
+
+    Ok(value)
 }

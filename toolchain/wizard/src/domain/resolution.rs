@@ -3,8 +3,10 @@
 use disk::layout::Layout;
 use koci::arch::Arch;
 
+use super::catalog::Catalog;
+use super::input::{Extension, Kernel, Overlay};
 use super::overlay::Asset;
-use crate::domain::identity::{ProfileId, ResolutionId};
+use crate::domain::identity::{ProfileId, ResolutionId, ResolvedInput};
 
 /// The resolved build inputs produced from a request and profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +132,8 @@ impl ResolvedBuild {
 pub struct Resolution {
     profile_id: ProfileId,
     id: ResolutionId,
+    inputs: Vec<ResolvedInput>,
+    catalog: Catalog,
     build: ResolvedBuild,
 }
 
@@ -138,11 +142,15 @@ impl Resolution {
     pub(crate) fn new(
         profile_id: ProfileId,
         resolution_id: ResolutionId,
+        inputs: Vec<ResolvedInput>,
+        catalog: Catalog,
         build: ResolvedBuild,
     ) -> Self {
         Self {
             profile_id,
             id: resolution_id,
+            inputs,
+            catalog,
             build,
         }
     }
@@ -165,6 +173,18 @@ impl Resolution {
         &self.build
     }
 
+    /// Returns the frozen input records that produced the resolution identity.
+    #[must_use]
+    pub fn inputs(&self) -> &[ResolvedInput] {
+        &self.inputs
+    }
+
+    /// Returns the core catalog image this resolution was derived from.
+    #[must_use]
+    pub const fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
     /// Attaches the discovered overlay assets to the resolved build.
     pub(crate) fn set_overlay_assets(&mut self, assets: Option<Vec<Asset>>) {
         self.build.set_overlay_assets(assets);
@@ -176,102 +196,74 @@ impl Resolution {
     }
 }
 
-/// A kernel source resolved from the profile.
+/// The exact identities and inputs of a completed build.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Kernel {
-    /// Fully-qualified kernel image path.
-    image: String,
-    /// Versioned OCI reference for the kernel image.
-    source: String,
+pub struct BuildIdentity {
+    profile: ProfileId,
+    resolution: ResolutionId,
+    release: String,
+    catalog: Catalog,
+    inputs: Vec<ResolvedInput>,
 }
 
-impl Kernel {
+impl BuildIdentity {
     #[must_use]
-    pub(crate) fn new(image: String, source: String) -> Self {
-        Self { image, source }
-    }
-
-    /// Returns the fully-qualified kernel image path.
-    #[must_use]
-    pub fn image(&self) -> &str {
-        &self.image
-    }
-
-    /// Returns the versioned OCI reference for this kernel image.
-    #[must_use]
-    pub fn source(&self) -> &str {
-        &self.source
-    }
-}
-
-/// A reference to an extension source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Extension {
-    /// Logical extension name.
-    name: String,
-    /// Versioned OCI reference for the extension source.
-    source: String,
-}
-
-impl Extension {
-    #[must_use]
-    pub(crate) fn new(name: String, source: String) -> Self {
-        Self { name, source }
-    }
-
-    /// Returns the canonical logical extension name.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Returns the versioned OCI reference for this extension.
-    #[must_use]
-    pub fn source(&self) -> &str {
-        &self.source
-    }
-}
-
-/// An overlay source resolved from the profile.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Overlay {
-    /// Overlay name inside the OCI image.
-    pub name: String,
-    /// Logical overlay image name.
-    pub image: String,
-    /// Versioned OCI reference for the overlay image.
-    pub source: String,
-    /// Target architecture of the overlay.
-    pub arch: Arch,
-}
-
-impl Overlay {
-    #[must_use]
-    pub(crate) fn new(name: String, image: String, source: String, arch: Arch) -> Self {
+    pub(crate) fn new(
+        profile: ProfileId,
+        resolution: ResolutionId,
+        release: String,
+        catalog: Catalog,
+        inputs: Vec<ResolvedInput>,
+    ) -> Self {
         Self {
-            name,
-            image,
-            source,
-            arch,
+            profile,
+            resolution,
+            release,
+            catalog,
+            inputs,
         }
     }
 
-    /// Returns the selected overlay name inside the OCI image.
+    /// Returns the version-neutral profile identity.
     #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
+    pub const fn profile(&self) -> &ProfileId {
+        &self.profile
     }
 
-    /// Returns the logical overlay image name.
+    /// Returns the identity of the exact resolved build.
     #[must_use]
-    pub fn image(&self) -> &str {
-        &self.image
+    pub const fn resolution(&self) -> &ResolutionId {
+        &self.resolution
     }
 
-    /// Returns the versioned OCI reference for this overlay image.
+    /// Returns the concrete release line the build resolved.
     #[must_use]
-    pub fn source_ref(&self) -> &str {
-        &self.source
+    pub fn release(&self) -> &str {
+        &self.release
+    }
+
+    /// Returns the core catalog image the resolution was derived from.
+    #[must_use]
+    pub const fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    /// Returns the frozen input records that produced the resolution identity.
+    #[must_use]
+    pub fn inputs(&self) -> &[ResolvedInput] {
+        &self.inputs
+    }
+}
+
+impl From<&Resolution> for BuildIdentity {
+    fn from(resolution: &Resolution) -> Self {
+        Self::new(
+            resolution.profile_id().clone(),
+            resolution.resolution_id().clone(),
+            resolution.build().version().to_owned(),
+            resolution.catalog().clone(),
+            resolution.inputs().to_vec(),
+        )
     }
 }
 
@@ -305,6 +297,7 @@ mod tests {
             None,
             vec![],
         );
+        let catalog = Catalog::new("ghcr.io/muak-os/core".into(), "sha256:abcd".into());
         let resolution = Resolution::new(
             profile.profile_id().expect("profile id"),
             ResolutionId::compute(
@@ -313,58 +306,23 @@ mod tests {
                 "amd64",
                 "default",
             ),
+            Vec::new(),
+            catalog,
             build,
         );
 
         // ACT / ASSERT
         assert_eq!(resolution.profile_id().to_string().len(), 64);
         assert_eq!(resolution.resolution_id().to_string().len(), 64);
+        assert_eq!(resolution.inputs(), []);
+        assert_eq!(
+            resolution.catalog().pinned(),
+            "ghcr.io/muak-os/core@sha256:abcd"
+        );
         assert_eq!(
             resolution.build().installer(),
             "ghcr.io/muak-os/installer:v1.0.0"
         );
         assert_eq!(resolution.build().stub(), "ghcr.io/muak-os/stub:v1.0.0");
-    }
-
-    #[test]
-    fn resolved_kernel_accessors() {
-        // ARRANGE
-        let kernel = Kernel::new(
-            "ghcr.io/muak-os/linux".into(),
-            "ghcr.io/muak-os/linux:v1.0.0".into(),
-        );
-
-        // ACT & ASSERT
-        assert_eq!(kernel.image(), "ghcr.io/muak-os/linux");
-        assert_eq!(kernel.source(), "ghcr.io/muak-os/linux:v1.0.0");
-    }
-
-    #[test]
-    fn resolved_extension_accessors() {
-        // ARRANGE
-        let ext = Extension::new(
-            "qemu".into(),
-            "ghcr.io/muak-os/extensions/qemu:v1.0.0".into(),
-        );
-
-        // ACT & ASSERT
-        assert_eq!(ext.name(), "qemu");
-        assert_eq!(ext.source(), "ghcr.io/muak-os/extensions/qemu:v1.0.0");
-    }
-
-    #[test]
-    fn resolved_overlay_accessors() {
-        // ARRANGE
-        let ov = Overlay::new(
-            "rpi_generic".into(),
-            "muak-os/sbc-raspberrypi".into(),
-            "ghcr.io/muak-os/sbc/raspberrypi:v1.0.0".into(),
-            Arch::Amd64,
-        );
-
-        // ACT & ASSERT
-        assert_eq!(ov.name(), "rpi_generic");
-        assert_eq!(ov.image(), "muak-os/sbc-raspberrypi");
-        assert_eq!(ov.source_ref(), "ghcr.io/muak-os/sbc/raspberrypi:v1.0.0");
     }
 }

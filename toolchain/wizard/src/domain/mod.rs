@@ -1,6 +1,8 @@
 //! Profile and resolution as the layers of the domain resolution.
 
+pub mod catalog;
 pub mod identity;
+pub mod input;
 pub mod overlay;
 pub mod profile;
 pub mod resolution;

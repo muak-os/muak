@@ -10,18 +10,10 @@ pub mod codec;
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod metadata;
 mod nodes;
 mod pipeline;
 pub mod progress;
 pub mod request;
 pub mod resolver;
 mod stream;
-
-use uki::measure::MeasuredSection;
-
-/// Artifact build metadata.
-#[derive(Debug, Default)]
-pub struct Metadata {
-    /// PE section measurement records for the built UKI.
-    pub sections: Vec<MeasuredSection>,
-}

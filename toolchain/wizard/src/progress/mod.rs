@@ -1,6 +1,7 @@
 //! Structured progress reporting for the build pipeline.
 
 pub(crate) mod koci;
+pub(crate) mod resolution;
 
 use crate::artifact::Artifact;
 

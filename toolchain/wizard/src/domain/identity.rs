@@ -104,6 +104,14 @@ impl From<EntryRef<'_>> for ResolvedInput {
     }
 }
 
+/// Returns the leading hex characters of an identity or digest.
+#[must_use]
+pub fn abbreviated(value: &str) -> &str {
+    let value = value.strip_prefix("sha256:").unwrap_or(value);
+
+    value.get(..12).unwrap_or(value)
+}
+
 fn domain_hash(domain: &[u8], data: &[u8]) -> [u8; 32] {
     let mut context = Sha256::new();
     context.update(domain);
@@ -174,6 +182,20 @@ mod tests {
 
         // ASSERT
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn abbreviated_keeps_twelve_hex_characters() {
+        // ARRANGE
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        // ACT
+        let short = abbreviated(id);
+        let digest = abbreviated("sha256:0123456789abcdef");
+
+        // ASSERT
+        assert_eq!(short, "0123456789ab");
+        assert_eq!(digest, "0123456789ab");
     }
 
     #[test]

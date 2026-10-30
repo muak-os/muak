@@ -15,7 +15,7 @@ use koci::arch::Arch;
 use tui::output::Flags;
 use wizard::domain::profile::Profile;
 use wizard::request::Request;
-use wizard::resolver;
+use wizard::resolver::{self, discover};
 
 #[derive(Debug, Parser)]
 #[command(name = "wizard")]
@@ -133,7 +133,7 @@ fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -
     let profile = Profile::from_toml(&bytes)?;
     let request = Request::new(version, registry).arch(arch);
     let mut resolved = resolver::plan(&request, &profile)?;
-    wizard::request::discover_layout(&mut resolved)?;
+    discover::layout(&mut resolved)?;
 
     println!("profile id: {}", resolved.profile_id());
     println!("resolution id: {}", resolved.resolution_id());

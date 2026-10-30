@@ -10,13 +10,13 @@ use crate::artifact::Artifact;
 use crate::codec::Codec;
 use crate::domain::overlay;
 use crate::domain::profile::Profile;
-use crate::domain::resolution::Resolution;
+use crate::domain::resolution::BuildIdentity;
 use crate::error::{Result, WizardError};
-use crate::nodes::{disk_layout_annotation, measured_sizes};
+use crate::metadata::Metadata;
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::execute::execute;
 use crate::pipeline::plan::plan;
-use crate::progress::{Event, NOOP, Reporter};
+use crate::progress::{Event, NOOP, Reporter, resolution};
 use crate::resolver;
 
 /// A build request expressing what to build and where to write each artifact.
@@ -139,7 +139,7 @@ impl<'a> Request<'a> {
     /// # Errors
     ///
     /// Returns an error when resolution, pulling, building, or signing fails.
-    pub fn build(self, profile: &Profile) -> Result<crate::Metadata> {
+    pub fn build(self, profile: &Profile) -> Result<Metadata> {
         if self.targets.is_empty() {
             return Err(WizardError::RequestValidation(
                 "at least one artifact must be requested".to_owned(),
@@ -154,19 +154,14 @@ impl<'a> Request<'a> {
             label: "Resolving sources",
         });
         let mut resolution = resolver::plan(&self, profile)?;
-        progress.report(Event::Completed {
-            label: &format!(
-                "Resolved {} ({})",
-                resolution.profile_id(),
-                resolution.build().arch()
-            ),
-        });
+        let identity = BuildIdentity::from(&resolution);
+        resolution::report(progress, &resolution);
 
         if resolution.build().overlay().is_some() {
             progress.report(Event::Started {
                 label: "Discovering overlay assets",
             });
-            discover_assets(&mut resolution)?;
+            resolver::discover::assets(&mut resolution)?;
             let assets = resolution
                 .build()
                 .overlay_assets()
@@ -179,12 +174,9 @@ impl<'a> Request<'a> {
         progress.report(Event::Started {
             label: "Resolving disk layout",
         });
-        discover_layout(&mut resolution)?;
+        resolver::discover::layout(&mut resolution)?;
         progress.report(Event::Completed {
-            label: &format!(
-                "Resolved {} disk layout",
-                resolution.build().layout().name()
-            ),
+            label: &format!("disk layout {}", resolution.build().layout().name()),
         });
 
         let profile_bytes = profile.canonical_bytes()?;
@@ -206,7 +198,10 @@ impl<'a> Request<'a> {
             label: &format!("Planned {} nodes", graph.nodes().len()),
         });
 
-        execute(graph, &ctx, &mut writers)
+        let mut metadata = execute(graph, &ctx, &mut writers)?;
+        metadata.identity = Some(identity);
+
+        Ok(metadata)
     }
 
     fn validate_codec(&self) -> Result<()> {
@@ -227,44 +222,6 @@ impl<'a> Request<'a> {
             codec.extension()
         )))
     }
-}
-
-/// Discovers every overlay asset from the overlay image's eStargz table of
-/// contents and stores them on the resolution in image entry order.
-///
-/// # Errors
-///
-/// Returns an error when the overlay image cannot be measured or an entry
-/// references a malformed placement.
-fn discover_assets(resolution: &mut Resolution) -> Result<()> {
-    let Some(overlay) = resolution.build().overlay() else {
-        return Ok(());
-    };
-    let entries = measured_sizes(&overlay.source, overlay.arch)?;
-    let assets = overlay::classify(overlay, entries)?;
-    resolution.set_overlay_assets(Some(assets));
-
-    Ok(())
-}
-
-/// Resolves the disk layout of a resolution onto it.
-///
-/// # Errors
-///
-/// Returns an error when the annotations cannot be fetched or name an unknown
-/// layout.
-pub fn discover_layout(resolution: &mut Resolution) -> Result<()> {
-    let layout = match resolution.build().overlay() {
-        Some(overlay) => match disk_layout_annotation(&overlay.source, overlay.arch)? {
-            Some(name) => disk::layout::Layout::by_name(&name)?,
-            None => disk::layout::Layout::Uefi,
-        },
-        None => disk::layout::Layout::Uefi,
-    };
-
-    resolution.set_layout(layout);
-
-    Ok(())
 }
 
 #[cfg(test)]

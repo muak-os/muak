@@ -9,7 +9,7 @@ use koci::pull;
 use koci::pull::entries::FileEntry;
 
 use crate::artifact::Artifact;
-use crate::domain::resolution::Extension;
+use crate::domain::input::Extension;
 use crate::error::{Result, WizardError};
 use crate::nodes::{NodeDescriptor, NodeKind, kernel};
 use crate::pipeline::context::BuildContext;
@@ -343,7 +343,8 @@ mod tests {
     #[test]
     fn layer_specs_emit_streams_in_archive_order_with_modules_last() {
         use crate::codec::Codec;
-        use crate::domain::resolution::{Kernel, ResolvedBuild};
+        use crate::domain::input::Kernel;
+        use crate::domain::resolution::ResolvedBuild;
         use crate::pipeline::context::BuildContext;
 
         // ARRANGE

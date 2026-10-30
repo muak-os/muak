@@ -7,12 +7,13 @@ use uki::measure::MeasuredSection;
 use crate::artifact::Artifact;
 use crate::codec::Codec;
 use crate::error::Result;
+use crate::metadata::Metadata;
+use crate::nodes;
 use crate::pipeline::context::{BuildContext, TargetWriters};
 use crate::pipeline::graph::Graph;
 use crate::pipeline::preflight;
 use crate::pipeline::prepare::{PreparedNode, bind_nodes};
 use crate::progress::{Event, NodeState};
-use crate::{Metadata, nodes};
 
 /// What a node reports on success: PE sections when it produced any.
 pub(crate) type NodeReport = Option<Vec<MeasuredSection>>;

@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::domain::resolution::Overlay;
+use crate::domain::input::Overlay;
 use crate::error::{Result, WizardError};
 
 /// Where an overlay asset is placed on the boot device.
