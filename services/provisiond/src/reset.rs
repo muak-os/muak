@@ -36,12 +36,14 @@ pub fn factory_reset() -> Result<()> {
     let state_device = disk::find_partition_device(Role::State)
         .context("STATE partition not found on any disk")?;
     let state_disk = disk::parent_disk(&state_device)
+        .map(|name| format!("/dev/{name}"))
         .context("Failed to resolve the disk carrying the STATE partition")?;
     delete_role(&state_disk, Role::State)?;
 
     match disk::find_partition_device(Role::Data) {
         Some(data_device) => {
             let data_disk = disk::parent_disk(&data_device)
+                .map(|name| format!("/dev/{name}"))
                 .context("Failed to resolve the disk carrying the DATA partition")?;
             if data_disk == state_disk {
                 delete_role(&state_disk, Role::Data)?;
