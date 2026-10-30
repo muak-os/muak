@@ -2,6 +2,7 @@
 
 mod netinfo;
 mod proc;
+mod version;
 
 use std::time::SystemTime;
 
@@ -75,6 +76,7 @@ pub struct PollState {
     ntp_cache: Option<String>,
     secureboot_stamp: Option<SystemTime>,
     secureboot_cache: bool,
+    version_cache: Option<String>,
 }
 
 impl MemoryInfo {
@@ -97,10 +99,11 @@ pub fn collect(poll: &mut PollState) -> SystemState {
     let gateway = netinfo::read_gateway(&mut poll.scratch);
     let dns_servers = read_dns(&mut poll.scratch);
     let (secure_boot, secure_boot_mismatch) = read_secure_boot(poll);
+    let version = version::read(poll);
 
     SystemState {
         hostname,
-        version: config::system::host().map_or_default(|host| host.version.clone()),
+        version,
         uptime,
         cpu,
         memory,
@@ -171,5 +174,6 @@ mod tests {
         assert_eq!(poll.net_scratch, "");
         assert!(poll.config_stamp.is_none());
         assert!(poll.ntp_cache.is_none());
+        assert!(poll.version_cache.is_none());
     }
 }

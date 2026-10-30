@@ -4,6 +4,7 @@ use tonic::{Request, Response, Status};
 
 use super::proto::version::version_service_server::{VersionService, VersionServiceServer};
 use super::proto::version::{GetVersionRequest, GetVersionResponse};
+use crate::medium;
 
 /// Implementation of the `VersionService` gRPC interface.
 pub struct ServiceImpl;
@@ -14,12 +15,9 @@ impl VersionService for ServiceImpl {
         &self,
         _request: Request<GetVersionRequest>,
     ) -> Result<Response<GetVersionResponse>, Status> {
-        let version = config::system::host()
-            .map_err(|error| {
-                Status::failed_precondition(format!("configuration unavailable: {error}"))
-            })?
-            .version
-            .clone();
+        let version = medium::version().map_err(|error| {
+            Status::failed_precondition(format!("booted version unavailable: {error:#}"))
+        })?;
 
         Ok(Response::new(GetVersionResponse { version }))
     }

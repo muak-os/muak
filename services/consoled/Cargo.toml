@@ -28,5 +28,8 @@ config = { workspace = true }
 # System/Platform APIs
 rustix = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

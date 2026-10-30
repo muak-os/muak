@@ -374,6 +374,7 @@ dependencies = [
  "granola",
  "kmsg",
  "rustix",
+ "tempfile",
  "tokio",
  "tui",
 ]
