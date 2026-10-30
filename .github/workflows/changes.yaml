@@ -10,7 +10,7 @@ on:
         default: false
     outputs:
       toolchain:
-        description: "Whether the toolchain image should be rebuilt"
+        description: "Whether toolchain inputs changed"
         value: ${{ jobs.changes.outputs.toolchain }}
       cli:
         description: "Whether the muakctl image should be rebuilt"

@@ -158,7 +158,7 @@ jobs:
   build-toolchain:
     name: Build toolchain
     needs: [ci-success, changes]
-    if: needs.changes.result == 'success' && needs.changes.outputs.toolchain == 'true'
+    if: needs.changes.result == 'success'
     permissions:
       contents: read
       packages: write
