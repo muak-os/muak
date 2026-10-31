@@ -6,9 +6,9 @@ use crate::error::{Result, Tpm2Error};
 const TPM2_ALG_SHA256: u16 = 0x000B;
 const TPM2_ALG_KEYEDHASH: u16 = 0x0008;
 const TPM2_ALG_NULL: u16 = 0x0010;
-const SRK_TEMPLATE: [u8; 26] = [
+const SRK_TEMPLATE: [u8; 24] = [
     0x00, 0x23, 0x00, 0x0B, 0x00, 0x03, 0x04, 0x72, 0x00, 0x00, 0x00, 0x06, 0x00, 0x80, 0x00, 0x43,
-    0x00, 0x10, 0x00, 0x03, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x10, 0x00, 0x03, 0x00, 0x10, 0x00, 0x00,
 ];
 
 /// Writes a `TPM2B_SENSITIVE_CREATE` structure with the given user auth and data.
@@ -36,11 +36,11 @@ pub(crate) fn write_srk_template(command: &mut CommandBuffer) {
 /// Writes a `TPM2B_PUBLIC` template for a sealed object with the given policy digest.
 pub(crate) fn write_seal_template(command: &mut CommandBuffer, policy_digest: &[u8]) -> Result<()> {
     let template_len =
-        16_usize
+        14_usize
             .checked_add(policy_digest.len())
             .ok_or(Tpm2Error::BufferTooLarge {
                 actual: policy_digest.len(),
-                max: usize::MAX.saturating_sub(16),
+                max: usize::MAX.saturating_sub(14),
             })?;
     command.write_u16(u16_len(template_len)?);
     command.write_u16(TPM2_ALG_KEYEDHASH);
@@ -97,9 +97,19 @@ mod tests {
             "inner size should match"
         );
         assert_eq!(
+            srk.get(10..12),
+            Some(24_u16.to_be_bytes().as_slice()),
+            "SRK TPM2B size should match payload"
+        );
+        assert_eq!(
             srk.get(12..),
             Some(SRK_TEMPLATE.as_slice()),
             "SRK template should match"
+        );
+        assert_eq!(
+            seal.get(10..12),
+            Some(46_u16.to_be_bytes().as_slice()),
+            "seal TPM2B size should match payload"
         );
         assert_eq!(
             seal.len(),

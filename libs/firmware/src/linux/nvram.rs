@@ -82,12 +82,22 @@ impl VariableStore for Linux {
             .truncate(false)
             .open(path)?;
 
-        file.write_all(&update.attributes().to_le_bytes())?;
-        file.write_all(update.data())?;
+        file.write_all(&encode_update(&update)?)?;
         file.flush()?;
 
         Ok(())
     }
+}
+
+fn encode_update(update: &Update<'_>) -> Result<Vec<u8>> {
+    let capacity = ATTRIBUTES_SIZE
+        .checked_add(update.data().len())
+        .ok_or_else(|| FirmwareError::Variable("efivar payload size overflow".to_owned()))?;
+    let mut payload = Vec::with_capacity(capacity);
+    payload.extend_from_slice(&update.attributes().to_le_bytes());
+    payload.extend_from_slice(update.data());
+
+    Ok(payload)
 }
 
 fn variable_path(store: &Linux, id: &Id) -> PathBuf {
@@ -339,6 +349,22 @@ mod tests {
 
         // ASSERT
         assert!(payload.is_none(), "short payloads must read as none");
+    }
+
+    #[test]
+    fn encode_update_prefixes_the_attribute_header() {
+        // ARRANGE
+        let attributes = 7_u32;
+        let data = b"signed-payload";
+        let update = Update::new(sample(), attributes, data);
+        let mut expected = attributes.to_le_bytes().to_vec();
+        expected.extend_from_slice(data);
+
+        // ACT
+        let encoded = encode_update(&update).expect("encode update");
+
+        // ASSERT
+        assert_eq!(encoded, expected, "attributes must precede the payload");
     }
 
     #[test]
