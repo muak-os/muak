@@ -19,7 +19,7 @@
 (allow kernel_t sysfs_t (lnk_file (read)))
 
 ; /dev full management (device nodes during early boot).
-(allow kernel_t devtmpfs_t (dir      (read write search create add_name remove_name getattr)))
+(allow kernel_t devtmpfs_t (dir      (read write search create add_name remove_name rmdir getattr)))
 (allow kernel_t devtmpfs_t (blk_file (read write open getattr setattr ioctl create unlink)))
 (allow kernel_t devtmpfs_t (chr_file (read write open getattr ioctl create setattr unlink)))
 
