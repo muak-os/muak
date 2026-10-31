@@ -179,7 +179,7 @@ jobs:
       installer: ${{ needs.prepare.outputs.tag }}
       toolchain: ${{ needs.build-toolchain.outputs.ref }}
       open_pr: false
-      auto: false
+      auto: true
       force: true
       artifact: catalog-${{ github.run_id }}
 
