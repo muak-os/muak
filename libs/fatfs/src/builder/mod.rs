@@ -6,7 +6,7 @@ mod write;
 use std::io::{Read, Write};
 
 use clusters::assign_clusters;
-use write::{CountWriter, stream_reader, write_boot_sector, write_dir_entries};
+use write::{pad_to_image, stream_reader, write_metadata};
 
 use crate::error::{FatError, Result};
 use crate::name::short::{NAME_LEN, ShortNames};
@@ -89,14 +89,7 @@ pub fn build<R: Read, W: Write>(
     readers: &mut [R],
     writer: &mut W,
 ) -> Result<()> {
-    let mut counted = CountWriter {
-        inner: writer,
-        written: 0,
-    };
-    write_boot_sector(&mut counted, &precomputed.layout, precomputed.fs_info)?;
-    counted.write_all(&precomputed.fat_bytes)?;
-    counted.write_all(&precomputed.fat_bytes)?;
-    write_dir_entries(&mut counted, precomputed)?;
+    let mut counted = write_metadata(writer, precomputed)?;
     let cluster_bytes = precomputed.layout.spc.wrapping_mul(SECTOR_SIZE);
     for (index, reader) in readers.iter_mut().enumerate() {
         let size = precomputed
@@ -107,10 +100,7 @@ pub fn build<R: Read, W: Write>(
             .unwrap_or(0);
         stream_reader(&mut counted, reader, size, cluster_bytes)?;
     }
-    let written = counted.written;
-    if written < precomputed.image_size {
-        dir::write_zeros(&mut counted, precomputed.image_size.wrapping_sub(written))?;
-    }
+    pad_to_image(&mut counted, precomputed.image_size)?;
 
     Ok(())
 }
@@ -120,13 +110,14 @@ pub fn build<R: Read, W: Write>(
 /// # Errors
 ///
 /// Returns `Error::Fat` when layout computation fails, or `Error::Io`
-/// when writing the empty volume fails.
+/// when writing the metadata fails.
 pub fn format<W: Write>(writer: &mut W, size: u64) -> Result<()> {
     let files: &[FileMeta<'_>] = &[];
     let precomputed = precompute(files, size)?;
-    let readers: &mut [std::io::Empty] = &mut [];
 
-    build(&precomputed, readers, writer)
+    write_metadata(writer, &precomputed)?;
+
+    Ok(())
 }
 
 fn assign_aliases<'a>(
@@ -220,18 +211,21 @@ mod tests {
     #[test]
     fn format_writes_a_bootable_empty_volume() {
         // ARRANGE
-        let mut buf = Vec::new();
+        let size = 36 * 1024 * 1024;
+        let mut buf = vec![0xAA_u8; usize::try_from(size).unwrap_or(0)];
+        let mut target = buf.as_mut_slice();
 
         // ACT
-        format(&mut buf, 36 * 1024 * 1024).expect("format must succeed");
+        format(&mut target, size).expect("format must succeed");
 
         // ASSERT
         assert_eq!(buf.get(510..512), Some(&[0x55, 0xAA][..]), "boot signature");
         assert_eq!(buf.get(3..11), Some(&b"MSWIN4.1"[..]), "OEM ID");
         assert_eq!(
             u64::try_from(buf.len()).unwrap_or(u64::MAX),
-            36 * 1024 * 1024,
-            "the image must be exactly the requested size"
+            size,
+            "the target keeps its size"
         );
+        assert_eq!(buf.last(), Some(&0xAA), "free space must be left untouched");
     }
 }

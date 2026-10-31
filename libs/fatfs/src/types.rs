@@ -4,6 +4,10 @@ use crate::tree;
 
 /// Sector size in bytes used for all FAT layouts.
 pub(crate) const SECTOR_SIZE: u64 = 512;
+/// Bytes in one page used to align the FAT data region.
+pub(crate) const DATA_ALIGN_BYTES: u64 = 4 * 1024;
+/// Sectors in one page used to align the FAT data region.
+pub(crate) const DATA_ALIGN_SECTORS: u64 = DATA_ALIGN_BYTES.div_euclid(SECTOR_SIZE);
 /// Number of FAT copies written to disk.
 pub(crate) const FAT_COUNT: u64 = 2;
 /// First usable data cluster number.
@@ -49,6 +53,14 @@ const _: () = assert!(
 const _: () = assert!(
     FSINFO_SECTOR < BACKUP_BOOT_SECTOR,
     "the FSInfo sector must precede the backup boot sector"
+);
+const _: () = assert!(
+    DATA_ALIGN_SECTORS.is_multiple_of(FAT_COUNT),
+    "the data alignment must be a multiple of the FAT copies"
+);
+const _: () = assert!(
+    RESERVED_SECTORS.is_multiple_of(FAT_COUNT),
+    "the reserved region must be a multiple of the FAT copies"
 );
 
 /// Smallest total image size in bytes that the builder can format as FAT32.
@@ -131,11 +143,23 @@ pub(crate) struct ClusterMap {
     pub file_sizes: Vec<u64>,
 }
 
+/// Rounds `fat_sectors` up so the data region starts on a page boundary.
+pub(crate) const fn align_fat_sectors(fat_sectors: u64, reserved_sectors: u64) -> u64 {
+    let overhead = reserved_sectors.saturating_add(FAT_COUNT.saturating_mul(fat_sectors));
+    let aligned = overhead
+        .div_ceil(DATA_ALIGN_SECTORS)
+        .saturating_mul(DATA_ALIGN_SECTORS);
+    let pad = aligned.saturating_sub(overhead);
+
+    fat_sectors.saturating_add(pad.div_ceil(FAT_COUNT))
+}
+
 const fn min_image_size() -> u64 {
     let entries_per_sector = SECTOR_SIZE.div_euclid(FAT_ENTRY_SIZE);
     let fat_sectors = FAT32_MIN_CLUSTERS
         .saturating_add(2)
         .div_ceil(entries_per_sector.saturating_sub(FAT_COUNT));
+    let fat_sectors = align_fat_sectors(fat_sectors, RESERVED_SECTORS);
     let total_sectors = FAT32_MIN_CLUSTERS
         .saturating_add(RESERVED_SECTORS)
         .saturating_add(FAT_COUNT.saturating_mul(fat_sectors));

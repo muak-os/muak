@@ -2,7 +2,8 @@
 
 use crate::error::{FatError, Result};
 use crate::types::{
-    FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, MAX_IMAGE_SIZE, RESERVED_SECTORS, SECTOR_SIZE,
+    FAT_COUNT, FAT_ENTRY_SIZE, FAT32_MIN_CLUSTERS, FatLayout, MAX_IMAGE_SIZE, RESERVED_SECTORS,
+    SECTOR_SIZE, align_fat_sectors,
 };
 
 pub(crate) fn compute(image_size: u64) -> Result<FatLayout> {
@@ -48,8 +49,9 @@ fn test_spc(spc: u64, total_sectors: u64, rsvd: u64, root_secs: u64) -> Option<(
     let fat_sectors = fat_bytes
         .next_multiple_of(SECTOR_SIZE)
         .div_euclid(SECTOR_SIZE);
+    let fat_sectors = align_fat_sectors(fat_sectors, rsvd);
     let actual_data_sectors = data_sectors
-        .wrapping_sub(fat_sectors.wrapping_mul(crate::types::FAT_COUNT))
+        .wrapping_sub(fat_sectors.wrapping_mul(FAT_COUNT))
         .wrapping_sub(root_secs);
     let final_clusters = actual_data_sectors.div_euclid(spc);
     if final_clusters == 0 {
@@ -62,7 +64,7 @@ fn test_spc(spc: u64, total_sectors: u64, rsvd: u64, root_secs: u64) -> Option<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{MIN_IMAGE_SIZE, SECTOR_SIZE};
+    use crate::types::{DATA_ALIGN_BYTES, FAT_COUNT, MIN_IMAGE_SIZE, SECTOR_SIZE};
 
     #[test]
     fn compute_layout_accepts_the_largest_fat32_volume() {
@@ -71,6 +73,57 @@ mod tests {
 
         // ASSERT
         assert!(result.is_ok(), "the largest FAT32 volume must be accepted");
+    }
+
+    #[test]
+    fn computed_layout_aligns_the_data_region() {
+        // ARRANGE
+        let sizes = [
+            MIN_IMAGE_SIZE,
+            36 * 1024 * 1024,
+            512 * 1024 * 1024,
+            MAX_IMAGE_SIZE,
+        ];
+
+        // ACT
+        let layouts: Vec<_> = sizes
+            .iter()
+            .map(|&size| compute(size).expect("layout must compute"))
+            .collect();
+
+        // ASSERT
+        for (size, layout) in sizes.iter().zip(&layouts) {
+            let data_offset = layout
+                .reserved_sectors
+                .saturating_add(FAT_COUNT.saturating_mul(layout.fat_sectors))
+                .saturating_mul(SECTOR_SIZE);
+            assert_eq!(
+                data_offset.rem_euclid(DATA_ALIGN_BYTES),
+                0,
+                "the data region for {size} bytes must start on a page boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn minimum_image_size_keeps_an_aligned_fat32_data_region() {
+        // ARRANGE / ACT
+        let layout = compute(MIN_IMAGE_SIZE).expect("minimum image must compute");
+
+        // ASSERT
+        assert!(
+            layout.data_cluster_count >= FAT32_MIN_CLUSTERS,
+            "the minimum image must stay FAT32"
+        );
+        let data_offset = layout
+            .reserved_sectors
+            .saturating_add(FAT_COUNT.saturating_mul(layout.fat_sectors))
+            .saturating_mul(SECTOR_SIZE);
+        assert_eq!(
+            data_offset.rem_euclid(DATA_ALIGN_BYTES),
+            0,
+            "the minimum image data region must start on a page boundary"
+        );
     }
 
     #[test]

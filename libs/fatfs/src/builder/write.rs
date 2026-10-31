@@ -3,7 +3,9 @@
 use std::io::{Read, Write};
 
 use crate::error::{FatError, Result};
-use crate::types::{BACKUP_BOOT_SECTOR, FatLayout, FsInfo, Precomputed, SECTOR_SIZE};
+use crate::types::{
+    BACKUP_BOOT_SECTOR, DATA_ALIGN_BYTES, FatLayout, FsInfo, Precomputed, SECTOR_SIZE,
+};
 use crate::{boot, dir};
 
 /// Writer that tracks how many bytes reached the sink.
@@ -25,6 +27,23 @@ impl<W: Write> Write for CountWriter<W> {
     fn flush(&mut self) -> std::io::Result<()> {
         self.inner.flush()
     }
+}
+
+/// Writes the boot sector, both FAT copies and the directory entries.
+pub(crate) fn write_metadata<'w, W: Write>(
+    writer: &'w mut W,
+    precomputed: &Precomputed<'_>,
+) -> Result<CountWriter<&'w mut W>> {
+    let mut counted = CountWriter {
+        inner: writer,
+        written: 0,
+    };
+    write_boot_sector(&mut counted, &precomputed.layout, precomputed.fs_info)?;
+    counted.write_all(&precomputed.fat_bytes)?;
+    counted.write_all(&precomputed.fat_bytes)?;
+    write_dir_entries(&mut counted, precomputed)?;
+
+    Ok(counted)
 }
 
 /// Writes the reserved region: boot sector, `FSInfo`, padding and the boot sector backup.
@@ -109,6 +128,25 @@ pub(crate) fn stream_reader<W: Write, R: Read>(
     Ok(())
 }
 
+/// Zero-fills the image up to `image_size`, aligning the first bulk write to a page.
+pub(crate) fn pad_to_image<W: Write>(writer: &mut CountWriter<W>, image_size: u64) -> Result<()> {
+    if writer.written >= image_size {
+        return Ok(());
+    }
+
+    let remaining = image_size.saturating_sub(writer.written);
+    let aligned = writer.written.next_multiple_of(DATA_ALIGN_BYTES);
+    let pad = aligned.saturating_sub(writer.written).min(remaining);
+    dir::write_zeros(writer, pad)?;
+
+    let remaining = image_size.saturating_sub(writer.written);
+    if remaining > 0 {
+        dir::write_zeros(writer, remaining)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +195,39 @@ mod tests {
 
         // ASSERT
         assert!(result.is_err(), "short readers must fail the build");
+    }
+
+    #[test]
+    fn pad_to_image_fills_the_requested_size_with_zeros() {
+        // ARRANGE
+        let mut sink = Vec::new();
+        let mut writer = CountWriter {
+            inner: &mut sink,
+            written: 0,
+        };
+        writer.write_all(b"prefix").expect("prefix must write");
+
+        // ACT
+        pad_to_image(&mut writer, 16 * 1024).expect("padding must succeed");
+
+        // ASSERT
+        assert_eq!(writer.written, 16 * 1024, "the image must reach its size");
+        assert_eq!(
+            writer.inner.len(),
+            16 * 1024,
+            "the sink must receive the padding"
+        );
+        assert_eq!(
+            writer.inner.get(..6),
+            Some(b"prefix".as_slice()),
+            "the prefix must be preserved"
+        );
+        assert!(
+            writer
+                .inner
+                .get(6..)
+                .is_some_and(|tail| tail.iter().all(|&byte| byte == 0)),
+            "the padding must be zero"
+        );
     }
 }

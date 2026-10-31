@@ -37,10 +37,11 @@ mod tests {
     #[test]
     fn empty_volume_is_conformant() {
         // ARRANGE
-        let mut buf = Vec::new();
+        let mut buf = vec![0_u8; usize::try_from(MIN_IMAGE_SIZE).unwrap_or(0)];
+        let mut target = buf.as_mut_slice();
 
         // ACT
-        builder::format(&mut buf, MIN_IMAGE_SIZE).expect("format must succeed");
+        builder::format(&mut target, MIN_IMAGE_SIZE).expect("format must succeed");
 
         // ASSERT
         assert_conformant(&Volume::new(&buf));
