@@ -1,10 +1,10 @@
 //! Auto-selection policy: bump repositories to their newest version tag.
 
 use koci::registry;
+use semver::Version;
 
 use crate::error::{KataError, Result};
 use crate::ops::registry;
-use crate::schema::parse::release_version;
 
 /// Newest version tag of `repository`, for entries without an explicit selection.
 ///
@@ -19,18 +19,37 @@ pub(crate) fn newest_tag(repository: &str) -> Result<String> {
 }
 
 /// Pick the newest tag by semver precedence: pre-release suffixes (`-beta`, `-rc1`, ...)
-/// rank below their release, build metadata is ignored, and tags without a
-/// `vMAJOR.MINOR.PATCH` version are ignored.
+/// rank below their release, build metadata is ignored, `vMAJOR.MINOR` is normalized to
+/// `vMAJOR.MINOR.0`, and tags without a two- or three-part version are ignored.
 ///
 /// # Errors
 ///
 /// Returns an error when no tag carries a version.
 pub(crate) fn newest(tags: &[String]) -> Result<String> {
     tags.iter()
-        .filter_map(|tag| release_version(tag).ok().map(|version| (version, tag)))
+        .filter_map(|tag| version(tag).map(|version| (version, tag)))
         .max()
         .map(|(_, tag)| tag.clone())
         .ok_or_else(|| KataError::Registry("no version tag found to select".to_owned()))
+}
+
+fn version(tag: &str) -> Option<Version> {
+    let core = tag.strip_prefix('v').unwrap_or(tag);
+    if let Ok(version) = Version::parse(core) {
+        return Some(version);
+    }
+
+    let (base, suffix) = core
+        .find(['-', '+'])
+        .map_or((core, ""), |index| core.split_at(index));
+    let mut numbers = base.split('.');
+    let major = numbers.next()?;
+    let minor = numbers.next()?;
+    if numbers.next().is_some() {
+        return None;
+    }
+
+    Version::parse(&format!("{major}.{minor}.0{suffix}")).ok()
 }
 
 #[cfg(test)]
@@ -70,9 +89,27 @@ mod tests {
     }
 
     #[test]
+    fn newest_accepts_two_component_versions() {
+        // ARRANGE
+        let tags = tags(&["v7.2.11", "v7.3"]);
+
+        // ACT / ASSERT
+        assert_eq!(newest(&tags).expect("a version tag"), "v7.3");
+    }
+
+    #[test]
+    fn newest_normalizes_two_component_prereleases() {
+        // ARRANGE
+        let tags = tags(&["v1.2.0-alpha", "v1.2-beta"]);
+
+        // ACT / ASSERT
+        assert_eq!(newest(&tags).expect("a version tag"), "v1.2-beta");
+    }
+
+    #[test]
     fn newest_ignores_malformed_versions() {
         // ARRANGE
-        let tags = tags(&["v1.2", "x1.2.3", "v1.2.3.4", "v2.0.0"]);
+        let tags = tags(&["v1", "x1.2.3", "v1.2.3.4", "v2.0.0"]);
 
         // ACT / ASSERT
         assert_eq!(newest(&tags).expect("a version tag"), "v2.0.0");
@@ -81,7 +118,7 @@ mod tests {
     #[test]
     fn newest_fails_without_any_version_tag() {
         // ARRANGE
-        let tags = tags(&["latest", "main", "v1.2"]);
+        let tags = tags(&["latest", "main", "v1"]);
 
         // ACT / ASSERT
         let error = newest(&tags).expect_err("no version tag must fail");
