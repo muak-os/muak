@@ -15,6 +15,7 @@ pub mod inventory;
 pub mod nvram;
 pub mod platform;
 pub mod secureboot;
+pub mod signature;
 
 #[cfg(all(feature = "linux", target_os = "linux"))]
 pub mod linux;

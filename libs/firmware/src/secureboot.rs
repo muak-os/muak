@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::nvram::{EFI_GLOBAL_VARIABLE, EFI_IMAGE_SECURITY_DATABASE, Id, VariableStore};
+use crate::signature;
 
 /// Secure Boot enabled flag variable.
 pub const SECURE_BOOT: Id = Id::new("SecureBoot", EFI_GLOBAL_VARIABLE);
@@ -34,18 +35,18 @@ pub struct State {
 pub enum Status {
     /// Firmware is enforcing Secure Boot.
     Enabled,
-    /// Keys are enrolled but enforcement is not active yet.
+    /// Our keys are enrolled but enforcement is not active yet.
     Pending,
-    /// No keys are enrolled and enforcement is off.
+    /// Our keys are not enrolled, so Muak does not own Secure Boot.
     Disabled,
 }
 
 /// Disagreement between the configured intent and the firmware state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mismatch {
-    /// Configuration enables Secure Boot but no Platform Key is enrolled.
+    /// Configuration enables Secure Boot but our Platform Key is not enrolled.
     NotEnrolled,
-    /// Configuration disables Secure Boot but a Platform Key is still enrolled.
+    /// Configuration disables Secure Boot but our Platform Key is still enrolled.
     KeysRemain,
     /// Configuration disables Secure Boot but firmware still enforces it.
     EnforcingWhileDisabled,
@@ -106,26 +107,39 @@ pub fn pk_present<S: VariableStore>(store: &S) -> Result<bool> {
     Ok(store.read(&PK)?.is_some_and(|data| !data.is_empty()))
 }
 
-/// Derives the firmware Secure Boot posture from `state`.
+/// Returns whether the enrolled Platform Key contains `certificate`.
+///
+/// # Errors
+///
+/// Returns an error if the Platform Key variable cannot be read.
+pub fn platform_key_matches<S: VariableStore>(store: &S, certificate: &[u8]) -> Result<bool> {
+    let Some(data) = store.read(&PK)? else {
+        return Ok(false);
+    };
+
+    Ok(signature::contains_x509(&data, certificate))
+}
+
+/// Derives the Secure Boot posture, treating only our Platform Key as enrolled.
 #[must_use]
-pub fn status(state: &State) -> Status {
+pub fn status(state: &State, ours: bool) -> Status {
     if state.enabled {
         Status::Enabled
-    } else if state.pk_present {
+    } else if ours {
         Status::Pending
     } else {
         Status::Disabled
     }
 }
 
-/// Describes how config disagrees with the firmware, if at all.
+/// Describes how config disagrees with our keys in firmware, if at all.
 #[must_use]
-pub fn mismatch(config_enabled: bool, state: &State) -> Option<Mismatch> {
-    match (config_enabled, status(state)) {
-        (true, Status::Enabled | Status::Pending) | (false, Status::Disabled) => None,
-        (true, Status::Disabled) => Some(Mismatch::NotEnrolled),
-        (false, Status::Pending) => Some(Mismatch::KeysRemain),
-        (false, Status::Enabled) => Some(Mismatch::EnforcingWhileDisabled),
+pub fn mismatch(config_enabled: bool, state: &State, ours: bool) -> Option<Mismatch> {
+    match (config_enabled, state.enabled, ours) {
+        (true, _, false) => Some(Mismatch::NotEnrolled),
+        (false, true, _) => Some(Mismatch::EnforcingWhileDisabled),
+        (false, false, true) => Some(Mismatch::KeysRemain),
+        _ => None,
     }
 }
 
@@ -190,6 +204,30 @@ mod tests {
         fn write(&self, _update: Update<'_>) -> Result<()> {
             Ok(())
         }
+    }
+
+    fn x509_signature_list(certificate: &[u8]) -> Vec<u8> {
+        const LIST_HEADER_SIZE: usize = 28;
+        const DATA_HEADER_SIZE: usize = 16;
+        let signature_size = DATA_HEADER_SIZE
+            .checked_add(certificate.len())
+            .expect("signature size");
+        let list_size = LIST_HEADER_SIZE
+            .checked_add(signature_size)
+            .expect("list size");
+        let mut list = Vec::with_capacity(list_size);
+        list.extend_from_slice(&uefi::guid!("a5c059a1-94e4-4aa7-87b5-ab155c2bf072").to_bytes());
+        list.extend_from_slice(&u32::try_from(list_size).expect("list size").to_le_bytes());
+        list.extend_from_slice(&0_u32.to_le_bytes());
+        list.extend_from_slice(
+            &u32::try_from(signature_size)
+                .expect("signature size")
+                .to_le_bytes(),
+        );
+        list.extend_from_slice(&[0_u8; 16]);
+        list.extend_from_slice(certificate);
+
+        list
     }
 
     #[test]
@@ -264,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn status_follows_firmware_flags() {
+    fn status_follows_firmware_flags_and_key_ownership() {
         // ARRANGE
         let enforcing = State {
             enabled: true,
@@ -283,9 +321,27 @@ mod tests {
         };
 
         // ACT & ASSERT
-        assert_eq!(status(&enforcing), Status::Enabled);
-        assert_eq!(status(&pending), Status::Pending);
-        assert_eq!(status(&disabled), Status::Disabled);
+        assert_eq!(status(&enforcing, true), Status::Enabled);
+        assert_eq!(status(&enforcing, false), Status::Enabled);
+        assert_eq!(status(&pending, true), Status::Pending);
+        assert_eq!(status(&pending, false), Status::Disabled);
+        assert_eq!(status(&disabled, false), Status::Disabled);
+    }
+
+    #[test]
+    fn pending_requires_our_platform_key() {
+        // ARRANGE
+        let foreign_pk = State {
+            enabled: false,
+            setup_mode: false,
+            pk_present: true,
+        };
+
+        // ACT
+        let status = status(&foreign_pk, false);
+
+        // ASSERT
+        assert_eq!(status, Status::Disabled, "a foreign PK must not be pending");
     }
 
     #[test]
@@ -308,14 +364,68 @@ mod tests {
         };
 
         // ACT & ASSERT
-        assert_eq!(mismatch(true, &enforcing), None);
-        assert_eq!(mismatch(true, &pending), None);
-        assert_eq!(mismatch(false, &disabled), None);
-        assert_eq!(mismatch(true, &disabled), Some(Mismatch::NotEnrolled));
-        assert_eq!(mismatch(false, &pending), Some(Mismatch::KeysRemain));
+        assert_eq!(mismatch(true, &enforcing, true), None);
+        assert_eq!(mismatch(true, &pending, true), None);
+        assert_eq!(mismatch(false, &disabled, false), None);
         assert_eq!(
-            mismatch(false, &enforcing),
+            mismatch(true, &disabled, false),
+            Some(Mismatch::NotEnrolled)
+        );
+        assert_eq!(mismatch(false, &pending, true), Some(Mismatch::KeysRemain));
+        assert_eq!(
+            mismatch(false, &enforcing, true),
             Some(Mismatch::EnforcingWhileDisabled)
         );
+    }
+
+    #[test]
+    fn mismatch_ignores_foreign_keys_when_disabled() {
+        // ARRANGE
+        let foreign_pk = State {
+            enabled: false,
+            setup_mode: false,
+            pk_present: true,
+        };
+
+        // ACT
+        let mismatch = mismatch(false, &foreign_pk, false);
+
+        // ASSERT
+        assert_eq!(
+            mismatch, None,
+            "foreign keys must not report a leftover key"
+        );
+    }
+
+    #[test]
+    fn platform_key_matches_finds_our_x509_certificate() {
+        // ARRANGE
+        let certificate = b"our-x509-certificate";
+        let store = Fake::ready().with(PK, x509_signature_list(certificate));
+
+        // ACT
+        let ours = platform_key_matches(&store, certificate).expect("match our certificate");
+        let foreign = platform_key_matches(&store, b"microsoft-certificate")
+            .expect("match foreign certificate");
+
+        // ASSERT
+        assert!(ours, "our certificate must match the enrolled PK");
+        assert!(!foreign, "another certificate must not match");
+    }
+
+    #[test]
+    fn platform_key_matches_rejects_missing_and_malformed_keys() {
+        // ARRANGE
+        let missing = Fake::ready();
+        let malformed = Fake::ready().with(PK, vec![1, 2, 3]);
+
+        // ACT
+        let missing_match = platform_key_matches(&missing, b"certificate").expect("missing PK");
+        let malformed_match =
+            platform_key_matches(&malformed, b"certificate").expect("malformed PK");
+
+        // ASSERT
+        assert!(!missing_match, "a missing PK must not match");
+        assert!(!malformed_match, "a malformed PK must not match");
     }
 }

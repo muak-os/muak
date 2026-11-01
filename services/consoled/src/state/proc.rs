@@ -6,6 +6,7 @@ use std::path::Path;
 use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SystemStatus, Uptime};
 
 const CONFIG_PATH: &str = "/run/state/config.toml";
+const PLATFORM_KEY_PATH: &str = "/run/state/secrets/secureboot/pk.der";
 
 /// Reads a whole file into `buf` and returns its trimmed content.
 pub(super) fn read_file<'a>(path: &str, buf: &'a mut String) -> Option<&'a str> {
@@ -88,10 +89,14 @@ pub(super) fn read_secure_boot(
     firmware::secureboot::Status,
     Option<firmware::secureboot::Mismatch>,
 ) {
-    let state = firmware::secureboot::system().unwrap_or_default();
-    let mismatch = firmware::secureboot::mismatch(config_wants_secureboot(poll), &state);
+    let store = firmware::system();
+    let state = firmware::secureboot::state(&store).unwrap_or_default();
+    let ours = fs::read(PLATFORM_KEY_PATH).is_ok_and(|certificate| {
+        firmware::secureboot::platform_key_matches(&store, &certificate).unwrap_or(false)
+    });
+    let mismatch = firmware::secureboot::mismatch(config_wants_secureboot(poll), &state, ours);
 
-    (firmware::secureboot::status(&state), mismatch)
+    (firmware::secureboot::status(&state, ours), mismatch)
 }
 
 pub(super) fn read_ntp_server(poll: &mut PollState) -> Option<String> {

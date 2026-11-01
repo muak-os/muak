@@ -158,7 +158,7 @@ fn verify_database<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -
         .to_der()
         .map_err(|e| SboltError::EfiVar(format!("encode enrolled db cert: {e}")))?;
 
-    if !database.contains_x509(&certificate)? {
+    if !database.contains_x509(&certificate) {
         return Err(SboltError::EfiVar(
             "enrolled db does not contain the signing certificate".into(),
         ));

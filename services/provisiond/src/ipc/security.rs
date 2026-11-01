@@ -1,5 +1,7 @@
 //! gRPC service implementation for security queries.
 
+use std::path::Path;
+
 use firmware::secureboot;
 use tonic::{Request, Response, Status};
 
@@ -7,6 +9,7 @@ use super::proto::security::security_service_server::{SecurityService, SecurityS
 use super::proto::security::{
     GetSecurityStateRequest, GetSecurityStateResponse, SecureBootDeviation, SecureBootState,
 };
+use crate::secrets::SECRETS_DIR;
 
 /// Implementation of the `SecurityService` gRPC interface.
 pub struct ServiceImpl;
@@ -17,13 +20,15 @@ impl SecurityService for ServiceImpl {
         &self,
         _request: Request<GetSecurityStateRequest>,
     ) -> Result<Response<GetSecurityStateResponse>, Status> {
-        let state = secureboot::system()
+        let store = firmware::system();
+        let state = secureboot::state(&store)
             .map_err(|e| Status::internal(format!("Failed to read Secure Boot state: {e}")))?;
         let config_enabled = config::system::host()
             .map_err(|e| Status::internal(e.to_string()))?
             .secureboot;
+        let ours = platform_key_matches(&store);
 
-        Ok(Response::new(response(state, config_enabled)))
+        Ok(Response::new(response(state, config_enabled, ours)))
     }
 }
 
@@ -32,25 +37,41 @@ pub fn service() -> SecurityServiceServer<ServiceImpl> {
     SecurityServiceServer::new(ServiceImpl)
 }
 
-fn response(state: secureboot::State, config_enabled: bool) -> GetSecurityStateResponse {
+fn platform_key_matches<S: firmware::nvram::VariableStore>(store: &S) -> bool {
+    let Ok(certificate) = std::fs::read(Path::new(SECRETS_DIR).join("secureboot/pk.der")) else {
+        return false;
+    };
+
+    secureboot::platform_key_matches(store, &certificate).unwrap_or(false)
+}
+
+fn response(
+    state: secureboot::State,
+    config_enabled: bool,
+    ours: bool,
+) -> GetSecurityStateResponse {
     GetSecurityStateResponse {
-        secure_boot: status_value(state).into(),
+        secure_boot: status_value(state, ours).into(),
         setup_mode: state.setup_mode,
         config_enabled,
-        deviation: deviation_value(config_enabled, state).into(),
+        deviation: deviation_value(config_enabled, state, ours).into(),
     }
 }
 
-fn status_value(state: secureboot::State) -> SecureBootState {
-    match secureboot::status(&state) {
+fn status_value(state: secureboot::State, ours: bool) -> SecureBootState {
+    match secureboot::status(&state, ours) {
         secureboot::Status::Enabled => SecureBootState::Enabled,
         secureboot::Status::Pending => SecureBootState::Pending,
         secureboot::Status::Disabled => SecureBootState::Disabled,
     }
 }
 
-fn deviation_value(config_enabled: bool, state: secureboot::State) -> SecureBootDeviation {
-    match secureboot::mismatch(config_enabled, &state) {
+fn deviation_value(
+    config_enabled: bool,
+    state: secureboot::State,
+    ours: bool,
+) -> SecureBootDeviation {
+    match secureboot::mismatch(config_enabled, &state, ours) {
         None => SecureBootDeviation::None,
         Some(secureboot::Mismatch::NotEnrolled) => SecureBootDeviation::ConfigEnabledNoKeys,
         Some(secureboot::Mismatch::KeysRemain) => SecureBootDeviation::KeysRemain,
@@ -74,7 +95,7 @@ mod tests {
         };
 
         // ACT
-        let response = response(state, true);
+        let response = response(state, true, false);
 
         // ASSERT
         assert_eq!(response.secure_boot, i32::from(SecureBootState::Disabled));
@@ -96,7 +117,7 @@ mod tests {
         };
 
         // ACT
-        let response = response(state, true);
+        let response = response(state, true, true);
 
         // ASSERT
         assert_eq!(response.secure_boot, i32::from(SecureBootState::Enabled));
@@ -113,7 +134,7 @@ mod tests {
         };
 
         // ACT
-        let response = response(state, false);
+        let response = response(state, false, true);
 
         // ASSERT
         assert_eq!(response.secure_boot, i32::from(SecureBootState::Pending));
@@ -121,5 +142,22 @@ mod tests {
             response.deviation,
             i32::from(SecureBootDeviation::KeysRemain)
         );
+    }
+
+    #[test]
+    fn response_ignores_foreign_pending_keys() {
+        // ARRANGE
+        let state = secureboot::State {
+            enabled: false,
+            setup_mode: false,
+            pk_present: true,
+        };
+
+        // ACT
+        let response = response(state, false, false);
+
+        // ASSERT
+        assert_eq!(response.secure_boot, i32::from(SecureBootState::Disabled));
+        assert_eq!(response.deviation, i32::from(SecureBootDeviation::None));
     }
 }

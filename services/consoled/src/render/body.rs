@@ -39,9 +39,15 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line<'static>> {
         SystemStatus::Maintenance => ("MAINTENANCE", AnsiColor::Red),
     };
 
-    let (sb_label, sb_color) = match state.secure_boot_mismatch {
+    let mismatch = state.secure_boot_mismatch;
+    let (sb_label, sb_color) = match mismatch {
         Some(_) => (short_status(state.secure_boot), AnsiColor::Yellow),
         None => firmware_label(state.secure_boot),
+    };
+    let sb_style = if mismatch.is_some() {
+        fg(sb_color)
+    } else {
+        bold_fg(sb_color)
     };
 
     let mut lines = Vec::new();
@@ -53,10 +59,10 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line<'static>> {
 
     let mut sb_line = Line::new(col);
     sb_line.push(Span::styled("SECUREBOOT ", fg(AnsiColor::White)));
-    sb_line.push(Span::styled(sb_label, bold_fg(sb_color)));
-    if let Some(mismatch) = state.secure_boot_mismatch {
+    sb_line.push(Span::styled(sb_label, sb_style));
+    if let Some(mismatch) = mismatch {
         let note = mismatch_note(mismatch);
-        sb_line.push(Span::styled(format!(" ({note})"), fg(AnsiColor::Yellow)));
+        sb_line.push(Span::styled(format!(" ({note})"), fg(sb_color)));
     }
     lines.push(sb_line);
 
@@ -223,6 +229,37 @@ mod tests {
             .iter()
             .any(|span| span.text() == " (still enforced)");
         assert!(note, "expected mismatch note, got: {:?}", sb_line.spans());
+    }
+
+    #[test]
+    fn build_left_secureboot_pending_keys_remain_uses_one_color() {
+        // ARRANGE
+        let mut state = test_state();
+        state.secure_boot = Status::Pending;
+        state.secure_boot_mismatch = Some(Mismatch::KeysRemain);
+
+        // ACT
+        let lines = build_left(&state, 0);
+
+        // ASSERT
+        let Some(sb_line) = lines.get(1) else {
+            panic!("expected SECUREBOOT line, got: {lines:?}");
+        };
+        let label = sb_line
+            .spans()
+            .iter()
+            .find(|span| span.text() == "Pending")
+            .expect("pending label");
+        let note = sb_line
+            .spans()
+            .iter()
+            .find(|span| span.text() == " (keys remain)")
+            .expect("mismatch note");
+        assert_eq!(
+            label.style(),
+            note.style(),
+            "label and note must use the same color"
+        );
     }
 
     #[test]
