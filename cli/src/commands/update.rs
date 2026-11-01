@@ -172,7 +172,11 @@ pub async fn handle(
 
     steps.start("Waiting for system to come back online...");
 
-    wait_for_update_completion(ctx, &update_id, steps).await
+    wait_for_update_completion(ctx, &update_id, steps).await?;
+
+    console.success(&format!("Update {update_id} committed successfully!"));
+
+    Ok(())
 }
 
 async fn wait_for_update_completion(
