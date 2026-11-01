@@ -8,12 +8,12 @@ use pki::csr;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::live::Steps;
 
 use crate::client::connect;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{GetConfigRequest, InstallRequest};
-use crate::console::Console;
 
 /// Data received upon successful completion of the install process.
 struct CompletedInstall {

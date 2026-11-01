@@ -4,7 +4,6 @@ extern crate alloc;
 
 mod client;
 mod commands;
-mod console;
 mod format;
 
 use std::io;
@@ -18,7 +17,8 @@ use commands::process::Action as ProcessAction;
 use commands::rollback::Action as RollbackAction;
 use commands::security::Action as SecurityAction;
 use commands::vm::Action as VmAction;
-use console::Console;
+use tui::console::Console;
+use tui::output::Flags;
 
 #[derive(Parser)]
 #[command(name = "muak")]
@@ -57,6 +57,16 @@ pub struct OutputFlags {
     /// Show per-item and per-upload detail.
     #[arg(long, global = true, conflicts_with = "quiet")]
     pub verbose: bool,
+}
+
+impl From<OutputFlags> for Flags {
+    fn from(flags: OutputFlags) -> Self {
+        Self {
+            quiet: flags.quiet,
+            no_color: flags.no_color,
+            verbose: flags.verbose,
+        }
+    }
 }
 
 #[derive(Subcommand, Clone)]
@@ -128,7 +138,7 @@ pub enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let console = Console::detect(cli.output);
+    let console = Console::detect(cli.output.into());
     let Err(error) = commands::run(cli, &console).await else {
         return;
     };
@@ -186,8 +196,9 @@ fn status_message(status: &tonic::Status) -> &str {
 #[cfg(test)]
 mod tests {
     use clap::Parser as _;
+    use tui::output::Flags;
 
-    use super::Cli;
+    use super::{Cli, OutputFlags};
 
     #[test]
     fn global_output_flags_parse_after_the_subcommand() {
@@ -215,5 +226,23 @@ mod tests {
 
         // ASSERT
         assert!(error.to_string().contains("--verbose"));
+    }
+
+    #[test]
+    fn output_flags_map_to_flags_one_to_one() {
+        // ARRANGE
+        let output = OutputFlags {
+            quiet: true,
+            no_color: true,
+            verbose: true,
+        };
+
+        // ACT
+        let flags = Flags::from(output);
+
+        // ASSERT
+        assert_eq!(flags.quiet, output.quiet);
+        assert_eq!(flags.no_color, output.no_color);
+        assert_eq!(flags.verbose, output.verbose);
     }
 }

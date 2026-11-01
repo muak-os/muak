@@ -6,9 +6,9 @@ mod logs;
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::console::Console;
 
 use crate::client::vm_service::vm_service_client::VmServiceClient;
-use crate::console::Console;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {

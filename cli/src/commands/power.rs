@@ -2,12 +2,12 @@
 
 use anyhow::{Context as _, Result};
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::prompt::Prompter;
 use tui::style::Role;
 
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{RebootRequest, ShutdownRequest};
-use crate::console::Console;
 
 /// Requests a reboot of the target system.
 pub async fn reboot(client: &mut ProvisionServiceClient<Channel>, console: &Console) -> Result<()> {

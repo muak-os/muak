@@ -1,9 +1,9 @@
 //! Command-line interface for koci.
 
-mod console;
 mod copy;
 mod digest;
 mod merge;
+mod progress;
 mod pull;
 mod push;
 mod repack;
@@ -15,8 +15,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
-use console::Console;
 use oci::arch::Arch;
+use tui::console::Console;
 use tui::output::Flags;
 use tui::style;
 

@@ -4,9 +4,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
 use config::user::{ClientConfig, ServerContext};
+use tui::console::Console;
 use tui::style::Role;
-
-use crate::console::Console;
 
 /// Context subcommands.
 #[derive(Clone, clap::Subcommand)]

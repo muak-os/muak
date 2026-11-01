@@ -6,7 +6,7 @@ use oci::arch;
 use oci::arch::Arch;
 use tui::live::summary::Summary;
 
-use super::{Console, parse_arch};
+use super::{Console, parse_arch, progress};
 
 /// Arguments of the `push` subcommand.
 #[derive(clap::Args, Debug)]
@@ -43,7 +43,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
         .collect::<error::Result<Vec<_>>>()
         .context("Failed to parse files")?;
     let target_arch = arch.unwrap_or(arch::host());
-    let pushed = console.tracked("push image", |reporter| {
+    let pushed = progress::tracked(console, "push image", |reporter| {
         push::files(&image, &tags, &target_arch, &entries, reporter)
     })?;
 

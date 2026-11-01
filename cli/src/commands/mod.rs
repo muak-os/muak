@@ -17,6 +17,7 @@ pub mod vm;
 use ::config::user::ClientConfig;
 use anyhow::{Result, bail};
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 
 use crate::client::log_service::log_service_client::LogServiceClient;
@@ -27,7 +28,6 @@ use crate::client::version_service::GetVersionRequest;
 use crate::client::version_service::version_service_client::VersionServiceClient;
 use crate::client::vm_service::vm_service_client::VmServiceClient;
 use crate::client::{connect, connect_tls_insecure};
-use crate::console::Console;
 use crate::{Cli, Commands};
 
 /// Resolves the connection based on CLI flags and config.

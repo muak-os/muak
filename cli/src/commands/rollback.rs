@@ -1,12 +1,12 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 use tui::table::Table;
 
 use crate::client::provision_service::GetRollbackHistoryRequest;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
-use crate::console::Console;
 use crate::format::time::format_timestamp;
 
 #[derive(Subcommand, Clone)]

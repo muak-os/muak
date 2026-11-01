@@ -1,12 +1,12 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{DiskInfo, ListDisksRequest};
-use crate::console::Console;
 
 /// Lists available disks on the system.
 pub async fn handle(client: &mut ProvisionServiceClient<Channel>, console: &Console) -> Result<()> {

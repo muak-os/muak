@@ -1,12 +1,12 @@
 use anyhow::{Context as _, Result};
 use config::user::ClientConfig;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::prompt::Prompter;
 use tui::style::Role;
 
 use crate::client::provision_service::FactoryResetRequest;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
-use crate::console::Console;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
 

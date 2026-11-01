@@ -11,7 +11,7 @@ use oci::arch;
 use oci::arch::Arch;
 use tui::live::summary::Summary;
 
-use super::{Console, parse_arch, read_key_file};
+use super::{Console, parse_arch, progress, read_key_file};
 
 /// Arguments of the `pull` subcommand.
 #[derive(clap::Args, Debug)]
@@ -60,13 +60,13 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
 
     if verification.is_none() {
         console.warn(
-            "WARNING: No public key provided - manifest signature verification is DISABLED. \
+            "No public key provided - manifest signature verification is DISABLED. \
              This image has not been authenticated and may have been tampered with.",
         );
     }
 
     let started = Instant::now();
-    let resolution = console.tracked("pull image", |reporter| {
+    let resolution = progress::tracked(console, "pull image", |reporter| {
         pull::files(
             &image,
             &target_arch,

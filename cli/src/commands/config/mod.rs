@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::console::Console;
 
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{
     GetConfigRequest, GetConfigSnapshotRequest, GetDefaultConfigRequest,
 };
-use crate::console::Console;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {

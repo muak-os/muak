@@ -1,13 +1,13 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 
 use crate::client::security_service::security_service_client::SecurityServiceClient;
 use crate::client::security_service::{
     GetSecurityStateRequest, SecureBootDeviation, SecureBootState,
 };
-use crate::console::Console;
 
 #[derive(Subcommand, Clone)]
 pub enum Action {

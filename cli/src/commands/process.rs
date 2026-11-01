@@ -1,12 +1,12 @@
 use anyhow::Result;
 use clap::Subcommand;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 use tui::table::Table;
 
 use crate::client::process_service::ListProcessesRequest;
 use crate::client::process_service::process_service_client::ProcessServiceClient;
-use crate::console::Console;
 use crate::format::time::format_timestamp;
 
 #[derive(Subcommand, Clone)]

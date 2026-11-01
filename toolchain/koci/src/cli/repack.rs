@@ -4,7 +4,7 @@ use anyhow::Result;
 use koci::repack;
 use tui::live::summary::Summary;
 
-use super::Console;
+use super::{Console, progress};
 
 /// Arguments of the `repack` subcommand.
 #[derive(clap::Args, Debug)]
@@ -21,7 +21,7 @@ pub struct Args {
 /// Execute the `repack` subcommand.
 pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args { image, tags } = args;
-    let digest = console.tracked("repack image", |reporter| {
+    let digest = progress::tracked(console, "repack image", |reporter| {
         repack::run(&image, &tags, reporter)
     })?;
 

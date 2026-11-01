@@ -4,7 +4,7 @@ use anyhow::Result;
 use koci::copy;
 use tui::live::summary::Summary;
 
-use super::Console;
+use super::{Console, progress};
 
 /// Arguments of the `copy` subcommand.
 #[derive(clap::Args, Debug)]
@@ -24,7 +24,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
         source,
         destination,
     } = args;
-    let digest = console.tracked("copy image", |reporter| {
+    let digest = progress::tracked(console, "copy image", |reporter| {
         copy::run(&source, &destination, reporter)
     })?;
 

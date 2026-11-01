@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::live::Steps;
 
 use crate::client::upload::upload;
@@ -7,7 +8,6 @@ use crate::client::vm_service::vm_service_client::VmServiceClient;
 use crate::client::vm_service::{
     CreateVmRequest, DeleteVmRequest, DiskConfig, Hypervisor, StartVmRequest, VmConfig,
 };
-use crate::console::Console;
 
 /// Parameters for creating a new VM.
 pub struct VmSpec {

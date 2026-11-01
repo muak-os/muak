@@ -10,6 +10,7 @@ use anyhow::{Context as _, Result, bail};
 use koci::arch::Arch;
 use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use sha2::{Digest as _, Sha256};
+use tui::console::Console;
 use tui::live::summary::Summary;
 use tui::{progress, units};
 use wizard::artifact::Artifact;
@@ -19,7 +20,7 @@ use wizard::domain::profile::Profile;
 use wizard::domain::resolution::BuildIdentity;
 use wizard::request::Request;
 
-use super::console::Console;
+use super::progress;
 use super::writer::CountingWriter;
 
 /// Arguments of the `build` subcommand.
@@ -83,7 +84,7 @@ pub(super) fn run(args: &Args, console: &Console) -> Result<()> {
     let codec = args.compression.unwrap_or_default();
     let started = Instant::now();
 
-    let metadata = console.tracked(|reporter| {
+    let metadata = progress::tracked(console, |reporter| {
         let mut files: Vec<(Artifact, CountingWriter<'_>)> = Vec::new();
         for &artifact in &args.artifacts {
             let output_path = args.output_dir.join(artifact.output_name(codec));

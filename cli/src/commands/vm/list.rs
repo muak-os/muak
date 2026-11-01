@@ -1,12 +1,12 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
 use crate::client::vm_service::vm_service_client::VmServiceClient;
 use crate::client::vm_service::{ListVmsRequest, VmInfo};
-use crate::console::Console;
 use crate::format::display::{hypervisor_to_string, vm_state_to_string};
 use crate::format::time::format_timestamp;
 

@@ -1,9 +1,9 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::console::Console;
 
 use crate::client::vm_service::vm_service_client::VmServiceClient;
 use crate::client::vm_service::{DeleteVmRequest, StartVmRequest, StopVmRequest};
-use crate::console::Console;
 
 /// Starts a VM.
 pub async fn handle_start(

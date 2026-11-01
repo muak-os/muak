@@ -3,11 +3,11 @@
 use anyhow::Result;
 use config::version::CompatibilityStatus;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 
 use crate::client::version_service::GetVersionRequest;
 use crate::client::version_service::version_service_client::VersionServiceClient;
-use crate::console::Console;
 
 /// Fetches the server version string via gRPC.
 pub async fn fetch_server(channel: Channel) -> Option<String> {

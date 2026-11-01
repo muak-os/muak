@@ -1,7 +1,7 @@
 //! Command-line interface for the wizard.
 
 mod build;
-mod console;
+mod progress;
 mod tracked;
 mod writer;
 
@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
-use console::Console;
 use koci::arch::Arch;
+use tui::console::Console;
 use tui::output::Flags;
 use wizard::domain::profile::Profile;
 use wizard::request::Request;

@@ -8,6 +8,7 @@ use config::user::ServerContext;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::live::Steps;
 
 use crate::client::connect;
@@ -15,7 +16,6 @@ use crate::client::provision_service::provision_service_client::ProvisionService
 use crate::client::provision_service::{
     GetConfigRequest, GetUpdateStatusRequest, PrepareUpdateRequest, UpdateRequest, UpdateStatus,
 };
-use crate::console::Console;
 
 const UNKNOWN_WARN_THRESHOLD: u32 = 30;
 

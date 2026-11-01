@@ -1,12 +1,12 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::console::Console;
 use tui::style::Role;
 
 use crate::client::log_service::log_service_client::LogServiceClient;
 use crate::client::log_service::{
     FollowLogsRequest, GetLogsRequest, GetLogsResponse, Level, LogEntry,
 };
-use crate::console::Console;
 
 /// Parses a log level name into its proto integer value.
 pub fn parse_level(level: &str) -> Result<i32, String> {
