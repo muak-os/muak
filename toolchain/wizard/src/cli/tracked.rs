@@ -1,81 +1,47 @@
 //! Live progress adapters for pipeline events.
 
-use std::sync::{Mutex, PoisonError};
-
 use tui::live::StepsHandle;
+use tui::live::tracker::Tracked as Progress;
 use tui::progress::sink::Tracker;
 use wizard::artifact::Artifact;
 use wizard::progress::{Event, NodeState, Reporter};
 
 /// Steps-backed reporter that renders pipeline events as one live line.
 pub(super) struct Tracked {
-    steps: StepsHandle,
-    verbose: bool,
-    state: Mutex<State>,
+    progress: Progress,
 }
 
 impl Tracked {
     pub(super) fn new(steps: StepsHandle, verbose: bool) -> Self {
         Self {
-            steps,
-            verbose,
-            state: Mutex::new(State::default()),
-        }
-    }
-
-    fn node(&self, node: &str, state: NodeState) {
-        if self.verbose || state == NodeState::Failed {
-            self.steps.note(format!("{node}: {}", state.title()));
-        }
-    }
-
-    fn note(&self, node: Option<&str>, message: &str, detail: bool) {
-        if detail && !self.verbose {
-            return;
-        }
-
-        match node {
-            Some(node) => self.steps.note(format!("{node}: {message}")),
-            None => self.steps.note(message.to_owned()),
+            progress: Progress::new(steps, verbose),
         }
     }
 
     fn sized(&self, artifacts: usize, bytes: Option<u64>) {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .reset();
-        let label = building(artifacts);
-        if let Some(bytes) = bytes {
-            self.steps.start_bytes(label, bytes);
-            return;
-        }
-
-        self.steps.start(label);
-    }
-
-    fn artifact_bytes(&self, artifact: Artifact, current: u64) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.set(artifact, current);
-        let total = state.current;
-        drop(state);
-        self.steps.progress(total);
+        self.progress.sized(building(artifacts), bytes);
     }
 }
 
 impl Reporter for Tracked {
     fn report(&self, event: Event<'_>) {
         match event {
-            Event::Started { label } => self.steps.start(label),
-            Event::Completed { label } => self.steps.complete(label),
+            Event::Started { label } => self.progress.start(label),
+            Event::Completed { label } => self.progress.complete(label),
             Event::Sized { artifacts, bytes } => self.sized(artifacts, bytes),
-            Event::ArtifactBytes { artifact, current } => self.artifact_bytes(artifact, current),
-            Event::Node { node, state } => self.node(node, state),
+            Event::ArtifactBytes { artifact, current } => {
+                let index = artifact.to_index().saturating_add(1);
+                self.progress.bytes(Some(index), current, current);
+            }
+            Event::Node { node, state } => {
+                self.progress
+                    .note_state(node, state.title(), state == NodeState::Failed);
+            }
             Event::Note {
                 node,
                 message,
                 detail,
-            } => self.note(node, message, detail),
+            } => self.progress.note_detail(node, message, detail),
         }
     }
 }
@@ -101,30 +67,6 @@ impl Tracker for ArtifactTracker<'_> {
     }
 }
 
-// Bytes written so far to each artifact target.
-#[derive(Default)]
-struct State {
-    artifacts: Vec<(Artifact, u64)>,
-    current: u64,
-}
-
-impl State {
-    fn reset(&mut self) {
-        self.artifacts.clear();
-        self.current = 0;
-    }
-
-    fn set(&mut self, artifact: Artifact, current: u64) {
-        if let Some(entry) = self.artifacts.iter_mut().find(|entry| entry.0 == artifact) {
-            self.current = self.current.saturating_sub(entry.1).saturating_add(current);
-            entry.1 = current;
-        } else {
-            self.artifacts.push((artifact, current));
-            self.current = self.current.saturating_add(current);
-        }
-    }
-}
-
 fn building(artifacts: usize) -> String {
     if artifacts == 1 {
         "Building 1 artifact".to_owned()
@@ -137,6 +79,7 @@ fn building(artifacts: usize) -> String {
 mod tests {
     use std::io;
     use std::io::Write as _;
+    use std::sync::Mutex;
     use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
     use tui::live::{Options, Steps};
@@ -278,6 +221,30 @@ mod tests {
     }
 
     #[test]
+    fn aggregates_artifact_bytes_by_one_based_index() {
+        // ARRANGE
+        let (tracked, steps, rx) = tracked(false);
+
+        // ACT
+        tracked.report(Event::Sized {
+            artifacts: 2,
+            bytes: Some(2048),
+        });
+        tracked.report(Event::ArtifactBytes {
+            artifact: Artifact::Iso,
+            current: 1024,
+        });
+        tracked.report(Event::ArtifactBytes {
+            artifact: Artifact::Raw,
+            current: 512,
+        });
+        let text = output(&rx, steps);
+
+        // ASSERT
+        assert!(text.contains("1.5 KiB / 2 KiB"), "output: {text}");
+    }
+
+    #[test]
     fn unknown_artifact_sizes_fall_back_to_a_spinner() {
         // ARRANGE
         let (tracked, steps, rx) = tracked(false);
@@ -368,20 +335,5 @@ mod tests {
         assert!(events[0].contains("Uki"), "events: {events:?}");
         assert!(events[0].contains("current: 5"), "events: {events:?}");
         assert!(events[1].contains("current: 11"), "events: {events:?}");
-    }
-
-    #[test]
-    fn artifact_bytes_aggregate_across_targets() {
-        // ARRANGE
-        let mut state = State::default();
-
-        // ACT
-        state.set(Artifact::Iso, 100);
-        state.set(Artifact::Raw, 50);
-        state.set(Artifact::Iso, 120);
-
-        // ASSERT
-        assert_eq!(state.current, 170);
-        assert_eq!(state.artifacts.len(), 2);
     }
 }

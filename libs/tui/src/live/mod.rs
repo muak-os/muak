@@ -6,6 +6,7 @@ pub mod session;
 mod spinner;
 mod steps;
 pub mod summary;
+pub mod tracker;
 
 use crate::glyphs::Glyphs;
 use crate::output::{Flags, Mode, Output};

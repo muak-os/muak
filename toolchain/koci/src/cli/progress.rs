@@ -6,7 +6,7 @@ use std::io;
 use anyhow::{Context as _, Result};
 use koci::progress::report::Plain;
 use koci::progress::{Event, Noop, Reporter};
-use koci::ui::terminal::Terminal;
+use koci::ui::Terminal;
 use tui::console::Console;
 use tui::live::StepsHandle;
 use tui::live::session::Session;

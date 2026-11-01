@@ -1,23 +1,14 @@
 //! Terminal progress reporter rendered with `tui` steps.
 
-use std::sync::Mutex;
-
 use tui::live::StepsHandle;
+use tui::live::tracker::Tracked;
 use tui::units;
 
 use crate::progress::{Event, Phase, Reporter, Unit};
-use crate::ui::bytes::ByteState;
 
 /// Terminal progress reporter rendered with `tui` steps.
 pub struct Terminal {
-    steps: StepsHandle,
-    verbose: bool,
-    state: Mutex<State>,
-}
-
-#[derive(Default)]
-struct State {
-    bytes: ByteState,
+    tracked: Tracked,
 }
 
 impl Terminal {
@@ -25,61 +16,27 @@ impl Terminal {
     #[must_use]
     pub fn new(steps: StepsHandle, verbose: bool) -> Self {
         Self {
-            steps,
-            verbose,
-            state: Mutex::new(State::default()),
+            tracked: Tracked::new(steps, verbose),
         }
     }
 
     fn start_phase(&self, label: &str, total: u64, unit: Unit) {
-        if let Ok(mut state) = self.state.lock() {
-            state.bytes = ByteState::default();
-        }
         match unit {
-            Unit::Bytes => self.steps.start_bytes(label, total),
-            Unit::Items => self.steps.start_items(label, total),
+            Unit::Bytes => self.tracked.start_bytes(label, total),
+            Unit::Items => self.tracked.start_items(label, total),
         }
     }
 
     fn progress(&self, phase: Phase, current: u64, total: u64) {
-        self.steps
+        self.tracked
             .set_label(format!("{} {current}/{total}", phase.title()));
-        self.steps.progress(current);
-    }
-
-    fn byte_progress(&self, index: Option<usize>, current: u64, total: u64) {
-        if let Some(index) = index {
-            let current = match self.state.lock() {
-                Ok(mut state) => state.bytes.sample(index, current, total),
-                Err(_poisoned) => return,
-            };
-            self.steps.progress(current);
-        } else {
-            self.steps.progress(current.min(total));
-        }
-    }
-
-    fn set_size(&self, index: usize, size: u64) {
-        if let Ok(mut state) = self.state.lock() {
-            state.bytes.set_size(index, size);
-        }
-    }
-
-    fn detail(&self, message: &str) {
-        if self.verbose {
-            self.steps.note(message);
-        }
+        self.tracked.progress(current);
     }
 
     fn item_done(&self, index: usize, size: u64, digest: &str) {
-        let current = match self.state.lock() {
-            Ok(mut state) => state.bytes.finish(index),
-            Err(_poisoned) => return,
-        };
-        self.steps.progress(current);
-        if self.verbose {
-            self.steps.note(format!("{digest}  {}", units::bytes(size)));
-        }
+        self.tracked.item_done(index);
+        self.tracked
+            .note_if_verbose(format!("{digest}  {}", units::bytes(size)));
     }
 }
 
@@ -87,30 +44,31 @@ impl Reporter for Terminal {
     fn report(&self, event: Event<'_>) {
         match event {
             Event::Started { operation, subject } => {
-                self.steps.start(format!("{} {subject}", operation.title()));
+                self.tracked
+                    .start(format!("{} {subject}", operation.title()));
             }
             Event::Resolved { layers, .. } => {
-                self.steps.complete(format!("Resolved {layers} layers"));
+                self.tracked.complete(format!("Resolved {layers} layers"));
             }
             Event::Collected { manifests, blobs } => {
-                self.steps
+                self.tracked
                     .complete(format!("Collected {manifests} manifests, {blobs} blobs"));
             }
             Event::Packed { entries, bytes } => {
-                self.steps.complete(format!(
+                self.tracked.complete(format!(
                     "Packed {entries} entries ({})",
                     units::bytes(bytes)
                 ));
             }
             Event::IndexFetched { platforms } => {
-                self.steps
+                self.tracked
                     .complete(format!("Fetched index ({platforms} platforms)"));
             }
             Event::PhaseStarted {
                 label, total, unit, ..
             } => self.start_phase(label, total, unit),
             Event::PhaseCompleted { label, .. } => {
-                self.steps.complete(label);
+                self.tracked.complete(label);
             }
             Event::Progress {
                 phase,
@@ -122,10 +80,11 @@ impl Reporter for Terminal {
                 current,
                 total,
                 ..
-            } => self.byte_progress(index, current, total),
-            Event::ItemQueued { index, size, .. } => self.set_size(index, size),
+            } => self.tracked.bytes(index, current, total),
+            Event::ItemQueued { index, size, .. } => self.tracked.set_size(index, size),
             Event::ItemSkipped { digest, .. } => {
-                self.detail(&format!("Skipped existing {digest}"));
+                self.tracked
+                    .note_if_verbose(format!("Skipped existing {digest}"));
             }
             Event::ItemDone {
                 index,
@@ -134,13 +93,14 @@ impl Reporter for Terminal {
                 ..
             } => self.item_done(index, size, digest),
             Event::ManifestPushed { reference } => {
-                self.detail(&format!("Pushed manifest {reference}"));
+                self.tracked
+                    .note_if_verbose(format!("Pushed manifest {reference}"));
             }
             Event::Verified { digest } => {
-                self.steps
+                self.tracked
                     .complete(format!("Verified destination digest {digest}"));
             }
-            Event::Note { message } => self.detail(message),
+            Event::Note { message } => self.tracked.note_if_verbose(message),
             Event::Done { .. } => {}
         }
     }

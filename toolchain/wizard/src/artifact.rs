@@ -80,7 +80,7 @@ impl Artifact {
 
     /// Returns a zero-based index for use as an array index.
     #[must_use]
-    pub(crate) fn to_index(self) -> usize {
+    pub fn to_index(self) -> usize {
         match self {
             Self::Kernel => 0,
             Self::Initramfs => 1,
@@ -149,6 +149,28 @@ mod tests {
         assert_eq!(Artifact::Raw.output_name(Codec::None), "muak.raw");
         assert_eq!(Artifact::Iso.output_name(Codec::Gzip), "muak.iso");
         assert_eq!(Artifact::Kernel.output_name(Codec::Zstd), "kernel");
+    }
+
+    #[test]
+    fn to_index_is_zero_based_and_contiguous() {
+        // ARRANGE
+        let artifacts = [
+            Artifact::Kernel,
+            Artifact::Initramfs,
+            Artifact::Cmdline,
+            Artifact::Uki,
+            Artifact::Iso,
+            Artifact::Raw,
+            Artifact::Overlays,
+        ];
+
+        // ACT
+        let mut indexes = artifacts.map(Artifact::to_index);
+        indexes.sort_unstable();
+
+        // ASSERT
+        assert_eq!(artifacts.len(), Artifact::COUNT);
+        assert_eq!(indexes, [0, 1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
