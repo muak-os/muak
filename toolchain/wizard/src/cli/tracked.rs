@@ -1,8 +1,9 @@
-//! Steps-backed reporter for pipeline events.
+//! Live progress adapters for pipeline events.
 
 use std::sync::{Mutex, PoisonError};
 
 use tui::live::StepsHandle;
+use tui::progress::sink::Tracker;
 use wizard::artifact::Artifact;
 use wizard::progress::{Event, NodeState, Reporter};
 
@@ -79,6 +80,27 @@ impl Reporter for Tracked {
     }
 }
 
+/// Tracker that reports written artifact bytes to the CLI reporter.
+pub(super) struct ArtifactTracker<'a> {
+    artifact: Artifact,
+    reporter: &'a dyn Reporter,
+}
+
+impl<'a> ArtifactTracker<'a> {
+    pub(super) const fn new(artifact: Artifact, reporter: &'a dyn Reporter) -> Self {
+        Self { artifact, reporter }
+    }
+}
+
+impl Tracker for ArtifactTracker<'_> {
+    fn advance(&self, current: u64) {
+        self.reporter.report(Event::ArtifactBytes {
+            artifact: self.artifact,
+            current,
+        });
+    }
+}
+
 // Bytes written so far to each artifact target.
 #[derive(Default)]
 struct State {
@@ -114,15 +136,29 @@ fn building(artifacts: usize) -> String {
 #[cfg(test)]
 mod tests {
     use std::io;
+    use std::io::Write as _;
     use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
     use tui::live::{Options, Steps};
+    use tui::progress::sink::Sink;
     use tui::screen::Screen;
     use tui::size::Size;
     use tui::style::Theme;
     use tui::text::Span;
 
     use super::*;
+
+    #[derive(Default)]
+    struct Recorded(Mutex<Vec<String>>);
+
+    impl Reporter for Recorded {
+        fn report(&self, event: Event<'_>) {
+            self.0
+                .lock()
+                .expect("unpoisoned")
+                .push(format!("{event:?}"));
+        }
+    }
 
     struct RecordingScreen {
         tx: SyncSender<String>,
@@ -313,6 +349,25 @@ mod tests {
 
         // ASSERT
         assert!(text.contains("iso: failed"), "output: {text}");
+    }
+
+    #[test]
+    fn artifact_tracker_reports_cumulative_bytes_per_write() {
+        // ARRANGE
+        let recorded = Recorded::default();
+        let file = tempfile::tempfile().expect("temp file");
+        let mut sink = Sink::new(file, ArtifactTracker::new(Artifact::Uki, &recorded), 0);
+
+        // ACT
+        sink.write_all(b"hello").expect("write");
+        sink.write_all(b" world").expect("write");
+
+        // ASSERT
+        let events = recorded.0.lock().expect("unpoisoned");
+        assert_eq!(events.len(), 2, "events: {events:?}");
+        assert!(events[0].contains("Uki"), "events: {events:?}");
+        assert!(events[0].contains("current: 5"), "events: {events:?}");
+        assert!(events[1].contains("current: 11"), "events: {events:?}");
     }
 
     #[test]

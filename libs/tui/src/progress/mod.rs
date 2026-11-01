@@ -1,5 +1,7 @@
 //! Single-line progress rendering.
 
+pub mod sink;
+
 mod format;
 
 use core::time::Duration;

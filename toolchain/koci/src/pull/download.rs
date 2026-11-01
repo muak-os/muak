@@ -15,10 +15,10 @@ use oci_client::error::ClientError;
 use oci_client::http::{Range, get, get_range, is_partial, stream_body_to_sink};
 use oci_client::transport::Transport;
 use tokio::sync::mpsc::UnboundedSender;
+use tui::progress::sink::{Sink, Tracker};
 
 use super::content::{Content, Ingest};
 use crate::error::{KociError, Result};
-use crate::progress::sink::{Sink, Tracker};
 use crate::progress::{ByteSample, Phase};
 
 /// HTTP status code for a staging prefix that overshoots the blob.

@@ -1,7 +1,8 @@
 //! Structured progress reporting.
 
 pub mod report;
-pub(crate) mod sink;
+#[cfg(feature = "copy")]
+pub(crate) mod tracker;
 
 /// A long-running registry operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

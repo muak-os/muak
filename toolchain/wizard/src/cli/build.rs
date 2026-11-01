@@ -12,6 +12,7 @@ use sbolt::keys::{SigningPair, load_certificate_from_pem, load_signer_from_pem};
 use sha2::{Digest as _, Sha256};
 use tui::console::Console;
 use tui::live::summary::Summary;
+use tui::progress::sink::Sink;
 use tui::{progress, units};
 use wizard::artifact::Artifact;
 use wizard::codec::Codec;
@@ -21,7 +22,9 @@ use wizard::domain::resolution::BuildIdentity;
 use wizard::request::Request;
 
 use super::progress as cli_progress;
-use super::writer::CountingWriter;
+use super::tracked::ArtifactTracker;
+
+type ArtifactSink<'a> = Sink<File, ArtifactTracker<'a>>;
 
 /// Arguments of the `build` subcommand.
 #[derive(Debug, clap::Args)]
@@ -85,12 +88,13 @@ pub(super) fn run(args: &Args, console: &Console) -> Result<()> {
     let started = Instant::now();
 
     let metadata = cli_progress::tracked(console, |reporter| {
-        let mut files: Vec<(Artifact, CountingWriter<'_>)> = Vec::new();
+        let mut files: Vec<(Artifact, ArtifactSink<'_>)> = Vec::new();
         for &artifact in &args.artifacts {
             let output_path = args.output_dir.join(artifact.output_name(codec));
             let file = File::create(&output_path)
                 .with_context(|| format!("create output file {}", output_path.display()))?;
-            files.push((artifact, CountingWriter::new(file, artifact, reporter)));
+            let tracker = ArtifactTracker::new(artifact, reporter);
+            files.push((artifact, Sink::new(file, tracker, 0)));
         }
 
         let mut request = Request::new(&args.version, &args.registry)

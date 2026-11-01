@@ -9,9 +9,10 @@ use oci::digest::{Verifier, sha256_hex};
 use oci_client::auth::Access;
 use oci_client::client::Client;
 use oci_client::{blob, http, manifest};
+use tui::progress::sink::Sink;
 
 use crate::error::{KociError, Result};
-use crate::progress::sink::{Reported, Sink};
+use crate::progress::tracker::Reported;
 use crate::progress::{Event, Operation, Phase, Reporter, Unit};
 use crate::{registry, runtime};
 
