@@ -2,77 +2,15 @@
 
 //! Integration tests for live widgets.
 
-use std::io;
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+pub mod common;
 
 use tui::glyphs::Glyphs;
 use tui::live::Options;
 use tui::output::Mode;
-use tui::screen::Screen;
 use tui::size::Size;
 use tui::style::Theme;
-use tui::text::Span;
 
-struct RecordingScreen {
-    tx: SyncSender<String>,
-    size: Size,
-}
-
-impl RecordingScreen {
-    fn new(size: Size) -> (Self, Receiver<String>) {
-        let (tx, rx) = sync_channel(1024);
-
-        (Self { tx, size }, rx)
-    }
-
-    fn send(&self, text: impl Into<String>) {
-        let _send_result = self.tx.try_send(text.into());
-    }
-}
-
-impl Screen for RecordingScreen {
-    fn size(&self) -> Size {
-        self.size
-    }
-
-    fn move_to(&mut self, _col: u16, _row: u16) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn move_to_column(&mut self, _col: u16) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn clear_until_newline(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn write_span(&mut self, span: &Span<'_>) -> io::Result<()> {
-        self.send(span.text());
-
-        Ok(())
-    }
-
-    fn set_scroll_region(&mut self, _top: u16, _bottom: u16) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn reset_scroll_region(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn hide_cursor(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn show_cursor(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
+use crate::common::recording::{Recorder, collect};
 
 fn options(tty: bool) -> Options {
     Options::new(tty, Theme::plain())
@@ -89,10 +27,6 @@ fn quiet_options() -> Options {
     }
 }
 
-fn collect(rx: &Receiver<String>) -> String {
-    rx.iter().collect()
-}
-
 #[cfg(test)]
 mod tests {
     use tui::live::{Spinner, Steps};
@@ -102,7 +36,7 @@ mod tests {
     #[test]
     fn spinner_renders_updates_and_success() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(60, 10));
+        let (screen, rx) = Recorder::new(Size::new(60, 10));
         let spinner = Spinner::start(screen, "working", options(true)).unwrap();
 
         // ACT
@@ -119,7 +53,7 @@ mod tests {
     #[test]
     fn spinner_renders_failure() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(60, 10));
+        let (screen, rx) = Recorder::new(Size::new(60, 10));
         let spinner = Spinner::start(screen, "working", options(true)).unwrap();
 
         // ACT
@@ -134,7 +68,7 @@ mod tests {
     #[test]
     fn spinner_plain_output_ignores_later_updates() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(60, 10));
+        let (screen, rx) = Recorder::new(Size::new(60, 10));
         let spinner = Spinner::start(screen, "waiting", options(false)).unwrap();
 
         // ACT
@@ -151,7 +85,7 @@ mod tests {
     #[test]
     fn steps_render_ordered_phases() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, options(true)).unwrap();
 
         // ACT
@@ -181,7 +115,7 @@ mod tests {
     #[test]
     fn steps_plain_output_prints_only_phases() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, options(false)).unwrap();
 
         // ACT
@@ -204,7 +138,7 @@ mod tests {
     #[test]
     fn steps_render_item_counts_as_items() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, options(true)).unwrap();
 
         // ACT
@@ -222,7 +156,7 @@ mod tests {
     #[test]
     fn steps_render_byte_counts_as_bytes() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, options(true)).unwrap();
 
         // ACT
@@ -239,7 +173,7 @@ mod tests {
     #[test]
     fn notes_are_frozen_above_the_active_step() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, options(true)).unwrap();
 
         // ACT
@@ -259,7 +193,7 @@ mod tests {
     #[test]
     fn quiet_steps_suppress_notes_and_progress_but_keep_failures() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, quiet_options()).unwrap();
 
         // ACT
@@ -279,7 +213,7 @@ mod tests {
     #[test]
     fn dropping_steps_freezes_the_active_step() {
         // ARRANGE
-        let (screen, rx) = RecordingScreen::new(Size::new(80, 24));
+        let (screen, rx) = Recorder::new(Size::new(80, 24));
         let steps = Steps::new(screen, options(true)).unwrap();
 
         // ACT

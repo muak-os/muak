@@ -8,7 +8,8 @@ use koci::progress::report::Plain;
 use koci::progress::{Event, Noop, Reporter};
 use koci::ui::terminal::Terminal;
 use tui::console::Console;
-use tui::live::Steps;
+use tui::live::StepsHandle;
+use tui::live::session::Session;
 use tui::output::{Mode, Output};
 
 // Reporter selected by the resolved output mode.
@@ -18,65 +19,12 @@ enum Live {
     Rich(Terminal),
 }
 
-// Live progress display of one CLI operation.
-struct Progress {
-    steps: Option<Steps>,
-    live: Live,
-}
-
 impl Reporter for Live {
     fn report(&self, event: Event<'_>) {
         match *self {
             Self::Quiet(ref reporter) => reporter.report(event),
             Self::Plain(ref reporter) => reporter.report(event),
             Self::Rich(ref reporter) => reporter.report(event),
-        }
-    }
-}
-
-impl Progress {
-    fn new(output: Output) -> io::Result<Self> {
-        match output.mode {
-            Mode::Quiet => Ok(Self {
-                steps: None,
-                live: Live::Quiet(Noop),
-            }),
-            Mode::Plain => Ok(Self {
-                steps: None,
-                live: Live::Plain(Plain {
-                    verbose: output.verbose,
-                }),
-            }),
-            Mode::Rich => {
-                let steps = Steps::stderr_with(output)?;
-                let live = Live::Rich(Terminal::new(steps.handle(), output.verbose));
-
-                Ok(Self {
-                    steps: Some(steps),
-                    live,
-                })
-            }
-        }
-    }
-
-    fn reporter(&self) -> &dyn Reporter {
-        &self.live
-    }
-
-    fn finish(self) -> io::Result<()> {
-        match self.steps {
-            Some(steps) => steps.finish(),
-            None => Ok(()),
-        }
-    }
-
-    fn fail(self, message: String) -> io::Result<()> {
-        match self.steps {
-            Some(steps) => {
-                steps.fail(message);
-                steps.finish()
-            }
-            None => Ok(()),
         }
     }
 }
@@ -94,7 +42,8 @@ pub(crate) fn tracked<T, E>(
 where
     E: Error + Send + Sync + 'static,
 {
-    let progress = Progress::new(console.stderr())?;
+    let output = console.stderr();
+    let progress = Session::new(output, starts_steps(output), reporter)?;
     match run(progress.reporter()) {
         Ok(value) => {
             progress.finish()?;
@@ -104,5 +53,74 @@ where
             progress.fail(format!("Failed to {operation}: {error}"))?;
             Err(error).context(format!("Failed to {operation}"))
         }
+    }
+}
+
+fn starts_steps(output: Output) -> bool {
+    output.is_rich()
+}
+
+fn reporter(output: Output, handle: Option<StepsHandle>) -> io::Result<Live> {
+    match output.mode {
+        Mode::Quiet => Ok(Live::Quiet(Noop)),
+        Mode::Plain => Ok(Live::Plain(Plain {
+            verbose: output.verbose,
+        })),
+        Mode::Rich => {
+            let handle =
+                handle.ok_or_else(|| io::Error::other("rich output did not start steps"))?;
+
+            Ok(Live::Rich(Terminal::new(handle, output.verbose)))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tui::glyphs::Glyphs;
+    use tui::output::Output;
+    use tui::size::Size;
+    use tui::style::Theme;
+
+    use super::*;
+
+    fn output(mode: Mode) -> Output {
+        Output {
+            mode,
+            theme: Theme::plain(),
+            glyphs: Glyphs::plain(),
+            size: Size::new(80, 24),
+            verbose: false,
+        }
+    }
+
+    #[test]
+    fn starts_steps_follows_the_rich_mode() {
+        // ARRANGE
+        let modes = [Mode::Quiet, Mode::Plain, Mode::Rich];
+
+        // ACT
+        let started = modes.map(|mode| starts_steps(output(mode)));
+
+        // ASSERT
+        assert_eq!(started, [false, false, true]);
+    }
+
+    #[test]
+    fn reporter_requires_a_handle_only_when_steps_start() {
+        // ARRANGE
+        let quiet = output(Mode::Quiet);
+        let plain = output(Mode::Plain);
+        let rich = output(Mode::Rich);
+
+        // ACT
+        let quiet_live = reporter(quiet, None);
+        let plain_live = reporter(plain, None);
+        let rich_live = reporter(rich, None);
+
+        // ASSERT
+        assert!(matches!(quiet_live, Ok(Live::Quiet(_))));
+        assert!(matches!(plain_live, Ok(Live::Plain(_))));
+        assert!(rich_live.is_err());
     }
 }

@@ -20,7 +20,7 @@ use wizard::domain::profile::Profile;
 use wizard::domain::resolution::BuildIdentity;
 use wizard::request::Request;
 
-use super::progress;
+use super::progress as cli_progress;
 use super::writer::CountingWriter;
 
 /// Arguments of the `build` subcommand.
@@ -84,7 +84,7 @@ pub(super) fn run(args: &Args, console: &Console) -> Result<()> {
     let codec = args.compression.unwrap_or_default();
     let started = Instant::now();
 
-    let metadata = progress::tracked(console, |reporter| {
+    let metadata = cli_progress::tracked(console, |reporter| {
         let mut files: Vec<(Artifact, CountingWriter<'_>)> = Vec::new();
         for &artifact in &args.artifacts {
             let output_path = args.output_dir.join(artifact.output_name(codec));

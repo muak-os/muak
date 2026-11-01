@@ -2,6 +2,7 @@
 
 mod lines;
 mod renderer;
+pub mod session;
 mod spinner;
 mod steps;
 pub mod summary;

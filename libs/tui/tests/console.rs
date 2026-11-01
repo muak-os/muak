@@ -1,6 +1,6 @@
 //! Integration tests for the shared console facade.
 
-mod common;
+pub mod common;
 
 #[cfg(test)]
 mod tests {
