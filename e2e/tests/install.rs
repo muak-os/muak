@@ -4,7 +4,6 @@ use core::time::Duration;
 
 use anyhow::{Context as _, Result, ensure};
 use common::{boot_and_install, system_disk};
-use config::system::disk::{Entry, Kind};
 use e2e::artifacts::Artifacts;
 use e2e::cli::Cli;
 use e2e::vm::TestFixture;
@@ -118,28 +117,139 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn install_with_disk_selector() -> Result<()> {
+    async fn disks_list_reports_identity_columns() -> Result<()> {
         // ARRANGE
         let artifacts = Artifacts::from_env()?;
-        let mut selector = Entry::selector(Kind::System);
-        selector.subsystem = Some("nvme".to_owned());
-        let (fixture, cli) = boot_and_install(&artifacts, |cfg| {
-            cfg.disks = vec![selector];
-            cfg.host.secureboot = false;
-        })
-        .await?;
+        let fixture = TestFixture::boot_install(&artifacts)?;
+        fixture.vm.wait_ready(Duration::from_mins(1)).await?;
+        let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
 
         // ACT
-        let disks = assert_success!(cli, ["disks"]).await?;
+        let output = assert_success_insecure!(cli, ["disks"]).await?;
 
         // ASSERT
         ensure!(
-            disks.contains("nvme0n1"),
-            "expected the selector to resolve to nvme0n1, got: {disks}"
+            output.contains("nvme0n1"),
+            "expected nvme0n1 in disk list, got: {output}"
         );
-        fixture
-            .vm
-            .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+        ensure!(
+            output.contains("SERIAL") && output.contains("WWID"),
+            "expected SERIAL and WWID columns, got: {output}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn disks_show_details_single_disk() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let fixture = TestFixture::boot_install(&artifacts)?;
+        fixture.vm.wait_ready(Duration::from_mins(1)).await?;
+        let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
+
+        // ACT
+        let output = assert_success_insecure!(cli, ["disks", "show", "nvme0n1"]).await?;
+
+        // ASSERT
+        ensure!(
+            output.contains("nvme0n1"),
+            "expected nvme0n1 in show output, got: {output}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn install_dry_run_prints_resolved_plan() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let fixture = TestFixture::boot_install(&artifacts)?;
+        fixture.vm.wait_ready(Duration::from_mins(1)).await?;
+        let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
+
+        let (registry, version) = (common::install_registry(), common::install_version());
+        let config_file = cli
+            .generate_config(|cfg| {
+                cfg.disks = vec![system_disk()];
+                cfg.host.registry = registry;
+                cfg.host.version = version;
+                cfg.host.secureboot = false;
+            })
+            .await?;
+
+        // ACT
+        let output = assert_success_insecure!(
+            cli,
+            [
+                "install",
+                "--config",
+                &config_file.path().display().to_string(),
+                "--dry-run",
+            ]
+        )
+        .await?;
+
+        // ASSERT
+        ensure!(
+            output.contains("ROLE") && output.contains("DEVICE"),
+            "expected the disk table header, got: {output}"
+        );
+        ensure!(
+            output
+                .lines()
+                .any(|line| line.contains("system") && line.contains("/dev/nvme0n1")),
+            "expected the resolved system disk row, got: {output}"
+        );
+        ensure!(
+            output.contains("Dry run: nothing was written"),
+            "expected the dry-run message in output, got: {output}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn disks_wipe_previews_and_wipes_blank_disk() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let fixture = TestFixture::boot_install(&artifacts)?;
+        fixture.vm.wait_ready(Duration::from_mins(1)).await?;
+        let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
+        let config_file = cli
+            .generate_config(|cfg| {
+                cfg.disks = vec![system_disk()];
+                cfg.host.registry = common::install_registry();
+                cfg.host.version = common::install_version();
+                cfg.host.secureboot = false;
+            })
+            .await?;
+
+        // ACT
+        let preview =
+            assert_success_insecure!(cli, ["disks", "wipe", "nvme0n1", "--dry-run"]).await?;
+        let wiped = assert_success_insecure!(cli, ["disks", "wipe", "nvme0n1", "--yes"]).await?;
+        let plan = assert_success_insecure!(
+            cli,
+            [
+                "install",
+                "--config",
+                &config_file.path().display().to_string(),
+                "--dry-run",
+            ]
+        )
+        .await?;
+
+        // ASSERT
+        ensure!(
+            preview.contains("Would wipe /dev/nvme0n1"),
+            "expected a wipe preview, got: {preview}"
+        );
+        ensure!(
+            wiped.contains("Wiped /dev/nvme0n1"),
+            "expected the wipe summary, got: {wiped}"
+        );
+        ensure!(
+            plan.contains("Dry run: nothing was written"),
+            "expected the wiped disk to preflight clean, got: {plan}"
+        );
         Ok(())
     }
 }

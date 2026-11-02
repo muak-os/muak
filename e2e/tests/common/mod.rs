@@ -21,9 +21,11 @@ pub fn install_version() -> String {
     std::env::var("TAG").unwrap_or_else(|_| DEFAULT_TAG.to_owned())
 }
 
-/// Returns a system disk entry pinned to the install target device.
+/// Returns a system disk entry selecting the QEMU `NVMe` disk by subsystem.
 pub fn system_disk() -> Entry {
-    Entry::device(Kind::System, "/dev/nvme0n1")
+    let mut entry = Entry::selector(Kind::System);
+    entry.subsystem = Some("nvme".to_owned());
+    entry
 }
 
 /// Boots a VM, runs install with the given extra config patch, waits for the
