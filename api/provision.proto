@@ -21,6 +21,9 @@ service ProvisionService {
     // @rbac: maintenance|system:read
     rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
 
+    // @rbac: maintenance|admin
+    rpc WipeDisk(WipeDiskRequest) returns (WipeDiskResponse);
+
     // @rbac: system:read
     rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 
@@ -162,6 +165,25 @@ message ListDisksRequest {}
 message ListDisksResponse {
     repeated DiskInfo disks = 1;
     string error = 2;
+}
+
+enum WipeMethod {
+    WIPE_METHOD_FAST = 0;
+    WIPE_METHOD_ZEROES = 1;
+}
+
+message WipeDiskRequest {
+    string disk = 1;
+    bool dry_run = 2;
+    WipeMethod method = 3;
+    bool drop_partition = 4;
+    bool allow_system_disk = 5;
+}
+
+message WipeDiskResponse {
+    bool success = 1;
+    string error = 2;
+    string message = 3;
 }
 
 message GetConfigRequest {}

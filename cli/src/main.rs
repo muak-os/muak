@@ -122,8 +122,12 @@ pub enum Commands {
         config: Option<PathBuf>,
     },
     Reset {
+        /// Print what a factory reset would remove without touching the system.
         #[arg(long)]
-        force: bool,
+        dry_run: bool,
+        /// Skip the interactive confirmation phrase.
+        #[arg(long, alias = "force")]
+        yes: bool,
     },
     Reboot,
     Shutdown,
@@ -223,6 +227,7 @@ mod tests {
     use tui::output::Flags;
 
     use super::{Cli, Commands, DisksAction, OutputFlags, exit_code};
+    use crate::commands::disks::wipe::Method;
     use crate::commands::install::failure::Failure;
 
     #[test]
@@ -355,6 +360,56 @@ mod tests {
         assert!(dry_run);
         assert!(yes);
         assert!(allow_system_disk);
+    }
+
+    #[test]
+    fn disks_wipe_flags_parse() {
+        // ARRANGE
+        let cli = Cli::try_parse_from([
+            "muakctl",
+            "disks",
+            "wipe",
+            "/dev/sdb",
+            "--dry-run",
+            "--method",
+            "zeroes",
+            "--drop-partition",
+            "--yes",
+            "--allow-system-disk",
+        ])
+        .expect("parse disks wipe flags");
+
+        // ACT
+        let Commands::Disks { action, .. } = cli.command else {
+            panic!("expected the disks command");
+        };
+
+        // ASSERT
+        let Some(DisksAction::Wipe(args)) = action else {
+            panic!("expected the wipe action");
+        };
+        assert_eq!(args.id, "/dev/sdb");
+        assert!(args.dry_run);
+        assert_eq!(args.method, Method::Zeroes);
+        assert!(args.drop_partition);
+        assert!(args.yes);
+        assert!(args.allow_system_disk);
+    }
+
+    #[test]
+    fn reset_flags_parse() {
+        // ARRANGE
+        let cli = Cli::try_parse_from(["muakctl", "reset", "--dry-run", "--yes"])
+            .expect("parse reset flags");
+
+        // ACT
+        let Commands::Reset { dry_run, yes } = cli.command else {
+            panic!("expected the reset command");
+        };
+
+        // ASSERT
+        assert!(dry_run);
+        assert!(yes);
     }
 
     #[test]

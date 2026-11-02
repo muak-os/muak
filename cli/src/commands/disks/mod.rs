@@ -1,4 +1,5 @@
 mod show;
+pub(crate) mod wipe;
 
 use anyhow::Result;
 use tonic::transport::Channel;
@@ -35,6 +36,8 @@ pub enum Action {
         /// Kernel name (sda) or device path (/dev/sda).
         id: String,
     },
+    /// Wipes a whole disk after validating it on the server.
+    Wipe(wipe::Args),
 }
 
 /// Handles the disk command group, defaulting to the list view.
@@ -47,6 +50,7 @@ pub async fn handle(
     match dispatch(action) {
         Action::List => list(client, wide, console).await,
         Action::Show { id } => show::detail(client, &id, console).await,
+        Action::Wipe(args) => wipe::handle(client, args, console).await,
     }
 }
 

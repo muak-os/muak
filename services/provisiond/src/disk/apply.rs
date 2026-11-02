@@ -16,7 +16,7 @@ use super::blkpg::{add_partition_blkpg, delete_all_partitions_blkpg};
 use super::constants::SECTOR_SIZE;
 use super::format::wait_for_device;
 use super::gpt::{commit, format_partition_name, uuid_now, verify};
-use super::wipe::wipe;
+use super::wipe::fast;
 
 /// Deterministic disk GUID used so provisioned disks share a stable identifier.
 const DISK_GUID: [u8; 16] = [0xff; 16];
@@ -73,7 +73,7 @@ pub(crate) fn apply_plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
 
     if plan.wipe {
         delete_all_partitions_blkpg(disk)?;
-        wipe(disk)?;
+        fast(disk)?;
     }
 
     let (mut file, disk_size) = open_disk_rw(disk)?;

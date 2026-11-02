@@ -16,6 +16,7 @@ pub mod vm;
 
 use ::config::user::ClientConfig;
 use anyhow::{Result, bail};
+pub(crate) use install::failure::Failure;
 use tonic::transport::Channel;
 use tui::console::Console;
 use tui::style::Role;
@@ -282,9 +283,9 @@ async fn handle_cmd(
             let mut client = LogServiceClient::new(channel);
             logs::handle(&mut client, service, tail, follow, level, console).await
         }
-        Commands::Reset { force } => {
+        Commands::Reset { dry_run, yes } => {
             let mut client = ProvisionServiceClient::new(channel);
-            reset::handle(&mut client, force, context, console).await
+            reset::handle(&mut client, dry_run, yes, context, console).await
         }
         Commands::Reboot => {
             let mut client = ProvisionServiceClient::new(channel);

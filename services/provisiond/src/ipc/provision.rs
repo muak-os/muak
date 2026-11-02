@@ -14,7 +14,7 @@ use super::proto::provision::{
     GetUpdateStatusResponse, InstallPlan, InstallProgress, InstallRequest, ListDisksRequest,
     ListDisksResponse, PlanInstallRequest, PowerResponse, PrepareUpdateProgress,
     PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
-    UpdateResponse,
+    UpdateResponse, WipeDiskRequest, WipeDiskResponse, WipeMethod as ProtoWipeMethod,
 };
 use crate::{disk, install, journal, power, reset, streaming, template, update};
 
@@ -218,6 +218,44 @@ impl ProvisionService for ServiceImpl {
         }))
     }
 
+    async fn wipe_disk(
+        &self,
+        request: Request<WipeDiskRequest>,
+    ) -> Result<Response<WipeDiskResponse>, Status> {
+        let req = request.into_inner();
+        let method = wipe_method(req.method)?;
+
+        let disks = disk::list_disks()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
+        let target = disk::resolve_wipe(&disks, &req.disk, req.allow_system_disk)
+            .map_err(|e| Status::failed_precondition(format!("{e:#}")))?;
+        let options = disk::WipeOptions {
+            method,
+            drop_partition: req.drop_partition,
+            _allow_system_disk: req.allow_system_disk,
+            dry_run: req.dry_run,
+        };
+
+        match task::spawn_blocking(move || disk::run_wipe(&target, options)).await {
+            Ok(Ok(message)) => Ok(Response::new(WipeDiskResponse {
+                success: true,
+                error: String::new(),
+                message,
+            })),
+            Ok(Err(e)) => Ok(Response::new(WipeDiskResponse {
+                success: false,
+                error: format!("{e:#}"),
+                message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(WipeDiskResponse {
+                success: false,
+                error: format!("Task panicked: {e}"),
+                message: String::new(),
+            })),
+        }
+    }
+
     async fn get_config(
         &self,
         _request: Request<GetConfigRequest>,
@@ -414,6 +452,14 @@ fn parse_install_config(config_bytes: Vec<u8>) -> Result<config::system::Config,
         .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {e}")))?;
 
     Ok(config)
+}
+
+fn wipe_method(value: i32) -> Result<disk::WipeMethod, Status> {
+    match ProtoWipeMethod::try_from(value) {
+        Ok(ProtoWipeMethod::Fast) => Ok(disk::WipeMethod::Fast),
+        Ok(ProtoWipeMethod::Zeroes) => Ok(disk::WipeMethod::Zeroes),
+        Err(_) => Err(Status::invalid_argument("unknown wipe method")),
+    }
 }
 
 fn extract_author<T>(request: &Request<T>) -> String {

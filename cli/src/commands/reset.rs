@@ -5,15 +5,17 @@ use tui::console::Console;
 use tui::prompt::Prompter;
 use tui::style::Role;
 
-use crate::client::provision_service::FactoryResetRequest;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
+use crate::client::provision_service::{FactoryResetRequest, GetConfigRequest};
+use crate::commands::Failure;
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
 
 /// Handles the reset command.
 pub async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
-    force: bool,
+    dry_run: bool,
+    yes: bool,
     context_name: Option<String>,
     console: &Console,
 ) -> Result<()> {
@@ -27,7 +29,20 @@ pub async fn handle(
         "The system will reboot into maintenance mode.\n",
     );
 
-    if !force {
+    if dry_run {
+        let config_resp = client
+            .get_config(tonic::Request::new(GetConfigRequest {}))
+            .await?;
+        if config_resp.into_inner().error.is_empty() {
+            console.info("Dry run: factory reset would remove STATE and DATA partitions and reboot into maintenance mode");
+        } else {
+            console.line(Role::Warn, "System is not installed yet");
+            console.info("Dry run: a factory reset would remove STATE and DATA partitions");
+        }
+        return Ok(());
+    }
+
+    if !yes {
         let confirmed = match Prompter::stdio() {
             Some(mut prompter) => prompter.confirm_phrase("", CONFIRM_PHRASE)?,
             None => false,
@@ -35,7 +50,7 @@ pub async fn handle(
 
         if !confirmed {
             console.line(Role::Warn, "Factory reset cancelled.");
-            return Ok(());
+            return Err(Failure::declined("Factory reset cancelled").into());
         }
     }
 

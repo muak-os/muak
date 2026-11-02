@@ -2,7 +2,7 @@
 
 /// Install failure carrying the process exit status it must report.
 #[derive(Debug)]
-pub struct Failure {
+pub(crate) struct Failure {
     code: i32,
     message: String,
 }
