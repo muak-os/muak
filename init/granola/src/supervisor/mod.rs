@@ -6,6 +6,7 @@ mod restart;
 pub(crate) mod service;
 mod socket;
 pub mod spawner;
+pub mod status;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,7 +18,9 @@ use notify::NotifyListener;
 use reaper::{Reap, Reaper};
 use service::{Service, ServiceState, ServiceStatus};
 use spawner::{Spawn, Spawner};
+use status::Snapshot;
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
 
 const DEFAULT_SERVICES_DIR: &str = "/run/services";
 
@@ -28,14 +31,20 @@ pub struct Supervisor<S, R> {
     reaper: R,
     restart_queue: restart::RestartQueue,
     logger: LogWriter,
+    status: watch::Sender<Snapshot>,
     spawner: S,
 }
 
 impl Supervisor<Spawner, Reaper> {
-    pub fn new(service_defs: Vec<Service>, logger: LogWriter) -> Result<Self> {
+    pub fn new(
+        service_defs: Vec<Service>,
+        logger: LogWriter,
+        status: watch::Sender<Snapshot>,
+    ) -> Result<Self> {
         Self::with_backends(
             service_defs,
             logger,
+            status,
             Spawner,
             Reaper::new()?,
             Path::new(DEFAULT_SERVICES_DIR),
@@ -47,6 +56,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
     pub fn with_backends(
         service_defs: Vec<Service>,
         logger: LogWriter,
+        status: watch::Sender<Snapshot>,
         spawner: S,
         reaper: R,
         services_dir: &Path,
@@ -73,6 +83,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
             reaper,
             restart_queue: restart::RestartQueue::new(),
             logger,
+            status,
             spawner,
         })
     }
@@ -83,6 +94,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         let mut sigint = signal(SignalKind::interrupt())?;
 
         self.start_ready_services();
+        status::publish(&self.services, &self.status);
 
         let mut tick = tokio::time::interval(Duration::from_millis(100));
         let mut sweep = tokio::time::interval(Duration::from_secs(5));
@@ -120,6 +132,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         for (name, exit) in exits {
             self.handle_service_exit(&name, exit.pid, exit.exit_code, exit.signal);
         }
+        status::publish(&self.services, &self.status);
     }
 
     /// Records a service exit and schedules a restart or failure as needed.
@@ -180,16 +193,23 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         let result = self.spawner.spawn(state)?;
         self.reaper.track(result.pid, name.to_owned());
         logger::sources::capture(name, result.stdout, result.stderr, &self.logger);
+        status::publish(&self.services, &self.status);
 
         Ok(())
     }
 
     fn process_notifications(&mut self) {
-        for notification in self.notify_listener.poll() {
+        let notifications = self.notify_listener.poll();
+        let received = !notifications.is_empty();
+        for notification in notifications {
             notify::apply(self, notification);
         }
 
         self.start_ready_services();
+
+        if received {
+            status::publish(&self.services, &self.status);
+        }
     }
 
     fn process_pending_restarts(&mut self) {
@@ -205,23 +225,10 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         }
     }
 
-    /// Returns the current status of a service by name.
+    /// Returns the current state of a service by name.
     #[cfg(test)]
-    pub fn service_status(&self, name: &str) -> Option<&ServiceStatus> {
-        self.services.get(name).map(|state| &state.status)
-    }
-
-    /// Returns the current PID of a service by name.
-    #[cfg(test)]
-    pub fn service_pid(&self, name: &str) -> Option<i32> {
-        let state = self.services.get(name)?;
-        state.pid
-    }
-
-    /// Returns the restart count of a service by name.
-    #[cfg(test)]
-    pub fn service_restart_count(&self, name: &str) -> Option<u32> {
-        self.services.get(name).map(|state| state.restart_count)
+    pub fn state(&self, name: &str) -> Option<&ServiceState> {
+        self.services.get(name)
     }
 }
 
@@ -242,6 +249,7 @@ mod tests {
     use crate::supervisor::reaper::{ChildExit, Reap};
     use crate::supervisor::service::ServiceStatus;
     use crate::supervisor::spawner::{Spawn, SpawnResult};
+    use crate::supervisor::status::View;
 
     struct FakeSpawner {
         next_pid: i32,
@@ -363,9 +371,23 @@ mod tests {
         reaper: FakeReaper,
         dir: &TempDir,
     ) -> Result<Supervisor<FakeSpawner, FakeReaper>> {
+        make_observed_supervisor(services, spawner, reaper, dir).map(|(sup, _rx)| sup)
+    }
+
+    fn make_observed_supervisor(
+        services: Vec<Service>,
+        spawner: FakeSpawner,
+        reaper: FakeReaper,
+        dir: &TempDir,
+    ) -> Result<(
+        Supervisor<FakeSpawner, FakeReaper>,
+        watch::Receiver<Snapshot>,
+    )> {
         let (writer, _reader, actor) = logger::create();
         tokio::spawn(actor.run());
-        Supervisor::with_backends(services, writer, spawner, reaper, dir.path())
+        let (status, status_rx) = status::channel();
+        let sup = Supervisor::with_backends(services, writer, status, spawner, reaper, dir.path())?;
+        Ok((sup, status_rx))
     }
 
     async fn exhaust_restart_attempts(
@@ -394,10 +416,16 @@ mod tests {
         sup.start_ready_services();
 
         // ASSERT
-        assert_eq!(sup.service_status("alpha"), Some(&ServiceStatus::Starting));
-        assert_eq!(sup.service_status("beta"), Some(&ServiceStatus::Starting));
-        assert!(sup.service_pid("alpha").is_some());
-        assert!(sup.service_pid("beta").is_some());
+        assert_eq!(
+            sup.state("alpha").map(|state| &state.status),
+            Some(&ServiceStatus::Starting)
+        );
+        assert_eq!(
+            sup.state("beta").map(|state| &state.status),
+            Some(&ServiceStatus::Starting)
+        );
+        assert!(sup.state("alpha").is_some_and(|state| state.pid.is_some()));
+        assert!(sup.state("beta").is_some_and(|state| state.pid.is_some()));
     }
 
     #[tokio::test]
@@ -413,10 +441,16 @@ mod tests {
         sup.start_ready_services();
 
         // ASSERT
-        assert_eq!(sup.service_status("dep"), Some(&ServiceStatus::Starting));
-        assert_eq!(sup.service_status("child"), Some(&ServiceStatus::Pending));
-        assert!(sup.service_pid("dep").is_some());
-        assert!(sup.service_pid("child").is_none());
+        assert_eq!(
+            sup.state("dep").map(|state| &state.status),
+            Some(&ServiceStatus::Starting)
+        );
+        assert_eq!(
+            sup.state("child").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert!(sup.state("dep").is_some_and(|state| state.pid.is_some()));
+        assert!(sup.state("child").is_some_and(|state| state.pid.is_none()));
     }
 
     #[tokio::test]
@@ -434,8 +468,11 @@ mod tests {
         sup.process_exits(exits);
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
-        assert_eq!(sup.service_restart_count("svc"), Some(1));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(1));
     }
 
     #[tokio::test]
@@ -453,8 +490,11 @@ mod tests {
         sup.process_exits(exits);
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Stopping));
-        assert_eq!(sup.service_restart_count("svc"), Some(0));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Stopping)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(0));
     }
 
     #[tokio::test]
@@ -473,7 +513,10 @@ mod tests {
         sup.process_exits(exits);
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Failed));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Failed)
+        );
     }
 
     #[tokio::test]
@@ -486,14 +529,20 @@ mod tests {
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ASSERT
-        assert_eq!(sup.service_status("child"), Some(&ServiceStatus::Pending));
+        assert_eq!(
+            sup.state("child").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
 
         // ACT
         sup.services.get_mut("dep").expect("dep exists").status = ServiceStatus::Ready;
         sup.start_ready_services();
 
         // ASSERT
-        assert_eq!(sup.service_status("child"), Some(&ServiceStatus::Starting));
+        assert_eq!(
+            sup.state("child").map(|state| &state.status),
+            Some(&ServiceStatus::Starting)
+        );
     }
 
     #[tokio::test]
@@ -516,8 +565,11 @@ mod tests {
         );
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Ready));
-        assert_eq!(sup.service_restart_count("svc"), Some(0));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Ready)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(0));
     }
 
     #[tokio::test]
@@ -557,7 +609,10 @@ mod tests {
         );
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Degraded));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Degraded)
+        );
     }
 
     #[tokio::test]
@@ -646,7 +701,10 @@ mod tests {
         );
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Ready));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Ready)
+        );
     }
 
     #[tokio::test]
@@ -667,7 +725,10 @@ mod tests {
         );
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Stopping));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Stopping)
+        );
     }
 
     #[tokio::test]
@@ -683,8 +744,11 @@ mod tests {
         sup.handle_service_exit("svc", 1234, None, Some(9_i32));
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
-        assert_eq!(sup.service_restart_count("svc"), Some(1));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(1));
     }
 
     #[tokio::test]
@@ -700,8 +764,11 @@ mod tests {
         sup.handle_service_exit("svc", 1234, None, None);
 
         // ASSERT
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
-        assert_eq!(sup.service_restart_count("svc"), Some(1));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(1));
     }
 
     #[tokio::test]
@@ -728,8 +795,11 @@ mod tests {
         injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
         sup.process_exits(exits);
-        assert_eq!(sup.service_status("svc"), Some(&ServiceStatus::Pending));
-        assert_eq!(sup.service_restart_count("svc"), Some(1));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(1));
 
         let not_yet_due = sup.restart_queue.take_due(|_| false);
         assert_eq!(not_yet_due, Vec::<alloc::string::String>::new());
@@ -740,10 +810,41 @@ mod tests {
         respawn_all(&mut sup, due);
 
         // ASSERT
-        let status = sup.service_status("svc").cloned();
+        let status = sup.state("svc").map(|state| state.status.clone());
         assert!(
             status == Some(ServiceStatus::Starting) || status == Some(ServiceStatus::Pending),
             "unexpected status: {status:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn snapshot_reports_start_and_restart_count() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", &[])];
+        let (mut sup, status_rx) =
+            make_observed_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.start_ready_services();
+        let after_start = status_rx.borrow().clone();
+        injector.inject("svc", Some(1_i32));
+        let exits = sup.reaper.wait_for_exits().await;
+        sup.process_exits(exits);
+        let after_exit = status_rx.borrow().clone();
+
+        // ASSERT
+        assert_eq!(
+            after_start,
+            vec![View {
+                name: "svc".to_owned(),
+                status: ServiceStatus::Starting,
+                restarts: 0,
+            }]
+        );
+        assert_eq!(after_exit[0].status, ServiceStatus::Pending);
+        assert_eq!(after_exit[0].restarts, 1);
     }
 }

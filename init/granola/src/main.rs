@@ -49,7 +49,8 @@ async fn main() -> Result<()> {
 
     supervisor::logger::sources::kmsg(&writer);
 
-    let mut supervisor = Supervisor::new(services, writer)?;
+    let (status, _status_rx) = supervisor::status::channel();
+    let mut supervisor = Supervisor::new(services, writer, status)?;
 
     tokio::spawn(grpc_server_task(reader));
 
