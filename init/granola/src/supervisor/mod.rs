@@ -172,16 +172,24 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
     }
 
     fn start_ready_services(&mut self) {
-        for name in dependency::collect_startable(&self.services) {
+        let mut startable = dependency::collect_startable(&self.services);
+        startable.retain(|name| !self.restart_queue.is_queued(name));
+        for name in startable {
             self.spawn_or_log(&name);
         }
     }
 
-    /// Spawns a service, logging (instead of propagating) spawn failures.
+    // Spawns a service, scheduling a delayed retry when the spawn fails.
     fn spawn_or_log(&mut self, name: &str) {
-        if let Err(e) = self.spawn_service(name) {
-            kmsg::error!("Failed to spawn service {name}: {e}");
+        let Err(error) = self.spawn_service(name) else {
+            return;
+        };
+        let message = error.to_string();
+        match self.services.get_mut(name) {
+            Some(state) => self.restart_queue.record_spawn_failure(state, &message),
+            None => kmsg::error!("Failed to spawn unknown service {name}: {message}"),
         }
+        status::publish(&self.services, &self.status);
     }
 
     fn spawn_service(&mut self, name: &str) -> Result<()> {
@@ -224,12 +232,6 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
             self.spawn_or_log(&name);
         }
     }
-
-    /// Returns the current state of a service by name.
-    #[cfg(test)]
-    pub fn state(&self, name: &str) -> Option<&ServiceState> {
-        self.services.get(name)
-    }
 }
 
 #[cfg(test)]
@@ -239,7 +241,7 @@ mod tests {
     use std::os::fd::OwnedFd;
     use std::sync::Mutex;
 
-    use anyhow::Result;
+    use anyhow::{Result, bail};
     use granola::runtime::notify::Health;
     use tempfile::TempDir;
     use tokio::sync::Notify;
@@ -282,6 +284,29 @@ mod tests {
                 stdout: OwnedFd::from(r1),
                 stderr: OwnedFd::from(r2),
             })
+        }
+    }
+
+    struct FailingSpawner {
+        attempts: u32,
+    }
+
+    impl FailingSpawner {
+        fn new() -> Self {
+            Self { attempts: 0 }
+        }
+    }
+
+    impl Spawn for FailingSpawner {
+        fn spawn(&mut self, _state: &mut service::ServiceState) -> Result<SpawnResult> {
+            self.attempts = self.attempts.saturating_add(1);
+            bail!("Binary not found: /nonexistent");
+        }
+    }
+
+    impl<S, R> Supervisor<S, R> {
+        fn state(&self, name: &str) -> Option<&ServiceState> {
+            self.services.get(name)
         }
     }
 
@@ -365,29 +390,32 @@ mod tests {
         }
     }
 
-    fn make_supervisor(
+    fn make_supervisor<S: Spawn>(
         services: Vec<Service>,
-        spawner: FakeSpawner,
+        spawner: S,
         reaper: FakeReaper,
         dir: &TempDir,
-    ) -> Result<Supervisor<FakeSpawner, FakeReaper>> {
+    ) -> Result<Supervisor<S, FakeReaper>> {
         make_observed_supervisor(services, spawner, reaper, dir).map(|(sup, _rx)| sup)
     }
 
-    fn make_observed_supervisor(
+    fn make_observed_supervisor<S: Spawn>(
         services: Vec<Service>,
-        spawner: FakeSpawner,
+        spawner: S,
         reaper: FakeReaper,
         dir: &TempDir,
-    ) -> Result<(
-        Supervisor<FakeSpawner, FakeReaper>,
-        watch::Receiver<Snapshot>,
-    )> {
+    ) -> Result<(Supervisor<S, FakeReaper>, watch::Receiver<Snapshot>)> {
         let (writer, _reader, actor) = logger::create();
         tokio::spawn(actor.run());
         let (status, status_rx) = status::channel();
         let sup = Supervisor::with_backends(services, writer, status, spawner, reaper, dir.path())?;
         Ok((sup, status_rx))
+    }
+
+    fn fail_spawns(sup: &mut Supervisor<FailingSpawner, FakeReaper>, attempts: u32) {
+        for _ in 0..attempts {
+            sup.spawn_or_log("svc");
+        }
     }
 
     async fn exhaust_restart_attempts(
@@ -517,6 +545,57 @@ mod tests {
             sup.state("svc").map(|state| &state.status),
             Some(&ServiceStatus::Failed)
         );
+    }
+
+    #[tokio::test]
+    async fn spawn_failure_queues_retry_instead_of_respawning() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let services = vec![make_service("svc", &[])];
+        let mut sup =
+            make_supervisor(services, FailingSpawner::new(), reaper, &dir).expect("supervisor");
+
+        // ACT
+        sup.start_ready_services();
+        sup.start_ready_services();
+
+        // ASSERT
+        assert_eq!(sup.spawner.attempts, 1);
+        assert!(sup.restart_queue.is_queued("svc"));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(1));
+    }
+
+    #[tokio::test]
+    async fn spawn_failure_fails_service_after_max_attempts() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let services = vec![make_service("svc", &[])];
+        let mut sup =
+            make_supervisor(services, FailingSpawner::new(), reaper, &dir).expect("supervisor");
+
+        // ACT
+        fail_spawns(&mut sup, 1);
+        // The queued retry only becomes due once the restart delay elapses.
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        sup.process_pending_restarts();
+        fail_spawns(&mut sup, restart::MAX_RESTART_ATTEMPTS - 2);
+        sup.start_ready_services();
+        let due = sup.restart_queue.take_due(|_| true);
+
+        // ASSERT
+        assert_eq!(sup.spawner.attempts, restart::MAX_RESTART_ATTEMPTS);
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Failed)
+        );
+        assert!(!sup.restart_queue.is_queued("svc"));
+        assert!(due.is_empty(), "a failed service must not stay queued");
     }
 
     #[tokio::test]
