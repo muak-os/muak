@@ -23,10 +23,6 @@ ntp = "pool.ntp.org"
 # device = "/dev/nvme0n1"
 #
 # [[disks]]
-# role = "system"
-# serial = "S3Z8NX0M123456"
-#
-# [[disks]]
 # role = "data"
 # wwid = "eui.0025385b71a1c7d4"
 
