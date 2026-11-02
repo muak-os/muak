@@ -91,7 +91,9 @@ fn is_muak_mapping(holder: &str, sysfs_root: &Path) -> bool {
     };
     let name = name.trim();
 
-    name == Role::State.dm_name() || name == Role::Data.dm_name()
+    name == Role::State.dm_name()
+        || name == Role::Ephemeral.dm_name()
+        || name == Role::Data.dm_name()
 }
 
 fn read_holders(device: &Path) -> Result<Vec<String>> {
@@ -271,11 +273,14 @@ mod tests {
         let sysfs = sysfs();
         make_holder(sysfs.path(), "sda/sda1", "dm-0");
         make_holder(sysfs.path(), "sda/sda2", "dm-1");
+        make_holder(sysfs.path(), "sda/sda3", "dm-2");
         make_mapping(sysfs.path(), "dm-0", Role::State.dm_name());
-        make_mapping(sysfs.path(), "dm-1", Role::Data.dm_name());
+        make_mapping(sysfs.path(), "dm-1", Role::Ephemeral.dm_name());
+        make_mapping(sysfs.path(), "dm-2", Role::Data.dm_name());
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
         disk.partitions.push(partition(2));
+        disk.partitions.push(partition(3));
         let paths = Paths {
             sysfs_root: sysfs.path(),
             class_block: Path::new("/does-not-exist"),

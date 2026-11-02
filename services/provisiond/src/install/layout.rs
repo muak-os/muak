@@ -14,7 +14,7 @@ use anyhow::{Result, bail};
 pub fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
     let plan = doc.to_plan()?;
 
-    for role in [Role::Esp, Role::State, Role::Data] {
+    for role in [Role::Esp, Role::State, Role::Ephemeral, Role::Data] {
         if !plan.partitions.iter().any(|spec| spec.role == Some(role)) {
             bail!("disk plan is missing the '{role:?}' partition");
         }
@@ -79,7 +79,7 @@ mod tests {
         assert!(system.wipe);
         assert_eq!(
             system.partitions.len(),
-            3,
+            4,
             "all partitions stay on the system disk"
         );
         assert!(
@@ -99,14 +99,21 @@ mod tests {
         // ASSERT
         assert_eq!(
             system.partitions.len(),
-            2,
-            "system disk keeps ESP + STATE only"
+            3,
+            "system disk keeps ESP + STATE + EPHEMERAL only"
         );
         assert!(
             system
                 .partitions
                 .iter()
                 .all(|spec| spec.role != Some(Role::Data))
+        );
+        assert!(
+            system
+                .partitions
+                .iter()
+                .any(|spec| spec.role == Some(Role::Ephemeral)),
+            "EPHEMERAL stays on the system disk"
         );
         let data = data.expect("split assignment must produce a data plan");
         assert_eq!(data.partitions.len(), 1, "the data disk carries DATA only");

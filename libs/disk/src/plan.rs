@@ -16,6 +16,9 @@ pub const EFI_SIZE: u64 = 512 * 1024 * 1024;
 /// Frozen size of the STATE partition.
 pub const STATE_SIZE: u64 = 1024 * 1024 * 1024;
 
+/// Frozen size of the EPHEMERAL partition.
+pub const EPHEMERAL_SIZE: u64 = 10 * 1024 * 1024 * 1024;
+
 /// Schema version of the disk document.
 pub const API_VERSION: &str = "muak.dev/disk/v1-beta";
 

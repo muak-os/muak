@@ -7,7 +7,8 @@ use crate::role::Role;
 /// A distro-owned disk layout applied by the installer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layout {
-    /// Standard UEFI/GPT layout: ESP and STATE, then DATA filling the disk.
+    /// Standard UEFI/GPT layout: ESP, STATE and EPHEMERAL, then DATA filling
+    /// the disk.
     Uefi,
 }
 
@@ -44,13 +45,15 @@ impl Layout {
             })
     }
 
-    /// System plan of this layout: ESP and STATE, then DATA filling the disk.
+    /// System plan of this layout: ESP, STATE and EPHEMERAL, then DATA
+    /// filling the disk.
     #[must_use]
     pub fn plan(self) -> Plan {
         match self {
             Self::Uefi => Plan::wiped(vec![
                 spec(Role::Esp, Size::Fixed(plan::EFI_SIZE)),
                 spec(Role::State, Size::Fixed(plan::STATE_SIZE)),
+                spec(Role::Ephemeral, Size::Fixed(plan::EPHEMERAL_SIZE)),
                 spec(Role::Data, Size::Fill),
             ]),
         }
@@ -110,17 +113,26 @@ mod tests {
         let guids: Vec<_> = plan.partitions.iter().map(|spec| spec.type_guid).collect();
         assert_eq!(
             roles,
-            vec![Some(Role::Esp), Some(Role::State), Some(Role::Data)]
+            vec![
+                Some(Role::Esp),
+                Some(Role::State),
+                Some(Role::Ephemeral),
+                Some(Role::Data)
+            ]
         );
-        assert_eq!(names, vec!["EFI", "STATE", "DATA"]);
+        assert_eq!(names, vec!["EFI", "STATE", "EPHEMERAL", "DATA"]);
         assert_eq!(
             sizes,
             vec![
                 Size::Fixed(plan::EFI_SIZE),
                 Size::Fixed(plan::STATE_SIZE),
+                Size::Fixed(plan::EPHEMERAL_SIZE),
                 Size::Fill
             ]
         );
-        assert_eq!(guids, vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID]);
+        assert_eq!(
+            guids,
+            vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID, LINUX_FS_GUID]
+        );
     }
 }

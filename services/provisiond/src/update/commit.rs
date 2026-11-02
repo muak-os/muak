@@ -13,10 +13,11 @@ use crate::{efi, secrets};
 pub async fn apply() -> Result<()> {
     kmsg::info!("Validation succeeded, committing update");
 
-    let (efi_device, state_device) = tokio::task::spawn_blocking(move || {
+    let (efi_device, state_device, ephemeral_device) = tokio::task::spawn_blocking(move || {
         (
             find_partition_device(Role::Esp),
             find_partition_device(Role::State),
+            find_partition_device(Role::Ephemeral),
         )
     })
     .await
@@ -35,7 +36,12 @@ pub async fn apply() -> Result<()> {
         measure::from_file(&staged).context("Failed to read UKI sections from the staged image")?;
 
     let luks_key = match secrets::resolve_luks_key(state_device.as_deref()) {
-        Some(key) => reseal_luks_key(&key, state_device.as_deref(), &sections)?,
+        Some(key) => reseal_luks_key(
+            &key,
+            state_device.as_deref(),
+            ephemeral_device.as_deref(),
+            &sections,
+        )?,
         None => None,
     };
 
@@ -66,7 +72,7 @@ pub async fn apply() -> Result<()> {
     }
     efi::unmount();
 
-    cache::clean_stale();
+    cache::enforce_budget();
 
     if !secureboot_enabled {
         secureboot::remove_hierarchy();
@@ -82,6 +88,7 @@ pub async fn apply() -> Result<()> {
 fn reseal_luks_key(
     key: &[u8],
     state_device: Option<&str>,
+    ephemeral_device: Option<&str>,
     sections: &[MeasuredSection],
 ) -> Result<Option<Vec<u8>>> {
     if !tpm2::device::is_available(None) {
@@ -91,7 +98,13 @@ fn reseal_luks_key(
     let secrets::SealResult::Sealed(token) = secrets::seal_luks_key(key, sections)? else {
         bail!("TPM2 sealing unexpectedly returned an ESP key")
     };
-    let devices: Vec<&str> = [state_device].into_iter().flatten().collect();
+    if ephemeral_device.is_none() {
+        kmsg::warn!("EPHEMERAL partition not found; TPM2 token not re-sealed to EPHEMERAL");
+    }
+    let devices: Vec<&str> = [state_device, ephemeral_device]
+        .into_iter()
+        .flatten()
+        .collect();
     secrets::write_token_to_devices(&token, &devices)?;
     kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
 

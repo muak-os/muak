@@ -88,6 +88,7 @@ fn release(target: &Target) -> Result<()> {
 
     if target.is_system {
         close_mapping(Role::State);
+        close_mapping(Role::Ephemeral);
     }
     if target.is_data {
         close_mapping(Role::Data);

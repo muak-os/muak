@@ -19,7 +19,7 @@ const PLAN_COLUMNS: [&str; 4] = ["PARTITION", "ROLE", "SIZE", "MOUNT"];
 // Mirrors the GPT names returned by `Role::gpt_name()` in `libs/disk/src/role.rs`.
 // The plan lists every matching partition, while the reset deletes the first
 // partition of each role, so duplicates across disks can be over-reported.
-const REMOVABLE_ROLES: [&str; 2] = ["STATE", "DATA"];
+const REMOVABLE_ROLES: [&str; 3] = ["STATE", "EPHEMERAL", "DATA"];
 
 struct Plan<'a> {
     installed: bool,
@@ -155,7 +155,7 @@ fn print_plan(plan: &Plan<'_>, console: &Console) -> Result<()> {
     }
 
     if plan.rows.is_empty() {
-        console.line(Role::Warn, "No STATE or DATA partitions found");
+        console.line(Role::Warn, "No STATE, EPHEMERAL or DATA partitions found");
     } else {
         console.info("Dry run: a factory reset would remove:");
         console.table(&plan.table())?;
@@ -219,14 +219,15 @@ mod tests {
     }
 
     #[test]
-    fn plan_lists_state_and_data_partitions_of_an_installed_system() {
+    fn plan_lists_the_removable_partitions_of_an_installed_system() {
         // ARRANGE
         let disks = vec![disk(
             "sda",
             vec![
                 partition("sda1", "EFI", "/boot"),
                 partition("sda2", "STATE", "/run/muak"),
-                partition("sda3", "DATA", ""),
+                partition("sda3", "EPHEMERAL", ""),
+                partition("sda4", "DATA", ""),
             ],
         )];
 
@@ -235,14 +236,17 @@ mod tests {
 
         // ASSERT
         assert!(plan.installed);
-        assert_eq!(plan.rows.len(), 2);
+        assert_eq!(plan.rows.len(), 3);
         assert_eq!(plan.rows[0][0], "/dev/sda2");
         assert_eq!(plan.rows[0][1], "STATE");
         assert_eq!(plan.rows[0][2], units::bytes(GIB));
         assert_eq!(plan.rows[0][3], "/run/muak");
         assert_eq!(plan.rows[1][0], "/dev/sda3");
-        assert_eq!(plan.rows[1][1], "DATA");
+        assert_eq!(plan.rows[1][1], "EPHEMERAL");
         assert_eq!(plan.rows[1][3], "-");
+        assert_eq!(plan.rows[2][0], "/dev/sda4");
+        assert_eq!(plan.rows[2][1], "DATA");
+        assert_eq!(plan.rows[2][3], "-");
     }
 
     #[test]
@@ -276,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_ignores_disks_without_state_or_data_partitions() {
+    fn plan_ignores_disks_without_removable_partitions() {
         // ARRANGE
         let disks = vec![
             disk("sda", vec![partition("sda1", "EFI", "/boot")]),

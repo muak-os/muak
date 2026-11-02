@@ -6,7 +6,7 @@ use anyhow::{Context as _, Result, bail};
 use btrfs::quota;
 use disk::discover::find_by_partname;
 use disk::role::Role;
-use rustix::fs::{CWD, Mode, mkdirat};
+use rustix::fs::{AtFlags, CWD, Mode, mkdirat, unlinkat};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
@@ -14,9 +14,10 @@ use super::luks::resolve_key;
 
 const STATE_MOUNT: &str = "/run/state";
 const DATA_MOUNT: &str = "/run/data";
+const EPHEMERAL_MOUNT: &str = "/run/ephemeral";
 const STATE_CONFIG: &str = "/run/state/config.toml";
 
-/// Mount persistent STATE and DATA partitions if the system is installed.
+/// Mount persistent STATE, DATA, and EPHEMERAL partitions if the system is installed.
 pub(crate) fn persistent() -> bool {
     let state_devices = find_by_partname(Role::State.gpt_name());
     if state_devices.is_empty() {
@@ -75,7 +76,47 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
         quota::enable(DATA_MOUNT)?;
     }
 
+    mount_ephemeral(&key);
+
     Ok(())
+}
+
+fn mount_ephemeral(key: &[u8]) {
+    let Some(device) = find_by_partname(Role::Ephemeral.gpt_name())
+        .into_iter()
+        .next()
+    else {
+        kmsg::warn!("EPHEMERAL partition not found; continuing without it");
+        return;
+    };
+
+    if let Err(error) = try_mount_ephemeral(&device, key) {
+        kmsg::warn!("Ignoring EPHEMERAL partition {}: {:#}", device, error);
+    }
+}
+
+fn try_mount_ephemeral(device: &str, key: &[u8]) -> Result<()> {
+    luks2::open(device, Role::Ephemeral.dm_name(), key)
+        .with_context(|| format!("Failed to open LUKS device: {device}"))?;
+    let mapped = format!("/dev/mapper/{}", Role::Ephemeral.dm_name());
+
+    if let Err(error) = mount_btrfs(&mapped, EPHEMERAL_MOUNT) {
+        close_mapping(Role::Ephemeral);
+        remove_mountpoint(EPHEMERAL_MOUNT);
+        return Err(error);
+    }
+
+    kmsg::info!("Mounted EPHEMERAL partition at /run/ephemeral");
+
+    Ok(())
+}
+
+fn remove_mountpoint(target: &str) {
+    if let Err(error) = unlinkat(CWD, target, AtFlags::REMOVEDIR)
+        && error != Errno::NOENT
+    {
+        kmsg::warn!("Failed to remove {}: {}", target, error);
+    }
 }
 
 fn mount_btrfs(device: &str, target: &str) -> Result<()> {
@@ -92,21 +133,17 @@ fn mount_btrfs(device: &str, target: &str) -> Result<()> {
 }
 
 fn cleanup_persistent_mounts() {
+    try_unmount(EPHEMERAL_MOUNT);
+    close_mapping(Role::Ephemeral);
     try_unmount(DATA_MOUNT);
+    close_mapping(Role::Data);
     try_unmount(STATE_MOUNT);
-    if let Err(error) = luks2::close(Role::Data.dm_name()) {
-        kmsg::warn!(
-            "Failed to close LUKS mapping {}: {}",
-            Role::Data.dm_name(),
-            error
-        );
-    }
-    if let Err(error) = luks2::close(Role::State.dm_name()) {
-        kmsg::warn!(
-            "Failed to close LUKS mapping {}: {}",
-            Role::State.dm_name(),
-            error
-        );
+    close_mapping(Role::State);
+}
+
+fn close_mapping(role: Role) {
+    if let Err(error) = luks2::close(role.dm_name()) {
+        kmsg::warn!("Failed to close LUKS mapping {}: {}", role.dm_name(), error);
     }
 }
 

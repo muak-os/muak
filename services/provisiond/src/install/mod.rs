@@ -4,13 +4,13 @@ mod layout;
 pub mod pki;
 pub(crate) mod plan;
 mod state;
+mod volumes;
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use config::system;
-use layout::plans_from_doc;
 use luks2::key::Passphrase;
 use pki::InstallResult;
 use sbolt::efi::enrollment;
@@ -24,23 +24,11 @@ use wizard::request::Request;
 use crate::ipc::proto::provision::InstallProgress;
 use crate::{disk, efi, medium, secrets, streaming};
 
-/// dm-crypt mapping name for the STATE volume.
-const DM_STATE: &str = disk::Role::State.dm_name();
-
-/// dm-crypt mapping name for the DATA volume.
-const DM_DATA: &str = disk::Role::Data.dm_name();
-
 /// Installs Muak to the disks assigned in `config`, with the given configuration.
 struct PkiResult {
     client_result: InstallResult,
     auth_config: config::auth::State,
     server_pki: pki::Server,
-}
-
-struct PartitionInfo {
-    efi: String,
-    state: String,
-    data: String,
 }
 
 pub async fn run(
@@ -58,8 +46,8 @@ pub async fn run(
 
     let tpm_available = tpm2::device::is_available(None);
 
-    let partitions = partition_disks(&targets, &progress).await?;
-    format_partitions(&partitions, &luks_key, &progress).await?;
+    let partitions = volumes::partition(&targets, &progress).await?;
+    volumes::format_luks(&partitions, &luks_key, &progress).await?;
 
     let (sections, sb_hierarchy) = build_and_deploy_efi(
         &partitions.efi,
@@ -76,7 +64,10 @@ pub async fn run(
         let seal_result = secrets::seal_luks_key(&luks_key, &sections)?;
         match seal_result {
             secrets::SealResult::Sealed(token) => {
-                secrets::write_token_to_devices(&token, &[&partitions.state, &partitions.data])?;
+                secrets::write_token_to_devices(
+                    &token,
+                    &[&partitions.state, &partitions.ephemeral],
+                )?;
                 println!("LUKS key sealed to TPM2 with PCR#11 values");
             }
             secrets::SealResult::EspKey => {
@@ -87,12 +78,11 @@ pub async fn run(
         println!("TPM2 unavailable, LUKS key written to ESP");
     }
 
-    let (dm_state, dm_data) =
-        open_luks_volumes(&partitions.state, &partitions.data, &luks_key).await?;
-    format_btrfs_volumes(&dm_state, &dm_data, &progress).await?;
+    let mapped = volumes::open_luks(&partitions, &luks_key).await?;
+    volumes::format_btrfs(&mapped).await?;
 
     initialize_state(
-        &dm_state,
+        &mapped.state,
         config,
         &pki_result,
         sb_hierarchy.as_ref(),
@@ -100,7 +90,7 @@ pub async fn run(
     )
     .await?;
 
-    close_luks_volumes()?;
+    volumes::close_luks()?;
 
     enroll_secureboot_keys(sb_hierarchy.as_ref(), &progress).await?;
 
@@ -266,135 +256,6 @@ fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Pro
     ))
 }
 
-async fn partition_disks(
-    targets: &disk::Targets,
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<PartitionInfo> {
-    send_progress(progress, &format!("Partitioning {}", targets.system)).await;
-
-    let system = targets.system.clone();
-    let data = targets.data().to_owned();
-    let split = targets.is_split();
-
-    tokio::task::spawn_blocking(move || partition_disks_blocking(&system, &data, split)).await?
-}
-
-fn partition_disks_blocking(
-    system_disk: &str,
-    data_disk: &str,
-    split: bool,
-) -> Result<PartitionInfo> {
-    let shared_data = !split;
-    let doc = disk::load_document()?;
-    let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
-
-    disk::fits_plan(system_disk, &system_plan)?;
-    if let Some(ref plan) = data_plan {
-        disk::fits_plan(data_disk, plan)?;
-    }
-
-    let system = disk::apply_plan(system_disk, &system_plan)?;
-    let efi = system.role(disk::Role::Esp)?;
-    let state = system.role(disk::Role::State)?;
-    let data = match data_plan {
-        Some(ref plan) => disk::apply_plan(data_disk, plan)?
-            .role(disk::Role::Data)?
-            .clone(),
-        None => system.role(disk::Role::Data)?.clone(),
-    };
-
-    Ok(PartitionInfo {
-        efi: efi.device.clone(),
-        state: state.device.clone(),
-        data: data.device,
-    })
-}
-
-async fn format_partitions(
-    partitions: &PartitionInfo,
-    luks_key: &[u8],
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<()> {
-    send_progress(progress, "Formatting partitions...").await;
-
-    disk::format_efi_partition(&partitions.efi)?;
-
-    let (state_result, data_result) = tokio::join!(
-        flatten_join_result(tokio::task::spawn_blocking({
-            let state_part = partitions.state.clone();
-            let luks_key = luks_key.to_vec();
-            move || {
-                luks2::format(&state_part, &luks_key, disk::Role::State.gpt_name())
-                    .context("Failed to LUKS format STATE")
-            }
-        })),
-        flatten_join_result(tokio::task::spawn_blocking({
-            let data_part = partitions.data.clone();
-            let luks_key = luks_key.to_vec();
-            move || {
-                luks2::format(&data_part, &luks_key, disk::Role::Data.gpt_name())
-                    .context("Failed to LUKS format DATA")
-            }
-        })),
-    );
-
-    state_result?;
-    data_result?;
-
-    Ok(())
-}
-
-async fn open_luks_volumes(
-    state_part: &str,
-    data_part: &str,
-    luks_key: &[u8],
-) -> Result<(String, String)> {
-    let (state_result, data_result) = tokio::join!(
-        flatten_join_result(tokio::task::spawn_blocking({
-            let state_part = state_part.to_owned();
-            let luks_key = luks_key.to_vec();
-            move || {
-                luks2::open(&state_part, DM_STATE, &luks_key).context("Failed to open LUKS STATE")
-            }
-        })),
-        flatten_join_result(tokio::task::spawn_blocking({
-            let data_part = data_part.to_owned();
-            let luks_key = luks_key.to_vec();
-            move || luks2::open(&data_part, DM_DATA, &luks_key).context("Failed to open LUKS DATA")
-        })),
-    );
-
-    state_result?;
-    data_result?;
-
-    Ok((
-        format!("/dev/mapper/{DM_STATE}"),
-        format!("/dev/mapper/{DM_DATA}"),
-    ))
-}
-
-async fn format_btrfs_volumes(
-    dm_state: &str,
-    dm_data: &str,
-    _progress: &mpsc::Sender<InstallProgress>,
-) -> Result<()> {
-    let (state_result, data_result) = tokio::join!(
-        flatten_join_result(tokio::task::spawn_blocking({
-            let dm_state = dm_state.to_owned();
-            move || disk::format_btrfs_partition(&dm_state, disk::Role::State.gpt_name())
-        })),
-        flatten_join_result(tokio::task::spawn_blocking({
-            let dm_data = dm_data.to_owned();
-            move || disk::format_btrfs_partition(&dm_data, disk::Role::Data.gpt_name())
-        })),
-    );
-
-    state_result?;
-    data_result?;
-
-    Ok(())
-}
-
 async fn initialize_state(
     dm_state: &str,
     config: &system::Config,
@@ -412,19 +273,6 @@ async fn initialize_state(
     )?;
 
     Ok(())
-}
-
-fn close_luks_volumes() -> Result<()> {
-    luks2::close(DM_STATE).context("Failed to close LUKS STATE mapping")?;
-    luks2::close(DM_DATA).context("Failed to close LUKS DATA mapping")?;
-
-    Ok(())
-}
-
-async fn flatten_join_result<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
-    handle
-        .await
-        .map_err(|e| anyhow::anyhow!("Task panicked: {e}"))?
 }
 
 async fn send_progress(progress: &mpsc::Sender<InstallProgress>, message: &str) {
