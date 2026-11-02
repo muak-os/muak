@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("cargo:rerun-if-changed={api_dir}/process.proto");
     println!("cargo:rerun-if-changed={api_dir}/log.proto");
+    println!("cargo:rerun-if-changed={api_dir}/service.proto");
 
     tonic_prost_build::configure()
         .build_server(true)
@@ -19,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             [
                 format!("{api_dir}/process.proto"),
                 format!("{api_dir}/log.proto"),
+                format!("{api_dir}/service.proto"),
             ],
             [api_dir],
         )?)?;

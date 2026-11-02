@@ -1,5 +1,6 @@
 pub mod log;
 pub mod process;
+pub mod services;
 
 // The module below contains machine-generated protobuf/tonic code, so the
 // strict workspace lints are expected here rather than in the generated output.
@@ -29,5 +30,8 @@ pub mod proto {
     }
     pub mod log {
         tonic::include_proto!("muak.log.v1");
+    }
+    pub mod service {
+        tonic::include_proto!("muak.service.v1");
     }
 }
