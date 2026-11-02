@@ -3,7 +3,8 @@ mod common;
 use core::time::Duration;
 
 use anyhow::{Context as _, Result, ensure};
-use common::boot_and_install;
+use common::{boot_and_install, system_disk};
+use config::system::disk::{Entry, Kind};
 use e2e::artifacts::Artifacts;
 use e2e::cli::Cli;
 use e2e::vm::TestFixture;
@@ -90,7 +91,7 @@ mod tests {
             cfg.host.extensions
         );
 
-        "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+        cfg.disks = vec![system_disk()];
         cfg.host.registry = common::install_registry();
         let patched = config::system::serialize(&cfg).context("serialise generated config")?;
         let config_file = NamedTempFile::new().context("create config tempfile")?;
@@ -110,6 +111,32 @@ mod tests {
         .await
         .map_err(|_elapsed| anyhow::anyhow!("install timed out after 1 minute"))??;
 
+        fixture
+            .vm
+            .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn install_with_disk_selector() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let mut selector = Entry::selector(Kind::System);
+        selector.subsystem = Some("nvme".to_owned());
+        let (fixture, cli) = boot_and_install(&artifacts, |cfg| {
+            cfg.disks = vec![selector];
+            cfg.host.secureboot = false;
+        })
+        .await?;
+
+        // ACT
+        let disks = assert_success!(cli, ["disks"]).await?;
+
+        // ASSERT
+        ensure!(
+            disks.contains("nvme0n1"),
+            "expected the selector to resolve to nvme0n1, got: {disks}"
+        );
         fixture
             .vm
             .assert_serial_contains("[granola] Running from INSTALLED DISK")?;

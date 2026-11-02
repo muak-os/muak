@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context as _, Result};
+use config::system::disk;
 use config::user::{ClientConfig, ServerContext};
 use pki::csr;
 use tokio::time::sleep;
@@ -47,7 +48,8 @@ pub async fn handle(
         config_path.display()
     ))?;
 
-    let target_disk = config.disk.system.clone();
+    let target_disk =
+        disk::system(&config.disks).map_or_else(|| "no system disk".to_owned(), describe);
 
     let request = tonic::Request::new(InstallRequest {
         force,
@@ -121,6 +123,35 @@ pub async fn handle(
     console.success(&msg);
 
     Ok(())
+}
+
+/// Renders a configured disk entry for operator messages.
+fn describe(entry: &disk::Entry) -> String {
+    if let Some(device) = entry.device.as_deref() {
+        return device.to_owned();
+    }
+
+    let mut parts = Vec::new();
+    push_matcher(&mut parts, "serial", entry.serial.as_deref());
+    push_matcher(&mut parts, "wwid", entry.wwid.as_deref());
+    push_matcher(&mut parts, "model", entry.model.as_deref());
+    push_matcher(&mut parts, "subsystem", entry.subsystem.as_deref());
+    push_matcher(&mut parts, "bus_path", entry.bus_path.as_deref());
+    if let Some(rotational) = entry.rotational {
+        parts.push(format!("rotational={rotational}"));
+    }
+
+    if parts.is_empty() {
+        "selector".to_owned()
+    } else {
+        parts.join(" ")
+    }
+}
+
+fn push_matcher(parts: &mut Vec<String>, name: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        parts.push(format!("{name}={value}"));
+    }
 }
 
 /// Polls the server after reboot to verify the install succeeded.

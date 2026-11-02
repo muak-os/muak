@@ -1,14 +1,17 @@
 //! Sysfs-based disk and partition discovery utilities.
 
-use std::io::{Read as _, Seek as _};
+use std::io::Seek as _;
 use std::os::unix::fs::FileTypeExt as _;
 use std::path::Path;
 
 use anyhow::{Result, bail};
 use tokio::fs;
 
+use super::attrs::{read_link_name, read_partition_info, read_sysfs_string, read_sysfs_u64};
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
 use super::types::{DiskInfo, PartitionInfo};
+
+const SYSFS_BLOCK_ROOT: &str = "/sys/block";
 
 /// Validates that a disk meets minimum size requirements.
 pub fn validate_disk_size(disk: &str) -> Result<()> {
@@ -53,105 +56,53 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
     Ok(())
 }
 
-/// Checks if a block device name represents a physical disk.
-fn is_physical_disk(name: &str) -> bool {
-    !name.starts_with("loop")
-        && !name.starts_with("dm-")
-        && !name.starts_with("ram")
-        && !name.starts_with("sr") // CD-ROM
+/// Lists the physical disks reported by the running kernel through sysfs.
+pub async fn list_disks() -> Result<Vec<DiskInfo>> {
+    list_disks_in(Path::new(SYSFS_BLOCK_ROOT)).await
 }
 
-/// Reads a u64 value from a sysfs file.
-async fn read_sysfs_u64(path: &Path) -> Result<u64> {
-    let content = fs::read_to_string(path).await?;
-
-    Ok(content.trim().parse()?)
-}
-
-/// Reads a string value from a sysfs file.
-async fn read_sysfs_string(path: &Path) -> Result<String> {
-    let content = fs::read_to_string(path).await?;
-
-    Ok(content.trim().to_owned())
-}
-
-fn detect_filesystem(device_path: &str) -> String {
-    use std::fs::File;
-
-    let Ok(mut file) = File::open(device_path) else {
-        return String::new();
-    };
-
-    let mut ext4_magic = [0_u8; 2];
-    if file.seek(std::io::SeekFrom::Start(0x438)).is_ok()
-        && file.read_exact(&mut ext4_magic).is_ok()
-        && ext4_magic == [0x53, 0xEF]
-    {
-        return "ext4".to_owned();
+async fn list_disks_in(sysfs_root: &Path) -> Result<Vec<DiskInfo>> {
+    if !sysfs_root.exists() {
+        bail!(
+            "{} does not exist - sysfs not mounted?",
+            sysfs_root.display()
+        );
     }
 
-    if let Some(fstype) = detect_fat_filesystem(&mut file) {
-        return fstype;
+    let mut disks = Vec::new();
+    let mut entries = fs::read_dir(sysfs_root).await?;
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if let Some(disk) = try_read_disk(sysfs_root, entry).await {
+            disks.push(disk);
+        }
     }
 
-    let mut btrfs_magic = [0_u8; 8];
-    if file.seek(std::io::SeekFrom::Start(0x10040)).is_ok()
-        && file.read_exact(&mut btrfs_magic).is_ok()
-        && btrfs_magic == *b"_BHRfS_M"
-    {
-        return "btrfs".to_owned();
-    }
+    disks.sort_by(|left, right| left.name.cmp(&right.name));
 
-    String::new()
+    Ok(disks)
 }
 
-fn detect_fat_filesystem(file: &mut std::fs::File) -> Option<String> {
-    if file.seek(std::io::SeekFrom::Start(0)).is_err() {
+async fn try_read_disk(sysfs_root: &Path, entry: fs::DirEntry) -> Option<DiskInfo> {
+    let name = entry.file_name();
+    let name_str = name.to_string_lossy();
+
+    if !is_physical_disk(&name_str) {
         return None;
     }
 
-    let mut boot_sector = [0_u8; 512];
-    if file.read_exact(&mut boot_sector).is_err() {
-        return None;
+    match read_disk_info_in(sysfs_root, &name_str).await {
+        Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
+        Ok(_) => None,
+        Err(e) => {
+            kmsg::error!("Failed to read disk {}: {}", name_str, e);
+            None
+        }
     }
-
-    let fat32_sig = &boot_sector[82..90];
-    if fat32_sig.starts_with(b"FAT32   ") {
-        return Some("vfat".to_owned());
-    }
-
-    let fat16_sig = &boot_sector[54..62];
-    if fat16_sig.starts_with(b"FAT16   ") || fat16_sig.starts_with(b"FAT12   ") {
-        return Some("vfat".to_owned());
-    }
-
-    None
 }
 
-async fn read_partition_info(disk_name: &str, part_name: &str) -> Result<PartitionInfo> {
-    let sysfs_path = Path::new("/sys/block").join(disk_name).join(part_name);
-
-    let number = u32::try_from(read_sysfs_u64(&sysfs_path.join("partition")).await?).unwrap_or(0);
-    let start_sector = read_sysfs_u64(&sysfs_path.join("start")).await?;
-    let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
-    let size_bytes = size_sectors.saturating_mul(SECTOR_SIZE);
-
-    let path = format!("/dev/{part_name}");
-
-    let fstype = detect_filesystem(&path);
-
-    Ok(PartitionInfo {
-        number,
-        start_sector,
-        size_bytes,
-        name: part_name.to_owned(),
-        path,
-        fstype,
-    })
-}
-
-async fn read_disk_info(name: &str) -> Result<DiskInfo> {
-    let sysfs_path = Path::new("/sys/block").join(name);
+async fn read_disk_info_in(sysfs_root: &Path, name: &str) -> Result<DiskInfo> {
+    let sysfs_path = sysfs_root.join(name);
 
     let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
     let size_bytes = size_sectors.saturating_mul(SECTOR_SIZE);
@@ -162,29 +113,47 @@ async fn read_disk_info(name: &str) -> Result<DiskInfo> {
         .await
         .unwrap_or_else(|_| name.to_owned());
 
+    let serial = read_fact(&sysfs_path, "device/serial", "serial").await;
+    let wwid = read_fact(&sysfs_path, "wwid", "device/wwid").await;
+    let rotational = read_sysfs_u64(&sysfs_path.join("queue/rotational"))
+        .await
+        .unwrap_or(0)
+        != 0;
+    let bus_path = resolve_bus_path(sysfs_root, &sysfs_path);
+    let subsystem = read_link_name(&sysfs_path.join("device/subsystem")).unwrap_or_default();
+
     let path = format!("/dev/{name}");
 
-    let partitions = discover_partitions(&sysfs_path, name).await;
+    let partitions = discover_partitions(sysfs_root, &sysfs_path, name).await;
 
     Ok(DiskInfo {
         name: name.to_owned(),
         path,
         size_bytes,
         model,
+        serial,
+        wwid,
+        bus_path,
+        subsystem,
+        rotational,
         removable,
         read_only,
         partitions,
     })
 }
 
-async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<PartitionInfo> {
+async fn discover_partitions(
+    sysfs_root: &Path,
+    sysfs_path: &Path,
+    disk_name: &str,
+) -> Vec<PartitionInfo> {
     let Ok(mut entries) = fs::read_dir(sysfs_path).await else {
         return Vec::new();
     };
 
     let mut partitions = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if let Some(part) = try_read_partition(entry, disk_name).await {
+        if let Some(part) = try_read_partition(sysfs_root, entry, disk_name).await {
             partitions.push(part);
         }
     }
@@ -194,7 +163,11 @@ async fn discover_partitions(sysfs_path: &Path, disk_name: &str) -> Vec<Partitio
     partitions
 }
 
-async fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<PartitionInfo> {
+async fn try_read_partition(
+    sysfs_root: &Path,
+    entry: fs::DirEntry,
+    disk_name: &str,
+) -> Option<PartitionInfo> {
     let part_name = entry.file_name();
     let part_name_str = part_name.to_string_lossy();
 
@@ -206,45 +179,48 @@ async fn try_read_partition(entry: fs::DirEntry, disk_name: &str) -> Option<Part
         return None;
     }
 
-    read_partition_info(disk_name, &part_name_str).await.ok()
+    read_partition_info(sysfs_root, disk_name, &part_name_str)
+        .await
+        .ok()
 }
 
-pub async fn list_disks() -> Result<Vec<DiskInfo>> {
-    let block_dir = Path::new("/sys/block");
-    if !block_dir.exists() {
-        bail!("/sys/block does not exist - sysfs not mounted?");
+async fn read_fact(sysfs_path: &Path, primary: &str, fallback: &str) -> String {
+    if let Ok(value) = read_sysfs_string(&sysfs_path.join(primary)).await {
+        return value;
     }
 
-    let mut disks = Vec::new();
-    let mut entries = fs::read_dir(block_dir).await?;
-
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        if let Some(disk) = try_read_disk(entry).await {
-            disks.push(disk);
-        }
-    }
-
-    disks.sort_by(|left, right| left.name.cmp(&right.name));
-
-    Ok(disks)
+    read_sysfs_string(&sysfs_path.join(fallback))
+        .await
+        .unwrap_or_default()
 }
 
-async fn try_read_disk(entry: fs::DirEntry) -> Option<DiskInfo> {
-    let name = entry.file_name();
-    let name_str = name.to_string_lossy();
+fn resolve_bus_path(sysfs_root: &Path, sysfs_path: &Path) -> String {
+    let Ok(target) = std::fs::canonicalize(sysfs_path.join("device")) else {
+        return String::new();
+    };
+    let root = std::fs::canonicalize(sysfs_root).unwrap_or_else(|_| sysfs_root.to_path_buf());
 
-    if !is_physical_disk(&name_str) {
-        return None;
-    }
+    let target = target.to_string_lossy();
+    let root = root.to_string_lossy();
 
-    match read_disk_info(&name_str).await {
-        Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
-        Ok(_) => None,
-        Err(e) => {
-            kmsg::error!("Failed to read disk {}: {}", name_str, e);
-            None
-        }
-    }
+    let mount = root.rsplit_once('/').map_or("", |(parent, _)| parent);
+    let relative = target
+        .strip_prefix(root.as_ref())
+        .or_else(|| target.strip_prefix(mount))
+        .unwrap_or(target.as_ref());
+    let relative = relative
+        .strip_prefix("/devices/")
+        .or_else(|| relative.strip_prefix("devices/"))
+        .unwrap_or(relative);
+
+    format!("/{}", relative.trim_start_matches('/'))
+}
+
+fn is_physical_disk(name: &str) -> bool {
+    !name.starts_with("loop")
+        && !name.starts_with("dm-")
+        && !name.starts_with("ram")
+        && !name.starts_with("sr") // CD-ROM
 }
 
 #[cfg(test)]
@@ -319,5 +295,134 @@ mod tests {
             // ASSERT
             assert!(result, "{name} should be a physical disk");
         }
+    }
+
+    #[test]
+    fn read_disk_info_in_reads_stable_facts() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "nvme0n1");
+        std::fs::write(root.path().join("nvme0n1/device/serial"), "SN123\n").expect("serial");
+        std::fs::write(root.path().join("nvme0n1/wwid"), "naa.5000\n").expect("wwid");
+        std::fs::write(root.path().join("nvme0n1/queue/rotational"), "0\n").expect("rotational");
+        link_subsystem(root.path(), "nvme0n1", "nvme");
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "nvme0n1")).expect("disk info");
+
+        // ASSERT
+        assert_eq!(disk.serial, "SN123");
+        assert_eq!(disk.wwid, "naa.5000");
+        assert_eq!(disk.subsystem, "nvme");
+        assert!(!disk.rotational);
+        assert_eq!(disk.bus_path, "/nvme0n1/device");
+    }
+
+    #[test]
+    fn read_disk_info_in_falls_back_to_disk_attributes() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+        std::fs::write(root.path().join("sda/serial"), "FALLBACK-SERIAL\n").expect("serial");
+        std::fs::write(root.path().join("sda/device/wwid"), "fallback.wwid\n").expect("wwid");
+        link_subsystem(root.path(), "sda", "scsi");
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "sda")).expect("disk info");
+
+        // ASSERT
+        assert_eq!(disk.serial, "FALLBACK-SERIAL");
+        assert_eq!(disk.wwid, "fallback.wwid");
+        assert_eq!(disk.subsystem, "scsi");
+    }
+
+    #[test]
+    fn read_disk_info_in_defaults_missing_facts() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "sda")).expect("disk info");
+
+        // ASSERT
+        assert_eq!(disk.serial, "");
+        assert_eq!(disk.wwid, "");
+        assert_eq!(disk.subsystem, "");
+        assert_eq!(disk.bus_path, "/sda/device");
+        assert!(!disk.rotational);
+    }
+
+    #[test]
+    fn read_disk_info_in_resolves_bus_path_through_devices_tree() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let block = root.path().join("sys/block");
+        write_disk(&block, "sda");
+        std::fs::remove_dir_all(block.join("sda/device")).expect("placeholder device dir");
+        let device = root.path().join("sys/devices/pci0000:00/ata1/sda");
+        std::fs::create_dir_all(&device).expect("device tree");
+        std::os::unix::fs::symlink(&device, block.join("sda/device")).expect("device link");
+
+        // ACT
+        let disk = run(read_disk_info_in(&block, "sda")).expect("disk info");
+
+        // ASSERT
+        assert_eq!(disk.bus_path, "/pci0000:00/ata1/sda");
+    }
+
+    #[test]
+    fn list_disks_in_sorts_by_name() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sdb");
+        write_disk(root.path(), "sda");
+
+        // ACT
+        let disks = run(list_disks_in(root.path())).expect("disks");
+
+        // ASSERT
+        let names: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
+        assert_eq!(names, ["sda", "sdb"]);
+    }
+
+    #[test]
+    fn list_disks_in_discovers_physical_disks_only() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+        write_disk(root.path(), "loop0");
+
+        // ACT
+        let disks = run(list_disks_in(root.path())).expect("disks");
+
+        // ASSERT
+        assert_eq!(disks.len(), 1);
+        assert_eq!(disks[0].name, "sda");
+        assert_eq!(disks[0].path, "/dev/sda");
+        assert_eq!(disks[0].size_bytes, 2048 * SECTOR_SIZE);
+    }
+
+    fn write_disk(root: &Path, name: &str) {
+        let disk = root.join(name);
+        std::fs::create_dir_all(disk.join("device")).expect("device dir");
+        std::fs::create_dir_all(disk.join("queue")).expect("queue dir");
+        std::fs::write(disk.join("size"), "2048\n").expect("size");
+        std::fs::write(disk.join("removable"), "0\n").expect("removable");
+        std::fs::write(disk.join("ro"), "0\n").expect("ro");
+        std::fs::write(disk.join("device/model"), "Fake Disk\n").expect("model");
+    }
+
+    fn link_subsystem(root: &Path, name: &str, subsystem: &str) {
+        let target = format!("../../../../bus/{subsystem}");
+        std::os::unix::fs::symlink(target, root.join(name).join("device/subsystem"))
+            .expect("subsystem link");
+    }
+
+    fn run<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(future)
     }
 }

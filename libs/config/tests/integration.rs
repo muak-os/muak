@@ -24,8 +24,9 @@ mod tests {
     port = 8080
     ntp = "pool.ntp.org"
 
-    [disk]
-    system = "test_disk"
+    [[disks]]
+    role = "system"
+    device = "test_disk"
 
     [network]
     ipv6 = true
@@ -39,7 +40,13 @@ mod tests {
         let config = system::parse_from_str(config_content).unwrap();
 
         // ASSERT
-        assert_eq!(config.disk.system, "test_disk");
+        assert_eq!(
+            config
+                .disks
+                .first()
+                .and_then(|entry| entry.device.as_deref()),
+            Some("test_disk")
+        );
         assert!(config.network.ipv6);
         assert!(!config.vm.auto_restart);
     }

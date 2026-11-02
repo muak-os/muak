@@ -69,7 +69,9 @@ pub async fn prepare(
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    verify_system_disk(&config::system::config()?.disk.system)?;
+    let installed = config::system::config()?;
+    let system = disk::resolve_system(&installed.disks).await?;
+    verify_system_disk(&system)?;
 
     streaming::send_progress(
         &progress,
@@ -324,7 +326,7 @@ pub(super) fn update_config(
         config::system::parse_from_str(&contents).context("Failed to parse config")?;
 
     let mut merged = new_config.clone();
-    merged.disk = config.disk.clone();
+    merged.disks.clone_from(&config.disks);
 
     let updated_config =
         config::system::serialize(&merged).context("Failed to serialize config")?;

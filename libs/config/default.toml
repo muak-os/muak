@@ -18,9 +18,13 @@ port = 50051
 # clock = "auto"
 ntp = "pool.ntp.org"
 
-[disk]
-system = ""
-# data = ""
+# [[disks]]
+# role = "system"
+# device = "/dev/nvme0n1"
+#
+# [[disks]]
+# role = "data"
+# serial = "S3Z8NX0M123456"
 
 [network]
 dns = [

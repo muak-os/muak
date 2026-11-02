@@ -1,6 +1,7 @@
 use core::time::Duration;
 
 use anyhow::Result;
+use config::system::disk::{Entry, Kind};
 use e2e::artifacts::Artifacts;
 use e2e::assert_success_insecure;
 use e2e::cli::Cli;
@@ -18,6 +19,11 @@ pub fn install_registry() -> String {
 /// Catalog release installed on the machine.
 pub fn install_version() -> String {
     std::env::var("TAG").unwrap_or_else(|_| DEFAULT_TAG.to_owned())
+}
+
+/// Returns a system disk entry pinned to the install target device.
+pub fn system_disk() -> Entry {
+    Entry::device(Kind::System, "/dev/nvme0n1")
 }
 
 /// Boots a VM, runs install with the given extra config patch, waits for the
@@ -40,7 +46,7 @@ pub async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
     let (registry, version) = (install_registry(), install_version());
     let config_file = cli
         .generate_config(|cfg| {
-            "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+            cfg.disks = vec![system_disk()];
             cfg.host.registry = registry;
             cfg.host.version = version;
             extra_config(cfg);

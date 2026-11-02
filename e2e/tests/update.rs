@@ -3,7 +3,7 @@ mod common;
 use core::time::Duration;
 
 use anyhow::{Result, ensure};
-use common::{boot_and_install, install_registry, install_version};
+use common::{boot_and_install, install_registry, install_version, system_disk};
 use e2e::artifacts::Artifacts;
 use e2e::assert_success;
 use tokio::time::timeout;
@@ -86,7 +86,7 @@ mod tests {
         let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
-                "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+                cfg.disks = vec![system_disk()];
                 cfg.host.registry = registry;
                 cfg.host.version = version;
             })
@@ -143,7 +143,7 @@ mod tests {
         let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
-                "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+                cfg.disks = vec![system_disk()];
                 cfg.host.registry = registry;
                 cfg.host.version = version;
                 cfg.host.secureboot = true;
@@ -204,7 +204,7 @@ mod tests {
         let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
-                "/dev/nvme0n1".clone_into(&mut cfg.disk.system);
+                cfg.disks = vec![system_disk()];
                 cfg.host.registry = registry;
                 cfg.host.version = version;
                 cfg.host.secureboot = false;

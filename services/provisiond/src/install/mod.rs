@@ -48,20 +48,15 @@ pub async fn run(
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
-    validate_disks(
-        &config.disk.system,
-        config.disk.data_disk(),
-        force,
-        &progress,
-    )
-    .await?;
+    let targets = disk::resolve(&config.disks).await?;
+    validate_disks(&targets.system, targets.data(), force, &progress).await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
 
     let tpm_available = tpm2::device::is_available(None);
 
-    let partitions = partition_disks(config, &progress).await?;
+    let partitions = partition_disks(&targets, &progress).await?;
     format_partitions(&partitions, &luks_key, &progress).await?;
 
     let (sections, sb_hierarchy) = build_and_deploy_efi(
@@ -268,31 +263,37 @@ fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Pro
 }
 
 async fn partition_disks(
-    config: &system::Config,
+    targets: &disk::Targets,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<PartitionInfo> {
-    send_progress(progress, &format!("Partitioning {}", config.disk.system)).await;
+    send_progress(progress, &format!("Partitioning {}", targets.system)).await;
 
-    let disk_config = config.disk.clone();
+    let system = targets.system.clone();
+    let data = targets.data().to_owned();
+    let split = targets.is_split();
 
-    tokio::task::spawn_blocking(move || partition_disks_blocking(&disk_config)).await?
+    tokio::task::spawn_blocking(move || partition_disks_blocking(&system, &data, split)).await?
 }
 
-fn partition_disks_blocking(disk_config: &system::disk::Config) -> Result<PartitionInfo> {
-    let shared_data = !disk_config.is_split();
+fn partition_disks_blocking(
+    system_disk: &str,
+    data_disk: &str,
+    split: bool,
+) -> Result<PartitionInfo> {
+    let shared_data = !split;
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
 
-    disk::fits_plan(&disk_config.system, &system_plan)?;
+    disk::fits_plan(system_disk, &system_plan)?;
     if let Some(ref plan) = data_plan {
-        disk::fits_plan(disk_config.data_disk(), plan)?;
+        disk::fits_plan(data_disk, plan)?;
     }
 
-    let system = disk::apply_plan(&disk_config.system, &system_plan)?;
+    let system = disk::apply_plan(system_disk, &system_plan)?;
     let efi = system.role(disk::Role::Esp)?;
     let state = system.role(disk::Role::State)?;
     let data = match data_plan {
-        Some(ref plan) => disk::apply_plan(disk_config.data_disk(), plan)?
+        Some(ref plan) => disk::apply_plan(data_disk, plan)?
             .role(disk::Role::Data)?
             .clone(),
         None => system.role(disk::Role::Data)?.clone(),

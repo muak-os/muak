@@ -35,9 +35,9 @@ pub struct Config {
     /// Host-level configuration (name, registry, channel, version, ports, etc.).
     #[serde(default)]
     pub host: host::Config,
-    /// Disk partition layout configuration.
-    #[serde(default)]
-    pub disk: disk::Config,
+    /// Disk assignment entries for the system and optional data disks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disks: Vec<disk::Entry>,
     /// Network configuration (interfaces, DNS, IPv6).
     #[serde(default)]
     pub network: network::Config,
@@ -51,7 +51,7 @@ impl Default for Config {
         toml::from_str(DEFAULT_CONFIG).unwrap_or_else(|_| Config {
             api_version: API_VERSION.to_owned(),
             host: host::Config::default(),
-            disk: disk::Config::default(),
+            disks: Vec::new(),
             network: network::Config::default(),
             vm: vm::Config::default(),
         })
@@ -102,7 +102,7 @@ impl Config {
                 "host.version must be set".to_owned(),
             ));
         }
-        self.disk.validate_for_install()
+        disk::validate_for_install(&self.disks)
     }
 
     /// Validates that the config is acceptable for an update operation.
@@ -113,7 +113,7 @@ impl Config {
     /// changes immutable fields or the base validation fails.
     pub fn validate_for_update(&self, installed: &Config) -> Result<()> {
         self.validate()?;
-        self.disk.validate_immutable(&installed.disk)?;
+        disk::validate_immutable(&self.disks, &installed.disks)?;
 
         Ok(())
     }
@@ -197,7 +197,7 @@ pub fn serialize(config: &Config) -> Result<String> {
 /// Serializes the default system configuration to a string.
 #[must_use]
 pub fn serialize_default() -> String {
-    TomlCodec::encode(&Config::default()).unwrap_or_default()
+    DEFAULT_CONFIG.to_owned()
 }
 
 /// Parses a [`Config`] from a string, validating it.
@@ -339,7 +339,7 @@ mod tests {
         let mut config = Config::default();
         config.host.port = 8080;
         config.host.version = "v1.0.0".to_owned();
-        config.disk.system = "/dev/sda".to_owned();
+        config.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
 
         // ACT & ASSERT
         config.validate().unwrap();
@@ -351,7 +351,7 @@ mod tests {
         // ARRANGE
         let mut config = Config::default();
         config.host.port = 8080;
-        config.disk.system = "/dev/sda".to_owned();
+        config.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
 
         // ACT & ASSERT
         assert!(config.validate_for_install().is_err());
@@ -373,7 +373,7 @@ mod tests {
         let mut config = Config::default();
         config.host.port = 8080;
         config.host.version = "v1.0.0".to_owned();
-        config.disk.system = String::new();
+        config.disks = Vec::new();
 
         // ACT & ASSERT
         assert!(config.validate_for_install().is_err());
@@ -401,10 +401,10 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
-        installed.disk.system = "/dev/sda".to_owned();
+        installed.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
 
         let mut requested = installed.clone();
-        requested.disk.system = "/dev/sdb".to_owned();
+        requested.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sdb")];
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -415,11 +415,16 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
-        installed.disk.system = "/dev/sda".to_owned();
-        installed.disk.data = Some("/dev/sdb".to_owned());
+        installed.disks = vec![
+            disk::Entry::device(disk::Kind::System, "/dev/sda"),
+            disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
+        ];
 
         let mut requested = installed.clone();
-        requested.disk.data = Some("/dev/sdc".to_owned());
+        requested.disks = vec![
+            disk::Entry::device(disk::Kind::System, "/dev/sda"),
+            disk::Entry::device(disk::Kind::Data, "/dev/sdc"),
+        ];
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -551,7 +556,7 @@ image = "10.0.2.2:5000/installer:dev"
         let mut config = Config::default();
         config.host.port = 9090;
         config.host.name = "testhost".to_owned();
-        config.disk.system = "/dev/nvme0n1".to_owned();
+        config.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/nvme0n1")];
         config.network.ipv6 = true;
         config.network.dns = vec!["9.9.9.9".parse().unwrap()];
         config.vm.auto_restart = true;
@@ -564,7 +569,10 @@ image = "10.0.2.2:5000/installer:dev"
         assert_eq!(restored.api_version, API_VERSION);
         assert_eq!(restored.host.port, 9090);
         assert_eq!(restored.host.name, "testhost");
-        assert_eq!(restored.disk.system, "/dev/nvme0n1");
+        assert_eq!(
+            restored.disks,
+            vec![disk::Entry::device(disk::Kind::System, "/dev/nvme0n1")]
+        );
         assert!(restored.network.ipv6);
         assert_eq!(
             restored.network.dns,

@@ -1,13 +1,17 @@
 //! Disk management utilities for partitioning and formatting.
 
 mod apply;
+mod attrs;
 mod blkpg;
 mod constants;
 mod format;
 mod gpt;
 mod manage;
 mod mount;
+mod pattern;
+mod select;
 mod sysfs;
+mod target;
 mod types;
 mod validate;
 mod wipe;
@@ -23,6 +27,7 @@ pub(crate) use format::{format_btrfs_partition, format_efi_partition};
 pub(crate) use manage::{delete_partitions, find_partition_number, has_state_partition};
 pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
 pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
+pub(crate) use target::{Targets, resolve, resolve_system};
 pub(crate) use validate::{fits_plan, install_target};
 
 /// Path of the disk document on a booted, installed system.
