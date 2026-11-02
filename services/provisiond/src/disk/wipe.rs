@@ -7,9 +7,9 @@ use parttable::gpt;
 use super::Role;
 use super::blkpg::delete_all_partitions_blkpg;
 use super::constants::MB;
+use super::guard::Target;
 use super::manage::delete_partitions;
 use super::mount::{get_disk_mounts, unmount_all};
-use super::wipe_target::Target;
 
 const ZERO_CHUNK: usize = 16 * 1024;
 const HEAD_BYTES: u64 = 10 * MB;

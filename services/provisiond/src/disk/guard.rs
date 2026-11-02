@@ -1,4 +1,4 @@
-//! Validation of a user supplied disk identifier before a wipe.
+//! Guard checks for a disk selected for wiping.
 
 use anyhow::{Result, bail};
 
@@ -20,18 +20,14 @@ pub(crate) struct Target {
 }
 
 /// The resolved wipe target, its inventory record and its safety checks.
-pub(crate) struct Validation {
+pub(crate) struct Verdict {
     pub target: Target,
     pub disk: DiskInfo,
     pub checks: Vec<Check>,
 }
 
 /// Resolves `id` to a whole disk and returns the wipe safety checks.
-pub(crate) fn validate(
-    disks: &[DiskInfo],
-    id: &str,
-    allow_system_disk: bool,
-) -> Result<Validation> {
+pub(crate) fn validate(disks: &[DiskInfo], id: &str, allow_system_disk: bool) -> Result<Verdict> {
     validate_in(disks, id, allow_system_disk, &Paths::system())
 }
 
@@ -41,7 +37,7 @@ pub(crate) fn validate_in(
     id: &str,
     allow_system_disk: bool,
     paths: &Paths<'_>,
-) -> Result<Validation> {
+) -> Result<Verdict> {
     let name = id.strip_prefix("/dev/").unwrap_or(id);
     let disk = find(disks, name)?;
     let checks = checks(
@@ -51,7 +47,7 @@ pub(crate) fn validate_in(
         paths,
     );
 
-    Ok(Validation {
+    Ok(Verdict {
         target: Target {
             path: disk.path.clone(),
             is_system: disk.is_system,
@@ -206,15 +202,15 @@ mod tests {
         }
     }
 
-    fn check<'a>(validation: &'a Validation, name: &str) -> &'a Check {
-        validation
+    fn check<'a>(verdict: &'a Verdict, name: &str) -> &'a Check {
+        verdict
             .checks
             .iter()
             .find(|check| check.name == name)
             .expect("check")
     }
 
-    fn validate(disks: &[DiskInfo], id: &str, allow: bool) -> Result<Validation> {
+    fn validate(disks: &[DiskInfo], id: &str, allow: bool) -> Result<Verdict> {
         let dir = tempfile::tempdir()?;
         let swaps = dir.path().join("swaps");
         std::fs::write(&swaps, "")?;
@@ -247,11 +243,11 @@ mod tests {
         let disks = vec![disk("sda")];
 
         // ACT
-        let validation = validate(&disks, "sda", false).expect("target");
+        let verdict = validate(&disks, "sda", false).expect("target");
 
         // ASSERT
-        assert_eq!(validation.disk.path, "/dev/sda");
-        let names: Vec<&str> = validation.checks.iter().map(|check| check.name).collect();
+        assert_eq!(verdict.disk.path, "/dev/sda");
+        let names: Vec<&str> = verdict.checks.iter().map(|check| check.name).collect();
         assert_eq!(
             names,
             [
@@ -286,10 +282,10 @@ mod tests {
         disks[0].read_only = true;
 
         // ACT
-        let validation = validate(&disks, "sda", true).expect("resolved");
+        let verdict = validate(&disks, "sda", true).expect("resolved");
 
         // ASSERT
-        assert!(!check(&validation, "read_only").passed);
+        assert!(!check(&verdict, "read_only").passed);
     }
 
     #[test]
@@ -334,13 +330,13 @@ mod tests {
         system.partitions.push(partition(1, ""));
 
         // ACT
-        let validation = validate(&[system], "sda", true).expect("allowed");
+        let verdict = validate(&[system], "sda", true).expect("allowed");
 
         // ASSERT
-        assert!(validation.target.is_system);
-        assert!(validation.target.is_data);
-        assert_eq!(validation.target.partitions, [1]);
-        assert!(validation.checks.iter().all(|check| check.passed));
+        assert!(verdict.target.is_system);
+        assert!(verdict.target.is_data);
+        assert_eq!(verdict.target.partitions, [1]);
+        assert!(verdict.checks.iter().all(|check| check.passed));
     }
 
     #[test]

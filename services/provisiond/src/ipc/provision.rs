@@ -230,12 +230,12 @@ impl ProvisionService for ServiceImpl {
         let disks = disk::list_disks()
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
-        let validation = disk::validate_wipe(&disks, &req.disk, req.allow_system_disk)
+        let verdict = disk::validate_wipe(&disks, &req.disk, req.allow_system_disk)
             .map_err(|e| Status::failed_precondition(format!("{e:#}")))?;
-        let refusal = preflight::enforce(&validation.checks)
+        let refusal = preflight::enforce(&verdict.checks)
             .err()
             .map(|e| format!("{e:#}"));
-        let mut response = wipe_response(refusal, validation.disk, validation.checks);
+        let mut response = wipe_response(refusal, verdict.disk, verdict.checks);
 
         if !response.success {
             return Ok(Response::new(response));
@@ -248,7 +248,7 @@ impl ProvisionService for ServiceImpl {
             dry_run: req.dry_run,
         };
 
-        match task::spawn_blocking(move || disk::run_wipe(&validation.target, options)).await {
+        match task::spawn_blocking(move || disk::run_wipe(&verdict.target, options)).await {
             Ok(Ok(message)) => response.message = message,
             Ok(Err(e)) => {
                 response.success = false;
