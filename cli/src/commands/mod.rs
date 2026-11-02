@@ -176,7 +176,7 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
         | Commands::Security { .. }
         | Commands::Vm { .. }
         | Commands::Rollback { .. }
-        | Commands::Disks
+        | Commands::Disks { .. }
         | Commands::Dmesg { .. }
         | Commands::Logs { .. }
         | Commands::Reset { .. }
@@ -248,9 +248,9 @@ async fn handle_cmd(
             ctx.endpoint = endpoint;
             update::handle(&ctx, version, config_path, console).await
         }
-        Commands::Disks => {
+        Commands::Disks { action, wide } => {
             let mut client = ProvisionServiceClient::new(channel);
-            disks::handle(&mut client, console).await
+            disks::handle(&mut client, action, wide, console).await
         }
         Commands::Dmesg { follow } => {
             let mut client = LogServiceClient::new(channel);

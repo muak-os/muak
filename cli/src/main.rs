@@ -13,6 +13,7 @@ use clap::{Parser, Subcommand};
 use commands::auth::Action as AuthAction;
 use commands::config::Action as ConfigAction;
 use commands::context::Action as ContextAction;
+use commands::disks::Action as DisksAction;
 use commands::process::Action as ProcessAction;
 use commands::rollback::Action as RollbackAction;
 use commands::security::Action as SecurityAction;
@@ -117,7 +118,12 @@ pub enum Commands {
     },
     Reboot,
     Shutdown,
-    Disks,
+    Disks {
+        #[arg(long, global = true)]
+        wide: bool,
+        #[command(subcommand)]
+        action: Option<DisksAction>,
+    },
     Dmesg {
         #[arg(long, short)]
         follow: bool,
@@ -198,7 +204,7 @@ mod tests {
     use clap::Parser as _;
     use tui::output::Flags;
 
-    use super::{Cli, OutputFlags};
+    use super::{Cli, Commands, DisksAction, OutputFlags};
 
     #[test]
     fn global_output_flags_parse_after_the_subcommand() {
@@ -226,6 +232,62 @@ mod tests {
 
         // ASSERT
         assert!(error.to_string().contains("--verbose"));
+    }
+
+    #[test]
+    fn bare_disks_parses_without_a_subcommand_or_wide_flag() {
+        // ARRANGE
+        let cli = Cli::try_parse_from(["muakctl", "disks"]).expect("parse bare disks");
+
+        // ACT
+        let Commands::Disks { wide, action } = cli.command else {
+            panic!("expected the disks command");
+        };
+
+        // ASSERT
+        assert!(!wide);
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn disks_wide_flag_parses_before_and_after_the_list_subcommand() {
+        // ARRANGE
+        let alone = Cli::try_parse_from(["muakctl", "disks", "--wide"]).expect("parse disks wide");
+        let before = Cli::try_parse_from(["muakctl", "disks", "--wide", "list"])
+            .expect("parse disks wide list");
+        let after = Cli::try_parse_from(["muakctl", "disks", "list", "--wide"])
+            .expect("parse disks list wide");
+
+        // ACT
+        let Commands::Disks {
+            wide: alone_wide,
+            action: alone_action,
+        } = alone.command
+        else {
+            panic!("expected the disks command");
+        };
+        let Commands::Disks {
+            wide: before_wide,
+            action: before_action,
+        } = before.command
+        else {
+            panic!("expected the disks command");
+        };
+        let Commands::Disks {
+            wide: after_wide,
+            action: after_action,
+        } = after.command
+        else {
+            panic!("expected the disks command");
+        };
+
+        // ASSERT
+        assert!(alone_wide);
+        assert!(alone_action.is_none());
+        assert!(before_wide);
+        assert!(matches!(before_action, Some(DisksAction::List)));
+        assert!(after_wide);
+        assert!(matches!(after_action, Some(DisksAction::List)));
     }
 
     #[test]
