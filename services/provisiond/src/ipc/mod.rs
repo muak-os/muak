@@ -17,6 +17,7 @@ pub mod version;
     clippy::doc_paragraphs_missing_punctuation,
     clippy::empty_structs_with_brackets,
     clippy::excessive_nesting,
+    clippy::impl_trait_in_params,
     clippy::inline_modules,
     clippy::module_name_repetitions,
     clippy::pattern_type_mismatch,
@@ -34,6 +35,9 @@ pub mod proto {
     }
     pub mod security {
         tonic::include_proto!("muak.security.v1");
+    }
+    pub mod service {
+        tonic::include_proto!("muak.service.v1");
     }
     pub mod version {
         tonic::include_proto!("muak.version.v1");
