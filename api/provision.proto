@@ -6,6 +6,9 @@ service ProvisionService {
     // @rbac: maintenance|admin
     rpc Install(InstallRequest) returns (stream InstallProgress);
 
+    // @rbac: maintenance|admin
+    rpc PlanInstall(PlanInstallRequest) returns (InstallPlan);
+
     // @rbac: system:update
     rpc PrepareUpdate(PrepareUpdateRequest) returns (stream PrepareUpdateProgress);
 
@@ -63,6 +66,36 @@ message InstallRequest {
     bool force = 1;
     bytes config_bytes = 2;
     string csr = 3;
+    bool allow_system_disk = 4;
+}
+
+message PlanInstallRequest {
+    bytes config_bytes = 1;
+    bool force = 2;
+    bool allow_system_disk = 3;
+}
+
+message PlannedPartition {
+    string disk = 1;
+    string role = 2;
+    string name = 3;
+    uint64 size_bytes = 4;
+    bool fill = 5;
+}
+
+message PreflightCheck {
+    string name = 1;
+    bool passed = 2;
+    string detail = 3;
+}
+
+message InstallPlan {
+    DiskInfo system_disk = 1;
+    DiskInfo data_disk = 2;
+    bool shared_data = 3;
+    bool wipe = 4;
+    repeated PlannedPartition partitions = 5;
+    repeated PreflightCheck checks = 6;
 }
 
 message InstallProgress {

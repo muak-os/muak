@@ -4,15 +4,17 @@ use tokio::task;
 use tonic::{Request, Response, Status};
 
 use super::inventory::to_disk_info;
+use super::plan::to_install_plan;
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::{
     ConfigHistoryEntry, FactoryResetRequest, FactoryResetResponse, GetConfigHistoryRequest,
     GetConfigHistoryResponse, GetConfigRequest, GetConfigResponse, GetConfigSnapshotRequest,
     GetConfigSnapshotResponse, GetDefaultConfigRequest, GetDefaultConfigResponse,
     GetRollbackHistoryRequest, GetRollbackHistoryResponse, GetUpdateStatusRequest,
-    GetUpdateStatusResponse, InstallProgress, InstallRequest, ListDisksRequest, ListDisksResponse,
-    PowerResponse, PrepareUpdateProgress, PrepareUpdateRequest, RebootRequest,
-    RollbackHistoryEntry, ShutdownRequest, UpdateRequest, UpdateResponse,
+    GetUpdateStatusResponse, InstallPlan, InstallProgress, InstallRequest, ListDisksRequest,
+    ListDisksResponse, PlanInstallRequest, PowerResponse, PrepareUpdateProgress,
+    PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
+    UpdateResponse,
 };
 use crate::{disk, install, journal, power, reset, streaming, template, update};
 
@@ -34,22 +36,17 @@ impl ProvisionService for ServiceImpl {
             return Err(Status::invalid_argument("CSR is required"));
         }
 
-        let config_raw = String::from_utf8(req.config_bytes)
-            .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {e}")))?;
-
-        let config: config::system::Config = config::system::parse_from_str(&config_raw)
-            .map_err(|e| Status::invalid_argument(format!("Invalid config: {e}")))?;
-
-        config
-            .validate_for_install()
-            .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {e}")))?;
+        let config = parse_install_config(req.config_bytes)?;
 
         let server_name = config.host.name.clone();
         let force = req.force;
+        let allow_system_disk = req.allow_system_disk;
         let csr = req.csr;
 
         let stream = streaming::run(
-            move |progress_tx| async move { install::run(force, &config, &csr, progress_tx).await },
+            move |progress_tx| async move {
+                install::run(force, allow_system_disk, &config, &csr, progress_tx).await
+            },
             move |result, out_tx| {
                 let msg = match result {
                     Ok(result) => {
@@ -71,6 +68,20 @@ impl ProvisionService for ServiceImpl {
         );
 
         Ok(Response::new(stream))
+    }
+
+    async fn plan_install(
+        &self,
+        request: Request<PlanInstallRequest>,
+    ) -> Result<Response<InstallPlan>, Status> {
+        let req = request.into_inner();
+        let config = parse_install_config(req.config_bytes)?;
+
+        let plan = install::plan::resolve(&config, req.force, req.allow_system_disk)
+            .await
+            .map_err(|e| Status::failed_precondition(format!("{e:#}")))?;
+
+        Ok(Response::new(to_install_plan(plan)))
     }
 
     async fn prepare_update(
@@ -389,6 +400,20 @@ impl ProvisionService for ServiceImpl {
 /// Creates the `ProvisionService` gRPC server.
 pub fn service() -> ProvisionServiceServer<ServiceImpl> {
     ProvisionServiceServer::new(ServiceImpl)
+}
+
+fn parse_install_config(config_bytes: Vec<u8>) -> Result<config::system::Config, Status> {
+    let raw = String::from_utf8(config_bytes)
+        .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {e}")))?;
+
+    let config: config::system::Config = config::system::parse_from_str(&raw)
+        .map_err(|e| Status::invalid_argument(format!("Invalid config: {e}")))?;
+
+    config
+        .validate_for_install()
+        .map_err(|e| Status::invalid_argument(format!("Invalid config for install: {e}")))?;
+
+    Ok(config)
 }
 
 fn extract_author<T>(request: &Request<T>) -> String {

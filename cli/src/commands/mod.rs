@@ -162,7 +162,11 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
             }
             Ok(false)
         }
-        Commands::Install { force: false, .. } if has_existing_credentials(cli)? => {
+        Commands::Install {
+            force: false,
+            dry_run: false,
+            ..
+        } if has_existing_credentials(cli)? => {
             console.line(
                 Role::Warn,
                 "Existing credentials found for this server. Remove the context to reinstall.",
@@ -227,9 +231,22 @@ async fn handle_cmd(
             let mut client = VmServiceClient::new(channel);
             vm::handle(&mut client, action, console).await
         }
-        Commands::Install { force, config } => {
+        Commands::Install {
+            force,
+            config,
+            dry_run,
+            yes,
+            allow_system_disk,
+        } => {
             let mut client = ProvisionServiceClient::new(channel);
-            install::handle(&mut client, force, config, &endpoint, console).await
+            let options = install::Options {
+                force,
+                config,
+                dry_run,
+                yes,
+                allow_system_disk,
+            };
+            install::handle(&mut client, options, &endpoint, console).await
         }
         Commands::Update {
             version,

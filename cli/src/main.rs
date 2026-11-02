@@ -105,6 +105,15 @@ pub enum Commands {
         force: bool,
         #[arg(long)]
         config: PathBuf,
+        /// Resolve and print the install plan without writing anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the interactive confirmation phrase.
+        #[arg(long)]
+        yes: bool,
+        /// Allow installing to the disk that hosts the running system.
+        #[arg(long)]
+        allow_system_disk: bool,
     },
     Update {
         #[arg(long)]
@@ -159,7 +168,15 @@ async fn main() {
     }
 
     handle_error(&error, &console);
-    std::process::exit(1);
+    std::process::exit(exit_code(&error));
+}
+
+// Returns the process exit status reported for a failed command.
+fn exit_code(error: &anyhow::Error) -> i32 {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<commands::install::failure::Failure>())
+        .map_or(1, commands::install::failure::Failure::code)
 }
 
 // Handles and displays errors with user-friendly messages.
@@ -205,7 +222,8 @@ mod tests {
     use clap::Parser as _;
     use tui::output::Flags;
 
-    use super::{Cli, Commands, DisksAction, OutputFlags};
+    use super::{Cli, Commands, DisksAction, OutputFlags, exit_code};
+    use crate::commands::install::failure::Failure;
 
     #[test]
     fn global_output_flags_parse_after_the_subcommand() {
@@ -304,6 +322,67 @@ mod tests {
 
         // ASSERT
         assert!(matches!(action, Some(DisksAction::Show { id }) if id == "/dev/nvme0n1"));
+    }
+
+    #[test]
+    fn install_flags_parse() {
+        // ARRANGE
+        let cli = Cli::try_parse_from([
+            "muakctl",
+            "install",
+            "--config",
+            "system.toml",
+            "--dry-run",
+            "--yes",
+            "--allow-system-disk",
+        ])
+        .expect("parse install flags");
+
+        // ACT
+        let Commands::Install {
+            force,
+            dry_run,
+            yes,
+            allow_system_disk,
+            ..
+        } = cli.command
+        else {
+            panic!("expected the install command");
+        };
+
+        // ASSERT
+        assert!(!force);
+        assert!(dry_run);
+        assert!(yes);
+        assert!(allow_system_disk);
+    }
+
+    #[test]
+    fn install_failures_map_to_their_exit_codes() {
+        // ARRANGE
+        let cases = [
+            (Failure::usage("usage"), 2_i32),
+            (Failure::preflight("preflight"), 3_i32),
+            (Failure::declined("declined"), 4_i32),
+            (Failure::incomplete("incomplete"), 5_i32),
+        ];
+
+        // ACT & ASSERT
+        for (failure, expected) in cases {
+            assert_eq!(exit_code(&anyhow::Error::new(failure)), expected);
+        }
+    }
+
+    #[test]
+    fn unrelated_failures_exit_with_one() {
+        // ARRANGE
+        let error = anyhow::anyhow!("boom");
+
+        // ACT
+        let code = exit_code(&error);
+
+        // ASSERT
+        assert_eq!(code, 1_i32);
     }
 
     #[test]

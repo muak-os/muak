@@ -9,6 +9,7 @@ mod gpt;
 mod manage;
 mod mount;
 mod pattern;
+pub(crate) mod preflight;
 mod select;
 mod sysfs;
 mod target;
@@ -24,12 +25,14 @@ pub(crate) use ::disk::role::Role;
 pub(crate) use anyhow::{Context as _, Result};
 pub(crate) use apply::apply_plan;
 pub(crate) use format::{format_btrfs_partition, format_efi_partition};
-pub(crate) use manage::{delete_partitions, find_partition_number, has_state_partition};
+pub(crate) use manage::{
+    delete_partitions, disk_is_non_empty, find_partition_number, has_state_partition,
+};
 pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
 pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
 pub(crate) use target::{Targets, resolve, resolve_system};
 pub(crate) use types::{DiskInfo, PartitionInfo};
-pub(crate) use validate::{fits_plan, install_target};
+pub(crate) use validate::fits_plan;
 
 /// Path of the disk document on a booted, installed system.
 pub(crate) const PLAN_BOOT_PATH: &str = "/run/boot/disk.toml";

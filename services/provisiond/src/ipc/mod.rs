@@ -41,3 +41,4 @@ pub mod proto {
 }
 
 pub(crate) mod inventory;
+pub(crate) mod plan;

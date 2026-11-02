@@ -2,6 +2,7 @@
 
 mod layout;
 pub mod pki;
+pub(crate) mod plan;
 mod state;
 
 use std::os::unix::net::UnixStream;
@@ -44,12 +45,13 @@ struct PartitionInfo {
 
 pub async fn run(
     force: bool,
+    allow_system_disk: bool,
     config: &system::Config,
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     let targets = disk::resolve(&config.disks).await?;
-    validate_disks(&targets.system, targets.data(), force, &progress).await?;
+    validate_disks(&targets, force, allow_system_disk, &progress).await?;
     let sb_hierarchy = generate_sb_hierarchy(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
@@ -106,16 +108,18 @@ pub async fn run(
 }
 
 async fn validate_disks(
-    system_disk: &str,
-    data_disk: &str,
+    targets: &disk::Targets,
     force: bool,
+    allow_system_disk: bool,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Validating disks").await;
-    tokio::task::spawn_blocking({
-        let system_disk = system_disk.to_owned();
-        let data_disk = data_disk.to_owned();
-        move || disk::install_target(&system_disk, &data_disk, force)
+    let targets = targets.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let checks = disk::preflight::checks(&targets, force, allow_system_disk);
+        disk::preflight::enforce(&checks)?;
+        disk::preflight::unmount_targets(&targets)
     })
     .await??;
 
