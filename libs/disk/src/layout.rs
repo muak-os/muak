@@ -7,8 +7,7 @@ use crate::role::Role;
 /// A distro-owned disk layout applied by the installer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layout {
-    /// Standard UEFI/GPT layout: ESP, STATE and EPHEMERAL, then DATA filling
-    /// the disk.
+    /// Standard UEFI/GPT layout: ESP, STATE and EPHEMERAL, then DATA filling the disk.
     Uefi,
 }
 
@@ -45,8 +44,7 @@ impl Layout {
             })
     }
 
-    /// System plan of this layout: ESP, STATE and EPHEMERAL, then DATA
-    /// filling the disk.
+    /// System plan of this layout: ESP, STATE and EPHEMERAL, then DATA filling the disk.
     #[must_use]
     pub fn plan(self) -> Plan {
         match self {
@@ -60,7 +58,6 @@ impl Layout {
     }
 }
 
-/// Creates a managed partition spec carrying its role's name and type GUID.
 fn spec(role: Role, size: Size) -> PartitionSpec {
     PartitionSpec::create(role, role.gpt_name(), role.type_guid(), size)
 }

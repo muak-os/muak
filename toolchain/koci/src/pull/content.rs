@@ -55,6 +55,7 @@ impl Content {
         let path = cache::blob_file_path(self.root.as_deref(), digest)?;
         let size = std::fs::metadata(&path).ok()?.len();
         cache::touch(&path);
+
         Some(size)
     }
 
