@@ -7,11 +7,10 @@ use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
-use super::{column_refs, fetch, fstype, mount, role, transport, yes_no};
+use super::{column_refs, fetch, field_table, fstype, mount, role, text, transport, yes_no};
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{DiskInfo, PartitionInfo};
 
-const FIELD_COLUMNS: [&str; 2] = ["FIELD", "VALUE"];
 const PARTITION_COLUMNS: [&str; 5] = ["DEVICE", "GPT NAME", "FS", "SIZE", "MOUNT"];
 
 /// Shows the detail view of the disk matching `id`.
@@ -61,10 +60,7 @@ fn disk_of<'a>(disks: &'a [DiskInfo], id: &str) -> Option<&'a DiskInfo> {
 }
 
 fn fields_table(disk: &DiskInfo) -> Table {
-    fields(disk).into_iter().fold(
-        Table::new().header(&FIELD_COLUMNS),
-        |table, (name, value)| table.row(&[name, &value]),
-    )
+    field_table(fields(disk))
 }
 
 fn fields(disk: &DiskInfo) -> Vec<(&'static str, String)> {
@@ -101,14 +97,6 @@ fn partition_cells(part: &PartitionInfo) -> Vec<String> {
         units::bytes(part.size_bytes),
         mount(part),
     ]
-}
-
-fn text(value: &str) -> String {
-    if value.is_empty() {
-        "-".to_owned()
-    } else {
-        value.to_owned()
-    }
 }
 
 #[cfg(test)]

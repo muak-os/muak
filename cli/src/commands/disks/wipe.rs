@@ -6,8 +6,11 @@ use tui::console::Console;
 use tui::prompt::Prompter;
 use tui::style::Role;
 
+use super::preview;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
-use crate::client::provision_service::{WipeDiskRequest, WipeMethod as ProtoWipeMethod};
+use crate::client::provision_service::{
+    DiskInfo, WipeDiskRequest, WipeDiskResponse, WipeMethod as ProtoWipeMethod,
+};
 use crate::commands::Failure;
 
 /// Wipe method selected on the command line.
@@ -58,6 +61,8 @@ pub async fn handle(
 
     let preview_resp = client.wipe_disk(preview_request).await?.into_inner();
 
+    preview::print(&preview_resp, console)?;
+
     if !preview_resp.success {
         return Err(Failure::preflight(preview_resp.error).into());
     }
@@ -78,8 +83,14 @@ pub async fn handle(
         return Ok(());
     }
 
+    let disk = preview_resp
+        .disk
+        .as_ref()
+        .ok_or_else(|| Failure::incomplete("Server did not return the resolved disk"))?;
+    let phrase = confirmation(disk);
+
     if !args.yes {
-        confirm(&args.id)?;
+        confirm(&phrase)?;
     }
 
     let request = WipeDiskRequest {
@@ -93,7 +104,7 @@ pub async fn handle(
     let resp = client.wipe_disk(request).await?.into_inner();
 
     if !resp.success {
-        return Err(Failure::incomplete(resp.error).into());
+        return Err(failure(&resp).into());
     }
 
     console.success(&resp.message);
@@ -101,7 +112,19 @@ pub async fn handle(
     Ok(())
 }
 
-fn confirm(id: &str) -> Result<()> {
+fn confirmation(disk: &DiskInfo) -> String {
+    format!("WIPE {}", disk.name)
+}
+
+fn failure(response: &WipeDiskResponse) -> Failure {
+    if response.checks.iter().any(|check| !check.passed) {
+        Failure::preflight(response.error.clone())
+    } else {
+        Failure::incomplete(response.error.clone())
+    }
+}
+
+fn confirm(phrase: &str) -> Result<()> {
     if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         return Err(Failure::declined(
             "Refusing to wipe without confirmation: standard input is not a terminal. \
@@ -118,7 +141,7 @@ fn confirm(id: &str) -> Result<()> {
         .into());
     };
 
-    if prompter.confirm_phrase("", &format!("WIPE {id}"))? {
+    if prompter.confirm_phrase("", phrase)? {
         return Ok(());
     }
 
@@ -135,6 +158,15 @@ fn method(value: Method) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::provision_service::PreflightCheck;
+
+    fn disk() -> DiskInfo {
+        DiskInfo {
+            name: "nvme0n1".to_owned(),
+            path: "/dev/nvme0n1".to_owned(),
+            ..DiskInfo::default()
+        }
+    }
 
     #[test]
     fn method_maps_to_the_wire_enum() {
@@ -152,5 +184,59 @@ mod tests {
                 i32::from(ProtoWipeMethod::Zeroes)
             ]
         );
+    }
+
+    #[test]
+    fn refusal_with_a_failed_check_is_a_preflight_failure() {
+        // ARRANGE
+        let response = WipeDiskResponse {
+            success: false,
+            error: "mounted".to_owned(),
+            checks: vec![PreflightCheck {
+                name: "mounted_partitions".to_owned(),
+                passed: false,
+                detail: "mounted".to_owned(),
+            }],
+            ..WipeDiskResponse::default()
+        };
+
+        // ACT
+        let failure = failure(&response);
+
+        // ASSERT
+        assert_eq!(failure.code(), 3_i32);
+    }
+
+    #[test]
+    fn refusal_without_a_failed_check_is_incomplete() {
+        // ARRANGE
+        let response = WipeDiskResponse {
+            success: false,
+            error: "write error".to_owned(),
+            checks: vec![PreflightCheck {
+                name: "read_only".to_owned(),
+                passed: true,
+                detail: "writable".to_owned(),
+            }],
+            ..WipeDiskResponse::default()
+        };
+
+        // ACT
+        let failure = failure(&response);
+
+        // ASSERT
+        assert_eq!(failure.code(), 5_i32);
+    }
+
+    #[test]
+    fn confirmation_uses_the_resolved_kernel_name() {
+        // ARRANGE
+        let disk = disk();
+
+        // ACT
+        let phrase = confirmation(&disk);
+
+        // ASSERT
+        assert_eq!(phrase, "WIPE nvme0n1");
     }
 }

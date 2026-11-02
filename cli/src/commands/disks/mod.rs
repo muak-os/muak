@@ -1,3 +1,4 @@
+mod preview;
 mod show;
 pub(crate) mod wipe;
 
@@ -25,6 +26,7 @@ const COLUMNS: [&str; 10] = [
 ];
 const WIDE_COLUMNS: [&str; 3] = ["BUS PATH", "SUBSYSTEM", "REM"];
 const PARTITION_COLUMNS: [&str; 3] = ["FS", "NAME", "MOUNT"];
+const FIELD_COLUMNS: [&str; 2] = ["FIELD", "VALUE"];
 
 /// Disk subcommands.
 #[derive(clap::Subcommand, Clone)]
@@ -54,6 +56,32 @@ pub async fn handle(
     }
 }
 
+/// Fetches the disk inventory from the provisioning service.
+pub(crate) async fn fetch(client: &mut ProvisionServiceClient<Channel>) -> Result<Vec<DiskInfo>> {
+    let request = tonic::Request::new(ListDisksRequest {});
+    let resp = client.list_disks(request).await?.into_inner();
+
+    if !resp.error.is_empty() {
+        return Err(anyhow::anyhow!("Error listing disks: {}", resp.error));
+    }
+
+    Ok(resp.disks)
+}
+
+/// Renders an empty value as a dash and any other value verbatim.
+pub(crate) fn text(value: &str) -> String {
+    if value.is_empty() {
+        "-".to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
+/// Borrows every cell of a table row as a column reference.
+pub(crate) fn column_refs(cells: &[String]) -> Vec<&str> {
+    cells.iter().map(String::as_str).collect()
+}
+
 fn dispatch(action: Option<Action>) -> Action {
     action.unwrap_or(Action::List)
 }
@@ -78,17 +106,6 @@ async fn list(
     console.table(&table)?;
 
     Ok(())
-}
-
-async fn fetch(client: &mut ProvisionServiceClient<Channel>) -> Result<Vec<DiskInfo>> {
-    let request = tonic::Request::new(ListDisksRequest {});
-    let resp = client.list_disks(request).await?.into_inner();
-
-    if !resp.error.is_empty() {
-        return Err(anyhow::anyhow!("Error listing disks: {}", resp.error));
-    }
-
-    Ok(resp.disks)
 }
 
 fn render(table: Table, disk: &DiskInfo, wide: bool) -> Table {
@@ -208,11 +225,16 @@ fn mount(part: &PartitionInfo) -> String {
     }
 }
 
-fn column_refs(cells: &[String]) -> Vec<&str> {
-    cells.iter().map(String::as_str).collect()
+/// Builds a two-column FIELD/VALUE table.
+pub(crate) fn field_table(rows: Vec<(&'static str, String)>) -> Table {
+    rows.into_iter().fold(
+        Table::new().header(&FIELD_COLUMNS),
+        |table, (name, value)| table.row(&[name, &value]),
+    )
 }
 
-fn headers(wide: bool) -> Vec<&'static str> {
+/// Returns the table headers for the list view.
+pub(crate) fn headers(wide: bool) -> Vec<&'static str> {
     let mut names = COLUMNS.to_vec();
     if wide {
         names.extend_from_slice(&WIDE_COLUMNS);

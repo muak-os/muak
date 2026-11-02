@@ -243,6 +243,10 @@ mod tests {
             "expected a wipe preview, got: {preview}"
         );
         ensure!(
+            preview.contains("read_only") && preview.contains("system_disk_in_use"),
+            "expected the resolved wipe checks in the preview, got: {preview}"
+        );
+        ensure!(
             wiped.contains("Wiped /dev/nvme0n1"),
             "expected the wipe summary, got: {wiped}"
         );
