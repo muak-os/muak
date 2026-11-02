@@ -119,6 +119,7 @@ pub enum Commands {
     Reboot,
     Shutdown,
     Disks {
+        /// Show bus path, subsystem and removability in the list view.
         #[arg(long, global = true)]
         wide: bool,
         #[command(subcommand)]
@@ -288,6 +289,21 @@ mod tests {
         assert!(matches!(before_action, Some(DisksAction::List)));
         assert!(after_wide);
         assert!(matches!(after_action, Some(DisksAction::List)));
+    }
+
+    #[test]
+    fn disks_show_parses_the_disk_id() {
+        // ARRANGE
+        let cli = Cli::try_parse_from(["muakctl", "disks", "show", "/dev/nvme0n1"])
+            .expect("parse disks show");
+
+        // ACT
+        let Commands::Disks { action, .. } = cli.command else {
+            panic!("expected the disks command");
+        };
+
+        // ASSERT
+        assert!(matches!(action, Some(DisksAction::Show { id }) if id == "/dev/nvme0n1"));
     }
 
     #[test]

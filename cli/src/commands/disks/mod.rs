@@ -1,3 +1,5 @@
+mod show;
+
 use anyhow::Result;
 use tonic::transport::Channel;
 use tui::console::Console;
@@ -28,6 +30,11 @@ const PARTITION_COLUMNS: [&str; 3] = ["FS", "NAME", "MOUNT"];
 pub enum Action {
     /// Lists available disks on the system.
     List,
+    /// Shows details for a single disk by kernel name or device path.
+    Show {
+        /// Kernel name (sda) or device path (/dev/sda).
+        id: String,
+    },
 }
 
 /// Handles the disk command group, defaulting to the list view.
@@ -37,15 +44,9 @@ pub async fn handle(
     wide: bool,
     console: &Console,
 ) -> Result<()> {
-    let request = tonic::Request::new(ListDisksRequest {});
-    let resp = client.list_disks(request).await?.into_inner();
-
-    if !resp.error.is_empty() {
-        return Err(anyhow::anyhow!("Error listing disks: {}", resp.error));
-    }
-
     match dispatch(action) {
-        Action::List => list(&resp.disks, wide, console),
+        Action::List => list(client, wide, console).await,
+        Action::Show { id } => show::detail(client, &id, console).await,
     }
 }
 
@@ -53,20 +54,37 @@ fn dispatch(action: Option<Action>) -> Action {
     action.unwrap_or(Action::List)
 }
 
-fn list(disks: &[DiskInfo], wide: bool, console: &Console) -> Result<()> {
+async fn list(
+    client: &mut ProvisionServiceClient<Channel>,
+    wide: bool,
+    console: &Console,
+) -> Result<()> {
+    let disks = fetch(client).await?;
+
     if disks.is_empty() {
         console.line(Role::Warn, "No disks found");
         return Ok(());
     }
 
     let mut table = Table::new().header(&headers(wide));
-    for disk in disks {
+    for disk in &disks {
         table = render(table, disk, wide);
     }
 
     console.table(&table)?;
 
     Ok(())
+}
+
+async fn fetch(client: &mut ProvisionServiceClient<Channel>) -> Result<Vec<DiskInfo>> {
+    let request = tonic::Request::new(ListDisksRequest {});
+    let resp = client.list_disks(request).await?.into_inner();
+
+    if !resp.error.is_empty() {
+        return Err(anyhow::anyhow!("Error listing disks: {}", resp.error));
+    }
+
+    Ok(resp.disks)
 }
 
 fn render(table: Table, disk: &DiskInfo, wide: bool) -> Table {
@@ -125,7 +143,7 @@ fn role(disk: &DiskInfo) -> String {
         (true, true) => "system,data".to_owned(),
         (true, false) => "system".to_owned(),
         (false, true) => "data".to_owned(),
-        (false, false) => String::new(),
+        (false, false) => "-".to_owned(),
     }
 }
 
@@ -182,7 +200,7 @@ fn mount(part: &PartitionInfo) -> String {
     } else if part.in_use {
         "(in use)".to_owned()
     } else {
-        String::new()
+        "-".to_owned()
     }
 }
 
@@ -352,7 +370,7 @@ mod tests {
         let roles = [role(&system), role(&data), role(&both), role(&none)];
 
         // ASSERT
-        assert_eq!(roles, ["system", "data", "system,data", ""]);
+        assert_eq!(roles, ["system", "data", "system,data", "-"]);
     }
 
     #[test]
@@ -456,5 +474,19 @@ mod tests {
                 .iter()
                 .all(|action| matches!(action, Action::List))
         );
+    }
+
+    #[test]
+    fn dispatch_keeps_the_show_action_and_its_id() {
+        // ARRANGE
+        let action = Action::Show {
+            id: "sda".to_owned(),
+        };
+
+        // ACT
+        let dispatched = dispatch(Some(action));
+
+        // ASSERT
+        assert!(matches!(dispatched, Action::Show { id } if id == "sda"));
     }
 }
