@@ -3,6 +3,7 @@
 use tokio::task;
 use tonic::{Request, Response, Status};
 
+use super::checks;
 use super::inventory::to_disk_info;
 use super::plan::to_install_plan;
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
@@ -16,6 +17,7 @@ use super::proto::provision::{
     PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
     UpdateResponse, WipeDiskRequest, WipeDiskResponse, WipeMethod as ProtoWipeMethod,
 };
+use crate::disk::preflight;
 use crate::{disk, install, journal, power, reset, streaming, template, update};
 
 /// Implementation of the `ProvisionService` gRPC interface.
@@ -228,8 +230,17 @@ impl ProvisionService for ServiceImpl {
         let disks = disk::list_disks()
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
-        let target = disk::resolve_wipe(&disks, &req.disk, req.allow_system_disk)
+        let validation = disk::validate_wipe(&disks, &req.disk, req.allow_system_disk)
             .map_err(|e| Status::failed_precondition(format!("{e:#}")))?;
+        let refusal = preflight::enforce(&validation.checks)
+            .err()
+            .map(|e| format!("{e:#}"));
+        let mut response = wipe_response(refusal, validation.disk, validation.checks);
+
+        if !response.success {
+            return Ok(Response::new(response));
+        }
+
         let options = disk::WipeOptions {
             method,
             drop_partition: req.drop_partition,
@@ -237,23 +248,19 @@ impl ProvisionService for ServiceImpl {
             dry_run: req.dry_run,
         };
 
-        match task::spawn_blocking(move || disk::run_wipe(&target, options)).await {
-            Ok(Ok(message)) => Ok(Response::new(WipeDiskResponse {
-                success: true,
-                error: String::new(),
-                message,
-            })),
-            Ok(Err(e)) => Ok(Response::new(WipeDiskResponse {
-                success: false,
-                error: format!("{e:#}"),
-                message: String::new(),
-            })),
-            Err(e) => Ok(Response::new(WipeDiskResponse {
-                success: false,
-                error: format!("Task panicked: {e}"),
-                message: String::new(),
-            })),
+        match task::spawn_blocking(move || disk::run_wipe(&validation.target, options)).await {
+            Ok(Ok(message)) => response.message = message,
+            Ok(Err(e)) => {
+                response.success = false;
+                response.error = format!("{e:#}");
+            }
+            Err(e) => {
+                response.success = false;
+                response.error = format!("Task panicked: {e}");
+            }
         }
+
+        Ok(Response::new(response))
     }
 
     async fn get_config(
@@ -440,6 +447,20 @@ pub fn service() -> ProvisionServiceServer<ServiceImpl> {
     ProvisionServiceServer::new(ServiceImpl)
 }
 
+fn wipe_response(
+    refusal: Option<String>,
+    disk: disk::DiskInfo,
+    checks: Vec<preflight::Check>,
+) -> WipeDiskResponse {
+    WipeDiskResponse {
+        success: refusal.is_none(),
+        error: refusal.unwrap_or_default(),
+        message: String::new(),
+        disk: Some(to_disk_info(disk)),
+        checks: checks.into_iter().map(checks::to_proto).collect(),
+    }
+}
+
 fn parse_install_config(config_bytes: Vec<u8>) -> Result<config::system::Config, Status> {
     let raw = String::from_utf8(config_bytes)
         .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {e}")))?;
@@ -469,4 +490,65 @@ fn extract_author<T>(request: &Request<T>) -> String {
         .and_then(|value| value.to_str().ok())
         .unwrap_or("unknown")
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn disk() -> disk::DiskInfo {
+        disk::DiskInfo {
+            name: "nvme0n1".to_owned(),
+            path: "/dev/nvme0n1".to_owned(),
+            size_bytes: 1024,
+            model: String::new(),
+            serial: String::new(),
+            wwid: String::new(),
+            bus_path: String::new(),
+            subsystem: String::new(),
+            rotational: false,
+            cdrom: false,
+            removable: false,
+            read_only: false,
+            symlinks: Vec::new(),
+            is_system: false,
+            is_data: false,
+            partitions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn response_carries_the_resolved_disk_and_checks() {
+        // ARRANGE
+        let checks = vec![
+            preflight::Check::pass("read_only", "writable".to_owned()),
+            preflight::Check::fail("muak_partitions", "STATE present".to_owned()),
+        ];
+
+        // ACT
+        let response = wipe_response(None, disk(), checks);
+
+        // ASSERT
+        let disk = response.disk.expect("resolved disk");
+        assert_eq!(disk.path, "/dev/nvme0n1");
+        assert_eq!(response.checks.len(), 2);
+        assert_eq!(response.checks[0].name, "read_only");
+        assert!(response.checks[0].passed);
+        assert!(!response.checks[1].passed);
+    }
+
+    #[test]
+    fn refusal_fails_the_response_but_keeps_the_preview() {
+        // ARRANGE
+        let checks = vec![preflight::Check::fail("read_only", "read-only".to_owned())];
+
+        // ACT
+        let response = wipe_response(Some("read-only".to_owned()), disk(), checks);
+
+        // ASSERT
+        assert!(!response.success);
+        assert_eq!(response.error, "read-only");
+        assert!(response.disk.is_some());
+        assert_eq!(response.checks.len(), 1);
+    }
 }

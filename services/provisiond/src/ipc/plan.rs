@@ -2,9 +2,9 @@
 
 use ::disk::plan::Size;
 
+use super::checks;
 use super::inventory::to_disk_info;
-use super::proto::provision::{InstallPlan, PlannedPartition, PreflightCheck};
-use crate::disk::preflight;
+use super::proto::provision::{InstallPlan, PlannedPartition};
 use crate::install::plan::{InstallPlan as DomainPlan, PlannedPartition as DomainPartition};
 
 /// Converts an install plan into its protobuf representation.
@@ -19,7 +19,7 @@ pub(crate) fn to_install_plan(plan: DomainPlan) -> InstallPlan {
             .into_iter()
             .map(to_planned_partition)
             .collect(),
-        checks: plan.checks.into_iter().map(to_preflight_check).collect(),
+        checks: plan.checks.into_iter().map(checks::to_proto).collect(),
     }
 }
 
@@ -35,14 +35,6 @@ fn to_planned_partition(partition: DomainPartition) -> PlannedPartition {
         name: partition.name,
         size_bytes,
         fill,
-    }
-}
-
-fn to_preflight_check(check: preflight::Check) -> PreflightCheck {
-    PreflightCheck {
-        name: check.name.to_owned(),
-        passed: check.passed,
-        detail: check.detail,
     }
 }
 
@@ -86,23 +78,5 @@ mod tests {
         // ASSERT
         assert_eq!(proto.size_bytes, 0);
         assert!(proto.fill);
-    }
-
-    #[test]
-    fn preflight_checks_keep_their_outcome() {
-        // ARRANGE
-        let check = preflight::Check {
-            name: "disk_size",
-            passed: false,
-            detail: "too small".to_owned(),
-        };
-
-        // ACT
-        let proto = to_preflight_check(check);
-
-        // ASSERT
-        assert_eq!(proto.name, "disk_size");
-        assert!(!proto.passed);
-        assert_eq!(proto.detail, "too small");
     }
 }

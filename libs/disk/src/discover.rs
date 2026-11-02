@@ -26,7 +26,9 @@ pub fn parent_disk(partition_device: &str) -> Option<String> {
     parent_disk_in(Path::new(SYS_CLASS_BLOCK), partition_device)
 }
 
-fn parent_disk_in(sysfs_dir: &Path, partition_device: &str) -> Option<String> {
+/// Finds the parent disk name of a partition device below an injectable sysfs root.
+#[must_use]
+pub fn parent_disk_in(sysfs_dir: &Path, partition_device: &str) -> Option<String> {
     let name = partition_device
         .strip_prefix("/dev/")
         .unwrap_or(partition_device);

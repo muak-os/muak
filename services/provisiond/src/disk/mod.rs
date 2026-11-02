@@ -4,6 +4,7 @@ mod apply;
 mod attrs;
 mod blkpg;
 mod constants;
+mod foreign;
 mod format;
 mod gpt;
 mod manage;
@@ -20,7 +21,7 @@ mod wipe_target;
 
 use std::path::Path;
 
-pub(crate) use ::disk::discover::{find_partition_device, parent_disk};
+pub(crate) use ::disk::discover::{find_partition_device, parent_disk, parent_disk_in};
 pub(crate) use ::disk::plan::Document;
 pub(crate) use ::disk::role::Role;
 pub(crate) use anyhow::{Context as _, Result};
@@ -35,7 +36,7 @@ pub(crate) use target::{Targets, resolve, resolve_system};
 pub(crate) use types::{DiskInfo, PartitionInfo};
 pub(crate) use validate::fits_plan;
 pub(crate) use wipe::{Method as WipeMethod, Options as WipeOptions, run as run_wipe};
-pub(crate) use wipe_target::resolve as resolve_wipe;
+pub(crate) use wipe_target::validate as validate_wipe;
 
 /// Path of the disk document on a booted, installed system.
 pub(crate) const PLAN_BOOT_PATH: &str = "/run/boot/disk.toml";

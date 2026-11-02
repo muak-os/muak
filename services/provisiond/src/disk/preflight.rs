@@ -20,7 +20,7 @@ pub(crate) struct Check {
 }
 
 impl Check {
-    fn pass(name: &'static str, detail: String) -> Self {
+    pub(crate) fn pass(name: &'static str, detail: String) -> Self {
         Self {
             name,
             passed: true,
@@ -28,7 +28,7 @@ impl Check {
         }
     }
 
-    fn fail(name: &'static str, detail: String) -> Self {
+    pub(crate) fn fail(name: &'static str, detail: String) -> Self {
         Self {
             name,
             passed: false,
@@ -211,7 +211,7 @@ fn empty_disk(device: &str, force: bool) -> Check {
     }
 }
 
-fn system_disk_in_use(device: &str, running: Option<&str>, allow: bool) -> Check {
+pub(crate) fn system_disk_in_use(device: &str, running: Option<&str>, allow: bool) -> Check {
     match running {
         Some(running) if running == device && allow => Check::pass(
             "system_disk_in_use",

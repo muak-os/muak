@@ -14,7 +14,11 @@ use super::attrs::{
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
 use super::types::{DiskInfo, PartitionInfo};
 
-const SYSFS_BLOCK_ROOT: &str = "/sys/block";
+/// Path of the block device tree, one directory per disk.
+pub(crate) const SYSFS_BLOCK_ROOT: &str = "/sys/block";
+
+/// Path of the flat block device class tree, disks and partitions side by side.
+pub(crate) const SYSFS_CLASS_BLOCK_ROOT: &str = "/sys/class/block";
 
 /// Validates that a disk meets minimum size requirements.
 pub fn validate_disk_size(disk: &str) -> Result<()> {

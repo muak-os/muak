@@ -2,7 +2,8 @@
 
 use anyhow::{Result, bail};
 
-use super::preflight::running_system_disk;
+use super::foreign::{self, Paths};
+use super::preflight::{self, Check};
 use super::types::DiskInfo;
 
 /// A disk cleared for wiping together with the partitions it carries.
@@ -18,51 +19,130 @@ pub(crate) struct Target {
     pub partitions: Vec<u32>,
 }
 
-/// Resolves `id` to a whole disk and enforces the wipe safety rules.
-pub(crate) fn resolve(disks: &[DiskInfo], id: &str, allow_system_disk: bool) -> Result<Target> {
+/// The resolved wipe target, its inventory record and its safety checks.
+pub(crate) struct Validation {
+    pub target: Target,
+    pub disk: DiskInfo,
+    pub checks: Vec<Check>,
+}
+
+/// Resolves `id` to a whole disk and returns the wipe safety checks.
+pub(crate) fn validate(
+    disks: &[DiskInfo],
+    id: &str,
+    allow_system_disk: bool,
+) -> Result<Validation> {
+    validate_in(disks, id, allow_system_disk, &Paths::system())
+}
+
+/// Resolves `id` against an injectable sysfs root and swap table.
+pub(crate) fn validate_in(
+    disks: &[DiskInfo],
+    id: &str,
+    allow_system_disk: bool,
+    paths: &Paths<'_>,
+) -> Result<Validation> {
     let name = id.strip_prefix("/dev/").unwrap_or(id);
     let disk = find(disks, name)?;
+    let checks = checks(
+        disk,
+        preflight::running_system_disk().as_deref(),
+        allow_system_disk,
+        paths,
+    );
 
+    Ok(Validation {
+        target: Target {
+            path: disk.path.clone(),
+            is_system: disk.is_system,
+            is_data: disk.is_data,
+            partitions: disk
+                .partitions
+                .iter()
+                .map(|partition| partition.number)
+                .collect(),
+        },
+        disk: disk.clone(),
+        checks,
+    })
+}
+
+fn checks(disk: &DiskInfo, running: Option<&str>, allow: bool, paths: &Paths<'_>) -> Vec<Check> {
+    let mut checks = vec![
+        read_only(disk),
+        preflight::system_disk_in_use(&disk.path, running, allow),
+        mounted_partitions(disk, allow),
+        muak_partitions(disk, allow),
+    ];
+    checks.extend(foreign::checks(disk, paths));
+
+    checks
+}
+
+fn read_only(disk: &DiskInfo) -> Check {
     if disk.read_only {
-        bail!("disk '{}' is read-only", disk.path);
-    }
-
-    if let Some(running) = running_system_disk()
-        && running == disk.path
-        && !allow_system_disk
-    {
-        bail!(
-            "disk '{}' hosts the running system, pass --allow-system-disk to wipe it",
-            disk.path
+        return Check::fail(
+            "read_only",
+            format!("Disk '{}' is read-only and cannot be wiped", disk.path),
         );
     }
 
-    let mounted = mounted_partition(disk);
-    if !mounted.is_empty() && !allow_system_disk {
-        bail!(
-            "disk '{}' is mounted at '{mounted}', unmount it or pass --allow-system-disk",
-            disk.path
+    Check::pass("read_only", format!("'{}' is writable", disk.path))
+}
+
+fn mounted_partitions(disk: &DiskInfo, allow: bool) -> Check {
+    let mounted = disk
+        .partitions
+        .iter()
+        .map(|partition| partition.mount_point.as_str())
+        .find(|mount_point| !mount_point.is_empty());
+
+    match mounted {
+        Some(mount_point) if !allow => Check::fail(
+            "mounted_partitions",
+            format!(
+                "Disk '{}' is mounted at '{mount_point}', unmount it or pass --allow-system-disk",
+                disk.path
+            ),
+        ),
+        Some(_) => Check::pass(
+            "mounted_partitions",
+            format!("'{}' is mounted and will be unmounted", disk.path),
+        ),
+        None => Check::pass(
+            "mounted_partitions",
+            format!("'{}' has no mounted partitions", disk.path),
+        ),
+    }
+}
+
+fn muak_partitions(disk: &DiskInfo, allow: bool) -> Check {
+    if !(disk.is_system || disk.is_data) {
+        return Check::pass(
+            "muak_partitions",
+            format!("'{}' has no Muak STATE or DATA partition", disk.path),
         );
     }
 
-    if (disk.is_system || disk.is_data) && !allow_system_disk {
-        bail!(
-            "disk '{}' carries the Muak {} partition, pass --allow-system-disk to wipe it",
+    if allow {
+        return Check::pass(
+            "muak_partitions",
+            format!(
+                "'{}' carries the Muak {} partition and --allow-system-disk was given",
+                disk.path,
+                role(disk)
+            ),
+        );
+    }
+
+    Check::fail(
+        "muak_partitions",
+        format!(
+            "Disk '{}' carries the Muak {} partition, pass --allow-system-disk to wipe it",
             disk.path,
             role(disk)
-        );
-    }
-
-    Ok(Target {
-        path: disk.path.clone(),
-        is_system: disk.is_system,
-        is_data: disk.is_data,
-        partitions: disk
-            .partitions
-            .iter()
-            .map(|partition| partition.number)
-            .collect(),
-    })
+        ),
+    )
 }
 
 fn find<'a>(disks: &'a [DiskInfo], name: &str) -> Result<&'a DiskInfo> {
@@ -91,14 +171,6 @@ fn is_partition_of(name: &str, disk: &str) -> bool {
     })
 }
 
-fn mounted_partition(disk: &DiskInfo) -> &str {
-    disk.partitions
-        .iter()
-        .map(|partition| partition.mount_point.as_str())
-        .find(|mount_point| !mount_point.is_empty())
-        .unwrap_or("")
-}
-
 fn role(disk: &DiskInfo) -> &'static str {
     match (disk.is_system, disk.is_data) {
         (true, true) => "STATE and DATA",
@@ -116,20 +188,7 @@ mod tests {
         DiskInfo {
             name: name.to_owned(),
             path: format!("/dev/{name}"),
-            size_bytes: 0,
-            model: String::new(),
-            serial: String::new(),
-            wwid: String::new(),
-            bus_path: String::new(),
-            subsystem: String::new(),
-            rotational: false,
-            cdrom: false,
-            removable: false,
-            read_only: false,
-            symlinks: Vec::new(),
-            is_system: false,
-            is_data: false,
-            partitions: Vec::new(),
+            ..DiskInfo::default()
         }
     }
 
@@ -147,64 +206,109 @@ mod tests {
         }
     }
 
+    fn check<'a>(validation: &'a Validation, name: &str) -> &'a Check {
+        validation
+            .checks
+            .iter()
+            .find(|check| check.name == name)
+            .expect("check")
+    }
+
+    fn validate(disks: &[DiskInfo], id: &str, allow: bool) -> Result<Validation> {
+        let dir = tempfile::tempdir()?;
+        let swaps = dir.path().join("swaps");
+        std::fs::write(&swaps, "")?;
+        let paths = Paths {
+            sysfs_root: dir.path(),
+            class_block: dir.path(),
+            swaps: &swaps,
+        };
+
+        validate_in(disks, id, allow, &paths)
+    }
+
     #[test]
-    fn resolve_accepts_a_plain_whole_disk_by_name_or_path() {
+    fn validate_accepts_a_plain_whole_disk_by_name_or_path() {
         // ARRANGE
         let disks = vec![disk("sda")];
 
         // ACT
-        let by_name = resolve(&disks, "sda", false).expect("name");
-        let by_path = resolve(&disks, "/dev/sda", false).expect("path");
+        let by_name = validate(&disks, "sda", false).expect("name");
+        let by_path = validate(&disks, "/dev/sda", false).expect("path");
 
         // ASSERT
-        assert_eq!(by_name.path, "/dev/sda");
-        assert_eq!(by_path, by_name);
+        assert_eq!(by_name.target.path, "/dev/sda");
+        assert_eq!(by_path.disk.name, "sda");
     }
 
     #[test]
-    fn resolve_rejects_partitions() {
+    fn validate_returns_the_disk_and_its_checks() {
+        // ARRANGE
+        let disks = vec![disk("sda")];
+
+        // ACT
+        let validation = validate(&disks, "sda", false).expect("target");
+
+        // ASSERT
+        assert_eq!(validation.disk.path, "/dev/sda");
+        let names: Vec<&str> = validation.checks.iter().map(|check| check.name).collect();
+        assert_eq!(
+            names,
+            [
+                "read_only",
+                "system_disk_in_use",
+                "mounted_partitions",
+                "muak_partitions",
+                "foreign_holders",
+                "active_swap",
+            ]
+        );
+    }
+
+    #[test]
+    fn validate_rejects_partitions() {
         // ARRANGE
         let disks = vec![disk("sda"), disk("nvme0n1")];
 
         // ACT
-        let sata = resolve(&disks, "sda1", true);
-        let nvme = resolve(&disks, "/dev/nvme0n1p2", true);
+        let sata = validate(&disks, "sda1", true);
+        let nvme = validate(&disks, "/dev/nvme0n1p2", true);
 
         // ASSERT
-        sata.expect_err("sda1 is a partition");
-        nvme.expect_err("nvme0n1p2 is a partition");
+        assert!(sata.is_err(), "sda1 is a partition");
+        assert!(nvme.is_err(), "nvme0n1p2 is a partition");
     }
 
     #[test]
-    fn resolve_rejects_read_only_disks() {
+    fn validate_rejects_read_only_disks() {
         // ARRANGE
         let mut disks = vec![disk("sda")];
         disks[0].read_only = true;
 
         // ACT
-        let result = resolve(&disks, "sda", true);
+        let validation = validate(&disks, "sda", true).expect("resolved");
 
         // ASSERT
-        result.expect_err("read-only disks cannot be wiped");
+        assert!(!check(&validation, "read_only").passed);
     }
 
     #[test]
-    fn resolve_rejects_mounted_disks_without_allow_system_disk() {
+    fn validate_rejects_mounted_disks_without_allow_system_disk() {
         // ARRANGE
         let mut disks = vec![disk("sda")];
         disks[0].partitions.push(partition(1, "/mnt/data"));
 
         // ACT
-        let refused = resolve(&disks, "sda", false);
-        let allowed = resolve(&disks, "sda", true);
+        let refused = validate(&disks, "sda", false).expect("resolved");
+        let allowed = validate(&disks, "sda", true).expect("resolved");
 
         // ASSERT
-        refused.expect_err("mounted disks need explicit approval");
-        allowed.expect("explicit approval allows mounted disks");
+        assert!(!check(&refused, "mounted_partitions").passed);
+        assert!(check(&allowed, "mounted_partitions").passed);
     }
 
     #[test]
-    fn resolve_refuses_system_and_data_disks_without_allow_system_disk() {
+    fn validate_refuses_system_and_data_disks_without_allow_system_disk() {
         // ARRANGE
         let mut system = disk("sda");
         system.is_system = true;
@@ -213,16 +317,16 @@ mod tests {
         let disks = vec![system, data];
 
         // ACT
-        let system_result = resolve(&disks, "sda", false);
-        let data_result = resolve(&disks, "sdb", false);
+        let system_result = validate(&disks, "sda", false).expect("resolved");
+        let data_result = validate(&disks, "sdb", false).expect("resolved");
 
         // ASSERT
-        system_result.expect_err("STATE disks need explicit approval");
-        data_result.expect_err("DATA disks need explicit approval");
+        assert!(!check(&system_result, "muak_partitions").passed);
+        assert!(!check(&data_result, "muak_partitions").passed);
     }
 
     #[test]
-    fn resolve_allows_system_disks_when_explicitly_allowed() {
+    fn validate_allows_system_disks_when_explicitly_allowed() {
         // ARRANGE
         let mut system = disk("sda");
         system.is_system = true;
@@ -230,23 +334,24 @@ mod tests {
         system.partitions.push(partition(1, ""));
 
         // ACT
-        let target = resolve(&[system], "sda", true).expect("allowed");
+        let validation = validate(&[system], "sda", true).expect("allowed");
 
         // ASSERT
-        assert!(target.is_system);
-        assert!(target.is_data);
-        assert_eq!(target.partitions, [1]);
+        assert!(validation.target.is_system);
+        assert!(validation.target.is_data);
+        assert_eq!(validation.target.partitions, [1]);
+        assert!(validation.checks.iter().all(|check| check.passed));
     }
 
     #[test]
-    fn resolve_unknown_disk_is_an_error() {
+    fn validate_unknown_disk_is_an_error() {
         // ARRANGE
         let disks = vec![disk("sda")];
 
         // ACT
-        let result = resolve(&disks, "sdz", false);
+        let result = validate(&disks, "sdz", false);
 
         // ASSERT
-        result.expect_err("unknown disks are refused");
+        assert!(result.is_err(), "unknown disks are refused");
     }
 }

@@ -15,7 +15,7 @@ pub struct PartitionInfo {
 }
 
 /// Information about a physical disk including all its partitions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DiskInfo {
     pub name: String,
     pub path: String,
