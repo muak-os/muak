@@ -98,8 +98,12 @@ mod tests {
             bus_path: String::new(),
             subsystem: String::new(),
             rotational: false,
+            cdrom: false,
             removable: false,
             read_only: false,
+            symlinks: Vec::new(),
+            is_system: false,
+            is_data: false,
             partitions: Vec::new(),
         }
     }

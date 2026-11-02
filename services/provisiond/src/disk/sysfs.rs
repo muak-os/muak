@@ -7,7 +7,10 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use tokio::fs;
 
-use super::attrs::{read_link_name, read_partition_info, read_sysfs_string, read_sysfs_u64};
+use super::attrs::{
+    MOUNTS_PATH, Mount, is_data, is_state, read_link_name, read_mounts, read_partition_info,
+    read_sysfs_string, read_sysfs_u64,
+};
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
 use super::types::{DiskInfo, PartitionInfo};
 
@@ -58,10 +61,12 @@ pub fn validate_block_device(disk: &str) -> Result<()> {
 
 /// Lists the physical disks reported by the running kernel through sysfs.
 pub async fn list_disks() -> Result<Vec<DiskInfo>> {
-    list_disks_in(Path::new(SYSFS_BLOCK_ROOT)).await
+    let mounts = read_mounts(Path::new(MOUNTS_PATH));
+
+    list_disks_in(Path::new(SYSFS_BLOCK_ROOT), &mounts).await
 }
 
-async fn list_disks_in(sysfs_root: &Path) -> Result<Vec<DiskInfo>> {
+async fn list_disks_in(sysfs_root: &Path, mounts: &[Mount]) -> Result<Vec<DiskInfo>> {
     if !sysfs_root.exists() {
         bail!(
             "{} does not exist - sysfs not mounted?",
@@ -73,7 +78,7 @@ async fn list_disks_in(sysfs_root: &Path) -> Result<Vec<DiskInfo>> {
     let mut entries = fs::read_dir(sysfs_root).await?;
 
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if let Some(disk) = try_read_disk(sysfs_root, entry).await {
+        if let Some(disk) = try_read_disk(sysfs_root, entry, mounts).await {
             disks.push(disk);
         }
     }
@@ -83,7 +88,11 @@ async fn list_disks_in(sysfs_root: &Path) -> Result<Vec<DiskInfo>> {
     Ok(disks)
 }
 
-async fn try_read_disk(sysfs_root: &Path, entry: fs::DirEntry) -> Option<DiskInfo> {
+async fn try_read_disk(
+    sysfs_root: &Path,
+    entry: fs::DirEntry,
+    mounts: &[Mount],
+) -> Option<DiskInfo> {
     let name = entry.file_name();
     let name_str = name.to_string_lossy();
 
@@ -91,7 +100,7 @@ async fn try_read_disk(sysfs_root: &Path, entry: fs::DirEntry) -> Option<DiskInf
         return None;
     }
 
-    match read_disk_info_in(sysfs_root, &name_str).await {
+    match read_disk_info_in(sysfs_root, &name_str, mounts).await {
         Ok(disk_info) if disk_info.size_bytes > 0 => Some(disk_info),
         Ok(_) => None,
         Err(e) => {
@@ -101,7 +110,7 @@ async fn try_read_disk(sysfs_root: &Path, entry: fs::DirEntry) -> Option<DiskInf
     }
 }
 
-async fn read_disk_info_in(sysfs_root: &Path, name: &str) -> Result<DiskInfo> {
+async fn read_disk_info_in(sysfs_root: &Path, name: &str, mounts: &[Mount]) -> Result<DiskInfo> {
     let sysfs_path = sysfs_root.join(name);
 
     let size_sectors = read_sysfs_u64(&sysfs_path.join("size")).await?;
@@ -124,7 +133,13 @@ async fn read_disk_info_in(sysfs_root: &Path, name: &str) -> Result<DiskInfo> {
 
     let path = format!("/dev/{name}");
 
-    let partitions = discover_partitions(sysfs_root, &sysfs_path, name).await;
+    let partitions = discover_partitions(sysfs_root, &sysfs_path, name, mounts).await;
+    let is_system = partitions
+        .iter()
+        .any(|partition| is_state(&partition.gpt_name));
+    let is_data = partitions
+        .iter()
+        .any(|partition| is_data(&partition.gpt_name));
 
     Ok(DiskInfo {
         name: name.to_owned(),
@@ -136,8 +151,12 @@ async fn read_disk_info_in(sysfs_root: &Path, name: &str) -> Result<DiskInfo> {
         bus_path,
         subsystem,
         rotational,
+        cdrom: false,
         removable,
         read_only,
+        symlinks: Vec::new(),
+        is_system,
+        is_data,
         partitions,
     })
 }
@@ -146,6 +165,7 @@ async fn discover_partitions(
     sysfs_root: &Path,
     sysfs_path: &Path,
     disk_name: &str,
+    mounts: &[Mount],
 ) -> Vec<PartitionInfo> {
     let Ok(mut entries) = fs::read_dir(sysfs_path).await else {
         return Vec::new();
@@ -153,7 +173,7 @@ async fn discover_partitions(
 
     let mut partitions = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if let Some(part) = try_read_partition(sysfs_root, entry, disk_name).await {
+        if let Some(part) = try_read_partition(sysfs_root, entry, disk_name, mounts).await {
             partitions.push(part);
         }
     }
@@ -167,6 +187,7 @@ async fn try_read_partition(
     sysfs_root: &Path,
     entry: fs::DirEntry,
     disk_name: &str,
+    mounts: &[Mount],
 ) -> Option<PartitionInfo> {
     let part_name = entry.file_name();
     let part_name_str = part_name.to_string_lossy();
@@ -179,7 +200,7 @@ async fn try_read_partition(
         return None;
     }
 
-    read_partition_info(sysfs_root, disk_name, &part_name_str)
+    read_partition_info(sysfs_root, disk_name, &part_name_str, mounts)
         .await
         .ok()
 }
@@ -226,6 +247,7 @@ fn is_physical_disk(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::disk::Role;
 
     #[test]
     fn is_physical_disk_rejects_loop_devices() {
@@ -308,7 +330,7 @@ mod tests {
         link_subsystem(root.path(), "nvme0n1", "nvme");
 
         // ACT
-        let disk = run(read_disk_info_in(root.path(), "nvme0n1")).expect("disk info");
+        let disk = run(read_disk_info_in(root.path(), "nvme0n1", &[])).expect("disk info");
 
         // ASSERT
         assert_eq!(disk.serial, "SN123");
@@ -328,7 +350,7 @@ mod tests {
         link_subsystem(root.path(), "sda", "scsi");
 
         // ACT
-        let disk = run(read_disk_info_in(root.path(), "sda")).expect("disk info");
+        let disk = run(read_disk_info_in(root.path(), "sda", &[])).expect("disk info");
 
         // ASSERT
         assert_eq!(disk.serial, "FALLBACK-SERIAL");
@@ -343,7 +365,7 @@ mod tests {
         write_disk(root.path(), "sda");
 
         // ACT
-        let disk = run(read_disk_info_in(root.path(), "sda")).expect("disk info");
+        let disk = run(read_disk_info_in(root.path(), "sda", &[])).expect("disk info");
 
         // ASSERT
         assert_eq!(disk.serial, "");
@@ -351,6 +373,10 @@ mod tests {
         assert_eq!(disk.subsystem, "");
         assert_eq!(disk.bus_path, "/sda/device");
         assert!(!disk.rotational);
+        assert!(!disk.cdrom);
+        assert_eq!(disk.symlinks, Vec::<String>::new());
+        assert!(!disk.is_system);
+        assert!(!disk.is_data);
     }
 
     #[test]
@@ -365,10 +391,78 @@ mod tests {
         std::os::unix::fs::symlink(&device, block.join("sda/device")).expect("device link");
 
         // ACT
-        let disk = run(read_disk_info_in(&block, "sda")).expect("disk info");
+        let disk = run(read_disk_info_in(&block, "sda", &[])).expect("disk info");
 
         // ASSERT
         assert_eq!(disk.bus_path, "/pci0000:00/ata1/sda");
+    }
+
+    #[test]
+    fn read_disk_info_in_marks_the_state_partition_as_system() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+        write_partition(root.path(), "sda", "sda1", Role::State.gpt_name());
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "sda", &[])).expect("disk info");
+
+        // ASSERT
+        assert!(disk.is_system);
+        assert!(!disk.is_data);
+        assert_eq!(disk.partitions[0].gpt_name, Role::State.gpt_name());
+        assert!(disk.partitions[0].in_use);
+    }
+
+    #[test]
+    fn read_disk_info_in_marks_the_data_partition() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+        write_partition(root.path(), "sda", "sda1", Role::Data.gpt_name());
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "sda", &[])).expect("disk info");
+
+        // ASSERT
+        assert!(!disk.is_system);
+        assert!(disk.is_data);
+        assert!(disk.partitions[0].in_use);
+    }
+
+    #[test]
+    fn read_disk_info_in_marks_a_shared_disk_as_system_and_data() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+        write_partition(root.path(), "sda", "sda1", Role::State.gpt_name());
+        write_partition(root.path(), "sda", "sda2", Role::Data.gpt_name());
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "sda", &[])).expect("disk info");
+
+        // ASSERT
+        assert!(disk.is_system);
+        assert!(disk.is_data);
+    }
+
+    #[test]
+    fn read_disk_info_in_records_mount_points_and_marks_them_in_use() {
+        // ARRANGE
+        let root = tempfile::TempDir::new().expect("temp dir");
+        write_disk(root.path(), "sda");
+        write_partition(root.path(), "sda", "sda1", "");
+        let mounts = vec![Mount {
+            device: "/dev/sda1".to_owned(),
+            mount_point: "/mnt/data".to_owned(),
+        }];
+
+        // ACT
+        let disk = run(read_disk_info_in(root.path(), "sda", &mounts)).expect("disk info");
+
+        // ASSERT
+        assert_eq!(disk.partitions[0].mount_point, "/mnt/data");
+        assert!(disk.partitions[0].in_use);
     }
 
     #[test]
@@ -379,7 +473,7 @@ mod tests {
         write_disk(root.path(), "sda");
 
         // ACT
-        let disks = run(list_disks_in(root.path())).expect("disks");
+        let disks = run(list_disks_in(root.path(), &[])).expect("disks");
 
         // ASSERT
         let names: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
@@ -394,7 +488,7 @@ mod tests {
         write_disk(root.path(), "loop0");
 
         // ACT
-        let disks = run(list_disks_in(root.path())).expect("disks");
+        let disks = run(list_disks_in(root.path(), &[])).expect("disks");
 
         // ASSERT
         assert_eq!(disks.len(), 1);
@@ -411,6 +505,19 @@ mod tests {
         std::fs::write(disk.join("removable"), "0\n").expect("removable");
         std::fs::write(disk.join("ro"), "0\n").expect("ro");
         std::fs::write(disk.join("device/model"), "Fake Disk\n").expect("model");
+    }
+
+    fn write_partition(root: &Path, disk: &str, part: &str, gpt_name: &str) {
+        let path = root.join(disk).join(part);
+        std::fs::create_dir_all(&path).expect("partition dir");
+        std::fs::write(path.join("partition"), "1\n").expect("partition");
+        std::fs::write(path.join("start"), "2048\n").expect("start");
+        std::fs::write(path.join("size"), "1024\n").expect("size");
+        std::fs::write(
+            path.join("uevent"),
+            format!("DEVNAME={part}\nDEVTYPE=partition\nPARTNAME={gpt_name}\n"),
+        )
+        .expect("uevent");
     }
 
     fn link_subsystem(root: &Path, name: &str, subsystem: &str) {

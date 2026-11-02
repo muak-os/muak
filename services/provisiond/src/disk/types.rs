@@ -9,6 +9,9 @@ pub struct PartitionInfo {
     pub name: String,
     pub path: String,
     pub fstype: String,
+    pub gpt_name: String,
+    pub mount_point: String,
+    pub in_use: bool,
 }
 
 /// Information about a physical disk including all its partitions.
@@ -23,8 +26,12 @@ pub struct DiskInfo {
     pub bus_path: String,
     pub subsystem: String,
     pub rotational: bool,
+    pub cdrom: bool,
     pub removable: bool,
     pub read_only: bool,
+    pub symlinks: Vec<String>,
+    pub is_system: bool,
+    pub is_data: bool,
     pub partitions: Vec<PartitionInfo>,
 }
 

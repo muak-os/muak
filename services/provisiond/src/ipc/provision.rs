@@ -3,16 +3,16 @@
 use tokio::task;
 use tonic::{Request, Response, Status};
 
+use super::inventory::to_disk_info;
 use super::proto::provision::provision_service_server::{ProvisionService, ProvisionServiceServer};
 use super::proto::provision::{
-    ConfigHistoryEntry, DiskInfo, FactoryResetRequest, FactoryResetResponse,
-    GetConfigHistoryRequest, GetConfigHistoryResponse, GetConfigRequest, GetConfigResponse,
-    GetConfigSnapshotRequest, GetConfigSnapshotResponse, GetDefaultConfigRequest,
-    GetDefaultConfigResponse, GetRollbackHistoryRequest, GetRollbackHistoryResponse,
-    GetUpdateStatusRequest, GetUpdateStatusResponse, InstallProgress, InstallRequest,
-    ListDisksRequest, ListDisksResponse, PartitionInfo, PowerResponse, PrepareUpdateProgress,
-    PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
-    UpdateResponse,
+    ConfigHistoryEntry, FactoryResetRequest, FactoryResetResponse, GetConfigHistoryRequest,
+    GetConfigHistoryResponse, GetConfigRequest, GetConfigResponse, GetConfigSnapshotRequest,
+    GetConfigSnapshotResponse, GetDefaultConfigRequest, GetDefaultConfigResponse,
+    GetRollbackHistoryRequest, GetRollbackHistoryResponse, GetUpdateStatusRequest,
+    GetUpdateStatusResponse, InstallProgress, InstallRequest, ListDisksRequest, ListDisksResponse,
+    PowerResponse, PrepareUpdateProgress, PrepareUpdateRequest, RebootRequest,
+    RollbackHistoryEntry, ShutdownRequest, UpdateRequest, UpdateResponse,
 };
 use crate::{disk, install, journal, power, reset, streaming, template, update};
 
@@ -199,29 +199,7 @@ impl ProvisionService for ServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
 
-        let proto_disks = disks
-            .into_iter()
-            .map(|disk| DiskInfo {
-                name: disk.name,
-                path: disk.path,
-                size_bytes: disk.size_bytes,
-                model: disk.model,
-                removable: disk.removable,
-                read_only: disk.read_only,
-                partitions: disk
-                    .partitions
-                    .into_iter()
-                    .map(|partition| PartitionInfo {
-                        number: partition.number,
-                        start_sector: partition.start_sector,
-                        size_bytes: partition.size_bytes,
-                        name: partition.name,
-                        path: partition.path,
-                        fstype: partition.fstype,
-                    })
-                    .collect(),
-            })
-            .collect();
+        let proto_disks = disks.into_iter().map(to_disk_info).collect();
 
         Ok(Response::new(ListDisksResponse {
             disks: proto_disks,

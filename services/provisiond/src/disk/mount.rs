@@ -1,35 +1,18 @@
 //! Partition mounting and unmounting utilities.
 
+use std::path::Path;
+
 use anyhow::{Context as _, Result, bail};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
-/// Represents a mounted partition with device path and mount point.
-pub struct MountedPartition {
-    pub device: String,
-    pub mount_point: String,
-}
+use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
 
 /// Retrieves all partitions mounted from the specified disk.
-pub fn get_disk_mounts(disk: &str) -> Vec<MountedPartition> {
-    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-
-    mounts
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.split_whitespace();
-            let device = parts.next()?;
-            let mount_point = parts.next()?;
-
-            if !device.starts_with(disk) {
-                return None;
-            }
-
-            Some(MountedPartition {
-                device: device.to_owned(),
-                mount_point: mount_point.to_owned(),
-            })
-        })
+pub fn get_disk_mounts(disk: &str) -> Vec<Mount> {
+    read_mounts(Path::new(MOUNTS_PATH))
+        .into_iter()
+        .filter(|mount| mount.device.starts_with(disk))
         .collect()
 }
 
@@ -47,7 +30,7 @@ pub fn mount_efi_partition(efi_device: &str, mount_point: &str) -> Result<()> {
 }
 
 /// Unmounts all partitions in the provided list, deepest mount points first.
-pub fn unmount_all(partitions: &[MountedPartition]) -> Result<()> {
+pub fn unmount_all(partitions: &[Mount]) -> Result<()> {
     let mut sorted: Vec<_> = partitions.iter().collect();
     sorted.sort_by_key(|mount| core::cmp::Reverse(mount.mount_point.len()));
 

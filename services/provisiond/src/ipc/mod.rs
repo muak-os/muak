@@ -39,3 +39,5 @@ pub mod proto {
         tonic::include_proto!("muak.version.v1");
     }
 }
+
+pub(crate) mod inventory;
