@@ -5,7 +5,7 @@ use core::time::Duration;
 use std::time::Instant;
 
 use anyhow::{Context as _, Result, bail};
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tonic::Request;
 use tonic::transport::{Channel, Endpoint};
 
@@ -15,8 +15,6 @@ use crate::ipc::proto::service::{ListServiceStatesRequest, ServiceState};
 const WINDOW: Duration = Duration::from_mins(4);
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const GRANOLA_SOCKET: &str = "unix:/run/services/granola.sock";
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const READY: &str = "ready";
 const STOPPING: &str = "stopping";
 
@@ -46,8 +44,6 @@ impl Granola {
     async fn connected(&mut self) -> Result<&mut ServiceStateServiceClient<Channel>> {
         if self.client.is_none() {
             let channel = Endpoint::from_static(GRANOLA_SOCKET)
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(REQUEST_TIMEOUT)
                 .connect()
                 .await
                 .context("Connect to granola")?;
@@ -78,6 +74,9 @@ pub(crate) async fn await_all_ready() -> Result<()> {
 
 /// Polls `states` every [`POLL_INTERVAL`] until the gate passes or `window` expires.
 ///
+/// Each poll is bounded by the remaining window, so a stalled connect or request
+/// cannot outlive `window`.
+///
 /// # Errors
 ///
 /// Returns an error once `window` elapsed, carrying the last error and the last
@@ -90,19 +89,22 @@ pub(crate) async fn wait_until_ready<S: States>(states: &mut S, window: Duration
     let mut last_offenders: Option<String> = None;
 
     loop {
-        match states.list().await {
-            Ok(observed) => match assess(&observed) {
-                Ok(()) => return Ok(()),
-                Err(e) => last_offenders = Some(format!("{e:#}")),
-            },
-            Err(e) => last_error = Some(format!("{e:#}")),
-        }
-
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return window_expired(window, last_error, last_offenders);
         }
 
+        let budget = POLL_INTERVAL.min(remaining);
+        match timeout(budget, states.list()).await {
+            Ok(Ok(observed)) => match assess(&observed) {
+                Ok(()) => return Ok(()),
+                Err(e) => last_offenders = Some(format!("{e:#}")),
+            },
+            Ok(Err(e)) => last_error = Some(format!("{e:#}")),
+            Err(_) => last_error = Some(format!("Poll timed out after {budget:?}")),
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
         sleep(POLL_INTERVAL.min(remaining)).await;
     }
 }
@@ -161,11 +163,15 @@ fn window_expired(
 #[cfg(test)]
 mod tests {
     use alloc::collections::VecDeque;
-    use core::future::ready;
+    use core::future::{pending, ready};
 
     use anyhow::anyhow;
 
     use super::*;
+
+    // A window spanning one poll interval plus a wide margin, so a second poll
+    // always happens before the deadline even under scheduling overshoot.
+    const TWO_POLLS: Duration = POLL_INTERVAL.saturating_add(Duration::from_secs(1));
 
     struct Fake {
         polls: VecDeque<Result<Vec<ServiceState>>>,
@@ -187,6 +193,22 @@ mod tests {
             };
 
             ready(poll)
+        }
+    }
+
+    struct Stalled;
+
+    impl States for Stalled {
+        fn list(&mut self) -> impl Future<Output = Result<Vec<ServiceState>>> + Send {
+            pending()
+        }
+    }
+
+    struct Unreachable;
+
+    impl States for Unreachable {
+        fn list(&mut self) -> impl Future<Output = Result<Vec<ServiceState>>> + Send {
+            ready(Err(anyhow!("granola unreachable")))
         }
     }
 
@@ -309,7 +331,7 @@ mod tests {
         ]);
 
         // ACT
-        let outcome = wait_until_ready(&mut fake, Duration::from_millis(100)).await;
+        let outcome = wait_until_ready(&mut fake, TWO_POLLS).await;
 
         // ASSERT
         outcome.expect("a later poll is all ready");
@@ -325,7 +347,7 @@ mod tests {
         ]);
 
         // ACT
-        let error = wait_until_ready(&mut fake, Duration::from_millis(100))
+        let error = wait_until_ready(&mut fake, TWO_POLLS)
             .await
             .expect_err("services never become ready");
 
@@ -354,10 +376,59 @@ mod tests {
         ]);
 
         // ACT
-        let outcome = wait_until_ready(&mut fake, Duration::from_millis(100)).await;
+        let outcome = wait_until_ready(&mut fake, TWO_POLLS).await;
 
         // ASSERT
         outcome.expect("connection errors must not be fatal");
         assert!(fake.polls.is_empty(), "every poll must be consumed");
+    }
+
+    #[tokio::test]
+    async fn wait_until_ready_expires_when_a_poll_stalls() {
+        // ARRANGE
+        let mut stalled = Stalled;
+
+        // ACT
+        let outcome = timeout(
+            Duration::from_secs(2),
+            wait_until_ready(&mut stalled, Duration::from_millis(150)),
+        )
+        .await;
+
+        // ASSERT
+        let error = outcome
+            .expect("the poll must be bounded by the window, not by the stalled call")
+            .expect_err("a stalled poll must expire the window");
+        let message = error.to_string();
+        assert!(
+            message.contains("no services observed"),
+            "error '{message}' must report no observed services"
+        );
+        assert!(
+            message.contains("last error") && message.contains("Poll timed out"),
+            "error '{message}' must carry the poll timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_until_ready_expires_without_observing_services() {
+        // ARRANGE
+        let mut unreachable = Unreachable;
+
+        // ACT
+        let error = wait_until_ready(&mut unreachable, Duration::from_millis(150))
+            .await
+            .expect_err("services are never observed");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(
+            message.contains("no services observed"),
+            "error '{message}' must report no observed services"
+        );
+        assert!(
+            message.contains("last error") && message.contains("granola unreachable"),
+            "error '{message}' must carry the last error"
+        );
     }
 }
