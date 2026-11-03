@@ -1,4 +1,4 @@
-//! Host-level settings (name, registry, channel, ports, etc.).
+//! Host-level settings (name, registry, version, ports, etc.).
 
 use serde::{Deserialize, Serialize};
 
@@ -10,9 +10,6 @@ pub struct Config {
     pub name: String,
     /// Registry serving the catalog (e.g. `ghcr.io/muak-os`).
     pub registry: String,
-    /// Catalog channel this machine tracks (e.g. `stable`).
-    #[serde(default = "default_channel")]
-    pub channel: String,
     /// Deployed catalog release (e.g. `v1.1.0`).
     pub version: String,
     /// Additional system extension images.
@@ -25,8 +22,4 @@ pub struct Config {
     pub clock: String,
     /// NTP server address for time synchronization.
     pub ntp: String,
-}
-
-fn default_channel() -> String {
-    "stable".to_owned()
 }

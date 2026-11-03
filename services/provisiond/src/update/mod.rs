@@ -19,7 +19,6 @@ use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
-use wizard::resolver;
 
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::journal::{self, ChangeKind, Entry};
@@ -252,37 +251,20 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
     Ok(())
 }
 
-/// Resolves the target release of an update: `requested` when explicit,
-/// otherwise the newest release of `channel`.
+/// Validates and returns the requested update target release.
 ///
 /// # Errors
 ///
-/// Returns an error when channel resolution fails or the target release is a
-/// downgrade of `current`.
-pub async fn resolve_target(
-    registry: &str,
-    channel: &str,
-    current: &str,
-    requested: &str,
-) -> Result<String> {
-    if !requested.is_empty() {
-        config::version::check_no_downgrade(requested, current)?;
-        return Ok(requested.to_owned());
+/// Returns an error when `requested` is empty or when it is a downgrade of
+/// `current`.
+pub fn resolve_target(current: &str, requested: &str) -> Result<String> {
+    if requested.is_empty() {
+        bail!("update target version must be specified");
     }
 
-    let registry = registry.to_owned();
-    let channel = channel.to_owned();
-    let candidate = tokio::task::spawn_blocking(move || {
-        resolver::release_of(&registry, &channel).context("Failed to resolve channel")
-    })
-    .await
-    .context("Channel resolution task failed")??;
-    if !current.is_empty() {
-        config::version::check_no_downgrade(&candidate, current)
-            .context("Channel release rejected")?;
-    }
+    config::version::check_no_downgrade(requested, current)?;
 
-    Ok(candidate)
+    Ok(requested.to_owned())
 }
 
 fn has_update_marker() -> bool {
@@ -351,28 +333,33 @@ pub fn signal_cli_contact() {
 mod tests {
     use super::resolve_target;
 
-    #[tokio::test]
-    async fn explicit_version_is_guarded_and_returned() {
+    #[test]
+    fn requested_release_is_guarded_and_returned() {
         // ARRANGE
-        let registry = "ghcr.io/muak-os";
-        let channel = "stable";
         let current = "v1.2.0";
 
-        // ACT / ASSERT
-        resolve_target(registry, channel, current, "v1.3.0")
-            .await
-            .expect("target");
-        assert_eq!(
-            resolve_target(registry, channel, current, "v1.2.0")
-                .await
-                .expect("same release"),
-            "v1.2.0"
-        );
-        resolve_target(registry, channel, current, "v1.1.0")
-            .await
-            .expect_err("downgrade must fail");
-        resolve_target(registry, channel, current, "garbage")
-            .await
-            .expect_err("invalid version must fail");
+        // ACT
+        let newer = resolve_target(current, "v1.3.0");
+        let same = resolve_target(current, "v1.2.0");
+        let older = resolve_target(current, "v1.1.0");
+        let invalid = resolve_target(current, "garbage");
+
+        // ASSERT
+        newer.expect("newer release is valid");
+        assert_eq!(same.expect("same release is valid"), "v1.2.0");
+        older.expect_err("downgrade must fail");
+        invalid.expect_err("invalid version must fail");
+    }
+
+    #[test]
+    fn empty_release_is_rejected() {
+        // ARRANGE
+        let current = "v1.2.0";
+
+        // ACT
+        let error = resolve_target(current, "").expect_err("empty version must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains("must be specified"));
     }
 }
