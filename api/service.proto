@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package muak.service.v1;
+
+service ServiceStateService {
+  // @rbac: system:read
+  rpc ListServiceStates(ListServiceStatesRequest) returns (ListServiceStatesResponse);
+}
+
+message ListServiceStatesRequest {}
+
+message ListServiceStatesResponse {
+  repeated ServiceState states = 1;
+}
+
+message ServiceState {
+  string name = 1;
+  string status = 2;
+  uint32 restarts = 3;
+}

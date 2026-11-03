@@ -1,3 +1,4 @@
+use alloc::fmt;
 use std::os::fd::OwnedFd;
 use std::time::Instant;
 
@@ -72,6 +73,20 @@ pub enum ServiceStatus {
     Degraded,
     Stopping,
     Failed,
+}
+
+impl fmt::Display for ServiceStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let wire = match *self {
+            Self::Pending => "pending",
+            Self::Starting => "starting",
+            Self::Ready => "ready",
+            Self::Degraded => "degraded",
+            Self::Stopping => "stopping",
+            Self::Failed => "failed",
+        };
+        f.write_str(wire)
+    }
 }
 
 /// Runtime state for a single supervised service.

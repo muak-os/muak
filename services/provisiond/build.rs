@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={api_dir}/auth.proto");
     println!("cargo:rerun-if-changed={api_dir}/security.proto");
     println!("cargo:rerun-if-changed={api_dir}/version.proto");
+    println!("cargo:rerun-if-changed={api_dir}/service.proto");
 
     tonic_prost_build::configure()
         .build_server(true)
@@ -29,6 +30,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 format!("{api_dir}/security.proto"),
                 format!("{api_dir}/version.proto"),
             ],
+            [api_dir],
+        )?)?;
+
+    tonic_prost_build::configure()
+        .build_server(false)
+        .build_client(true)
+        .compile_fds(protox::compile(
+            [format!("{api_dir}/service.proto")],
             [api_dir],
         )?)?;
 

@@ -3,6 +3,7 @@
 mod cache;
 mod commit;
 pub mod kexec;
+mod readiness;
 pub(crate) mod rollback;
 mod secureboot;
 pub(super) mod snapshot;

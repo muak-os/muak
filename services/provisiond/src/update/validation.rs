@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use tokio::sync::Notify;
 
-use super::{UPDATE_DIR, commit, rollback, snapshot};
+use super::{UPDATE_DIR, commit, readiness, rollback, snapshot};
 
 static CLI_CONTACT: Notify = Notify::const_new();
 const CONFIRMATION_WINDOW: Duration = Duration::from_mins(5);
@@ -32,6 +32,17 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
         )?;
         return Ok(());
     }
+
+    if let Err(e) = readiness::await_all_ready().await {
+        kmsg::warn!("Services not ready for {}: {:#}", update_id, e);
+        rollback::apply(
+            update_id,
+            snapshot_path,
+            &format!("Services not ready: {e:#}"),
+        )?;
+        return Ok(());
+    }
+    kmsg::info!("All supervised services ready for {}", update_id);
 
     if config::system::isolates(&previous, config::system::config()?) {
         kmsg::info!(

@@ -49,24 +49,39 @@ impl RestartQueue {
 
     /// Schedules a service for restart after the configured delay.
     pub fn schedule(&mut self, state: &mut ServiceState) {
-        state.status = ServiceStatus::Pending;
-        state.restart_count = state.restart_count.saturating_add(1);
-        state.last_restart = Some(Instant::now());
+        Self::begin_attempt(state);
+        Self::log_retry(state);
+        self.enqueue(&state.service.name);
+    }
 
-        kmsg::info!(
-            "Will restart {} (attempt {}/{}) after {:?}",
+    /// Counts a failed spawn attempt and either queues a delayed retry or marks
+    /// the service failed once the attempt budget is exhausted.
+    pub fn record_spawn_failure(&mut self, state: &mut ServiceState, error: &str) {
+        Self::begin_attempt(state);
+        kmsg::error!(
+            "Failed to spawn service {} (attempt {}/{}): {error}",
             state.service.name,
             state.restart_count,
-            MAX_RESTART_ATTEMPTS,
-            RESTART_DELAY
+            MAX_RESTART_ATTEMPTS
         );
 
-        self.pending.push(PendingRestart {
-            name: state.service.name.clone(),
-            due_at: Instant::now()
-                .checked_add(RESTART_DELAY)
-                .unwrap_or_else(Instant::now),
-        });
+        if state.restart_count >= MAX_RESTART_ATTEMPTS {
+            self.cancel(&state.service.name);
+            Self::mark_failed(state);
+            kmsg::error!(
+                "Service {} stays failed, last spawn error: {error}",
+                state.service.name
+            );
+            return;
+        }
+
+        Self::log_retry(state);
+        self.enqueue(&state.service.name);
+    }
+
+    /// Returns whether the service already has a restart scheduled.
+    pub fn is_queued(&self, name: &str) -> bool {
+        self.pending.iter().any(|restart| restart.name == name)
     }
 
     /// Marks a service as permanently failed.
@@ -95,7 +110,40 @@ impl RestartQueue {
         ready
     }
 
-    /// Either re-queues a pending restart or collects it as ready to run.
+    // Increments the attempt counter and returns the service to `Pending`.
+    fn begin_attempt(state: &mut ServiceState) {
+        state.status = ServiceStatus::Pending;
+        state.restart_count = state.restart_count.saturating_add(1);
+        state.last_restart = Some(Instant::now());
+    }
+
+    // Logs the scheduled retry and the delay applied before it runs.
+    fn log_retry(state: &ServiceState) {
+        kmsg::info!(
+            "Will restart {} (attempt {}/{}) after {:?}",
+            state.service.name,
+            state.restart_count,
+            MAX_RESTART_ATTEMPTS,
+            RESTART_DELAY
+        );
+    }
+
+    // Queues a restart for the named service, due after the restart delay.
+    fn enqueue(&mut self, name: &str) {
+        self.pending.push(PendingRestart {
+            name: name.to_owned(),
+            due_at: Instant::now()
+                .checked_add(RESTART_DELAY)
+                .unwrap_or_else(Instant::now),
+        });
+    }
+
+    // Drops every pending restart for the named service.
+    fn cancel(&mut self, name: &str) {
+        self.pending.retain(|restart| restart.name != name);
+    }
+
+    // Either re-queues a pending restart or collects it as ready to run.
     fn resolve_pending<G>(
         &mut self,
         restart: PendingRestart,
@@ -256,6 +304,39 @@ mod tests {
 
         // ASSERT
         assert_eq!(state.status, ServiceStatus::Failed);
+    }
+
+    #[test]
+    fn spawn_failure_below_max_attempts_is_queued() {
+        // ARRANGE
+        let mut queue = RestartQueue::new();
+        let mut state = make_state(ServiceStatus::Pending);
+
+        // ACT
+        queue.record_spawn_failure(&mut state, "Binary not found");
+        let due = queue.take_due(|_| true);
+
+        // ASSERT
+        assert!(due.is_empty(), "retry must not be due immediately");
+        assert_eq!(state.status, ServiceStatus::Pending);
+        assert_eq!(state.restart_count, 1);
+        assert!(queue.is_queued("test-svc"));
+    }
+
+    #[test]
+    fn spawn_failure_at_max_attempts_marks_failed() {
+        // ARRANGE
+        let mut queue = RestartQueue::new();
+        let mut state = make_state(ServiceStatus::Pending);
+        state.restart_count = MAX_RESTART_ATTEMPTS - 1;
+
+        // ACT
+        queue.record_spawn_failure(&mut state, "Binary not found");
+
+        // ASSERT
+        assert_eq!(state.status, ServiceStatus::Failed);
+        assert_eq!(state.restart_count, MAX_RESTART_ATTEMPTS);
+        assert!(!queue.is_queued("test-svc"));
     }
 
     #[test]
