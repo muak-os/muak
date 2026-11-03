@@ -18,7 +18,6 @@ mod tests {
     [host]
     name = "muak"
     registry = "ghcr.io/muak-os"
-    channel = "stable"
     version = "v1.0.0"
     extensions = ["ext1", "ext2"]
     port = 8080

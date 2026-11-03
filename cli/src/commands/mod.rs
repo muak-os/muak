@@ -158,9 +158,7 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
             Ok(true)
         }
         Commands::Update { version, config } => {
-            if version.is_some() && config.is_some() {
-                bail!("--version and --config are mutually exclusive!");
-            }
+            update::ensure_target(version.as_deref(), config.as_deref())?;
             Ok(false)
         }
         Commands::Install {

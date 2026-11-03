@@ -17,35 +17,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn update() -> Result<()> {
-        // ARRANGE
-        let artifacts = Artifacts::from_env()?;
-        let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
-
-        // ACT
-        let stdout = timeout(Duration::from_mins(1), assert_success!(cli, ["update"]))
-            .await
-            .map_err(|_elapsed| {
-                let serial = fixture.vm.read_serial().unwrap_or_default();
-                let stderr = fixture.vm.read_stderr().unwrap_or_default();
-                anyhow::anyhow!(
-                    "update timed out\
-                 \n\n--- serial log ---\n{serial}\
-                 \n\n--- stderr ---\n{stderr}"
-                )
-            })?
-            .map_err(|e| anyhow::anyhow!("muakctl update failed: {e}"))?;
-
-        // ASSERT
-        ensure!(
-            stdout.contains("committed successfully"),
-            "expected 'committed successfully' in update output, got: {stdout}"
-        );
-        fixture.vm.assert_serial_contains("muak.update_id=")?;
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn update_explicit_version() -> Result<()> {
         // ARRANGE
         let artifacts = Artifacts::from_env()?;

@@ -100,32 +100,6 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     ))
 }
 
-/// Resolves a catalog tag to the concrete release line it pins.
-///
-/// # Errors
-///
-/// Returns an error when the catalog image cannot be fetched or parsed.
-pub fn release_of(registry: &str, tag: &str) -> Result<String> {
-    Ok(fetch_tag(Kind::Core, tag, registry)?
-        .document
-        .release()
-        .to_owned())
-}
-
-/// Checks that `registry` answers requests for the core catalog at `tag`.
-///
-/// # Errors
-///
-/// Returns an error when the registry cannot be contacted or authenticated.
-pub fn reachable(registry: &str, tag: &str) -> Result<()> {
-    let reference = format!("{registry}/{}:{tag}", Kind::Core.dir());
-    koci::registry::manifest_exists(&reference).map_err(|error| {
-        WizardError::SourceResolution(format!("check catalog image {reference}: {error}"))
-    })?;
-
-    Ok(())
-}
-
 fn valid_release(version: &str) -> Result<()> {
     validate_release(version).map_err(WizardError::from)
 }

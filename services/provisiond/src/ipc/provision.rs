@@ -95,14 +95,8 @@ impl ProvisionService for ServiceImpl {
         let installed = config::system::config().map_err(|e| Status::internal(e.to_string()))?;
 
         let (registry, version, extensions, new_config) = if req.config.is_empty() {
-            let version = update::resolve_target(
-                &installed.host.registry,
-                &installed.host.channel,
-                &installed.host.version,
-                &req.version,
-            )
-            .await
-            .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
+            let version = update::resolve_target(&installed.host.version, &req.version)
+                .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
             let extensions = installed.host.extensions.clone();
 
             (installed.host.registry.clone(), version, extensions, None)

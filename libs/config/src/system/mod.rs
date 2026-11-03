@@ -32,7 +32,7 @@ const DEFAULT_CONFIG: &str = include_str!("../../default.toml");
 pub struct Config {
     /// Schema version of this document.
     pub api_version: String,
-    /// Host-level configuration (name, registry, channel, version, ports, etc.).
+    /// Host-level configuration (name, registry, version, ports, etc.).
     #[serde(default)]
     pub host: host::Config,
     /// Disk assignment entries for the system and optional data disks.
@@ -113,6 +113,11 @@ impl Config {
     /// changes immutable fields or the base validation fails.
     pub fn validate_for_update(&self, installed: &Config) -> Result<()> {
         self.validate()?;
+        if self.host.version.is_empty() {
+            return Err(ConfigError::ValidationError(
+                "host.version must be set".to_owned(),
+            ));
+        }
         disk::validate_immutable(&self.disks, &installed.disks)?;
 
         Ok(())
@@ -246,7 +251,7 @@ pub fn diff(before: &str, after: &str) -> Result<Vec<(String, String, String)>> 
 pub fn load_from_path(path: &Path) -> Result<Config> {
     if path.exists() {
         let contents = std::fs::read_to_string(path)?;
-        TomlCodec::decode(&contents)
+        decode(&contents)
     } else {
         decode(DEFAULT_CONFIG)
     }
@@ -401,6 +406,7 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
         installed.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
 
         let mut requested = installed.clone();
@@ -415,6 +421,7 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
         installed.disks = vec![
             disk::Entry::device(disk::Kind::System, "/dev/sda"),
             disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
@@ -435,6 +442,7 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
         installed.host.secureboot = false;
 
         let mut requested = installed.clone();
@@ -449,6 +457,7 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
         installed.host.secureboot = true;
 
         let mut requested = installed.clone();
@@ -463,6 +472,7 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
         installed.host.secureboot = false;
 
         // ACT & ASSERT
@@ -474,10 +484,28 @@ mod tests {
         // ARRANGE
         let mut installed = Config::default();
         installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
         installed.host.secureboot = true;
 
         // ACT & ASSERT
         installed.clone().validate_for_update(&installed).unwrap();
+    }
+
+    #[test]
+    fn validate_for_update_rejects_empty_version() {
+        // ARRANGE
+        let mut installed = Config::default();
+        installed.host.port = 8080;
+        installed.host.version = "v1.0.0".to_owned();
+
+        let mut requested = installed.clone();
+        requested.host.version = String::new();
+
+        // ACT
+        let result = requested.validate_for_update(&installed);
+
+        // ASSERT
+        assert!(result.is_err());
     }
 
     #[test]

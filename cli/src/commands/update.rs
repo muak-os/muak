@@ -1,5 +1,5 @@
 use core::time::Duration;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context as _, Result, bail};
@@ -76,9 +76,7 @@ pub async fn handle(
     config_path: Option<PathBuf>,
     console: &Console,
 ) -> Result<()> {
-    if version.is_some() && config_path.is_some() {
-        bail!("--version and --config are mutually exclusive!");
-    }
+    ensure_target(version.as_deref(), config_path.as_deref())?;
 
     let channel = connect(ctx, 600).await?;
     let mut client = ProvisionServiceClient::new(channel);
@@ -100,13 +98,12 @@ pub async fn handle(
 
         (String::new(), raw.into_bytes())
     } else {
-        let target = version.clone().unwrap_or_default();
-        if !target.is_empty() {
-            config::version::check_no_downgrade(&target, &installed.host.version)
-                .with_context(|| format!("version check failed for '{target}'"))?;
-        }
+        let target = version
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--version is required when --config is absent"))?;
+        config::version::check_no_downgrade(&target, &installed.host.version)
+            .with_context(|| format!("version check failed for '{target}'"))?;
 
-        // An empty version makes the server follow the machine's channel.
         (target, Vec::new())
     };
 
@@ -255,6 +252,15 @@ async fn poll_update_status(ctx: &ServerContext, update_id: &str, steps: &Steps)
     }
 }
 
+/// Requires the update target to be given as exactly one of `version` or `config`.
+pub(crate) fn ensure_target(version: Option<&str>, config: Option<&Path>) -> Result<()> {
+    match (version, config) {
+        (Some(_), Some(_)) => bail!("--version and --config are mutually exclusive!"),
+        (None, None) => bail!("one of --version or --config must be specified!"),
+        _ => Ok(()),
+    }
+}
+
 async fn fetch_installed_config(client: &mut ProvisionServiceClient<Channel>) -> Result<Config> {
     let resp = client
         .get_config(tonic::Request::new(GetConfigRequest {}))
@@ -269,4 +275,39 @@ async fn fetch_installed_config(client: &mut ProvisionServiceClient<Channel>) ->
     let raw = String::from_utf8(resp.config).context("Server returned non-UTF-8 config")?;
 
     config::system::parse_from_str(&raw).context("Failed to parse installed config from server")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::ensure_target;
+
+    #[test]
+    fn target_requires_version_or_config() {
+        // ARRANGE
+        let config = Path::new("config.toml");
+
+        // ACT
+        let neither = ensure_target(None, None);
+        let version_only = ensure_target(Some("v1.2.0"), None);
+        let config_only = ensure_target(None, Some(config));
+
+        // ASSERT
+        neither.expect_err("a missing target must be rejected");
+        version_only.expect("a version target is valid");
+        config_only.expect("a config target is valid");
+    }
+
+    #[test]
+    fn target_rejects_version_and_config_together() {
+        // ARRANGE
+        let config = Path::new("config.toml");
+
+        // ACT
+        let error = ensure_target(Some("v1.2.0"), Some(config)).expect_err("both targets");
+
+        // ASSERT
+        assert!(error.to_string().contains("mutually exclusive"));
+    }
 }
