@@ -218,12 +218,7 @@ pub fn parse_from_str(contents: &str) -> Result<Config> {
 
 /// Deserializes a [`Config`], rejecting unsupported schema versions.
 fn decode(contents: &str) -> Result<Config> {
-    let mut document: toml::Value = TomlCodec::decode(contents)?;
-    // Releases with channel discovery always wrote `host.channel`; keep those documents readable.
-    if let Some(host) = document.get_mut("host").and_then(toml::Value::as_table_mut) {
-        host.remove("channel");
-    }
-    let config: Config = document.try_into()?;
+    let config: Config = TomlCodec::decode(contents)?;
     if config.api_version != API_VERSION {
         return Err(ConfigError::UnsupportedVersion {
             found: config.api_version,
@@ -670,24 +665,6 @@ ntp = "pool.ntp.org"
         // ASSERT
         assert_eq!(config.host.name, "loaded");
         assert_eq!(config.host.port, 7777);
-    }
-
-    #[test]
-    fn load_from_path_tolerates_legacy_channel() {
-        // ARRANGE
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        let content = with_version(
-            "[host]\nname = \"legacy\"\nport = 50051\nntp = \"pool.ntp.org\"\nchannel = \"stable\"\n",
-        );
-        std::fs::write(&path, content).unwrap();
-
-        // ACT
-        let config = load_from_path(&path).unwrap();
-
-        // ASSERT
-        assert_eq!(config.host.name, "legacy");
-        assert_eq!(config.host.port, 50051);
     }
 
     #[test]
