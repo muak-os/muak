@@ -122,7 +122,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
 
                 _ = sweep.tick() => {
                     let exits = self.reaper.reap_all();
-                    self.process_exits(exits);
+                    if !exits.is_empty() { self.process_exits(exits); }
                 }
             }
         }
@@ -894,6 +894,25 @@ mod tests {
             status == Some(ServiceStatus::Starting) || status == Some(ServiceStatus::Pending),
             "unexpected status: {status:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn empty_exit_batch_publishes_nothing() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let spawner = FakeSpawner::new();
+        let services = vec![make_service("svc", &[])];
+        let (mut sup, mut status_rx) =
+            make_observed_supervisor(services, spawner, reaper, &dir).expect("supervisor");
+        sup.start_ready_services();
+        status_rx.borrow_and_update();
+
+        // ACT
+        sup.process_exits(Vec::new());
+
+        // ASSERT
+        assert!(!status_rx.has_changed().expect("sender alive"));
     }
 
     #[tokio::test]
