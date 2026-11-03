@@ -75,6 +75,11 @@ pub(crate) fn is_state(gpt_name: &str) -> bool {
     gpt_name == Role::State.gpt_name()
 }
 
+/// Returns true when `gpt_name` marks the Muak ephemeral partition.
+pub(crate) fn is_ephemeral(gpt_name: &str) -> bool {
+    gpt_name == Role::Ephemeral.gpt_name()
+}
+
 /// Returns true when `gpt_name` marks the Muak data partition.
 pub(crate) fn is_data(gpt_name: &str) -> bool {
     gpt_name == Role::Data.gpt_name()
@@ -82,7 +87,7 @@ pub(crate) fn is_data(gpt_name: &str) -> bool {
 
 /// Returns true when a partition is mounted or carries a Muak role name.
 pub(crate) fn is_in_use(gpt_name: &str, mount_point: &str) -> bool {
-    !mount_point.is_empty() || is_state(gpt_name) || is_data(gpt_name)
+    !mount_point.is_empty() || is_state(gpt_name) || is_ephemeral(gpt_name) || is_data(gpt_name)
 }
 
 /// Reads a trimmed u64 value from a sysfs attribute file.
@@ -291,6 +296,7 @@ mod tests {
         let cases = [
             ("", "/mnt", true),
             (Role::State.gpt_name(), "", true),
+            (Role::Ephemeral.gpt_name(), "", true),
             (Role::Data.gpt_name(), "", true),
             (Role::Esp.gpt_name(), "", false),
             ("", "", false),

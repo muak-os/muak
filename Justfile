@@ -383,7 +383,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
 
     if [ ! -f "/tmp/nvme-disk.img" ]; then
         printf "{{ cyan }}Creating persistent NVMe disk{{ reset }}\n"
-        qemu-img create -f raw "/tmp/nvme-disk.img" 5G >/dev/null
+        qemu-img create -f raw "/tmp/nvme-disk.img" 16G >/dev/null
     fi
 
     if [ ! -f "/tmp/OVMF_VARS.fd" ]; then

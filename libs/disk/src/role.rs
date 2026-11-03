@@ -11,6 +11,8 @@ pub enum Role {
     Esp,
     /// Encrypted state partition holding configuration and secrets.
     State,
+    /// Encrypted ephemeral partition holding resettable workload data.
+    Ephemeral,
     /// Data partition holding workload data.
     Data,
 }
@@ -21,7 +23,7 @@ impl Role {
     pub const fn type_guid(self) -> [u8; 16] {
         match self {
             Self::Esp => crate::plan::ESP_TYPE_GUID,
-            Self::State | Self::Data => LINUX_FS_GUID,
+            Self::State | Self::Ephemeral | Self::Data => LINUX_FS_GUID,
         }
     }
 
@@ -31,6 +33,7 @@ impl Role {
         match self {
             Self::Esp => "EFI",
             Self::State => "STATE",
+            Self::Ephemeral => "EPHEMERAL",
             Self::Data => "DATA",
         }
     }
@@ -41,6 +44,7 @@ impl Role {
         match self {
             Self::Esp => "muak-esp",
             Self::State => "muak-state",
+            Self::Ephemeral => "muak-ephemeral",
             Self::Data => "muak-data",
         }
     }
@@ -55,6 +59,7 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         assert_eq!(Role::Esp.gpt_name(), "EFI");
         assert_eq!(Role::State.gpt_name(), "STATE");
+        assert_eq!(Role::Ephemeral.gpt_name(), "EPHEMERAL");
         assert_eq!(Role::Data.gpt_name(), "DATA");
     }
 
@@ -63,6 +68,7 @@ mod tests {
         // ARRANGE / ACT / ASSERT
         assert_eq!(Role::Esp.type_guid(), crate::plan::ESP_TYPE_GUID);
         assert_eq!(Role::State.type_guid(), LINUX_FS_GUID);
+        assert_eq!(Role::Ephemeral.type_guid(), LINUX_FS_GUID);
         assert_eq!(Role::Data.type_guid(), LINUX_FS_GUID);
     }
 
@@ -70,6 +76,7 @@ mod tests {
     fn dm_names_are_stable() {
         // ARRANGE / ACT / ASSERT
         assert_eq!(Role::State.dm_name(), "muak-state");
+        assert_eq!(Role::Ephemeral.dm_name(), "muak-ephemeral");
         assert_eq!(Role::Data.dm_name(), "muak-data");
     }
 

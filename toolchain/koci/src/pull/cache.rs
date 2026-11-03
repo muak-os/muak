@@ -10,6 +10,9 @@ use oci::reference::Image;
 
 use super::blobinfo;
 
+/// Subtree holding in-progress ingests, shared with the content store.
+pub(crate) const INGEST_DIR: &str = "ingest";
+
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -43,7 +46,9 @@ impl Store {
     pub(crate) fn get_manifest(&self, image: &Image, manifest_ref: &str) -> Option<String> {
         if is_digest(manifest_ref) {
             let path = self.blob_path(manifest_ref)?;
-            return std::fs::read_to_string(path).ok();
+            let manifest = std::fs::read_to_string(&path).ok()?;
+            touch(&path);
+            return Some(manifest);
         }
 
         self.get_ref(&image.registry, &image.name, manifest_ref)
@@ -146,6 +151,15 @@ pub(crate) fn blob_file_path(root: Option<&Path>, digest: &str) -> Option<PathBu
     let hash = digest.strip_prefix("sha256:")?;
 
     Some(root?.join("blobs").join("sha256").join(hash))
+}
+
+/// Refresh the mtime of a cache entry after a use so pruning keeps it longer.
+pub(crate) fn touch(path: &Path) {
+    let Ok(file) = std::fs::OpenOptions::new().write(true).open(path) else {
+        return;
+    };
+
+    drop(file.set_modified(SystemTime::now()));
 }
 
 /// Return a unique sibling path for an in-progress write.
@@ -344,6 +358,54 @@ mod tests {
             Some(r#"{"kind":"tag"}"#),
             "tag references must be cached under the ref path"
         );
+    }
+
+    #[test]
+    fn digest_manifest_reads_refresh_mtime_but_tag_refs_do_not() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        cache.put_manifest(&image, "sha256:abc", "{}");
+        cache.put_manifest(&image, "v1", "{}");
+        let digest_path = cache.blob_path("sha256:abc").expect("blob path");
+        let tag_path = cache
+            .ref_path("ghcr.io", "org/image", "v1")
+            .expect("ref path");
+        let old = SystemTime::now()
+            .checked_sub(Duration::from_hours(2))
+            .expect("old timestamp");
+        let digest_file = std::fs::File::options()
+            .write(true)
+            .open(&digest_path)
+            .expect("open digest file");
+        digest_file.set_modified(old).expect("set digest mtime");
+        drop(digest_file);
+        let tag_before = std::fs::metadata(&tag_path)
+            .expect("tag meta")
+            .modified()
+            .expect("tag mtime");
+
+        // ACT
+        cache
+            .get_manifest(&image, "sha256:abc")
+            .expect("digest manifest");
+        cache.get_manifest(&image, "v1").expect("tag manifest");
+
+        // ASSERT
+        let digest_after = std::fs::metadata(&digest_path)
+            .expect("digest meta")
+            .modified()
+            .expect("digest mtime");
+        let tag_after = std::fs::metadata(&tag_path)
+            .expect("tag meta")
+            .modified()
+            .expect("tag mtime");
+        assert!(
+            digest_after > old,
+            "digest manifest reads must refresh the blob mtime"
+        );
+        assert_eq!(tag_after, tag_before, "tag refs must never be touched");
     }
 
     #[test]

@@ -16,7 +16,6 @@ use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
-use wizard::config::init_cache;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 use wizard::resolver;
@@ -60,6 +59,11 @@ pub fn status(update_id: &str) -> UpdateStatus {
     UpdateStatus::Unknown
 }
 
+/// Configures the koci pull cache under the EPHEMERAL partition.
+pub fn init_cache() {
+    wizard::config::init_cache(cache::DIR.into());
+}
+
 /// Prepares an update by staging the UKI components via the wizard.
 pub async fn prepare(
     registry: &str,
@@ -69,6 +73,7 @@ pub async fn prepare(
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
+    cache::enforce_budget();
     let installed = config::system::config()?;
     let system = disk::resolve_system(&installed.disks).await?;
     verify_system_disk(&system)?;
@@ -109,8 +114,6 @@ pub async fn prepare(
     } else {
         None
     };
-
-    init_cache(cache::DIR.into());
 
     let assets_dir = staging_dir.join("assets");
     fs::create_dir_all(&assets_dir)
@@ -176,6 +179,7 @@ pub async fn prepare(
     }
 
     sync();
+    cache::enforce_budget();
 
     Ok(update_id)
 }

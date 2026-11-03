@@ -13,9 +13,6 @@ use oci::digest::Verifier;
 use super::cache;
 use crate::error::{KociError, Result};
 
-/// Directory under the store root holding in-progress ingests.
-const INGEST_DIR: &str = "ingest";
-
 /// Age at which an orphaned ingest file is garbage collected.
 const STALE_INGEST: Duration = Duration::from_mins(60);
 
@@ -56,7 +53,10 @@ impl Content {
     /// The committed size of a blob, or `None` when it is not stored.
     pub(crate) fn has_blob(&self, digest: &str) -> Option<u64> {
         let path = cache::blob_file_path(self.root.as_deref(), digest)?;
-        std::fs::metadata(path).ok().map(|metadata| metadata.len())
+        let size = std::fs::metadata(&path).ok()?.len();
+        cache::touch(&path);
+
+        Some(size)
     }
 
     /// Open a committed blob for sequential streaming reads.
@@ -83,7 +83,7 @@ impl Content {
         let root = self.root.as_ref().ok_or_else(|| {
             KociError::Pull("no content store configured for blob ingest".to_owned())
         })?;
-        let staging_dir = root.join(INGEST_DIR);
+        let staging_dir = root.join(cache::INGEST_DIR);
         std::fs::create_dir_all(&staging_dir).map_err(KociError::IoError)?;
         let hash = digest.strip_prefix("sha256:").unwrap_or(digest);
         let canonical = staging_dir.join(format!("{hash}.part"));
@@ -130,7 +130,7 @@ impl Content {
 
     fn gc(&self) {
         let Some(ref root) = self.root else { return };
-        let Ok(entries) = std::fs::read_dir(root.join(INGEST_DIR)) else {
+        let Ok(entries) = std::fs::read_dir(root.join(cache::INGEST_DIR)) else {
             return;
         };
         for stale in entries
@@ -479,6 +479,37 @@ mod tests {
         // ASSERT
         assert!(ingest.exists(), "fresh ingests must survive");
         assert!(!stale.exists(), "stale ingests must be collected");
+    }
+
+    #[test]
+    fn has_blob_refreshes_the_blob_mtime() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let (content, digest, _data) = committed_store_with(&tmp);
+        let path = content
+            .disk()
+            .expect("store root")
+            .join("blobs/sha256")
+            .join(digest.strip_prefix("sha256:").expect("digest prefix"));
+        let old = SystemTime::now()
+            .checked_sub(Duration::from_hours(2))
+            .expect("old timestamp");
+        let file = File::options().write(true).open(&path).expect("open blob");
+        file.set_modified(old).expect("set mtime");
+        drop(file);
+
+        // ACT
+        content.has_blob(&digest).expect("blob present");
+
+        // ASSERT
+        let modified = std::fs::metadata(&path)
+            .expect("blob meta")
+            .modified()
+            .expect("blob mtime");
+        assert!(
+            modified > old,
+            "has_blob must refresh the blob mtime for pruning"
+        );
     }
 
     #[test]

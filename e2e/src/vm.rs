@@ -170,7 +170,7 @@ impl Vm {
                     NamedTempFile::new().context("failed to create NVMe disk tempfile")?;
                 disk_file
                     .as_file()
-                    .set_len(5 * 1024 * 1024 * 1024)
+                    .set_len(16 * 1024 * 1024 * 1024)
                     .context("failed to allocate NVMe disk image")?;
 
                 cmd.arg("-drive")

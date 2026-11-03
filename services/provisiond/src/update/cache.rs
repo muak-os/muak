@@ -1,118 +1,244 @@
 //! Koci pull cache.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// Base directory for the koci pull cache on the mounted STATE partition.
-pub(crate) const DIR: &str = "/run/state/.cache/koci";
+/// Base directory for the koci pull cache on the EPHEMERAL partition.
+pub(crate) const DIR: &str = "/run/ephemeral/koci";
 
-/// Maximum age of a cache entry before it is removed after a successful update (3 weeks).
-pub(crate) const MAX_AGE: Duration = Duration::from_hours(504);
+/// Subtree holding in-progress ingests, which the content store collects itself.
+pub(crate) const INGEST_DIR: &str = "ingest";
 
-/// Removes cache entries older than [`MAX_AGE`] and prunes emptied directories.
-pub(crate) fn clean_stale() {
-    let Some(cutoff) = SystemTime::now().checked_sub(MAX_AGE) else {
+// Upper bound the cache is pruned towards (10 GiB).
+const BUDGET: u64 = 10 * 1024 * 1024 * 1024;
+
+// Space below the budget that stays free (512 MiB), leaving about 9.5 GiB usable.
+const FLOOR: u64 = 512 * 1024 * 1024;
+
+// Entries younger than this are never evicted.
+const MIN_AGE: Duration = Duration::from_mins(30);
+
+/// Evicts the oldest cache entries until the store fits its byte budget.
+pub(crate) fn enforce_budget() {
+    enforce(
+        Path::new(DIR),
+        BUDGET.saturating_sub(FLOOR),
+        SystemTime::now(),
+    );
+}
+
+fn enforce(root: &Path, target: u64, now: SystemTime) {
+    let ingest = root.join(INGEST_DIR);
+    let mut entries = Vec::new();
+    collect(root, &ingest, &mut entries);
+
+    let mut used: u64 = entries.iter().map(|entry| entry.2).sum();
+    if used <= target {
         return;
-    };
-    let removed = clean(Path::new(DIR), cutoff);
-    if removed > 0 {
-        kmsg::debug!("Removed {removed} stale koci cache entries");
+    }
+
+    entries.sort_by_key(|entry| entry.0);
+    let cutoff = now.checked_sub(MIN_AGE).unwrap_or(SystemTime::UNIX_EPOCH);
+    let mut removed_files: u64 = 0;
+    let mut removed_bytes: u64 = 0;
+    for (modified, path, size) in entries {
+        if used <= target || modified >= cutoff {
+            break;
+        }
+        if fs::remove_file(&path).is_err() {
+            continue;
+        }
+        used = used.saturating_sub(size);
+        removed_files = removed_files.saturating_add(1);
+        removed_bytes = removed_bytes.saturating_add(size);
+    }
+
+    prune(root, &ingest);
+    if removed_files > 0 {
+        kmsg::info!("Pruned {removed_files} koci cache files, freed {removed_bytes} bytes");
     }
 }
 
-fn clean(dir: &Path, cutoff: SystemTime) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
+fn collect(dir: &Path, ingest: &Path, entries: &mut Vec<(SystemTime, PathBuf, u64)>) {
+    let Ok(read) = fs::read_dir(dir) else {
+        return;
     };
 
-    let mut removed: usize = 0;
-    for entry in entries.filter_map(core::result::Result::ok) {
+    for entry in read.filter_map(core::result::Result::ok) {
+        let path = entry.path();
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
+        if file_type.is_dir() && path == ingest {
+            continue;
+        }
         if file_type.is_dir() {
-            removed = removed.saturating_add(clean(&entry.path(), cutoff));
-            drop(fs::remove_dir(entry.path()));
+            collect(&path, ingest, entries);
             continue;
         }
-        if !is_stale(&entry, cutoff) {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        entries.push((modified, path, metadata.len()));
+    }
+}
+
+fn prune(dir: &Path, ingest: &Path) -> bool {
+    let Ok(read) = fs::read_dir(dir) else {
+        return false;
+    };
+
+    let mut empty = true;
+    for entry in read.filter_map(core::result::Result::ok) {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            empty = false;
+            continue;
+        };
+        if !file_type.is_dir() || path == ingest {
+            empty = false;
             continue;
         }
-        if fs::remove_file(entry.path()).is_ok() {
-            removed = removed.saturating_add(1);
+        if prune(&path, ingest) {
+            drop(fs::remove_dir(&path));
+        } else {
+            empty = false;
         }
     }
 
-    removed
-}
-
-fn is_stale(entry: &fs::DirEntry, cutoff: SystemTime) -> bool {
-    entry
-        .metadata()
-        .and_then(|meta| meta.modified())
-        .is_ok_and(|modified| modified < cutoff)
+    empty
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::fs::{self, File};
     use std::time::{Duration, SystemTime};
 
     use tempfile::TempDir;
 
-    use super::clean;
+    use super::{INGEST_DIR, enforce};
+
+    fn write_aged(root: &TempDir, name: &str, data: &[u8], age: Duration) -> std::path::PathBuf {
+        let path = root.path().join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent");
+        }
+        fs::write(&path, data).expect("write file");
+        let modified = SystemTime::now().checked_sub(age).expect("aged timestamp");
+        let file = File::options().write(true).open(&path).expect("open file");
+        file.set_modified(modified).expect("set mtime");
+        drop(file);
+
+        path
+    }
 
     #[test]
-    fn stale_entries_are_removed_and_empty_dirs_pruned() {
+    fn under_budget_keeps_every_entry() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
-        let blob = tmp.path().join("blobs/sha256/deadbeef");
-        fs::create_dir_all(blob.parent().expect("blob parent")).expect("create blob dir");
-        fs::write(&blob, b"blob").expect("write blob");
+        let path = write_aged(
+            &tmp,
+            "blobs/sha256/abc",
+            b"payload",
+            Duration::from_hours(2),
+        );
 
-        // ACT: a future cutoff marks every entry as stale
-        let cutoff = SystemTime::now()
-            .checked_add(Duration::from_secs(60))
-            .expect("future cutoff");
-        let removed = clean(tmp.path(), cutoff);
+        // ACT
+        enforce(tmp.path(), 64, SystemTime::now());
 
         // ASSERT
-        assert_eq!(removed, 1);
-        assert!(!blob.exists());
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn over_budget_evicts_the_oldest_entry_first() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let oldest = write_aged(
+            &tmp,
+            "blobs/sha256/old",
+            b"0123456789",
+            Duration::from_hours(3),
+        );
+        let newest = write_aged(
+            &tmp,
+            "blobs/sha256/new",
+            b"0123456789",
+            Duration::from_hours(1),
+        );
+
+        // ACT: target equals a single entry, so exactly one must go
+        enforce(tmp.path(), 10, SystemTime::now());
+
+        // ASSERT
+        assert!(!oldest.exists(), "the oldest entry must be evicted first");
+        assert!(newest.exists(), "the newest entry must survive");
+    }
+
+    #[test]
+    fn young_entries_are_never_evicted() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let old = write_aged(
+            &tmp,
+            "blobs/sha256/old",
+            b"0123456789",
+            Duration::from_hours(2),
+        );
+        let young = write_aged(&tmp, "blobs/sha256/young", b"0123456789", Duration::ZERO);
+
+        // ACT
+        enforce(tmp.path(), 0, SystemTime::now());
+
+        // ASSERT
+        assert!(!old.exists());
         assert!(
-            !tmp.path().join("blobs").exists(),
-            "empty dirs must be pruned"
+            young.exists(),
+            "entries younger than 30 minutes must survive"
         );
     }
 
     #[test]
-    fn fresh_entries_are_kept() {
+    fn ingest_subtree_is_skipped() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
-        let r#ref = tmp.path().join("refs/ghcr.io/org/image/v1");
-        fs::create_dir_all(r#ref.parent().expect("ref parent")).expect("create ref dir");
-        fs::write(&r#ref, b"manifest").expect("write ref");
+        let staged = write_aged(
+            &tmp,
+            &format!("{INGEST_DIR}/abc.part"),
+            b"0123456789",
+            Duration::from_hours(2),
+        );
 
-        // ACT: the epoch cutoff keeps everything written afterwards
-        let removed = clean(tmp.path(), SystemTime::UNIX_EPOCH);
+        // ACT
+        enforce(tmp.path(), 0, SystemTime::now());
 
         // ASSERT
-        assert_eq!(removed, 0);
-        assert!(r#ref.exists());
+        assert!(staged.exists(), "in-progress ingests must survive pruning");
     }
 
     #[test]
-    fn missing_cache_dir_is_ignored() {
+    fn empty_directories_are_pruned() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
-        let missing = tmp.path().join("missing");
+        let blob = write_aged(
+            &tmp,
+            "blobs/sha256/abc",
+            b"0123456789",
+            Duration::from_hours(2),
+        );
 
         // ACT
-        let removed = clean(&missing, SystemTime::now());
+        enforce(tmp.path(), 0, SystemTime::now());
 
         // ASSERT
-        assert_eq!(removed, 0);
-        assert!(!missing.exists());
+        assert!(!blob.exists());
+        assert!(
+            !tmp.path().join("blobs").exists(),
+            "emptied directories must be removed"
+        );
     }
 }
