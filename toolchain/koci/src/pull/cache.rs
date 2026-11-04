@@ -3,12 +3,13 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 use oci::digest::sha256_hex;
 use oci::reference::Image;
 use rustix::fs::XattrFlags;
+use rustix::io::Errno;
 
 /// Subtree holding in-progress ingests, shared with the content store.
 pub const INGEST_DIR: &str = "ingest";
@@ -19,10 +20,17 @@ const INDEX_DIR: &str = "index";
 // Extended attribute recording how often a cache entry was used.
 const USE_COUNT_XATTR: &str = "user.muak.use_count";
 
+// Process-wide xattr capability, learned from the first filesystem reply.
+const XATTR_UNKNOWN: u8 = 0;
+const XATTR_SUPPORTED: u8 = 1;
+const XATTR_UNSUPPORTED: u8 = 2;
+
+static XATTR_STATE: AtomicU8 = AtomicU8::new(XATTR_UNKNOWN);
+
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-/// Sequence number for unique temporary file names.
+/// Sequence number for unique temporary filenames.
 static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// A local filesystem cache for OCI blobs and tag-to-manifest mappings.
@@ -44,7 +52,7 @@ impl Store {
 
     /// Return a cached manifest.
     pub(crate) fn get_manifest(&self, image: &Image, manifest_ref: &str) -> Option<String> {
-        if is_digest(manifest_ref) {
+        if manifest_ref.starts_with("sha256:") {
             let path = self.blob_path(manifest_ref)?;
             let manifest = std::fs::read_to_string(&path).ok()?;
             touch(&path);
@@ -56,7 +64,7 @@ impl Store {
 
     /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
     pub(crate) fn put_manifest(&self, image: &Image, manifest_ref: &str, manifest: &str) {
-        if is_digest(manifest_ref) {
+        if manifest_ref.starts_with("sha256:") {
             self.put_blob(manifest_ref, manifest.as_bytes());
             self.put_index(manifest_ref, manifest);
         } else {
@@ -79,12 +87,6 @@ impl Store {
     }
 
     // Return cached manifest JSON for a tag reference.
-    //
-    // Tags are immutable by contract, so a cached ref never expires by time.
-    // A moved tag is a registry contract violation; the stale ref is only
-    // removed by the cache eviction policy or a cache wipe. Digest-keyed
-    // manifests and blobs never expire because content addresses are
-    // immutable.
     fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
         let path = self.ref_path(registry, name, tag)?;
         let manifest = std::fs::read_to_string(&path).ok()?;
@@ -134,8 +136,6 @@ impl Store {
 }
 
 /// Every digest referenced by the manifests indexed under `root`.
-///
-/// The index itself is advisory: unreadable entries are ignored.
 #[must_use]
 pub fn shared_digests(root: &Path) -> HashSet<String> {
     let mut digests = HashSet::new();
@@ -162,9 +162,20 @@ pub fn shared_digests(root: &Path) -> HashSet<String> {
 /// The recorded use count of a cache entry, or `0` when it carries none.
 #[must_use]
 pub fn use_count(path: &Path) -> u64 {
-    let mut value = [0_u8; 8];
-    let Ok(len) = rustix::fs::getxattr(path, USE_COUNT_XATTR, &mut value[..]) else {
+    if unsupported() {
         return 0;
+    }
+
+    let mut value = [0_u8; 8];
+    let len = match rustix::fs::getxattr(path, USE_COUNT_XATTR, &mut value[..]) {
+        Ok(len) => {
+            XATTR_STATE.store(XATTR_SUPPORTED, Ordering::Relaxed);
+            len
+        }
+        Err(errno) => {
+            record(errno);
+            return 0;
+        }
     };
 
     match value
@@ -178,15 +189,24 @@ pub fn use_count(path: &Path) -> u64 {
 
 /// Increment the recorded use count of a cache entry.
 pub fn bump_use_count(path: &Path) {
-    let count = use_count(path).saturating_add(1);
+    if unsupported() {
+        return;
+    }
 
-    // A filesystem that rejects xattrs leaves the entry uncounted.
-    let _stored = rustix::fs::setxattr(
+    let count = use_count(path).saturating_add(1);
+    if unsupported() {
+        return;
+    }
+
+    match rustix::fs::setxattr(
         path,
         USE_COUNT_XATTR,
         &count.to_le_bytes(),
         XattrFlags::empty(),
-    );
+    ) {
+        Ok(()) => XATTR_STATE.store(XATTR_SUPPORTED, Ordering::Relaxed),
+        Err(errno) => record(errno),
+    }
 }
 
 /// The cache root shared by the manifest cache and the content store.
@@ -210,6 +230,25 @@ pub(crate) fn blob_file_path(root: Option<&Path>, digest: &str) -> Option<PathBu
     Some(root?.join("blobs").join("sha256").join(hash))
 }
 
+fn unsupported() -> bool {
+    XATTR_STATE.load(Ordering::Relaxed) == XATTR_UNSUPPORTED
+}
+
+// Map a failed xattr call to the capability state it implies.
+fn classify(errno: Errno) -> Option<u8> {
+    match errno {
+        Errno::NODATA => Some(XATTR_SUPPORTED),
+        Errno::NOTSUP => Some(XATTR_UNSUPPORTED),
+        _ => None,
+    }
+}
+
+fn record(errno: Errno) {
+    if let Some(state) = classify(errno) {
+        XATTR_STATE.store(state, Ordering::Relaxed);
+    }
+}
+
 /// Refresh the mtime and the use count of a cache entry after a use.
 pub(crate) fn touch(path: &Path) {
     bump_use_count(path);
@@ -225,11 +264,6 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
     let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
 
     path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
-}
-
-// Whether a manifest reference is a content digest rather than a tag.
-fn is_digest(manifest_ref: &str) -> bool {
-    manifest_ref.starts_with("sha256:")
 }
 
 fn atomic_write(path: &Path, data: &[u8]) {
@@ -431,6 +465,44 @@ mod tests {
             Some(r#"{"kind":"tag"}"#),
             "tag references must be cached under the ref path"
         );
+    }
+
+    #[test]
+    fn classify_missing_attribute() {
+        // ARRANGE
+        let errno = Errno::NODATA;
+
+        // ACT
+        let outcome = classify(errno);
+
+        // ASSERT
+        assert_eq!(outcome, Some(XATTR_SUPPORTED));
+    }
+
+    #[test]
+    fn classify_unsupported_attribute() {
+        // ARRANGE
+        let errno = Errno::NOTSUP;
+
+        // ACT
+        let outcome = classify(errno);
+
+        // ASSERT
+        assert_eq!(outcome, Some(XATTR_UNSUPPORTED));
+    }
+
+    #[test]
+    fn use_count_without_xattr_is_zero() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("entry");
+        std::fs::write(&path, b"data").expect("write entry");
+
+        // ACT
+        let count = use_count(&path);
+
+        // ASSERT
+        assert_eq!(count, 0, "an entry without the xattr has no recorded count");
     }
 
     #[test]
