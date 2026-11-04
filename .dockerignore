@@ -1,3 +1,10 @@
+# Secrets
+**/*.key
+**/*.pem
+**/*.crt
+**/*.p12
+**/*.env
+
 # Build artifacts
 target/
 **/target/
