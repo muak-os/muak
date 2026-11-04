@@ -249,8 +249,7 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
 ///
 /// # Errors
 ///
-/// Returns an error when `requested` is empty or when it is a downgrade of
-/// `current`.
+/// Returns an error when `requested` is empty or when it is a downgrade of `current`.
 pub fn resolve_target(current: &str, requested: &str) -> Result<String> {
     if requested.is_empty() {
         bail!("update target version must be specified");
@@ -319,10 +318,7 @@ pub(super) fn update_config(
         .context("Failed to write updated config")
 }
 
-/// Returns the config an update to `version` would install.
-///
-/// Disk assignments always come from `installed`, matching the merge performed by
-/// `update_config`.
+/// Returns the configuration an update to `version` would install.
 pub(crate) fn desired_config(
     installed: &system::Config,
     version: &str,
@@ -336,6 +332,7 @@ pub(crate) fn desired_config(
 
     let mut desired = new_config.clone();
     desired.disks.clone_from(&installed.disks);
+
     desired
 }
 

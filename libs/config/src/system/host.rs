@@ -26,8 +26,6 @@ pub struct Config {
 
 impl Config {
     /// Returns `true` when both host configs are semantically equivalent.
-    ///
-    /// Extension ordering is ignored, so reordering them is not a change.
     #[must_use]
     pub fn same_as(&self, other: &Config) -> bool {
         let mut normalized = self.clone();
