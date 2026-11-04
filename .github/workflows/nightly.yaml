@@ -29,6 +29,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          persist-credentials: false
 
       - name: Resolve commit
         id: meta
@@ -57,6 +58,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
@@ -173,7 +175,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: muak-os/catalog/.github/workflows/compose.yaml@master
+    uses: muak-os/catalog/.github/workflows/compose.yaml@02be963153b3053e83295bba5ca151bb7e078f83
     with:
       release: ${{ needs.prepare.outputs.tag }}
       installer: ${{ needs.prepare.outputs.tag }}
@@ -190,7 +192,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: muak-os/catalog/.github/workflows/publish.yaml@master
+    uses: muak-os/catalog/.github/workflows/publish.yaml@02be963153b3053e83295bba5ca151bb7e078f83
     with:
       release: ${{ needs.prepare.outputs.tag }}
       channels: nightly
