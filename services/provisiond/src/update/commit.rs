@@ -7,7 +7,7 @@ use uki::measure::{self, MeasuredSection};
 
 use super::{UPDATE_DIR, secureboot};
 use crate::disk::{Role, find_partition_device};
-use crate::{efi, secrets};
+use crate::{cache, efi, secrets};
 
 /// Applies a staged update by deploying the UKI and resealing the LUKS key.
 pub async fn apply() -> Result<()> {
@@ -72,7 +72,7 @@ pub async fn apply() -> Result<()> {
     }
     efi::unmount();
 
-    crate::cache::enforce();
+    cache::enforce();
 
     if !secureboot_enabled {
         secureboot::remove_hierarchy();

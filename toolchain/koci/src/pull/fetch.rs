@@ -81,8 +81,7 @@ pub(crate) fn whiteout_map(
 ///
 /// # Errors
 ///
-/// Returns an error when the registry does not serve the blob or the download
-/// fails to verify.
+/// Returns an error when the registry does not serve the blob or the download fails to verify.
 pub(crate) async fn fetch_one(
     content: &Content,
     http: &Transport,

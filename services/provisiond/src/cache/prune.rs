@@ -68,7 +68,6 @@ pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
         removed_bytes: 0,
     };
 
-    // (a) expire unshared entries that no indexed manifest references any more.
     entries = sweep(entries, &mut stats, |entry, _| {
         !entry.shared && entry.modified < cutoff
     });
@@ -76,7 +75,6 @@ pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
 
     entries.sort_by_key(|entry| (entry.modified, entry.uses));
 
-    // (b) keep unshared entries under their own budget.
     let keep = keep_bytes(stats.unshared_used, free, &limits);
     if stats.unshared_used > keep {
         fired = true;
@@ -85,7 +83,6 @@ pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
         });
     }
 
-    // (c) keep the whole cache under the global budget.
     let keep = keep_bytes(stats.used, free, &limits);
     if stats.used > keep {
         fired = true;
