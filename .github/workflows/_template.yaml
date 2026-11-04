@@ -75,8 +75,10 @@ jobs:
 
       - name: Select toolchain
         if: inputs.toolchain != ''
+        env:
+          TOOLCHAIN_REF: ${{ inputs.toolchain }}
         run: |
-          printf 'TOOLCHAIN=%s\n' "${{ inputs.toolchain }}" >> "$GITHUB_ENV"
+          printf 'TOOLCHAIN=%s\n' "$TOOLCHAIN_REF" >> "$GITHUB_ENV"
 
       - name: Build ${{ inputs.image }} (${{ matrix.arch }})
         env:
@@ -118,8 +120,10 @@ jobs:
 
       - name: Select toolchain
         if: inputs.toolchain != ''
+        env:
+          TOOLCHAIN_REF: ${{ inputs.toolchain }}
         run: |
-          printf 'TOOLCHAIN=%s\n' "${{ inputs.toolchain }}" >> "$GITHUB_ENV"
+          printf 'TOOLCHAIN=%s\n' "$TOOLCHAIN_REF" >> "$GITHUB_ENV"
 
       - name: Create multi-arch manifest (${{ inputs.tag }})
         env:
