@@ -105,13 +105,10 @@ pub enum Commands {
         force: bool,
         #[arg(long)]
         config: PathBuf,
-        /// Resolve and print the install plan without writing anything.
         #[arg(long)]
         dry_run: bool,
-        /// Skip the interactive confirmation phrase.
         #[arg(long)]
         yes: bool,
-        /// Allow installing to the disk that hosts the running system.
         #[arg(long)]
         allow_system_disk: bool,
     },
@@ -120,22 +117,18 @@ pub enum Commands {
         version: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
-        /// Stage the update even when the system already matches the target.
         #[arg(long)]
         force: bool,
     },
     Reset {
-        /// Print what a factory reset would remove without touching the system.
         #[arg(long)]
         dry_run: bool,
-        /// Skip the interactive confirmation phrase.
         #[arg(long, alias = "force")]
         yes: bool,
     },
     Reboot,
     Shutdown,
     Disks {
-        /// Show bus path, subsystem and removability in the list view.
         #[arg(long, global = true)]
         wide: bool,
         #[command(subcommand)]
