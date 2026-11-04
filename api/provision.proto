@@ -209,6 +209,7 @@ message ConfigHistoryEntry {
     string update_id = 2;
     string author = 3;
     string change_kind = 4;
+    string reason = 5;
 }
 
 message GetConfigHistoryRequest {

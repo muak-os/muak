@@ -81,9 +81,15 @@ fn run(
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
     let outputs = ports.outputs_from(PULL_OUTPUTS_FIRST, None)?;
     let session = pull::session::open(&overlay.source, &overlay.arch, None)
-        .map_err(|e| WizardError::BuildError(format!("open overlay session: {e}")))?;
+        .map_err(|e| WizardError::pull("open overlay session", &overlay.source, &e))?;
 
-    demux_pass(&session, assets, outputs, &ctx.reporter(kind))?;
+    demux_pass(
+        &session,
+        &overlay.source,
+        assets,
+        outputs,
+        &ctx.reporter(kind),
+    )?;
 
     Ok(None)
 }
@@ -91,6 +97,7 @@ fn run(
 /// Single-pass demux: routes every entry to its output stream in one walk.
 fn demux_pass(
     session: &Session,
+    reference: &str,
     assets: &[Asset],
     outputs: Vec<OutputStream<'_>>,
     progress: &dyn Reporter,
@@ -107,5 +114,5 @@ fn demux_pass(
 
     session
         .walk(progress, |entry| demux.route(entry))
-        .map_err(|e| WizardError::BuildError(format!("demux overlay files: {e}")))
+        .map_err(|e| WizardError::pull("demux overlay files", reference, &e))
 }

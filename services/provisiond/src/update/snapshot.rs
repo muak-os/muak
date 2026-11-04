@@ -74,7 +74,7 @@ pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<bo
 
     let failed_version = config::system::host()?.version.clone();
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
-        .rolled_back(&failed_version, reason);
+        .failed(&failed_version, reason);
 
     match journal::append(&entry, &contents) {
         Ok(()) => Ok(true),

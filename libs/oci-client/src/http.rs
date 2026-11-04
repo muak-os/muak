@@ -214,16 +214,12 @@ pub fn is_partial<B>(response: &Response<B>) -> bool {
 /// # Errors
 ///
 /// Returns an error when reading the body times out or fails.
-pub async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
+pub async fn collect_body(resp: Response<Incoming>, url: &str) -> Result<Bytes> {
     timeout(HTTP_TIMEOUT, resp.into_body().collect())
         .await
-        .map_err(|error| {
-            ClientError::Network(format!(
-                "HTTP response body timed out after {HTTP_TIMEOUT:?}: {error}"
-            ))
-        })?
+        .map_err(|error| ClientError::body_timeout(url, HTTP_TIMEOUT, error))?
         .map(http_body_util::Collected::to_bytes)
-        .map_err(|error| ClientError::Network(format!("Failed to read response body: {error}")))
+        .map_err(|error| ClientError::network(url, "Failed to read response body", error))
 }
 
 /// Stream an HTTP response body into a writer while computing a digest.
@@ -233,32 +229,31 @@ pub async fn collect_body(resp: Response<Incoming>) -> Result<Bytes> {
 /// Returns an error when reading the body times out, fails, or the sink rejects a write.
 pub async fn stream_body_to_sink<W: std::io::Write>(
     resp: Response<Incoming>,
+    url: &str,
     sink: &mut W,
     digest: &mut Verifier,
 ) -> Result<()> {
     let mut body = resp.into_body();
 
-    while let Some(frame) = timeout(BODY_TIMEOUT, body.frame()).await.map_err(|error| {
-        ClientError::Network(format!(
-            "HTTP response body timed out after {BODY_TIMEOUT:?}: {error}"
-        ))
-    })? {
-        let frame = frame.map_err(|error| {
-            ClientError::Network(format!("Failed to read response body: {error}"))
-        })?;
+    while let Some(frame) = timeout(BODY_TIMEOUT, body.frame())
+        .await
+        .map_err(|error| ClientError::body_timeout(url, BODY_TIMEOUT, error))?
+    {
+        let frame = frame
+            .map_err(|error| ClientError::network(url, "Failed to read response body", error))?;
 
         if let Some(data) = frame.data_ref() {
             digest.update(data);
-            write_frame(sink, data)?;
+            write_frame(url, sink, data)?;
         }
     }
 
     Ok(())
 }
 
-fn write_frame<W: std::io::Write>(sink: &mut W, data: &[u8]) -> Result<()> {
+fn write_frame<W: std::io::Write>(url: &str, sink: &mut W, data: &[u8]) -> Result<()> {
     sink.write_all(data)
-        .map_err(|error| ClientError::Network(format!("Failed to write response body: {error}")))
+        .map_err(|error| ClientError::network(url, "Failed to write response body", error))
 }
 
 async fn get_with_range(
@@ -297,11 +292,13 @@ async fn send(
     timeout(HTTP_TIMEOUT, client.request(req))
         .await
         .map_err(|error| {
-            ClientError::Network(format!(
-                "HTTP request timed out after {HTTP_TIMEOUT:?} for URL: {url}: {error}"
-            ))
+            ClientError::network(
+                url,
+                &format!("HTTP request timed out after {HTTP_TIMEOUT:?}"),
+                error,
+            )
         })?
-        .map_err(|error| ClientError::Network(format!("HTTP request failed: {error}")))
+        .map_err(|error| ClientError::network(url, "HTTP request failed", error))
 }
 
 fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<Incoming>> {
@@ -382,22 +379,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_reports_connection_failures() {
+    async fn get_reports_connection_failures_with_the_url() {
         // ARRANGE
         let client = crate::transport::build_client();
+        let url = "http://127.0.0.1:9/v2/repo/manifests/test";
 
         // ACT
-        let error = get(
-            &client,
-            "http://127.0.0.1:9/v2/repo/manifests/test",
-            None,
-            &[],
-        )
-        .await
-        .expect_err("request should fail");
+        let error = get(&client, url, None, &[])
+            .await
+            .expect_err("request should fail");
 
         // ASSERT
         assert!(matches!(error, ClientError::Network(_)));
+        assert!(
+            error.to_string().contains(&format!("for URL: {url}")),
+            "network error must name the URL: {error}"
+        );
     }
 
     #[test]

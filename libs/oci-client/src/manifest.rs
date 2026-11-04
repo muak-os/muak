@@ -35,12 +35,14 @@ pub async fn fetch(client: &Client, manifest_ref: &str) -> Result<String> {
         OCI_MANIFEST_ACCEPT_HEADERS,
     )
     .await?;
-    let body = collect_body(resp).await?;
+    let body = collect_body(resp, &url).await?;
     match core::str::from_utf8(&body) {
         Ok(text) => Ok(text.to_owned()),
-        Err(error) => Err(ClientError::Network(format!(
-            "Manifest response is not UTF-8: {error}"
-        ))),
+        Err(error) => Err(ClientError::network(
+            &url,
+            "Manifest response is not UTF-8",
+            error,
+        )),
     }
 }
 

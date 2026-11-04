@@ -1,7 +1,9 @@
 //! Update preparation, kexec execution, and post-boot validation.
 
 mod commit;
+mod failure;
 pub mod kexec;
+mod progress;
 mod readiness;
 pub(crate) mod rollback;
 mod secureboot;
@@ -40,13 +42,21 @@ pub enum UpdateStatus {
 
 /// Returns the current status of a given update ID.
 pub fn status(update_id: &str) -> UpdateStatus {
-    if let Some(entry) = journal::find(update_id)
+    resolve_status(
+        update_id,
+        journal::find(update_id).as_ref(),
+        snapshot::path(update_id).exists(),
+    )
+}
+
+fn resolve_status(update_id: &str, entry: Option<&Entry>, pending: bool) -> UpdateStatus {
+    if let Some(entry) = entry
         && entry.kind() == &ChangeKind::Rollback
     {
         return UpdateStatus::RolledBack(entry.reason().unwrap_or("Unknown error").to_owned());
     }
 
-    if snapshot::path(update_id).exists() {
+    if pending {
         return UpdateStatus::Pending;
     }
 
@@ -60,6 +70,23 @@ pub fn status(update_id: &str) -> UpdateStatus {
 
 /// Prepares an update by staging the UKI components via the wizard.
 pub async fn prepare(
+    registry: &str,
+    version: &str,
+    extensions: &[String],
+    new_config: Option<system::Config>,
+    author: &str,
+    progress: mpsc::Sender<PrepareUpdateProgress>,
+) -> Result<String> {
+    match prepare_inner(registry, version, extensions, new_config, author, progress).await {
+        Ok(update_id) => Ok(update_id),
+        Err(error) => {
+            failure::record(version, author, &error);
+            Err(error)
+        }
+    }
+}
+
+async fn prepare_inner(
     registry: &str,
     version: &str,
     extensions: &[String],
@@ -126,8 +153,10 @@ pub async fn prepare(
 
     let request_version = version.to_owned();
     let request_registry = registry.to_owned();
+    let reporter_progress = progress.clone();
 
     tokio::task::spawn_blocking(move || {
+        let reporter = progress::Forwarder::new(reporter_progress);
         let pair = sb_hierarchy
             .as_ref()
             .map(|hierarchy| sbolt::keys::SigningPair {
@@ -147,6 +176,7 @@ pub async fn prepare(
             Some(pair) => request.sign(pair),
             None => request,
         };
+        let request = request.progress(&reporter);
 
         request
             .build(&install_profile)
@@ -354,7 +384,8 @@ pub fn signal_cli_contact() {
 mod tests {
     use config::system::{self, disk, host};
 
-    use super::{already_current, desired_config, resolve_target};
+    use super::{UpdateStatus, already_current, desired_config, resolve_status, resolve_target};
+    use crate::journal::{ChangeKind, Entry};
 
     fn installed_config() -> system::Config {
         system::Config {
@@ -507,5 +538,19 @@ mod tests {
 
         // ASSERT
         assert!(!current);
+    }
+
+    #[test]
+    fn prepare_failed_entry_keeps_unknown_status() {
+        // ARRANGE
+        let update_id = "update-1700000001";
+        let entry =
+            Entry::new(update_id, "system", ChangeKind::PrepareFailed).failed("v2", "fetch failed");
+
+        // ACT
+        let status = resolve_status(update_id, Some(&entry), false);
+
+        // ASSERT
+        assert_eq!(status, UpdateStatus::Unknown);
     }
 }

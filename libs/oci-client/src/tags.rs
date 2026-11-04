@@ -45,8 +45,8 @@ pub async fn list(client: &Client) -> Result<Vec<String>> {
             .get(LINK)
             .and_then(|value| value.to_str().ok())
             .and_then(next_link);
-        let body = collect_body(response).await?;
-        tags.extend(parse_tags(&body)?);
+        let body = collect_body(response, &url).await?;
+        tags.extend(parse_tags(&body, &url)?);
 
         let Some(next) = next else {
             return Ok(tags);
@@ -55,9 +55,9 @@ pub async fn list(client: &Client) -> Result<Vec<String>> {
     }
 }
 
-fn parse_tags(body: &[u8]) -> Result<Vec<String>> {
+fn parse_tags(body: &[u8], url: &str) -> Result<Vec<String>> {
     let list: TagList = serde_json::from_slice(body)
-        .map_err(|error| ClientError::Network(format!("Invalid tags list response: {error}")))?;
+        .map_err(|error| ClientError::network(url, "Invalid tags list response", error))?;
 
     Ok(list.tags.unwrap_or_default())
 }
@@ -80,13 +80,15 @@ fn next_link(link: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    const URL: &str = "https://registry.example/v2/muak/linux/tags/list";
+
     #[test]
     fn parse_tags_reads_the_tag_array() {
         // ARRANGE
         let body = br#"{"name":"muak/linux","tags":["v6.12.4","latest"]}"#;
 
         // ACT
-        let tags = parse_tags(body).expect("valid tags list");
+        let tags = parse_tags(body, URL).expect("valid tags list");
 
         // ASSERT
         assert_eq!(tags, ["v6.12.4", "latest"]);
@@ -95,8 +97,9 @@ mod tests {
     #[test]
     fn parse_tags_defaults_missing_and_null_tag_arrays() {
         // ARRANGE / ACT
-        let missing = parse_tags(br#"{"name":"muak/linux"}"#).expect("valid tags list");
-        let null = parse_tags(br#"{"name":"muak/linux","tags":null}"#).expect("valid tags list");
+        let missing = parse_tags(br#"{"name":"muak/linux"}"#, URL).expect("valid tags list");
+        let null =
+            parse_tags(br#"{"name":"muak/linux","tags":null}"#, URL).expect("valid tags list");
 
         // ASSERT
         assert_eq!(missing, Vec::<alloc::string::String>::new());
@@ -109,8 +112,12 @@ mod tests {
         let body = b"<html>gateway timeout</html>";
 
         // ACT / ASSERT
-        let error = parse_tags(body).expect_err("non-JSON body must fail");
+        let error = parse_tags(body, URL).expect_err("non-JSON body must fail");
         assert!(matches!(error, ClientError::Network(_)));
+        assert!(
+            error.to_string().contains(URL),
+            "decode failure must name the URL: {error}"
+        );
     }
 
     #[test]

@@ -164,7 +164,7 @@ async fn bearer_token(
     let response = http::get(client, &url, basic.as_deref(), &[])
         .await
         .map_err(|error| auth_error(registry, format!("failed to fetch bearer token: {error}")))?;
-    let body = http::collect_body(response).await?;
+    let body = http::collect_body(response, &url).await?;
 
     parse_token_response(&body, registry)
 }

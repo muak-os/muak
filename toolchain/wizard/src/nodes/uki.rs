@@ -80,7 +80,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
             Ok(())
         },
     )
-    .map_err(|e| WizardError::BuildError(format!("probe stub prefix: {e}")))?;
+    .map_err(|e| WizardError::pull("probe stub prefix", build.stub(), &e))?;
 
     let mut stub = prefix.as_slice();
     let probed = probe::probe(&mut stub)

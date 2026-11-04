@@ -22,6 +22,8 @@ pub enum ChangeKind {
     Install,
     Update,
     Rollback,
+    #[serde(rename = "prepare-failed")]
+    PrepareFailed,
 }
 
 impl core::fmt::Display for ChangeKind {
@@ -30,6 +32,7 @@ impl core::fmt::Display for ChangeKind {
             ChangeKind::Install => write!(f, "install"),
             ChangeKind::Update => write!(f, "update"),
             ChangeKind::Rollback => write!(f, "rollback"),
+            ChangeKind::PrepareFailed => write!(f, "prepare-failed"),
         }
     }
 }
@@ -71,9 +74,9 @@ impl Entry {
         }
     }
 
-    /// Attaches rollback outcome fields to the entry.
+    /// Attaches failure outcome fields to the entry.
     #[must_use]
-    pub fn rolled_back(mut self, failed_version: &str, reason: &str) -> Self {
+    pub fn failed(mut self, failed_version: &str, reason: &str) -> Self {
         self.failed_version = Some(failed_version.to_owned());
         self.reason = Some(reason.to_owned());
 
@@ -261,7 +264,7 @@ fn stem(timestamp: i64, update_id: &str) -> String {
     format!("{timestamp:020}-{update_id}")
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     i64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -378,7 +381,7 @@ mod tests {
     fn rollback_entry_round_trips_outcome_fields() {
         // ARRANGE / ACT
         let mut entry = Entry::new("update-1734", "system", ChangeKind::Rollback)
-            .rolled_back("v2", "health check failed");
+            .failed("v2", "health check failed");
         entry.timestamp = 1;
         let parsed = Entry::from_toml(&entry.to_toml().expect("serialize")).expect("deserialize");
 
@@ -386,6 +389,29 @@ mod tests {
         assert_eq!(parsed.kind(), &ChangeKind::Rollback);
         assert_eq!(parsed.failed_version(), Some("v2"));
         assert_eq!(parsed.reason(), Some("health check failed"));
+    }
+
+    #[test]
+    fn prepare_failed_entry_round_trips_and_displays() {
+        // ARRANGE
+        let mut entry = Entry::new("prepare-1700000000", "a1b2", ChangeKind::PrepareFailed)
+            .failed("v2", "fetch failed: connection refused");
+        entry.timestamp = 1_700_000_000;
+
+        // ACT
+        let serialized = entry.to_toml().expect("serialize");
+        let parsed = Entry::from_toml(&serialized).expect("deserialize");
+        let kind = parsed.kind().to_string();
+
+        // ASSERT
+        assert!(
+            serialized.contains("kind = \"prepare-failed\""),
+            "{serialized}"
+        );
+        assert_eq!(parsed, entry);
+        assert_eq!(kind, "prepare-failed");
+        assert_eq!(parsed.failed_version(), Some("v2"));
+        assert_eq!(parsed.reason(), Some("fetch failed: connection refused"));
     }
 
     #[test]
@@ -457,8 +483,7 @@ mod tests {
         let (_guard, dir) = temp_journal();
         write_entry(
             &dir.join(stem(1000, "update-1734")),
-            &Entry::new("update-1734", "system", ChangeKind::Rollback)
-                .rolled_back("img:v2", "boom"),
+            &Entry::new("update-1734", "system", ChangeKind::Rollback).failed("img:v2", "boom"),
             "old = true",
         );
 

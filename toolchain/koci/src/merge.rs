@@ -119,7 +119,7 @@ async fn resolve_descriptor(client: &Client, source: &Source) -> Result<Descript
             .get("content-type")
             .and_then(|value| value.to_str().ok()),
     )?;
-    let body = http::collect_body(resp).await?;
+    let body = http::collect_body(resp, &url).await?;
     let digest = verify_digest(&source.reference, &body)?;
 
     Ok(Descriptor {

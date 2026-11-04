@@ -112,7 +112,7 @@ impl ProvisionService for ServiceImpl {
                 .map_err(|e| Status::invalid_argument(format!("Config rejected: {e}")))?;
 
             config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
-                .map_err(|e| Status::invalid_argument(format!("{e}")))?;
+                .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
 
             let registry = cfg.host.registry.clone();
             let version = cfg.host.version.clone();
@@ -174,7 +174,7 @@ impl ProvisionService for ServiceImpl {
             })),
             Ok(Err(e)) => Ok(Response::new(UpdateResponse {
                 success: false,
-                error: format!("{e}"),
+                error: format!("{e:#}"),
             })),
             Err(e) => Ok(Response::new(UpdateResponse {
                 success: false,
@@ -323,6 +323,7 @@ impl ProvisionService for ServiceImpl {
                         update_id: e.update_id().to_owned(),
                         author: e.author().to_owned(),
                         change_kind: e.kind().to_string(),
+                        reason: e.reason().unwrap_or_default().to_owned(),
                     })
                     .collect();
                 Ok(Response::new(GetConfigHistoryResponse {

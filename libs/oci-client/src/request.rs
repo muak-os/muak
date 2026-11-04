@@ -24,11 +24,12 @@ pub(crate) fn get_request(
         builder = builder.header(hyper::header::RANGE, range.header_value());
     }
 
-    finish_request(builder, authorization, Full::new(Bytes::new()))
+    finish_request(url, builder, authorization, Full::new(Bytes::new()))
 }
 
 pub(crate) fn head_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
     finish_request(
+        url,
         base_request(Method::HEAD, url),
         authorization,
         Full::new(Bytes::new()),
@@ -37,6 +38,7 @@ pub(crate) fn head_request(url: &str, authorization: Option<&str>) -> Result<Req
 
 pub(crate) fn post_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
     finish_request(
+        url,
         base_request(Method::POST, url),
         authorization,
         Full::new(Bytes::new()),
@@ -51,7 +53,7 @@ pub(crate) fn put_request(
 ) -> Result<Request<Full<Bytes>>> {
     let builder = base_request(Method::PUT, url).header("Content-Type", content_type);
 
-    finish_request(builder, authorization, Full::new(body))
+    finish_request(url, builder, authorization, Full::new(body))
 }
 
 pub(crate) fn patch_request(
@@ -67,7 +69,7 @@ pub(crate) fn patch_request(
         .header("Content-Range", content_range)
         .header("Content-Length", content_length);
 
-    finish_request(builder, authorization, Full::new(body))
+    finish_request(url, builder, authorization, Full::new(body))
 }
 
 fn base_request(method: Method, url: &str) -> Builder {
@@ -78,6 +80,7 @@ fn base_request(method: Method, url: &str) -> Builder {
 }
 
 fn finish_request(
+    url: &str,
     builder: Builder,
     authorization: Option<&str>,
     body: Full<Bytes>,
@@ -89,7 +92,7 @@ fn finish_request(
 
     builder
         .body(body)
-        .map_err(|error| ClientError::Network(format!("Failed to build request: {error}")))
+        .map_err(|error| ClientError::network(url, "Failed to build request", error))
 }
 
 #[cfg(test)]

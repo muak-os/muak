@@ -73,7 +73,7 @@ fn run(
             Ok(())
         },
     )
-    .map_err(|e| WizardError::BuildError(format!("pull installer files: {e}")))?;
+    .map_err(|e| WizardError::pull("pull installer files", ctx.build.installer(), &e))?;
 
     Ok(None)
 }

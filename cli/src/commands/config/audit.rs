@@ -28,13 +28,14 @@ pub(crate) async fn history(channel: Channel, limit: u32, console: &Console) -> 
     }
 
     let table = resp.entries.iter().fold(
-        Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR"]),
+        Table::new().header(&["TIMESTAMP", "UPDATE ID", "KIND", "AUTHOR", "REASON"]),
         |table, entry| {
             table.row(&[
                 &format_timestamp(entry.timestamp),
                 &entry.update_id,
                 &entry.change_kind,
                 &entry.author,
+                &entry.reason,
             ])
         },
     );

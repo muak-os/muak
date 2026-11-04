@@ -92,7 +92,7 @@ fn run(
         &ctx.reporter(kind),
         |entry| route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline),
     )
-    .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;
+    .map_err(|e| WizardError::pull("pull kernel files", source, &e))?;
 
     Ok(None)
 }

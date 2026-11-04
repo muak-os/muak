@@ -73,7 +73,7 @@ fn run(
             Ok(())
         },
     )
-    .map_err(|e| WizardError::BuildError(format!("pull stub files: {e}")))?;
+    .map_err(|e| WizardError::pull("pull stub files", build.stub(), &e))?;
 
     Ok(None)
 }

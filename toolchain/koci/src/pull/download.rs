@@ -138,7 +138,7 @@ pub(crate) async fn blob(
 
     let mut bytes = Vec::new();
     let mut sink = Sink::new(&mut bytes, progress, 0);
-    stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
+    stream_body_to_sink(resp, &url, &mut sink, &mut digest_verifier).await?;
     digest_verifier.verify()?;
 
     Ok(bytes)
@@ -186,7 +186,7 @@ async fn stream_blob(
                 let mut digest_verifier = Verifier::new(digest)?;
                 ingest.hash_prefix(&mut digest_verifier)?;
                 let mut sink = Sink::new(ingest, progress, offset);
-                stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
+                stream_body_to_sink(resp, url, &mut sink, &mut digest_verifier).await?;
 
                 Ok(digest_verifier)
             }
@@ -195,7 +195,7 @@ async fn stream_blob(
                 ingest.restart()?;
                 let mut digest_verifier = Verifier::new(digest)?;
                 let mut sink = Sink::new(ingest, progress, 0);
-                stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
+                stream_body_to_sink(resp, url, &mut sink, &mut digest_verifier).await?;
 
                 Ok(digest_verifier)
             }
@@ -208,7 +208,7 @@ async fn stream_blob(
                 let resp = get(http, url, authorization, &[]).await?;
                 let mut digest_verifier = Verifier::new(digest)?;
                 let mut sink = Sink::new(ingest, progress, 0);
-                stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
+                stream_body_to_sink(resp, url, &mut sink, &mut digest_verifier).await?;
 
                 Ok(digest_verifier)
             }
@@ -218,7 +218,7 @@ async fn stream_blob(
     let resp = get(http, url, authorization, &[]).await?;
     let mut digest_verifier = Verifier::new(digest)?;
     let mut sink = Sink::new(ingest, progress, 0);
-    stream_body_to_sink(resp, &mut sink, &mut digest_verifier).await?;
+    stream_body_to_sink(resp, url, &mut sink, &mut digest_verifier).await?;
 
     Ok(digest_verifier)
 }
