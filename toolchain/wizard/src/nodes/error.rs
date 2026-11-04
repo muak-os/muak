@@ -5,9 +5,6 @@ use koci::error::KociError;
 use crate::error::WizardError;
 
 /// Wraps a pull failure into a build error naming the failed image reference.
-///
-/// The message is `{context} {reference}: {error}`, so the operator sees which
-/// registry, repository, and tag or digest failed to pull.
 pub(crate) fn pull_failure(context: &str, reference: &str, error: &KociError) -> WizardError {
     WizardError::BuildError(format!("{context} {reference}: {error}"))
 }

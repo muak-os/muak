@@ -14,10 +14,7 @@ const SUMMARY_MAX_BYTES: usize = 400;
 // Disambiguates attempts that fail within the same second.
 static ATTEMPT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-// Records a failed update preparation in kmsg and the config journal. The
-// kernel log gets only a short summary; the journal keeps the full error chain.
-// Failures while recording never panic and never replace the original error,
-// which the caller still returns.
+// Records a failed update preparation.
 pub(super) fn record(version: &str, author: &str, error: &Error) {
     let line = format!("Update preparation for {version} failed: {error}");
     kmsg::error!("{}", summary(&line));

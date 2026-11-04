@@ -10,16 +10,6 @@ pub(crate) enum TriggerOutcome {
 }
 
 /// Classifies the gRPC code of a failed update trigger RPC.
-///
-/// A successful trigger reboots the machine, so the connection is expected to
-/// die without a response. The codes that a dying connection produces
-/// (`Unavailable`, `Cancelled`, `DeadlineExceeded`, `Unknown`, `Aborted`,
-/// `Internal`) therefore only mean "the machine may be rebooting" and the CLI
-/// falls through to the status poll. Every other code is an explicit rejection
-/// that polling cannot fix (`PermissionDenied`, `Unauthenticated`, `NotFound`,
-/// `InvalidArgument`, `FailedPrecondition`, ...), so the CLI stops at once and
-/// reports the server message. `Code::Ok` cannot appear on an error path, but a
-/// malformed status carrying it is a failure rather than a reboot.
 pub(crate) fn trigger_outcome(code: Code) -> TriggerOutcome {
     match code {
         Code::Unavailable

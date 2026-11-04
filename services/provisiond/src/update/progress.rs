@@ -19,10 +19,6 @@ impl Forwarder {
         Self { sender }
     }
 
-    // Progress messages are best effort, so a message is dropped instead of
-    // waiting when the channel is full or the receiver is gone. Waiting would
-    // block the build: `send` runs inside the wizard build, which happens
-    // within `koci`'s `Runtime::block_on`, where `blocking_send` panics.
     fn send(&self, message: &str) {
         let _sent = self.sender.try_send(PrepareUpdateProgress {
             message: message.to_owned(),
@@ -36,7 +32,6 @@ impl Reporter for Forwarder {
         match event {
             Event::Started { label } | Event::Completed { label } => self.send(label),
             Event::Sized { artifacts, bytes } => self.send(&sized_message(artifacts, bytes)),
-            // No writer in this path counts bytes, so there is nothing to report.
             Event::ArtifactBytes { .. } | Event::Note { detail: true, .. } => {}
             Event::Node { node, state } => self.send(&format!("{node} {}", state.title())),
             Event::Note {
