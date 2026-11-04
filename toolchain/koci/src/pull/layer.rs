@@ -7,7 +7,6 @@ use oci::model::Descriptor;
 use oci_client::client::Client;
 use tar::Archive;
 
-use super::cache::Store;
 use super::content::Content;
 use super::{download, fetch, parallel, scan};
 use crate::error::Result;
@@ -16,7 +15,6 @@ use crate::progress::{Event, Phase, Reporter, Unit};
 /// Download all layers, then iterate every archive entry not blocked by a whiteout.
 pub(crate) async fn walk<F>(
     client: &Client,
-    cache: &Store,
     content: &Content,
     layers: &[Descriptor],
     reporter: &dyn Reporter,
@@ -29,7 +27,7 @@ where
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
-    let bytes = parallel::download_all(client, cache, content, layers, reporter).await?;
+    let bytes = parallel::download_all(client, content, layers, reporter).await?;
     let n = layers.len();
     if n > 1 {
         let whiteouts = fetch::whiteout_map(content, layers, &bytes, reporter)?;

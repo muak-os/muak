@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+mod cache;
 mod disk;
 mod efi;
 mod install;
@@ -22,12 +23,6 @@ use granola::runtime::signal::shutdown;
 use granola::runtime::socket::socket;
 use tonic::transport::Server;
 
-// Mount point of the EPHEMERAL partition.
-const EPHEMERAL_MOUNT: &str = "/run/ephemeral";
-
-// Btrfs `f_type` magic reported by statfs.
-const BTRFS_MAGIC: i64 = 0x9123_683E;
-
 #[granola::service("provisiond")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
@@ -40,8 +35,9 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     notifier.ready()?;
 
     if is_installed {
-        if cache_available() {
-            update::init_cache();
+        if cache::available() {
+            cache::init();
+            cache::enforce();
         } else {
             kmsg::warn!("EPHEMERAL is not a btrfs mount; koci pull cache disabled");
         }
@@ -59,8 +55,4 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .await?;
 
     Ok(())
-}
-
-fn cache_available() -> bool {
-    rustix::fs::statfs(EPHEMERAL_MOUNT).is_ok_and(|stat| stat.f_type == BTRFS_MAGIC)
 }

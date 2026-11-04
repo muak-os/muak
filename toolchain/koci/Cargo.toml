@@ -39,6 +39,9 @@ serde_json = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
+# Filesystem
+rustix = { workspace = true, optional = true, features = ["fs"] }
+
 # Internal
 oci = { workspace = true }
 oci-client = { workspace = true }
@@ -64,6 +67,7 @@ pull = [
     "dep:base64ct",
     "dep:flate2",
     "dep:p256",
+    "dep:rustix",
     "dep:signature",
     "dep:tar",
     "json",

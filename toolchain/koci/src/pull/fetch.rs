@@ -5,19 +5,13 @@ use std::path::PathBuf;
 
 use oci::model::Descriptor;
 use oci::reference::Image;
-use oci_client::blob::build_url;
-use oci_client::error::ClientError;
 use oci_client::transport::Transport;
 
-use super::cache::Store;
 use super::content::Content;
 use super::download::ByteProgress;
-use super::{blobinfo, download, scan};
+use super::{download, scan};
 use crate::error::{KociError, Result};
 use crate::progress::{Event, Phase, Reporter, Unit};
-
-/// HTTP status code for a blob the registry does not serve.
-const NOT_FOUND: u16 = 404;
 
 /// The fetched bytes of a layer, held in memory only when no store is configured.
 pub(crate) fn cached_bytes(bytes: &[Option<Vec<u8>>], layer_idx: usize) -> Option<Vec<u8>> {
@@ -83,9 +77,12 @@ pub(crate) fn whiteout_map(
     Ok(whiteouts)
 }
 
-/// Fetch one blob for a session, consulting and updating the blob info cache.
+/// Fetch one blob for a session, into the content store when it is available.
+///
+/// # Errors
+///
+/// Returns an error when the registry does not serve the blob or the download fails to verify.
 pub(crate) async fn fetch_one(
-    cache: &Store,
     content: &Content,
     http: &Transport,
     image: &Image,
@@ -93,53 +90,13 @@ pub(crate) async fn fetch_one(
     authorization: Option<&str>,
     progress: Option<ByteProgress>,
 ) -> Result<Option<Vec<u8>>> {
-    if cache.layer_location(image, digest) == Some(blobinfo::LayerLocation::Missing) {
-        return Err(ClientError::Status {
-            status: NOT_FOUND,
-            url: build_url(image, digest),
-        }
-        .into());
+    if content.disk().is_some() {
+        return download::fetch_into_store(content, http, image, digest, authorization, progress)
+            .await
+            .map(|_size| None);
     }
 
-    match fetch_bytes(cache, content, http, image, digest, authorization, progress).await {
-        Ok(bytes) => Ok(bytes),
-        Err(KociError::Client(
-            error @ ClientError::Status {
-                status: NOT_FOUND, ..
-            },
-        )) => {
-            cache.put_blob_missing(image, digest);
-            Err(KociError::Client(error))
-        }
-        Err(other) => Err(other),
-    }
-}
-
-/// Download one blob, keeping it in the store when available, and record its presence.
-async fn fetch_bytes(
-    cache: &Store,
-    content: &Content,
-    http: &Transport,
-    image: &Image,
-    digest: &str,
-    authorization: Option<&str>,
-    progress: Option<ByteProgress>,
-) -> Result<Option<Vec<u8>>> {
-    let fetched = if content.disk().is_some() {
-        download::fetch_into_store(content, http, image, digest, authorization, progress)
-            .await
-            .map(|size| (size, None))
-    } else {
-        download::blob(http, image, digest, authorization, progress)
-            .await
-            .map(|bytes| {
-                let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-                (size, Some(bytes))
-            })
-    };
-
-    let (size, bytes) = fetched?;
-    cache.put_blob_present(image, digest, size);
-
-    Ok(bytes)
+    download::blob(http, image, digest, authorization, progress)
+        .await
+        .map(Some)
 }

@@ -1,29 +1,42 @@
 //! OCI blob cache backed by the local filesystem.
 
-use core::time::Duration;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::time::SystemTime;
 
+use oci::digest::sha256_hex;
 use oci::reference::Image;
-
-use super::blobinfo;
+use rustix::fs::XattrFlags;
+use rustix::io::Errno;
 
 /// Subtree holding in-progress ingests, shared with the content store.
-pub(crate) const INGEST_DIR: &str = "ingest";
+pub const INGEST_DIR: &str = "ingest";
+
+// Subtree holding the digests each cached manifest references.
+const INDEX_DIR: &str = "index";
+
+// Extended attribute recording how often a cache entry was used.
+const USE_COUNT_XATTR: &str = "user.muak.use_count";
+
+// Process-wide xattr capability, learned from the first filesystem reply.
+const XATTR_UNKNOWN: u8 = 0;
+const XATTR_SUPPORTED: u8 = 1;
+const XATTR_UNSUPPORTED: u8 = 2;
+
+static XATTR_STATE: AtomicU8 = AtomicU8::new(XATTR_UNKNOWN);
 
 /// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-/// Sequence number for unique temporary file names.
+/// Sequence number for unique temporary filenames.
 static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// A local filesystem cache for OCI blobs and tag-to-manifest mappings.
 #[derive(Clone)]
 pub struct Store {
     root: Option<PathBuf>,
-    ttl: Duration,
 }
 
 impl Store {
@@ -34,17 +47,12 @@ impl Store {
 
     /// Create a new cache.
     pub(crate) fn new() -> Self {
-        let ttl = std::env::var("MUAK_KOCI_CACHE_TTL")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .map_or(Duration::from_mins(5), Duration::from_secs);
-
-        Self { root: root(), ttl }
+        Self { root: root() }
     }
 
     /// Return a cached manifest.
     pub(crate) fn get_manifest(&self, image: &Image, manifest_ref: &str) -> Option<String> {
-        if is_digest(manifest_ref) {
+        if manifest_ref.starts_with("sha256:") {
             let path = self.blob_path(manifest_ref)?;
             let manifest = std::fs::read_to_string(&path).ok()?;
             touch(&path);
@@ -56,10 +64,13 @@ impl Store {
 
     /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
     pub(crate) fn put_manifest(&self, image: &Image, manifest_ref: &str, manifest: &str) {
-        if is_digest(manifest_ref) {
+        if manifest_ref.starts_with("sha256:") {
             self.put_blob(manifest_ref, manifest.as_bytes());
+            self.put_index(manifest_ref, manifest);
         } else {
             self.put_ref(&image.registry, &image.name, manifest_ref, manifest);
+            let digest = format!("sha256:{}", sha256_hex(manifest.as_bytes()));
+            self.put_index(&digest, manifest);
         }
     }
 
@@ -70,46 +81,18 @@ impl Store {
         }
     }
 
-    /// Where this repository stands on a layer blob, honoring the negative TTL.
-    pub(crate) fn layer_location(
-        &self,
-        image: &Image,
-        digest: &str,
-    ) -> Option<blobinfo::LayerLocation> {
-        blobinfo::layer_location(self.root.as_deref(), image, digest)
-    }
-
-    /// Record that this repository served a layer blob of `size` bytes.
-    pub(crate) fn put_blob_present(&self, image: &Image, digest: &str, size: u64) {
-        blobinfo::put_blob_present(self.root.as_deref(), image, digest, size);
-    }
-
-    /// Record that this repository does not serve a layer blob, for the store TTL.
-    pub(crate) fn put_blob_missing(&self, image: &Image, digest: &str) {
-        blobinfo::put_blob_missing(self.root.as_deref(), image, digest, self.ttl);
-    }
-
     /// Return the filesystem path for a blob digest.
     pub(crate) fn blob_path(&self, digest: &str) -> Option<PathBuf> {
         blob_file_path(self.root.as_deref(), digest)
     }
 
-    /// Return cached manifest JSON for a tag reference or `None` if missing or the TTL has expired.
+    // Return cached manifest JSON for a tag reference.
     fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
         let path = self.ref_path(registry, name, tag)?;
-        let metadata = std::fs::metadata(&path).ok()?;
+        let manifest = std::fs::read_to_string(&path).ok()?;
+        bump_use_count(&path);
 
-        let modified = metadata.modified().ok()?;
-        if SystemTime::now()
-            .duration_since(modified)
-            .unwrap_or(Duration::MAX)
-            > self.ttl
-        {
-            drop(std::fs::remove_file(&path));
-            return None;
-        }
-
-        std::fs::read_to_string(&path).ok()
+        Some(manifest)
     }
 
     /// Store manifest JSON for a tag reference.
@@ -120,6 +103,31 @@ impl Store {
         atomic_write(&path, manifest.as_bytes());
     }
 
+    // Record every digest `manifest` references under `manifest_digest`.
+    fn put_index(&self, manifest_digest: &str, manifest: &str) {
+        let Some(root) = self.root.as_ref() else {
+            return;
+        };
+        let Some(hash) = manifest_digest.strip_prefix("sha256:") else {
+            return;
+        };
+        let Ok(parsed) = oci::manifest::parse(manifest) else {
+            return;
+        };
+        let referenced = parsed
+            .config
+            .iter()
+            .chain(&parsed.layers)
+            .chain(&parsed.manifests);
+        let mut body = String::new();
+        for descriptor in referenced {
+            body.push_str(&descriptor.digest);
+            body.push('\n');
+        }
+
+        atomic_write(&root.join(INDEX_DIR).join(hash), body.as_bytes());
+    }
+
     fn ref_path(&self, registry: &str, name: &str, tag: &str) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
 
@@ -127,9 +135,78 @@ impl Store {
     }
 }
 
-/// Whether a manifest reference is a content digest rather than a tag.
-fn is_digest(manifest_ref: &str) -> bool {
-    manifest_ref.starts_with("sha256:")
+/// Every digest referenced by the manifests indexed under `root`.
+#[must_use]
+pub fn shared_digests(root: &Path) -> HashSet<String> {
+    let mut digests = HashSet::new();
+    let Ok(entries) = std::fs::read_dir(root.join(INDEX_DIR)) else {
+        return digests;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+            digests.insert(format!("sha256:{name}"));
+        }
+        for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            digests.insert(line.to_owned());
+        }
+    }
+
+    digests
+}
+
+/// The recorded use count of a cache entry, or `0` when it carries none.
+#[must_use]
+pub fn use_count(path: &Path) -> u64 {
+    if unsupported() {
+        return 0;
+    }
+
+    let mut value = [0_u8; 8];
+    let len = match rustix::fs::getxattr(path, USE_COUNT_XATTR, &mut value[..]) {
+        Ok(len) => {
+            XATTR_STATE.store(XATTR_SUPPORTED, Ordering::Relaxed);
+            len
+        }
+        Err(errno) => {
+            record(errno);
+            return 0;
+        }
+    };
+
+    match value
+        .get(..len)
+        .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+    {
+        Some(bytes) => u64::from_le_bytes(bytes),
+        None => 0,
+    }
+}
+
+/// Increment the recorded use count of a cache entry.
+pub fn bump_use_count(path: &Path) {
+    if unsupported() {
+        return;
+    }
+
+    let count = use_count(path).saturating_add(1);
+    if unsupported() {
+        return;
+    }
+
+    match rustix::fs::setxattr(
+        path,
+        USE_COUNT_XATTR,
+        &count.to_le_bytes(),
+        XattrFlags::empty(),
+    ) {
+        Ok(()) => XATTR_STATE.store(XATTR_SUPPORTED, Ordering::Relaxed),
+        Err(errno) => record(errno),
+    }
 }
 
 /// The cache root shared by the manifest cache and the content store.
@@ -153,8 +230,28 @@ pub(crate) fn blob_file_path(root: Option<&Path>, digest: &str) -> Option<PathBu
     Some(root?.join("blobs").join("sha256").join(hash))
 }
 
-/// Refresh the mtime of a cache entry after a use so pruning keeps it longer.
+fn unsupported() -> bool {
+    XATTR_STATE.load(Ordering::Relaxed) == XATTR_UNSUPPORTED
+}
+
+// Map a failed xattr call to the capability state it implies.
+fn classify(errno: Errno) -> Option<u8> {
+    match errno {
+        Errno::NODATA => Some(XATTR_SUPPORTED),
+        Errno::NOTSUP => Some(XATTR_UNSUPPORTED),
+        _ => None,
+    }
+}
+
+fn record(errno: Errno) {
+    if let Some(state) = classify(errno) {
+        XATTR_STATE.store(state, Ordering::Relaxed);
+    }
+}
+
+/// Refresh the mtime and the use count of a cache entry after a use.
 pub(crate) fn touch(path: &Path) {
+    bump_use_count(path);
     let Ok(file) = std::fs::OpenOptions::new().write(true).open(path) else {
         return;
     };
@@ -186,8 +283,6 @@ fn atomic_write(path: &Path, data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
-
     use tempfile::TempDir;
 
     use super::*;
@@ -195,7 +290,6 @@ mod tests {
     fn new_cache(dir: &TempDir) -> Store {
         Store {
             root: Some(dir.path().to_path_buf()),
-            ttl: Duration::from_mins(5),
         }
     }
 
@@ -261,33 +355,46 @@ mod tests {
     }
 
     #[test]
-    fn ref_expires_after_ttl() {
+    fn tag_refs_never_expire() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
-        let cache = Store {
-            root: Some(tmp.path().to_path_buf()),
-            ttl: Duration::from_millis(10),
-        };
-        cache.put_ref("ghcr.io", "org/image", "latest", "{}");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1.0");
+        let manifest = r#"{"schemaVersion":2}"#;
+        cache.put_manifest(&image, "v1.0", manifest);
+        let path = cache
+            .ref_path("ghcr.io", "org/image", "v1.0")
+            .expect("ref path");
+        let old = SystemTime::now()
+            .checked_sub(std::time::Duration::from_hours(24 * 365))
+            .expect("old timestamp");
+        let file = std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open ref");
+        file.set_modified(old).expect("set mtime");
+        drop(file);
 
         // ACT
-        thread::sleep(Duration::from_millis(20));
+        let cached = cache.get_manifest(&image, "v1.0");
 
         // ASSERT
-        assert!(cache.get_ref("ghcr.io", "org/image", "latest").is_none());
+        assert_eq!(
+            cached.as_deref(),
+            Some(manifest),
+            "immutable tag refs must not expire by time"
+        );
     }
 
     #[test]
     fn no_cache_dir_all_methods_are_noops() {
         // ARRANGE
-        let cache = Store {
-            root: None,
-            ttl: Duration::from_mins(5),
-        };
+        let cache = Store { root: None };
 
         // ACT
         cache.put_blob("sha256:abc", b"data");
         cache.put_ref("r", "n", "t", "{}");
+        cache.put_manifest(&Image::parse("ghcr.io/org/image:v1"), "v1", "{}");
 
         // ASSERT
         assert!(cache.blob_path("sha256:abc").is_none());
@@ -361,7 +468,79 @@ mod tests {
     }
 
     #[test]
-    fn digest_manifest_reads_refresh_mtime_but_tag_refs_do_not() {
+    fn classify_missing_attribute() {
+        // ARRANGE
+        let errno = Errno::NODATA;
+
+        // ACT
+        let outcome = classify(errno);
+
+        // ASSERT
+        assert_eq!(outcome, Some(XATTR_SUPPORTED));
+    }
+
+    #[test]
+    fn classify_unsupported_attribute() {
+        // ARRANGE
+        let errno = Errno::NOTSUP;
+
+        // ACT
+        let outcome = classify(errno);
+
+        // ASSERT
+        assert_eq!(outcome, Some(XATTR_UNSUPPORTED));
+    }
+
+    #[test]
+    fn use_count_without_xattr_is_zero() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("entry");
+        std::fs::write(&path, b"data").expect("write entry");
+
+        // ACT
+        let count = use_count(&path);
+
+        // ASSERT
+        assert_eq!(count, 0, "an entry without the xattr has no recorded count");
+    }
+
+    #[test]
+    fn touch_refreshes_mtime_and_bumps_the_use_count() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("entry");
+        std::fs::write(&path, b"data").expect("write entry");
+        let old = SystemTime::now()
+            .checked_sub(std::time::Duration::from_hours(2))
+            .expect("old timestamp");
+        let file = std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open entry");
+        file.set_modified(old).expect("set mtime");
+        drop(file);
+
+        // ACT
+        touch(&path);
+        let count = use_count(&path);
+        touch(&path);
+
+        // ASSERT
+        let modified = std::fs::metadata(&path)
+            .expect("entry meta")
+            .modified()
+            .expect("entry mtime");
+        assert!(modified > old, "touch must refresh the entry mtime");
+        assert_eq!(
+            use_count(&path),
+            count.saturating_add(1),
+            "every touch must bump the use count"
+        );
+    }
+
+    #[test]
+    fn manifest_reads_touch_digest_blobs_and_tag_refs() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let cache = new_cache(&tmp);
@@ -372,40 +551,68 @@ mod tests {
         let tag_path = cache
             .ref_path("ghcr.io", "org/image", "v1")
             .expect("ref path");
-        let old = SystemTime::now()
-            .checked_sub(Duration::from_hours(2))
-            .expect("old timestamp");
-        let digest_file = std::fs::File::options()
-            .write(true)
-            .open(&digest_path)
-            .expect("open digest file");
-        digest_file.set_modified(old).expect("set digest mtime");
-        drop(digest_file);
-        let tag_before = std::fs::metadata(&tag_path)
-            .expect("tag meta")
-            .modified()
-            .expect("tag mtime");
 
         // ACT
-        cache
-            .get_manifest(&image, "sha256:abc")
-            .expect("digest manifest");
-        cache.get_manifest(&image, "v1").expect("tag manifest");
+        cache.get_manifest(&image, "sha256:abc").expect("digest");
+        cache.get_manifest(&image, "v1").expect("tag");
 
         // ASSERT
-        let digest_after = std::fs::metadata(&digest_path)
-            .expect("digest meta")
-            .modified()
-            .expect("digest mtime");
-        let tag_after = std::fs::metadata(&tag_path)
-            .expect("tag meta")
-            .modified()
-            .expect("tag mtime");
+        assert_eq!(use_count(&digest_path), 1, "digest hits must be counted");
+        assert_eq!(use_count(&tag_path), 1, "tag ref hits must be counted");
+    }
+
+    #[test]
+    fn manifest_index_records_config_layers_and_manifests() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        let manifest = r#"{
+            "schemaVersion": 2,
+            "config": {"digest": "sha256:cfg"},
+            "layers": [{"digest": "sha256:layer"}],
+            "manifests": [{"digest": "sha256:platform"}]
+        }"#;
+
+        // ACT
+        cache.put_manifest(&image, "sha256:multi", manifest);
+        let indexed = std::fs::read_to_string(tmp.path().join("index/multi")).expect("index file");
+
+        // ASSERT
+        assert_eq!(indexed, "sha256:cfg\nsha256:layer\nsha256:platform\n");
+    }
+
+    #[test]
+    fn shared_digests_returns_indexed_digests() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        let manifest = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:layer"}]}"#;
+
+        // ACT
+        cache.put_manifest(&image, "sha256:multi", manifest);
+        cache.put_manifest(&image, "v1", manifest);
+        let digests = shared_digests(tmp.path());
+
+        // ASSERT
+        assert!(digests.contains("sha256:multi"), "index files are shared");
         assert!(
-            digest_after > old,
-            "digest manifest reads must refresh the blob mtime"
+            digests.contains("sha256:layer"),
+            "referenced digests are shared"
         );
-        assert_eq!(tag_after, tag_before, "tag refs must never be touched");
+    }
+
+    #[test]
+    fn shared_digests_ignores_a_missing_index() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+
+        // ACT
+        let digests = shared_digests(tmp.path());
+
+        // ASSERT
+        assert!(digests.is_empty());
     }
 
     #[test]

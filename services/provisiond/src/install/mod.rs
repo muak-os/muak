@@ -1,36 +1,32 @@
 //! Installation workflow orchestration.
 
+mod deploy;
 mod layout;
 pub mod pki;
 pub(crate) mod plan;
 mod state;
 mod volumes;
 
-use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-
 use anyhow::{Context as _, Result, bail};
 use config::system;
 use luks2::key::Passphrase;
 use pki::InstallResult;
 use sbolt::efi::enrollment;
-use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
-use wizard::artifact::Artifact;
-use wizard::domain::profile::{CustomizationSpec, Profile};
-use wizard::request::Request;
+use uki::measure::MeasuredSection;
+use wizard::domain::profile::Profile;
 
 use crate::ipc::proto::provision::InstallProgress;
-use crate::{disk, efi, medium, secrets, streaming};
+use crate::{cache, disk, medium, secrets, streaming};
 
-/// Installs Muak to the disks assigned in `config`, with the given configuration.
 struct PkiResult {
     client_result: InstallResult,
     auth_config: config::auth::State,
     server_pki: pki::Server,
 }
 
+/// Installs Muak to the disks assigned in `config`, with the given configuration.
 pub async fn run(
     force: bool,
     allow_system_disk: bool,
@@ -44,57 +40,95 @@ pub async fn run(
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
 
-    let tpm_available = tpm2::device::is_available(None);
-
     let partitions = volumes::partition(&targets, &progress).await?;
     volumes::format_luks(&partitions, &luks_key, &progress).await?;
 
-    let (sections, sb_hierarchy) = build_and_deploy_efi(
-        &partitions.efi,
+    let installed = install_volumes(
+        &partitions,
+        &luks_key,
+        pki_result,
         config,
         booted_profile,
-        &luks_key,
-        tpm_available,
         sb_hierarchy,
         &progress,
     )
+    .await;
+
+    volumes::unmount_ephemeral();
+    let closed = volumes::close_luks();
+
+    let client_result = installed?;
+    closed?;
+
+    Ok(client_result)
+}
+
+async fn install_volumes(
+    partitions: &volumes::PartitionInfo,
+    luks_key: &[u8],
+    pki_result: PkiResult,
+    config: &system::Config,
+    booted_profile: Profile,
+    sb_hierarchy: Option<Bundle>,
+    progress: &mpsc::Sender<InstallProgress>,
+) -> Result<InstallResult> {
+    let mapped = volumes::open_luks(partitions, luks_key).await?;
+    volumes::format_btrfs(&mapped).await?;
+    volumes::mount_ephemeral(&mapped.ephemeral)?;
+
+    cache::init();
+    cache::enforce();
+
+    let tpm_available = tpm2::device::is_available(None);
+
+    let (sections, sb_hierarchy) = deploy::build_and_deploy_efi(
+        &partitions.efi,
+        config,
+        booted_profile,
+        luks_key,
+        tpm_available,
+        sb_hierarchy,
+        progress,
+    )
     .await?;
 
-    if tpm_available {
-        let seal_result = secrets::seal_luks_key(&luks_key, &sections)?;
-        match seal_result {
-            secrets::SealResult::Sealed(token) => {
-                secrets::write_token_to_devices(
-                    &token,
-                    &[&partitions.state, &partitions.ephemeral],
-                )?;
-                println!("LUKS key sealed to TPM2 with PCR#11 values");
-            }
-            secrets::SealResult::EspKey => {
-                bail!("TPM available but seal returned EspKey");
-            }
-        }
-    } else {
-        println!("TPM2 unavailable, LUKS key written to ESP");
-    }
-
-    let mapped = volumes::open_luks(&partitions, &luks_key).await?;
-    volumes::format_btrfs(&mapped).await?;
+    seal_luks_key(luks_key, tpm_available, partitions, &sections)?;
 
     initialize_state(
         &mapped.state,
         config,
         &pki_result,
         sb_hierarchy.as_ref(),
-        &progress,
+        progress,
     )
     .await?;
 
-    volumes::close_luks()?;
+    cache::enforce();
 
-    enroll_secureboot_keys(sb_hierarchy.as_ref(), &progress).await?;
+    enroll_secureboot_keys(sb_hierarchy.as_ref(), progress).await?;
 
     Ok(pki_result.client_result)
+}
+
+fn seal_luks_key(
+    luks_key: &[u8],
+    tpm_available: bool,
+    partitions: &volumes::PartitionInfo,
+    sections: &[MeasuredSection],
+) -> Result<()> {
+    if !tpm_available {
+        println!("TPM2 unavailable, LUKS key written to ESP");
+        return Ok(());
+    }
+
+    match secrets::seal_luks_key(luks_key, sections)? {
+        secrets::SealResult::Sealed(token) => {
+            secrets::write_token_to_devices(&token, &[&partitions.state, &partitions.ephemeral])?;
+            println!("LUKS key sealed to TPM2 with PCR#11 values");
+            Ok(())
+        }
+        secrets::SealResult::EspKey => bail!("TPM available but seal returned EspKey"),
+    }
 }
 
 async fn validate_disks(
@@ -167,92 +201,6 @@ async fn generate_keys(
             auth_config,
             server_pki,
         },
-    ))
-}
-
-async fn build_and_deploy_efi(
-    efi_part: &str,
-    config: &system::Config,
-    booted_profile: Profile,
-    luks_key: &[u8],
-    tpm_available: bool,
-    sb_hierarchy: Option<Bundle>,
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<(Vec<uki::measure::MeasuredSection>, Option<Bundle>)> {
-    send_progress(progress, "Building and deploying EFI").await;
-
-    let install_profile = derive_install_profile(&booted_profile, &config.host.extensions)?;
-    let has_overlay = install_profile.overlay().is_some();
-
-    let registry = config.host.registry.clone();
-    let version = config.host.version.clone();
-
-    efi::mount(efi_part)?;
-
-    let mut uki_file = efi::create(
-        Path::new(efi::MOUNT_POINT),
-        esp::arch::Arch::current().boot_path(),
-    )?;
-
-    let (mut overlay_r, mut overlay_w) = if has_overlay {
-        let (reader, writer) = UnixStream::pair()?;
-        (Some(reader), Some(writer))
-    } else {
-        (None, None)
-    };
-
-    let esp_root = PathBuf::from(efi::MOUNT_POINT);
-    let demux = overlay_r.take().map(|mut reader| {
-        tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut reader))
-    });
-
-    let (metadata, sb_hierarchy) = tokio::task::spawn_blocking(move || {
-        let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
-            signer: &hierarchy.db.signer,
-            certificate: &hierarchy.db.certificate,
-        });
-
-        let mut request =
-            Request::new(version, &registry).artifact(Artifact::Uki, &mut uki_file)?;
-        if let Some(writer) = overlay_w.as_mut() {
-            request = request.artifact(Artifact::Overlays, writer)?;
-        }
-
-        let request = match pair.as_ref() {
-            Some(pair) => request.sign(pair),
-            None => request,
-        };
-
-        let metadata = request
-            .build(&install_profile)
-            .context("wizard install build")?;
-
-        Ok::<_, anyhow::Error>((metadata, sb_hierarchy))
-    })
-    .await
-    .context("wizard install task")??;
-
-    if !tpm_available {
-        efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", luks_key)?;
-    }
-
-    if let Some(demux) = demux {
-        demux.await??;
-    }
-
-    efi::unmount();
-
-    Ok((metadata.sections, sb_hierarchy))
-}
-
-fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Profile> {
-    let customization =
-        CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
-
-    Ok(Profile::new(
-        booted.overlay().cloned(),
-        customization,
-        booted.kernel().clone(),
     ))
 }
 

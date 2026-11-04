@@ -1071,6 +1071,7 @@ dependencies = [
  "oci",
  "oci-client",
  "p256",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

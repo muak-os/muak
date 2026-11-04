@@ -9,7 +9,6 @@ use oci_client::transport::Transport;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
-use super::cache::Store;
 use super::content::Content;
 use super::download::ByteProgress;
 use super::fetch::fetch_one;
@@ -43,7 +42,6 @@ pub fn set_parallel_downloads(limit: usize) {
 /// Download every layer blob with a bounded worker pool, into the store or memory.
 pub(crate) async fn download_all(
     client: &Client,
-    cache: &Store,
     content: &Content,
     layers: &[Descriptor],
     reporter: &dyn Reporter,
@@ -73,14 +71,12 @@ pub(crate) async fn download_all(
     let (sender, receiver) = unbounded_channel();
     let mut downloads = JoinSet::new();
     for worker_idx in 0..workers {
-        let cache = cache.clone();
         let content = content.clone();
         let http = client.http().clone();
         let image = client.image().clone();
         let authorization = client.authorization().map(str::to_owned);
         let assigned = assigned_layers(worker_idx, workers, layers);
         downloads.spawn(download_batch(
-            cache,
             content,
             http,
             image,
@@ -135,7 +131,6 @@ fn assigned_layers(
 }
 
 async fn download_batch(
-    cache: Store,
     content: Content,
     http: Transport,
     image: Image,
@@ -148,7 +143,6 @@ async fn download_batch(
         let index = layer_idx.saturating_add(1);
         let progress = ByteProgress::new(sender.clone(), index, layer.size);
         let blob = fetch_one(
-            &cache,
             &content,
             &http,
             &image,

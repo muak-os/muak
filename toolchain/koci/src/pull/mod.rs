@@ -1,6 +1,5 @@
 //! Remote OCI registry pull orchestration.
 
-pub(crate) mod blobinfo;
 pub mod cache;
 pub(crate) mod content;
 pub mod demux;

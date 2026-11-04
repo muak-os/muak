@@ -18,7 +18,6 @@ use crate::{registry, runtime};
 /// An opened pull session over one image reference.
 pub struct Session {
     client: Client,
-    cache: Store,
     content: Content,
     layers: Vec<Descriptor>,
     digest: String,
@@ -61,7 +60,6 @@ impl Session {
 
         runtime::runtime()?.block_on(layer::walk(
             &self.client,
-            &self.cache,
             &self.content,
             &self.layers,
             reporter,
@@ -78,11 +76,6 @@ impl Session {
     /// The authenticated registry client of the session.
     pub(crate) fn client(&self) -> &Client {
         &self.client
-    }
-
-    /// The cache store of the session.
-    pub(crate) fn cache(&self) -> &Store {
-        &self.cache
     }
 
     /// The content store of the session.
@@ -109,7 +102,6 @@ pub fn open(
 
         Ok(Session {
             client,
-            cache,
             content: Content::new(),
             layers,
             digest,
