@@ -36,7 +36,7 @@ pub async fn run(
 ) -> Result<InstallResult> {
     let targets = disk::resolve(&config.disks).await?;
     validate_disks(&targets, force, allow_system_disk, &progress).await?;
-    let sb_hierarchy = generate_sb_hierarchy(config)?;
+    let enroll_secureboot = verify_secureboot(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
 
@@ -49,7 +49,7 @@ pub async fn run(
         pki_result,
         config,
         booted_profile,
-        sb_hierarchy,
+        enroll_secureboot,
         &progress,
     )
     .await;
@@ -65,11 +65,11 @@ pub async fn run(
 
 async fn install_volumes(
     partitions: &volumes::PartitionInfo,
-    luks_key: &[u8],
+    luks_key: &Passphrase,
     pki_result: PkiResult,
     config: &system::Config,
     booted_profile: Profile,
-    sb_hierarchy: Option<Bundle>,
+    enroll_secureboot: bool,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     let mapped = volumes::open_luks(partitions, luks_key).await?;
@@ -80,15 +80,21 @@ async fn install_volumes(
     cache::enforce();
 
     let tpm_available = tpm2::device::is_available(None);
+    let sb_hierarchy = if enroll_secureboot {
+        Some(Bundle::generate("Muak").context("Failed to generate Secure Boot keys")?)
+    } else {
+        None
+    };
 
-    let (sections, sb_hierarchy) = deploy::build_and_deploy_efi(
-        &partitions.efi,
-        config,
+    send_progress(progress, "Building and deploying EFI").await;
+
+    let (sections, sb_hierarchy) = deploy::spawn(
+        partitions.efi.clone(),
+        config.host.clone(),
         booted_profile,
-        luks_key,
+        luks_key.clone(),
         tpm_available,
         sb_hierarchy,
-        progress,
     )
     .await?;
 
@@ -150,9 +156,9 @@ async fn validate_disks(
     Ok(())
 }
 
-fn generate_sb_hierarchy(config: &system::Config) -> Result<Option<Bundle>> {
+fn verify_secureboot(config: &system::Config) -> Result<bool> {
     if !config.host.secureboot {
-        return Ok(None);
+        return Ok(false);
     }
 
     let setup_mode = firmware::secureboot::system().is_ok_and(|state| state.setup_mode);
@@ -164,22 +170,20 @@ fn generate_sb_hierarchy(config: &system::Config) -> Result<Option<Bundle>> {
         );
     }
 
-    Bundle::generate("Muak")
-        .context("Failed to generate Secure Boot keys")
-        .map(Some)
+    Ok(true)
 }
 
 async fn enroll_secureboot_keys(
     sb_hierarchy: Option<&Bundle>,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
-    if let Some(hierarchy) = sb_hierarchy {
-        send_progress(progress, "Enrolling secureboot keys").await;
-        enrollment::enroll(&firmware::system(), hierarchy)
-            .context("Failed to enroll Secure Boot keys")?;
-    }
+    let Some(hierarchy) = sb_hierarchy else {
+        return Ok(());
+    };
 
-    Ok(())
+    send_progress(progress, "Enrolling secureboot keys").await;
+
+    enrollment::enroll(&firmware::system(), hierarchy).context("Failed to enroll Secure Boot keys")
 }
 
 async fn generate_keys(

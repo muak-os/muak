@@ -1,94 +1,142 @@
 //! UKI build and EFI deployment during installation.
 
+use std::fs::File;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
-use config::system;
+use config::system::host;
+use luks2::key::Passphrase;
 use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
-use tokio::sync::mpsc;
+use uki::measure::MeasuredSection;
 use wizard::artifact::Artifact;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
-use super::send_progress;
 use crate::efi;
-use crate::ipc::proto::provision::InstallProgress;
 
-pub(super) async fn build_and_deploy_efi(
-    efi_part: &str,
-    config: &system::Config,
+/// Deploys the UKI to the EFI partition on a blocking thread.
+pub(super) async fn spawn(
+    efi_part: String,
+    host: host::Config,
     booted_profile: Profile,
+    luks_key: Passphrase,
+    tpm_available: bool,
+    sb_hierarchy: Option<Bundle>,
+) -> Result<(Vec<MeasuredSection>, Option<Bundle>)> {
+    tokio::task::spawn_blocking(move || {
+        run(
+            &efi_part,
+            &host,
+            &booted_profile,
+            &luks_key,
+            tpm_available,
+            sb_hierarchy,
+        )
+    })
+    .await
+    .context("EFI deployment task")?
+}
+
+fn run(
+    efi_part: &str,
+    host: &host::Config,
+    booted_profile: &Profile,
     luks_key: &[u8],
     tpm_available: bool,
     sb_hierarchy: Option<Bundle>,
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<(Vec<uki::measure::MeasuredSection>, Option<Bundle>)> {
-    send_progress(progress, "Building and deploying EFI").await;
-
-    let install_profile = derive_install_profile(&booted_profile, &config.host.extensions)?;
-    let has_overlay = install_profile.overlay().is_some();
-
-    let registry = config.host.registry.clone();
-    let version = config.host.version.clone();
+) -> Result<(Vec<MeasuredSection>, Option<Bundle>)> {
+    let install_profile = derive_install_profile(booted_profile, &host.extensions)?;
 
     efi::mount(efi_part)?;
+    let deployed = deploy(
+        &install_profile,
+        host,
+        luks_key,
+        tpm_available,
+        sb_hierarchy,
+    );
+    efi::unmount();
 
-    let mut uki_file = efi::create(
-        Path::new(efi::MOUNT_POINT),
-        esp::arch::Arch::current().boot_path(),
-    )?;
+    deployed
+}
 
-    let (mut overlay_r, mut overlay_w) = if has_overlay {
+fn deploy(
+    install_profile: &Profile,
+    host: &host::Config,
+    luks_key: &[u8],
+    tpm_available: bool,
+    sb_hierarchy: Option<Bundle>,
+) -> Result<(Vec<MeasuredSection>, Option<Bundle>)> {
+    let esp_root = PathBuf::from(efi::MOUNT_POINT);
+    let mut uki_file = efi::create(&esp_root, esp::arch::Arch::current().boot_path())?;
+
+    let (overlay_r, mut overlay_w) = if install_profile.overlay().is_some() {
         let (reader, writer) = UnixStream::pair()?;
         (Some(reader), Some(writer))
     } else {
         (None, None)
     };
 
-    let esp_root = PathBuf::from(efi::MOUNT_POINT);
-    let demux = overlay_r.take().map(|mut reader| {
-        tokio::task::spawn_blocking(move || efi::extract_tar(&esp_root, &mut reader))
-    });
+    let (metadata, sb_hierarchy) = std::thread::scope(|scope| -> Result<_> {
+        let demux = overlay_r
+            .map(move |mut reader| scope.spawn(move || efi::extract_tar(&esp_root, &mut reader)));
 
-    let (metadata, sb_hierarchy) = tokio::task::spawn_blocking(move || {
-        let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
-            signer: &hierarchy.db.signer,
-            certificate: &hierarchy.db.certificate,
-        });
+        let built = build(
+            &mut uki_file,
+            install_profile,
+            host,
+            overlay_w.as_mut(),
+            sb_hierarchy,
+        );
 
-        let mut request =
-            Request::new(version, &registry).artifact(Artifact::Uki, &mut uki_file)?;
-        if let Some(writer) = overlay_w.as_mut() {
-            request = request.artifact(Artifact::Overlays, writer)?;
+        drop(overlay_w);
+
+        if let Some(demux) = demux {
+            demux
+                .join()
+                .map_err(|_error| anyhow::anyhow!("overlay extraction thread panicked"))??;
         }
 
-        let request = match pair.as_ref() {
-            Some(pair) => request.sign(pair),
-            None => request,
-        };
-
-        let metadata = request
-            .build(&install_profile)
-            .context("wizard install build")?;
-
-        Ok::<_, anyhow::Error>((metadata, sb_hierarchy))
-    })
-    .await
-    .context("wizard install task")??;
+        built
+    })?;
 
     if !tpm_available {
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", luks_key)?;
     }
 
-    if let Some(demux) = demux {
-        demux.await??;
+    Ok((metadata.sections, sb_hierarchy))
+}
+
+fn build(
+    uki_file: &mut File,
+    install_profile: &Profile,
+    host: &host::Config,
+    overlay_w: Option<&mut UnixStream>,
+    sb_hierarchy: Option<Bundle>,
+) -> Result<(wizard::metadata::Metadata, Option<Bundle>)> {
+    let pair = sb_hierarchy.as_ref().map(|hierarchy| SigningPair {
+        signer: &hierarchy.db.signer,
+        certificate: &hierarchy.db.certificate,
+    });
+
+    let mut request =
+        Request::new(host.version.clone(), &host.registry).artifact(Artifact::Uki, uki_file)?;
+    if let Some(writer) = overlay_w {
+        request = request.artifact(Artifact::Overlays, writer)?;
     }
 
-    efi::unmount();
+    let request = match pair.as_ref() {
+        Some(pair) => request.sign(pair),
+        None => request,
+    };
 
-    Ok((metadata.sections, sb_hierarchy))
+    let metadata = request
+        .build(install_profile)
+        .context("wizard install build")?;
+
+    Ok((metadata, sb_hierarchy))
 }
 
 fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Profile> {
