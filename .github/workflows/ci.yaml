@@ -136,15 +136,3 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
       - run: just docs
-
-  ci-success:
-    name: CI success
-    if: always()
-    needs: [typos, lint, deny, test, features, docs]
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Check required jobs
-        run: |
-          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
-            exit 1
-          fi
