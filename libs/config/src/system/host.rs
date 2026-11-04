@@ -25,7 +25,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// Returns `true` when both host configs are semantically equivalent.
+    /// Returns `true` when both host configuration are semantically equivalent.
     #[must_use]
     pub fn same_as(&self, other: &Config) -> bool {
         let mut normalized = self.clone();

@@ -60,8 +60,6 @@ impl Default for Config {
 
 impl Config {
     /// Returns `true` when both configs describe the same system.
-    ///
-    /// Extension and disk ordering is ignored, so reordering them is not a change.
     #[must_use]
     pub fn same_as(&self, other: &Config) -> bool {
         self.api_version == other.api_version
