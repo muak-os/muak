@@ -1,5 +1,7 @@
 //! Kernel package pull routed to kernel and cmdline consumers.
 
+mod cmdline;
+
 use std::io::Read;
 
 use koci::error::KociError;
@@ -68,7 +70,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
             .find_map(|entry| (entry.0.as_str() == path).then_some(entry.1))
             .ok_or_else(|| WizardError::BuildError(format!("missing kernel size for {path}")))?;
         let stream = graph.stream_mut(binding.stream)?;
-        stream.size = size;
+        stream.size = if binding.port == CMDLINE {
+            cmdline::size(size, ctx.build.kernel().parameters_append())?
+        } else {
+            size
+        };
         path.clone_into(&mut stream.name);
     }
 
@@ -90,7 +96,14 @@ fn run(
         &ctx.build.arch(),
         None,
         &ctx.reporter(kind),
-        |entry| route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline),
+        |mut entry| {
+            route_entry(
+                &mut entry,
+                &mut outputs,
+                &mut seen_cmdline,
+                ctx.build.kernel().parameters_append(),
+            )
+        },
     )
     .map_err(|e| WizardError::pull("pull kernel files", source, &e))?;
 
@@ -126,24 +139,53 @@ fn module_file_contexts() -> Result<mumi::image::FileContexts> {
 
 /// Routes one kernel entry, requiring `cmdline` before `vmlinuz`.
 fn route_entry(
-    path: &str,
-    reader: &mut dyn Read,
+    entry: &mut FileEntry<'_>,
     outputs: &mut [(PortId, OutputStream<'_>)],
     seen_cmdline: &mut bool,
+    parameters: &[String],
 ) -> koci::error::Result<()> {
-    match path {
+    match entry.path.as_str() {
         "cmdline" => {
             *seen_cmdline = true;
-            copy_optional(reader, outputs, CMDLINE).map_err(KociError::IoError)
+            copy_cmdline(entry, outputs, parameters).map_err(KociError::IoError)
         }
         "vmlinuz" if *seen_cmdline => {
-            copy_optional(reader, outputs, KERNEL).map_err(KociError::IoError)
+            copy_optional(entry.reader, outputs, KERNEL).map_err(KociError::IoError)
         }
         "vmlinuz" => Err(KociError::IoError(std::io::Error::other(
             "kernel entry order: vmlinuz before cmdline",
         ))),
         _ => Ok(()),
     }
+}
+
+/// Appends the profile parameters, keeping the output's preflight size exact.
+fn copy_cmdline(
+    entry: &mut FileEntry<'_>,
+    outputs: &mut [(PortId, OutputStream<'_>)],
+    parameters: &[String],
+) -> std::io::Result<()> {
+    if parameters.is_empty() {
+        return copy_optional(entry.reader, outputs, CMDLINE);
+    }
+    let Some(output) = outputs
+        .iter_mut()
+        .find_map(|item| (item.0 == CMDLINE).then_some(&mut item.1))
+    else {
+        return Ok(());
+    };
+    if cmdline::size(entry.size, parameters)? != output.size {
+        return Err(std::io::Error::other(
+            "kernel cmdline size differs from preflight",
+        ));
+    }
+
+    cmdline::write(
+        entry.reader,
+        &mut output.writer,
+        entry.size,
+        &parameters.join(" "),
+    )
 }
 
 /// Copies one routed entry into its output stream, if that stream is live.

@@ -55,7 +55,8 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let kernel = Kernel::new(
         profile.kernel().source().to_owned(),
         pinned_reference(registry, &kernel_entry.repository, &kernel_entry.digest),
-    );
+    )
+    .with_parameters_append(profile.kernel().parameters_append().to_vec());
     let stub_reference = pinned_reference(registry, &stub_entry.repository, &stub_entry.digest);
     let installer_reference = pinned_reference(
         registry,

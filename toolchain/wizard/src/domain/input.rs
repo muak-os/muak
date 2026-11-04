@@ -9,12 +9,25 @@ pub struct Kernel {
     image: String,
     /// Versioned OCI reference for the kernel image.
     source: String,
+    /// Additional parameters in command-line order.
+    parameters_append: Vec<String>,
 }
 
 impl Kernel {
     #[must_use]
     pub(crate) fn new(image: String, source: String) -> Self {
-        Self { image, source }
+        Self {
+            image,
+            source,
+            parameters_append: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn with_parameters_append(mut self, parameters: Vec<String>) -> Self {
+        self.parameters_append = parameters;
+
+        self
     }
 
     /// Returns the fully-qualified kernel image path.
@@ -27,6 +40,12 @@ impl Kernel {
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// Returns additional parameters selected by the profile, in their original order.
+    #[must_use]
+    pub fn parameters_append(&self) -> &[String] {
+        &self.parameters_append
     }
 }
 

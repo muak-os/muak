@@ -38,7 +38,6 @@
   - Allow for easier support of cloud providers like AWS, GCP etc with correct format & codec output.
   - Add SBOM precursor generation for each artifact
   - Add VEX metadata generation for each artifact
-  - Allow customizing kernel parameters?
   - Bring your own secure boot keys?
   - Parametize secure boot (for easier platform support)
 
