@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Host-level configuration for the Muak system.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// Hostname for this machine.
@@ -22,4 +22,17 @@ pub struct Config {
     pub clock: String,
     /// NTP server address for time synchronization.
     pub ntp: String,
+}
+
+impl Config {
+    /// Returns `true` when both host configuration are semantically equivalent.
+    #[must_use]
+    pub fn same_as(&self, other: &Config) -> bool {
+        let mut normalized = self.clone();
+        let mut other_normalized = other.clone();
+        normalized.extensions.sort();
+        other_normalized.extensions.sort();
+
+        normalized == other_normalized
+    }
 }

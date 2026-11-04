@@ -249,8 +249,7 @@ pub fn check_and_handle_pending_validation() -> Result<()> {
 ///
 /// # Errors
 ///
-/// Returns an error when `requested` is empty or when it is a downgrade of
-/// `current`.
+/// Returns an error when `requested` is empty or when it is a downgrade of `current`.
 pub fn resolve_target(current: &str, requested: &str) -> Result<String> {
     if requested.is_empty() {
         bail!("update target version must be specified");
@@ -319,13 +318,55 @@ pub(super) fn update_config(
         .context("Failed to write updated config")
 }
 
+/// Returns the configuration an update to `version` would install.
+pub(crate) fn desired_config(
+    installed: &system::Config,
+    version: &str,
+    new_config: Option<&system::Config>,
+) -> system::Config {
+    let Some(new_config) = new_config else {
+        let mut desired = installed.clone();
+        version.clone_into(&mut desired.host.version);
+        return desired;
+    };
+
+    let mut desired = new_config.clone();
+    desired.disks.clone_from(&installed.disks);
+
+    desired
+}
+
+/// Returns `true` when the requested update would leave the system unchanged.
+pub(crate) fn already_current(
+    installed: &system::Config,
+    version: &str,
+    desired: &system::Config,
+    force: bool,
+) -> bool {
+    !force && version == installed.host.version && desired.same_as(installed)
+}
+
 pub fn signal_cli_contact() {
     validation::signal_cli_contact();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_target;
+    use config::system::{self, disk, host};
+
+    use super::{already_current, desired_config, resolve_target};
+
+    fn installed_config() -> system::Config {
+        system::Config {
+            host: host::Config {
+                name: "alpha".to_owned(),
+                version: "v1.0.0".to_owned(),
+                ..host::Config::default()
+            },
+            disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sda")],
+            ..system::Config::default()
+        }
+    }
 
     #[test]
     fn requested_release_is_guarded_and_returned() {
@@ -355,5 +396,116 @@ mod tests {
 
         // ASSERT
         assert!(error.to_string().contains("must be specified"));
+    }
+
+    #[test]
+    fn desired_config_from_version_bumps_installed_version() {
+        // ARRANGE
+        let installed = installed_config();
+
+        // ACT
+        let desired = desired_config(&installed, "v1.1.0", None);
+
+        // ASSERT
+        assert_eq!(desired.host.version, "v1.1.0");
+        assert_eq!(desired.disks, installed.disks);
+        assert_eq!(desired.host.name, installed.host.name);
+    }
+
+    #[test]
+    fn desired_config_from_requested_config_keeps_installed_disks() {
+        // ARRANGE
+        let installed = installed_config();
+        let requested = system::Config {
+            host: host::Config {
+                name: "beta".to_owned(),
+                version: "v1.1.0".to_owned(),
+                ..host::Config::default()
+            },
+            disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sdb")],
+            ..system::Config::default()
+        };
+
+        // ACT
+        let desired = desired_config(&installed, "v1.1.0", Some(&requested));
+
+        // ASSERT
+        assert_eq!(desired.disks, installed.disks, "disks come from installed");
+        assert_eq!(desired.host.name, "beta");
+        assert_eq!(desired.host.version, "v1.1.0");
+    }
+
+    #[test]
+    fn already_current_accepts_unchanged_target() {
+        // ARRANGE
+        let installed = installed_config();
+        let desired = desired_config(&installed, "v1.0.0", None);
+
+        // ACT
+        let current = already_current(&installed, "v1.0.0", &desired, false);
+
+        // ASSERT
+        assert!(current);
+    }
+
+    #[test]
+    fn already_current_accepts_identical_requested_config() {
+        // ARRANGE
+        let installed = installed_config();
+        let requested = installed.clone();
+        let desired = desired_config(&installed, "v1.0.0", Some(&requested));
+
+        // ACT
+        let current = already_current(&installed, "v1.0.0", &desired, false);
+
+        // ASSERT
+        assert!(current);
+    }
+
+    #[test]
+    fn already_current_rejects_different_version() {
+        // ARRANGE
+        let installed = installed_config();
+        let desired = desired_config(&installed, "v1.1.0", None);
+
+        // ACT
+        let current = already_current(&installed, "v1.1.0", &desired, false);
+
+        // ASSERT
+        assert!(!current);
+    }
+
+    #[test]
+    fn already_current_rejects_different_config() {
+        // ARRANGE
+        let installed = installed_config();
+        let requested = system::Config {
+            host: host::Config {
+                name: "beta".to_owned(),
+                version: "v1.0.0".to_owned(),
+                ..host::Config::default()
+            },
+            ..system::Config::default()
+        };
+        let desired = desired_config(&installed, "v1.0.0", Some(&requested));
+
+        // ACT
+        let current = already_current(&installed, "v1.0.0", &desired, false);
+
+        // ASSERT
+        assert!(!current);
+    }
+
+    #[test]
+    fn already_current_rejects_forced_request() {
+        // ARRANGE
+        let installed = installed_config();
+        let desired = desired_config(&installed, "v1.0.0", None);
+
+        // ACT
+        let current = already_current(&installed, "v1.0.0", &desired, true);
+
+        // ASSERT
+        assert!(!current);
     }
 }

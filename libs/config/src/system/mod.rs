@@ -59,6 +59,17 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Returns `true` when both configs describe the same system.
+    #[must_use]
+    pub fn same_as(&self, other: &Config) -> bool {
+        self.api_version == other.api_version
+            && self.host.same_as(&other.host)
+            && disk::system(&self.disks) == disk::system(&other.disks)
+            && disk::data(&self.disks) == disk::data(&other.disks)
+            && self.network == other.network
+            && self.vm == other.vm
+    }
+
     /// Validates that required fields are present and sensible.
     ///
     /// # Errors
@@ -937,5 +948,176 @@ ntp = "pool.ntp.org"
 
         // ACT & ASSERT
         assert!(!isolates(&previous, &next));
+    }
+
+    #[test]
+    fn same_as_accepts_identical_configs() {
+        // ARRANGE
+        let config = Config::default();
+        let other = Config::default();
+
+        // ACT
+        let same = config.same_as(&other);
+
+        // ASSERT
+        assert!(same, "identical configs must compare equal");
+    }
+
+    #[test]
+    fn same_as_ignores_disk_order() {
+        // ARRANGE
+        let installed = Config {
+            disks: vec![
+                disk::Entry::device(disk::Kind::System, "/dev/sda"),
+                disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
+            ],
+            ..Config::default()
+        };
+        let requested = Config {
+            disks: vec![
+                disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
+                disk::Entry::device(disk::Kind::System, "/dev/sda"),
+            ],
+            ..Config::default()
+        };
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(same, "disk ordering must not matter");
+    }
+
+    #[test]
+    fn same_as_detects_disk_change() {
+        // ARRANGE
+        let installed = Config {
+            disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sda")],
+            ..Config::default()
+        };
+        let requested = Config {
+            disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sdb")],
+            ..Config::default()
+        };
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "system disk device changes must be detected");
+    }
+
+    #[test]
+    fn same_as_ignores_extension_order() {
+        // ARRANGE
+        let mut installed = Config::default();
+        installed.host.extensions = vec!["alpha".to_owned(), "beta".to_owned()];
+        let mut requested = Config::default();
+        requested.host.extensions = vec!["beta".to_owned(), "alpha".to_owned()];
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(same, "extension ordering must not matter");
+    }
+
+    #[test]
+    fn same_as_detects_extension_change() {
+        // ARRANGE
+        let mut installed = Config::default();
+        installed.host.extensions = vec!["alpha".to_owned(), "beta".to_owned()];
+        let mut requested = Config::default();
+        requested.host.extensions = vec!["alpha".to_owned(), "gamma".to_owned()];
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "extension changes must be detected");
+    }
+
+    #[test]
+    fn same_as_detects_version_change() {
+        // ARRANGE
+        let installed = Config::default();
+        let mut requested = installed.clone();
+        requested.host.version = "v2.0.0".to_owned();
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "version changes must be detected");
+    }
+
+    #[test]
+    fn same_as_detects_name_change() {
+        // ARRANGE
+        let installed = Config::default();
+        let mut requested = installed.clone();
+        requested.host.name = "other".to_owned();
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "name changes must be detected");
+    }
+
+    #[test]
+    fn same_as_detects_port_change() {
+        // ARRANGE
+        let installed = Config::default();
+        let mut requested = installed.clone();
+        requested.host.port = installed.host.port.wrapping_add(1);
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "port changes must be detected");
+    }
+
+    #[test]
+    fn same_as_detects_network_change() {
+        // ARRANGE
+        let installed = Config::default();
+        let mut requested = installed.clone();
+        requested.network.ipv6 = !installed.network.ipv6;
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "network changes must be detected");
+    }
+
+    #[test]
+    fn same_as_detects_vm_change() {
+        // ARRANGE
+        let installed = Config::default();
+        let mut requested = installed.clone();
+        requested.vm.auto_restart = !installed.vm.auto_restart;
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "vm changes must be detected");
+    }
+
+    #[test]
+    fn same_as_detects_api_version_change() {
+        // ARRANGE
+        let installed = Config::default();
+        let mut requested = installed.clone();
+        requested.api_version = "muak.dev/config/v999".to_owned();
+
+        // ACT
+        let same = requested.same_as(&installed);
+
+        // ASSERT
+        assert!(!same, "api_version changes must be detected");
     }
 }

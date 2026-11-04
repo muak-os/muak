@@ -25,7 +25,7 @@ mod tests {
         // ACT
         let stdout = timeout(
             Duration::from_mins(1),
-            assert_success!(cli, ["update", "--version", &install_version()]),
+            assert_success!(cli, ["update", "--version", &install_version(), "--force"]),
         )
         .await
         .map_err(|_elapsed| {
@@ -45,6 +45,42 @@ mod tests {
             "expected 'committed successfully' in update output, got: {stdout}"
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_skips_when_already_current() -> Result<()> {
+        // ARRANGE
+        let artifacts = Artifacts::from_env()?;
+        let (fixture, cli) = boot_and_install(&artifacts, |_| {}).await?;
+
+        // ACT
+        let stdout = timeout(
+            Duration::from_mins(1),
+            assert_success!(cli, ["update", "--version", &install_version()]),
+        )
+        .await
+        .map_err(|_elapsed| {
+            let serial = fixture.vm.read_serial().unwrap_or_default();
+            let stderr = fixture.vm.read_stderr().unwrap_or_default();
+            anyhow::anyhow!(
+                "update timed out\
+                 \n\n--- serial log ---\n{serial}\
+                 \n\n--- stderr ---\n{stderr}"
+            )
+        })?
+        .map_err(|e| anyhow::anyhow!("muakctl update failed: {e}"))?;
+
+        // ASSERT
+        ensure!(
+            stdout.contains("nothing to do"),
+            "expected 'nothing to do' in update output, got: {stdout}"
+        );
+        let serial = fixture.vm.read_serial()?;
+        ensure!(
+            !serial.contains("muak.update_id="),
+            "no update must be staged, but the serial log shows one"
+        );
         Ok(())
     }
 
@@ -72,6 +108,7 @@ mod tests {
                     "update",
                     "--config",
                     &update_cfg.path().display().to_string(),
+                    "--force",
                 ]
             ),
         )

@@ -92,6 +92,7 @@ impl ProvisionService for ServiceImpl {
     ) -> Result<Response<Self::PrepareUpdateStream>, Status> {
         let author = extract_author(&request);
         let req = request.into_inner();
+        let force = req.force;
         let installed = config::system::config().map_err(|e| Status::internal(e.to_string()))?;
 
         let (registry, version, extensions, new_config) = if req.config.is_empty() {
@@ -119,6 +120,16 @@ impl ProvisionService for ServiceImpl {
 
             (registry, version, extensions, Some(cfg))
         };
+
+        let desired = update::desired_config(installed, &version, new_config.as_ref());
+
+        if update::already_current(installed, &version, &desired, force) {
+            return Ok(Response::new(streaming::single(PrepareUpdateProgress {
+                message: format!("System already at version {version}, nothing to do"),
+                already_current: true,
+                ..Default::default()
+            })));
+        }
 
         let stream = streaming::run(
             move |progress_tx| async move {
