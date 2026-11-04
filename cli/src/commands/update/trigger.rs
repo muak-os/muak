@@ -2,7 +2,7 @@ use tonic::{Code, Status};
 
 /// What the CLI does after the update trigger RPC returned an error status.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TriggerOutcome {
+pub(crate) enum Outcome {
     /// The connection ended the way it does when the machine reboots: poll status.
     AssumeReboot,
     /// The server rejected the trigger: report it and stop.
@@ -10,14 +10,14 @@ pub(crate) enum TriggerOutcome {
 }
 
 /// Classifies the gRPC code of a failed update trigger RPC.
-pub(crate) fn trigger_outcome(code: Code) -> TriggerOutcome {
+pub(crate) fn classify(code: Code) -> Outcome {
     match code {
         Code::Unavailable
         | Code::Cancelled
         | Code::DeadlineExceeded
         | Code::Unknown
         | Code::Aborted
-        | Code::Internal => TriggerOutcome::AssumeReboot,
+        | Code::Internal => Outcome::AssumeReboot,
         Code::PermissionDenied
         | Code::Unauthenticated
         | Code::NotFound
@@ -28,12 +28,12 @@ pub(crate) fn trigger_outcome(code: Code) -> TriggerOutcome {
         | Code::Unimplemented
         | Code::OutOfRange
         | Code::DataLoss
-        | Code::Ok => TriggerOutcome::Failed,
+        | Code::Ok => Outcome::Failed,
     }
 }
 
 /// Progress line shown when the trigger connection ended and the machine may be rebooting.
-pub(crate) fn trigger_reboot_notice(status: &Status) -> String {
+pub(crate) fn reboot_notice(status: &Status) -> String {
     format!(
         "Update trigger connection ended ({}); the machine may be rebooting",
         status_detail(status)
@@ -41,7 +41,7 @@ pub(crate) fn trigger_reboot_notice(status: &Status) -> String {
 }
 
 /// Error message for a trigger the server definitely rejected.
-pub(crate) fn trigger_failure_message(status: &Status) -> String {
+pub(crate) fn failure_message(status: &Status) -> String {
     format!("Update trigger failed ({})", status_detail(status))
 }
 
@@ -58,7 +58,7 @@ fn status_detail(status: &Status) -> String {
 mod tests {
     use tonic::{Code, Status};
 
-    use super::{TriggerOutcome, trigger_failure_message, trigger_outcome, trigger_reboot_notice};
+    use super::{Outcome, classify, failure_message, reboot_notice};
 
     const REBOOT_CODES: [Code; 6] = [
         Code::Unavailable,
@@ -89,14 +89,10 @@ mod tests {
         // REBOOT_CODES holds the transport codes a rebooting machine produces.
 
         // ACT
-        let outcomes: Vec<TriggerOutcome> =
-            REBOOT_CODES.iter().copied().map(trigger_outcome).collect();
+        let outcomes: Vec<Outcome> = REBOOT_CODES.iter().copied().map(classify).collect();
 
         // ASSERT
-        assert_eq!(
-            outcomes,
-            vec![TriggerOutcome::AssumeReboot; REBOOT_CODES.len()]
-        );
+        assert_eq!(outcomes, vec![Outcome::AssumeReboot; REBOOT_CODES.len()]);
     }
 
     #[test]
@@ -105,11 +101,10 @@ mod tests {
         // FAILED_CODES holds the codes the server returns for a refused trigger.
 
         // ACT
-        let outcomes: Vec<TriggerOutcome> =
-            FAILED_CODES.iter().copied().map(trigger_outcome).collect();
+        let outcomes: Vec<Outcome> = FAILED_CODES.iter().copied().map(classify).collect();
 
         // ASSERT
-        assert_eq!(outcomes, vec![TriggerOutcome::Failed; FAILED_CODES.len()]);
+        assert_eq!(outcomes, vec![Outcome::Failed; FAILED_CODES.len()]);
     }
 
     #[test]
@@ -118,10 +113,10 @@ mod tests {
         let code = Code::Unavailable;
 
         // ACT
-        let outcome = trigger_outcome(code);
+        let outcome = classify(code);
 
         // ASSERT
-        assert_eq!(outcome, TriggerOutcome::AssumeReboot);
+        assert_eq!(outcome, Outcome::AssumeReboot);
     }
 
     #[test]
@@ -130,10 +125,10 @@ mod tests {
         let code = Code::PermissionDenied;
 
         // ACT
-        let outcome = trigger_outcome(code);
+        let outcome = classify(code);
 
         // ASSERT
-        assert_eq!(outcome, TriggerOutcome::Failed);
+        assert_eq!(outcome, Outcome::Failed);
     }
 
     #[test]
@@ -142,7 +137,7 @@ mod tests {
         let status = Status::permission_denied("caller is not allowed to trigger updates");
 
         // ACT
-        let message = trigger_failure_message(&status);
+        let message = failure_message(&status);
 
         // ASSERT
         assert!(
@@ -161,7 +156,7 @@ mod tests {
         let status = Status::new(Code::NotFound, "");
 
         // ACT
-        let message = trigger_failure_message(&status);
+        let message = failure_message(&status);
 
         // ASSERT
         assert_eq!(message, "Update trigger failed (NotFound)");
@@ -173,7 +168,7 @@ mod tests {
         let status = Status::unavailable("connection reset by peer");
 
         // ACT
-        let notice = trigger_reboot_notice(&status);
+        let notice = reboot_notice(&status);
 
         // ASSERT
         assert!(notice.contains("rebooting"), "no reboot hint in '{notice}'");

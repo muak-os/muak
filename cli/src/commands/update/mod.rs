@@ -1,4 +1,4 @@
-mod trigger_outcome;
+mod trigger;
 
 use core::time::Duration;
 use std::path::{Path, PathBuf};
@@ -13,9 +13,7 @@ use tonic::transport::Channel;
 use tui::console::Console;
 use tui::live::Steps;
 
-use self::trigger_outcome::{
-    TriggerOutcome, trigger_failure_message, trigger_outcome, trigger_reboot_notice,
-};
+use self::trigger::{Outcome, classify, failure_message, reboot_notice};
 use crate::client::connect;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{
@@ -185,10 +183,10 @@ pub async fn handle(
                 return Err(anyhow::anyhow!("{msg}"));
             }
         }
-        Err(status) => match trigger_outcome(status.code()) {
-            TriggerOutcome::AssumeReboot => steps.start(trigger_reboot_notice(&status)),
-            TriggerOutcome::Failed => {
-                let msg = trigger_failure_message(&status);
+        Err(status) => match classify(status.code()) {
+            Outcome::AssumeReboot => steps.start(reboot_notice(&status)),
+            Outcome::Failed => {
+                let msg = failure_message(&status);
                 steps.fail(&msg);
                 let _finish_result = steps.finish();
                 return Err(anyhow::anyhow!("{msg}"));
