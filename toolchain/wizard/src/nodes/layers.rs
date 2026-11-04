@@ -11,7 +11,7 @@ use koci::pull::entries::FileEntry;
 use crate::artifact::Artifact;
 use crate::domain::input::Extension;
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind, error, kernel};
+use crate::nodes::{NodeDescriptor, NodeKind, kernel};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -202,9 +202,7 @@ fn pull_payloads(layers: &[Layer], progress: &dyn Reporter) -> Result<Vec<mumi::
         pull::files(&layer.source, &layer.arch, None, progress, |entry| {
             add_entry(&mut payload, entry, layer.entry)
         })
-        .map_err(|e| {
-            error::pull_failure(&format!("pull layer {}", layer.name), &layer.source, &e)
-        })?;
+        .map_err(|e| WizardError::pull(&format!("pull layer {}", layer.name), &layer.source, &e))?;
         payloads.push(payload);
     }
 

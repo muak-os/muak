@@ -5,7 +5,7 @@ use koci::pull;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind, error, measured_size};
+use crate::nodes::{NodeDescriptor, NodeKind, measured_size};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -73,7 +73,7 @@ fn run(
             Ok(())
         },
     )
-    .map_err(|e| error::pull_failure("pull stub files", build.stub(), &e))?;
+    .map_err(|e| WizardError::pull("pull stub files", build.stub(), &e))?;
 
     Ok(None)
 }

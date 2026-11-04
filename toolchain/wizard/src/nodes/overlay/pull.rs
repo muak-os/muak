@@ -10,7 +10,7 @@ use koci::pull::session::Session;
 use crate::artifact::Artifact;
 use crate::domain::overlay::Asset;
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind, error};
+use crate::nodes::{NodeDescriptor, NodeKind};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -81,7 +81,7 @@ fn run(
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
     let outputs = ports.outputs_from(PULL_OUTPUTS_FIRST, None)?;
     let session = pull::session::open(&overlay.source, &overlay.arch, None)
-        .map_err(|e| error::pull_failure("open overlay session", &overlay.source, &e))?;
+        .map_err(|e| WizardError::pull("open overlay session", &overlay.source, &e))?;
 
     demux_pass(
         &session,
@@ -114,5 +114,5 @@ fn demux_pass(
 
     session
         .walk(progress, |entry| demux.route(entry))
-        .map_err(|e| error::pull_failure("demux overlay files", reference, &e))
+        .map_err(|e| WizardError::pull("demux overlay files", reference, &e))
 }
