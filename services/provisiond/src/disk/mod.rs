@@ -33,7 +33,7 @@ pub(crate) use manage::{
 };
 pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
 pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
-pub(crate) use target::{Targets, resolve, resolve_system};
+pub(crate) use target::{Targets, resolve, resolve_system, resolve_with};
 pub(crate) use types::{DiskInfo, PartitionInfo};
 pub(crate) use validate::fits_plan;
 pub(crate) use wipe::{Method as WipeMethod, Options as WipeOptions, run as run_wipe};

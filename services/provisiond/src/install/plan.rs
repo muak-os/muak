@@ -32,13 +32,13 @@ pub(crate) async fn resolve(
     force: bool,
     allow_system_disk: bool,
 ) -> Result<InstallPlan> {
-    let targets = disk::resolve(&config.disks).await?;
     let inventory = disk::list_disks().await?;
+    let targets = disk::resolve_with(&config.disks, &inventory)?;
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, !targets.is_split())?;
 
-    let system = find_disk(&inventory, &targets.system);
-    let data = find_disk(&inventory, targets.data());
+    let system = inventory_disk(&inventory, &targets.system, "system")?;
+    let data = inventory_disk(&inventory, targets.data(), "data")?;
 
     let checked = targets.clone();
     let checks =
@@ -47,8 +47,8 @@ pub(crate) async fn resolve(
             .context("preflight task")?;
 
     Ok(InstallPlan {
-        system,
-        data,
+        system: Some(system),
+        data: Some(data),
         shared_data: !targets.is_split(),
         wipe: doc.wipe(),
         partitions: planned(&targets, &system_plan, data_plan.as_ref()),
@@ -56,8 +56,20 @@ pub(crate) async fn resolve(
     })
 }
 
-fn find_disk(inventory: &[disk::DiskInfo], device: &str) -> Option<disk::DiskInfo> {
-    inventory.iter().find(|disk| disk.path == device).cloned()
+fn inventory_disk(
+    inventory: &[disk::DiskInfo],
+    device: &str,
+    role: &str,
+) -> Result<disk::DiskInfo> {
+    inventory
+        .iter()
+        .find(|disk| disk.path == device)
+        .cloned()
+        .with_context(|| {
+            format!(
+                "resolved {role} disk '{device}' is missing from the disk inventory, confirm the disk is attached and is a whole disk"
+            )
+        })
 }
 
 fn planned(
@@ -120,22 +132,25 @@ mod tests {
         let inventory = vec![info("/dev/sda")];
 
         // ACT
-        let found = find_disk(&inventory, "/dev/sda");
+        let found = inventory_disk(&inventory, "/dev/sda", "system").expect("listed disk");
 
         // ASSERT
-        assert_eq!(found.expect("listed disk").path, "/dev/sda");
+        assert_eq!(found.path, "/dev/sda");
     }
 
     #[test]
-    fn missing_disks_are_not_fabricated() {
+    fn resolved_devices_missing_from_the_inventory_are_refused() {
         // ARRANGE
         let inventory = vec![info("/dev/sda")];
 
         // ACT
-        let found = find_disk(&inventory, "/dev/sdb");
+        let error = inventory_disk(&inventory, "/dev/sdb", "system").unwrap_err();
 
         // ASSERT
-        assert!(found.is_none());
+        assert_eq!(
+            error.to_string(),
+            "resolved system disk '/dev/sdb' is missing from the disk inventory, confirm the disk is attached and is a whole disk"
+        );
     }
 
     #[test]
