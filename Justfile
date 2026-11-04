@@ -71,10 +71,10 @@ build release="" *pkgs:
     printf "{{ cyan }}Building Rust packages{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            CARGO_BUILD_SBOM=true cargo build {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl -p "$pkg"
+            CARGO_BUILD_SBOM=true cargo build --locked {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl -p "$pkg"
         done
     else
-        CARGO_BUILD_SBOM=true cargo build {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl
+        CARGO_BUILD_SBOM=true cargo build --locked {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl
     fi
 
 # Build installer image (default uses local binaries, --prod pulls from registry)
@@ -347,12 +347,12 @@ features *pkgs:
             case "$pkg" in
                 firmware | sbolt) extra="--exclude-no-default-features" ;;
             esac
-            cargo hack check --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
+            cargo hack check --locked --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
         done
     else
-        cargo hack check --each-feature --no-dev-deps --keep-going \
+        cargo hack check --locked --each-feature --no-dev-deps --keep-going \
             --workspace --exclude e2e --exclude firmware --exclude sbolt
-        cargo hack check --each-feature --no-dev-deps --keep-going \
+        cargo hack check --locked --each-feature --no-dev-deps --keep-going \
             --exclude-no-default-features -p firmware -p sbolt
     fi
 
