@@ -45,7 +45,7 @@ pub async fn list(client: &Client) -> Result<Vec<String>> {
             .get(LINK)
             .and_then(|value| value.to_str().ok())
             .and_then(next_link);
-        let body = collect_body(response).await?;
+        let body = collect_body(response, &url).await?;
         tags.extend(parse_tags(&body)?);
 
         let Some(next) = next else {

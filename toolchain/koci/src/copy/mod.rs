@@ -241,7 +241,7 @@ async fn transfer_blob(
         Reported::new(reporter, Phase::CopyBlobs, index, size),
         0,
     );
-    http::stream_body_to_sink(response, &mut sink, &mut verifier).await?;
+    http::stream_body_to_sink(response, &url, &mut sink, &mut verifier).await?;
     verifier.verify()?;
     blob::upload(dst, digest, Bytes::from(bytes), &blob::report::Noop).await?;
     reporter.report(Event::ItemDone {

@@ -12,6 +12,7 @@ mod endpoint;
 pub mod error;
 pub mod http;
 pub mod manifest;
+mod network;
 pub mod redirect;
 pub mod request;
 pub mod retry;
