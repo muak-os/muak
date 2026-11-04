@@ -17,7 +17,6 @@ confidence-threshold = 0.9
 allow = [
     "Apache-2.0",
     "BSD-3-Clause",
-    "CC-BY-NC-SA-4.0",
     "CDLA-Permissive-2.0",
     "ISC",
     "MIT",

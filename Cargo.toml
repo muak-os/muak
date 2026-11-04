@@ -48,7 +48,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 rust-version = "1.98"
-license = "CC-BY-NC-SA-4.0"
+license = "Apache-2.0"
 repository = "https://github.com/muak-os/muak"
 readme = "README.md"
 keywords = ["linux", "distribution", "immutable", "atomic", "declarative"]
