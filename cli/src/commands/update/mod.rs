@@ -1,3 +1,5 @@
+mod trigger_outcome;
+
 use core::time::Duration;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -11,6 +13,9 @@ use tonic::transport::Channel;
 use tui::console::Console;
 use tui::live::Steps;
 
+use self::trigger_outcome::{
+    TriggerOutcome, trigger_failure_message, trigger_outcome, trigger_reboot_notice,
+};
 use crate::client::connect;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{
@@ -165,19 +170,30 @@ pub async fn handle(
 
     let update_channel = connect(ctx, 10).await?;
     let mut update_client = ProvisionServiceClient::new(update_channel);
-    if let Ok(response) = update_client
+    match update_client
         .update(tonic::Request::new(UpdateRequest {
             update_id: update_id.clone(),
         }))
         .await
     {
-        let resp = response.into_inner();
-        if !resp.success {
-            let msg = format!("Update failed: {}", resp.error);
-            steps.fail(&msg);
-            let _finish_result = steps.finish();
-            return Err(anyhow::anyhow!("{msg}"));
+        Ok(response) => {
+            let resp = response.into_inner();
+            if !resp.success {
+                let msg = format!("Update failed: {}", resp.error);
+                steps.fail(&msg);
+                let _finish_result = steps.finish();
+                return Err(anyhow::anyhow!("{msg}"));
+            }
         }
+        Err(status) => match trigger_outcome(status.code()) {
+            TriggerOutcome::AssumeReboot => steps.start(trigger_reboot_notice(&status)),
+            TriggerOutcome::Failed => {
+                let msg = trigger_failure_message(&status);
+                steps.fail(&msg);
+                let _finish_result = steps.finish();
+                return Err(anyhow::anyhow!("{msg}"));
+            }
+        },
     }
 
     steps.start("Waiting for system to come back online...");
