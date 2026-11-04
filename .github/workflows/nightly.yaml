@@ -173,7 +173,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: muak-os/catalog/.github/workflows/compose.yaml@master
+    uses: muak-os/catalog/.github/workflows/compose.yaml@02be963153b3053e83295bba5ca151bb7e078f83
     with:
       release: ${{ needs.prepare.outputs.tag }}
       installer: ${{ needs.prepare.outputs.tag }}
@@ -190,7 +190,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: muak-os/catalog/.github/workflows/publish.yaml@master
+    uses: muak-os/catalog/.github/workflows/publish.yaml@02be963153b3053e83295bba5ca151bb7e078f83
     with:
       release: ${{ needs.prepare.outputs.tag }}
       channels: nightly
