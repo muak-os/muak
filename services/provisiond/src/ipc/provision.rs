@@ -323,6 +323,7 @@ impl ProvisionService for ServiceImpl {
                         update_id: e.update_id().to_owned(),
                         author: e.author().to_owned(),
                         change_kind: e.kind().to_string(),
+                        reason: e.reason().unwrap_or_default().to_owned(),
                     })
                     .collect();
                 Ok(Response::new(GetConfigHistoryResponse {
