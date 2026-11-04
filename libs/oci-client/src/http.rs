@@ -12,7 +12,7 @@ use tokio::time::timeout;
 
 use crate::error::{ClientError, Result};
 use crate::transport::Transport;
-use crate::{network, redirect, request, retry};
+use crate::{redirect, request, retry};
 
 /// Deadline for a request to reach its response head.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
@@ -217,9 +217,9 @@ pub fn is_partial<B>(response: &Response<B>) -> bool {
 pub async fn collect_body(resp: Response<Incoming>, url: &str) -> Result<Bytes> {
     timeout(HTTP_TIMEOUT, resp.into_body().collect())
         .await
-        .map_err(|error| network::body_timeout(url, HTTP_TIMEOUT, error))?
+        .map_err(|error| ClientError::body_timeout(url, HTTP_TIMEOUT, error))?
         .map(http_body_util::Collected::to_bytes)
-        .map_err(|error| network::error(url, "Failed to read response body", error))
+        .map_err(|error| ClientError::network(url, "Failed to read response body", error))
 }
 
 /// Stream an HTTP response body into a writer while computing a digest.
@@ -237,10 +237,10 @@ pub async fn stream_body_to_sink<W: std::io::Write>(
 
     while let Some(frame) = timeout(BODY_TIMEOUT, body.frame())
         .await
-        .map_err(|error| network::body_timeout(url, BODY_TIMEOUT, error))?
+        .map_err(|error| ClientError::body_timeout(url, BODY_TIMEOUT, error))?
     {
-        let frame =
-            frame.map_err(|error| network::error(url, "Failed to read response body", error))?;
+        let frame = frame
+            .map_err(|error| ClientError::network(url, "Failed to read response body", error))?;
 
         if let Some(data) = frame.data_ref() {
             digest.update(data);
@@ -253,7 +253,7 @@ pub async fn stream_body_to_sink<W: std::io::Write>(
 
 fn write_frame<W: std::io::Write>(url: &str, sink: &mut W, data: &[u8]) -> Result<()> {
     sink.write_all(data)
-        .map_err(|error| network::error(url, "Failed to write response body", error))
+        .map_err(|error| ClientError::network(url, "Failed to write response body", error))
 }
 
 async fn get_with_range(
@@ -292,13 +292,13 @@ async fn send(
     timeout(HTTP_TIMEOUT, client.request(req))
         .await
         .map_err(|error| {
-            network::error(
+            ClientError::network(
                 url,
                 &format!("HTTP request timed out after {HTTP_TIMEOUT:?}"),
                 error,
             )
         })?
-        .map_err(|error| network::error(url, "HTTP request failed", error))
+        .map_err(|error| ClientError::network(url, "HTTP request failed", error))
 }
 
 fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<Incoming>> {
@@ -394,60 +394,6 @@ mod tests {
         assert!(
             error.to_string().contains(&format!("for URL: {url}")),
             "network error must name the URL: {error}"
-        );
-    }
-
-    #[test]
-    fn error_formats_context_url_and_cause() {
-        // ARRANGE
-        let url = "https://registry.example/v2/foo/blobs/sha256:abc";
-
-        // ACT
-        let message = network::error(url, "HTTP request failed", "connection refused").to_string();
-
-        // ASSERT
-        assert_eq!(
-            message,
-            format!("Network error: HTTP request failed for URL: {url}: connection refused")
-        );
-    }
-
-    #[test]
-    fn body_timeout_names_the_url() {
-        // ARRANGE
-        let url = "https://registry.example/v2/foo/blobs/sha256:abc";
-
-        // ACT
-        let message = network::body_timeout(url, BODY_TIMEOUT, "elapsed").to_string();
-
-        // ASSERT
-        assert!(
-            message.contains(&format!("for URL: {url}")),
-            "body timeout error must name the URL: {message}"
-        );
-        assert!(
-            message.contains(&format!("{BODY_TIMEOUT:?}")),
-            "body timeout error must name the deadline: {message}"
-        );
-    }
-
-    #[test]
-    fn every_network_failure_uses_the_helper() {
-        // ARRANGE
-        let http = include_str!("http.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .expect("production source");
-        let network = include_str!("network.rs");
-
-        // ACT
-        let constructions = http.matches("ClientError::Network").count()
-            + network.matches("ClientError::Network").count();
-
-        // ASSERT
-        assert_eq!(
-            constructions, 1,
-            "every ClientError::Network must be built by network::error"
         );
     }
 
