@@ -1,5 +1,6 @@
 //! Build pipeline node runners.
 
+pub(crate) mod error;
 pub(crate) mod initramfs;
 pub(crate) mod installer;
 pub(crate) mod kernel;

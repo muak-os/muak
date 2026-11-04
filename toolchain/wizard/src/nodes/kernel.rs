@@ -9,7 +9,7 @@ use koci::pull::entries::FileEntry;
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
 use crate::nodes::layers::Layer;
-use crate::nodes::{NodeDescriptor, NodeKind, measured_sizes};
+use crate::nodes::{NodeDescriptor, NodeKind, error, measured_sizes};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -92,7 +92,7 @@ fn run(
         &ctx.reporter(kind),
         |entry| route_entry(&entry.path, entry.reader, &mut outputs, &mut seen_cmdline),
     )
-    .map_err(|e| WizardError::BuildError(format!("pull kernel files: {e}")))?;
+    .map_err(|e| error::pull_failure("pull kernel files", source, &e))?;
 
     Ok(None)
 }

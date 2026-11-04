@@ -10,7 +10,7 @@ use yuki::{prepare, probe};
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
-use crate::nodes::{NodeDescriptor, NodeKind, initramfs, kernel, stub};
+use crate::nodes::{NodeDescriptor, NodeKind, error, initramfs, kernel, stub};
 use crate::pipeline::context::BuildContext;
 use crate::pipeline::dependency::Dependency;
 use crate::pipeline::execute::NodeReport;
@@ -80,7 +80,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
             Ok(())
         },
     )
-    .map_err(|e| WizardError::BuildError(format!("probe stub prefix: {e}")))?;
+    .map_err(|e| error::pull_failure("probe stub prefix", build.stub(), &e))?;
 
     let mut stub = prefix.as_slice();
     let probed = probe::probe(&mut stub)
