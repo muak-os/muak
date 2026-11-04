@@ -4,6 +4,7 @@
 all-features = true
 
 [advisories]
+yanked = "deny"
 ignore = [
     # Unmaintained, pulled in by netlink-packet-core. No safe upgrade is available.
     { id = "RUSTSEC-2024-0436", reason = "paste is transitive via netlink-packet-core and has no replacement yet" },
@@ -31,7 +32,7 @@ exceptions = [
 
 [bans]
 multiple-versions = "allow"
-wildcards = "allow"
+wildcards = "deny"
 
 [sources]
 unknown-registry = "deny"
