@@ -10,14 +10,12 @@ mod hypervisor;
 mod ntp;
 mod source;
 
-use alloc::sync::Arc;
 use core::time::Duration;
 
 use anyhow::{Context as _, bail};
 use granola::runtime::notify::Health;
 use source::Source;
 use tokio::signal::unix::{SignalKind, signal};
-use tokio::sync::Notify;
 use tokio::time::timeout;
 
 /// Retry interval before the first successful NTP synchronization.
@@ -57,21 +55,8 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.ready()?;
 
-    let notify = Arc::new(Notify::new());
-
     let mut sigterm = signal(SignalKind::terminate())?;
-    let signal_notify = Arc::clone(&notify);
-    tokio::spawn(async move {
-        sigterm.recv().await;
-        signal_notify.notify_waiters();
-    });
-
     let mut sigint = signal(SignalKind::interrupt())?;
-    let signal_notify = Arc::clone(&notify);
-    tokio::spawn(async move {
-        sigint.recv().await;
-        signal_notify.notify_waiters();
-    });
 
     loop {
         let delay = if synced_once {
@@ -80,7 +65,14 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             INITIAL_RETRY_INTERVAL
         };
 
-        if timeout(delay, notify.notified()).await.is_ok() {
+        let shutdown = async {
+            tokio::select! {
+                _ = sigterm.recv() => {}
+                _ = sigint.recv() => {}
+            }
+        };
+
+        if timeout(delay, shutdown).await.is_ok() {
             break;
         }
 

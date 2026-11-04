@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
@@ -13,6 +12,8 @@ use tokio::time::interval;
 
 use super::DATA_DIR;
 
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
 /// Result of scrubbing a single device.
 struct DeviceResult {
     progress: BtrfsScrubProgress,
@@ -22,6 +23,11 @@ struct DeviceResult {
 enum ScrubOutcome {
     Finished(Vec<DeviceResult>),
     Error(String),
+}
+
+/// Requests the periodic scrub timer to stop after the current cycle.
+pub fn shutdown() {
+    SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
 /// Run a read-only scrub across every device on `DATA_DIR`.
@@ -105,7 +111,7 @@ fn format_gib(bytes: u64) -> String {
 }
 
 /// Periodic scrub timer. Runs a read-only btrfs scrub on the data partition.
-pub async fn timer(shutdown: Arc<AtomicBool>) {
+pub async fn timer() {
     const SCRUB_INTERVAL: Duration = Duration::from_hours(168);
 
     let mut interval = interval(SCRUB_INTERVAL);
@@ -116,7 +122,7 @@ pub async fn timer(shutdown: Arc<AtomicBool>) {
     loop {
         interval.tick().await;
 
-        if shutdown.load(Ordering::Relaxed) {
+        if SHUTDOWN.load(Ordering::Relaxed) {
             break;
         }
 

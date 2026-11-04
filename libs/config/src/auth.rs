@@ -1,9 +1,8 @@
 //! Mutable authentication and authorization state.
 
-use alloc::sync::Arc;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +19,7 @@ static AUTH_CACHE: OnceLock<AuthCache> = OnceLock::new();
 
 /// Cached auth state with mtime-based invalidation.
 struct AuthCache {
-    data: RwLock<Arc<State>>,
+    data: RwLock<State>,
     mtime: AtomicU64,
 }
 
@@ -59,7 +58,7 @@ pub fn init() -> Result<()> {
     };
 
     let cache = AuthCache {
-        data: RwLock::new(Arc::new(config)),
+        data: RwLock::new(config),
         mtime: AtomicU64::new(mtime),
     };
     drop(AUTH_CACHE.set(cache));
@@ -67,17 +66,17 @@ pub fn init() -> Result<()> {
     Ok(())
 }
 
-/// Returns the current auth state.
+/// Returns a read guard over the current auth state.
 ///
 /// # Errors
 ///
 /// Returns [`ConfigError::NotInitialized`] when [`crate::init()`] has not been called.
-pub fn current() -> Result<Arc<State>> {
+pub fn current() -> Result<RwLockReadGuard<'static, State>> {
     try_current().ok_or(ConfigError::NotInitialized)
 }
 
-/// Returns the current auth state, or `None` if [`crate::init()`] hasn't been called.
-pub fn try_current() -> Option<Arc<State>> {
+/// Returns a read guard over the current auth state, or `None` if [`crate::init()`] hasn't been called.
+pub fn try_current() -> Option<RwLockReadGuard<'static, State>> {
     let cache = AUTH_CACHE.get()?;
 
     let current_mtime = file_mtime(AUTH_PATH);
@@ -85,16 +84,13 @@ pub fn try_current() -> Option<Arc<State>> {
 
     if current_mtime != cached_mtime {
         let (config, mtime) = load_with_mtime();
-        let new = Arc::new(config);
         if let Ok(mut data) = cache.data.write() {
-            *data = Arc::clone(&new);
+            *data = config;
             cache.mtime.store(mtime, Ordering::Relaxed);
         }
-        return Some(new);
     }
 
-    let data = cache.data.read().ok()?;
-    Some(Arc::clone(&data))
+    cache.data.read().ok()
 }
 
 /// Serializes an [`State`] to a string.

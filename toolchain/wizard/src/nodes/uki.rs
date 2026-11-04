@@ -1,6 +1,6 @@
 //! Builds the unified kernel image with yuki.
 
-use std::io::{Cursor, Read as _};
+use std::io::Read as _;
 
 use koci::pull;
 use uki::measure::MeasuredSection;
@@ -127,7 +127,7 @@ fn run(
 
     let osrel_len = osrel_size(ctx.build.version())?;
     let osrel_text = osrel(ctx.build.version());
-    let mut osrel_reader = Cursor::new(&osrel_text);
+    let mut osrel_reader = osrel_text.as_slice();
 
     let probed = probe::probe(&mut stub.reader)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;

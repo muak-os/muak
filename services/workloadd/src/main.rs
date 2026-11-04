@@ -35,9 +35,6 @@ pub mod proto {
     }
 }
 
-use alloc::sync::Arc;
-use core::sync::atomic::{AtomicBool, Ordering};
-
 use actor::start_vm_actor;
 use anyhow::{Context as _, Result};
 use config::system::network::InterfaceKind;
@@ -109,15 +106,14 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         }
     });
 
-    let scrub_shutdown = Arc::new(AtomicBool::new(false));
-    let scrub_handle = tokio::spawn(disk::scrub::timer(Arc::clone(&scrub_shutdown)));
+    let scrub_handle = tokio::spawn(disk::scrub::timer());
 
     if let Err(e) = server.await {
         kmsg::error!("Server error: {e}");
         return Err(e.into());
     }
 
-    scrub_shutdown.store(true, Ordering::Relaxed);
+    disk::scrub::shutdown();
     sigchld_handle.abort();
     scrub_handle.abort();
 

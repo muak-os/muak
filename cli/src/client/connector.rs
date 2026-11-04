@@ -7,7 +7,7 @@ use core::net::SocketAddr;
 use core::pin::Pin;
 use core::task::{Context as TaskContext, Poll};
 use std::io::Error as IoError;
-use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use anyhow::{Context as _, Result};
 use hyper::Uri;
@@ -23,17 +23,13 @@ use tonic::codegen::Service;
 /// Shared state for capturing the server certificate fingerprint during TOFU.
 #[derive(Clone, Debug, Default)]
 pub struct TofuState {
-    inner: Arc<Mutex<Option<String>>>,
+    inner: Arc<OnceLock<String>>,
 }
 
 impl TofuState {
     /// Returns the captured server fingerprint, if one has been recorded.
-    pub fn fingerprint(&self) -> Result<Option<String>> {
-        Ok(self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("TofuState mutex poisoned: {e}"))?
-            .clone())
+    pub fn fingerprint(&self) -> Option<&str> {
+        self.inner.get().map(String::as_str)
     }
 }
 
@@ -197,12 +193,7 @@ impl ServerCertVerifier for TofuServerCertVerifier {
             )));
         }
 
-        *self
-            .state
-            .inner
-            .lock()
-            .map_err(|e| rustls::Error::General(format!("TofuState mutex poisoned: {e}")))? =
-            Some(fingerprint);
+        drop(self.state.inner.set(fingerprint));
 
         Ok(ServerCertVerified::assertion())
     }
