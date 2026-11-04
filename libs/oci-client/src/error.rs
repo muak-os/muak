@@ -76,6 +76,10 @@ mod tests {
         ("tags.rs", include_str!("tags.rs")),
     ];
 
+    fn production(source: &str) -> &str {
+        source.split("#[cfg(test)]").next().unwrap_or(source)
+    }
+
     #[test]
     fn network_errors_are_built_through_the_constructor() {
         // ARRANGE
@@ -131,9 +135,5 @@ mod tests {
             message.contains("7s"),
             "body timeout must name the deadline: {message}"
         );
-    }
-
-    fn production(source: &str) -> &str {
-        source.split("#[cfg(test)]").next().unwrap_or(source)
     }
 }
