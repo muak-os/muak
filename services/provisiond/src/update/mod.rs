@@ -1,6 +1,5 @@
 //! Update preparation, kexec execution, and post-boot validation.
 
-mod cache;
 mod commit;
 pub mod kexec;
 mod readiness;
@@ -59,11 +58,6 @@ pub fn status(update_id: &str) -> UpdateStatus {
     UpdateStatus::Unknown
 }
 
-/// Configures the koci pull cache under the EPHEMERAL partition.
-pub fn init_cache() {
-    wizard::config::init_cache(cache::DIR.into());
-}
-
 /// Prepares an update by staging the UKI components via the wizard.
 pub async fn prepare(
     registry: &str,
@@ -73,7 +67,7 @@ pub async fn prepare(
     author: &str,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    cache::enforce_budget();
+    crate::cache::enforce();
     let installed = config::system::config()?;
     let system = disk::resolve_system(&installed.disks).await?;
     verify_system_disk(&system)?;
@@ -179,7 +173,7 @@ pub async fn prepare(
     }
 
     sync();
-    cache::enforce_budget();
+    crate::cache::enforce();
 
     Ok(update_id)
 }

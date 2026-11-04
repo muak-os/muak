@@ -51,7 +51,7 @@ async fn measure_all(
 
     let mut measured: Vec<EntryInfo> = Vec::new();
     for layer in &parsed.layers {
-        let entries = layer_entries(&client, &cache, &content, layer).await?;
+        let entries = layer_entries(&client, &content, layer).await?;
         let files = entries
             .into_iter()
             .filter(|entry| entry.kind == "reg")
@@ -70,14 +70,12 @@ async fn measure_all(
 
 async fn layer_entries(
     client: &Client,
-    cache: &cache::Store,
     content: &content::Content,
     layer: &Descriptor,
 ) -> Result<Vec<Record>> {
     let size = layer.size;
     let authorization = client.authorization().map(str::to_owned);
     let fetched = fetch::fetch_one(
-        cache,
         content,
         client.http(),
         client.image(),

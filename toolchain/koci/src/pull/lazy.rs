@@ -77,7 +77,6 @@ impl LazyLayer<'_> {
         let media_type = self.descriptor.media_type.as_deref();
 
         let bytes = runtime::runtime()?.block_on(fetch::fetch_one(
-            session.cache(),
             session.content(),
             session.client().http(),
             session.client().image(),

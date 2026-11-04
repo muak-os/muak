@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use uki::measure::{self, MeasuredSection};
 
-use super::{UPDATE_DIR, cache, secureboot};
+use super::{UPDATE_DIR, secureboot};
 use crate::disk::{Role, find_partition_device};
 use crate::{efi, secrets};
 
@@ -72,7 +72,7 @@ pub async fn apply() -> Result<()> {
     }
     efi::unmount();
 
-    cache::enforce_budget();
+    crate::cache::enforce();
 
     if !secureboot_enabled {
         secureboot::remove_hierarchy();

@@ -38,6 +38,7 @@ fatfs = { workspace = true }
 wizard = { workspace = true }
 parttable = { workspace = true }
 granola = { workspace = true }
+koci = { workspace = true, features = ["pull"] }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
 pki = { workspace = true }
