@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use koci::pull::cache::{shared_digests, use_count};
+use wizard::cache::{shared_digests, use_count};
 
 use super::INGEST_DIR;
 
@@ -229,8 +229,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime};
 
-    use koci::pull::cache::bump_use_count;
     use tempfile::TempDir;
+    use wizard::cache::bump_use_count;
 
     use super::{Limits, enforce, keep_bytes};
     use crate::cache::INGEST_DIR;

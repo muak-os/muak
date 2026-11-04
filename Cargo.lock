@@ -1781,7 +1781,6 @@ dependencies = [
  "firmware",
  "granola",
  "kmsg",
- "koci",
  "libc",
  "luks2",
  "parttable",
