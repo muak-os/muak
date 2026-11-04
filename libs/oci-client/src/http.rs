@@ -11,9 +11,8 @@ use oci::digest::Verifier;
 use tokio::time::timeout;
 
 use crate::error::{ClientError, Result};
-use crate::network::{body_timeout_error, network_error};
 use crate::transport::Transport;
-use crate::{redirect, request, retry};
+use crate::{network, redirect, request, retry};
 
 /// Deadline for a request to reach its response head.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(1);
@@ -218,9 +217,9 @@ pub fn is_partial<B>(response: &Response<B>) -> bool {
 pub async fn collect_body(resp: Response<Incoming>, url: &str) -> Result<Bytes> {
     timeout(HTTP_TIMEOUT, resp.into_body().collect())
         .await
-        .map_err(|error| body_timeout_error(url, HTTP_TIMEOUT, error))?
+        .map_err(|error| network::body_timeout(url, HTTP_TIMEOUT, error))?
         .map(http_body_util::Collected::to_bytes)
-        .map_err(|error| network_error(url, "Failed to read response body", error))
+        .map_err(|error| network::error(url, "Failed to read response body", error))
 }
 
 /// Stream an HTTP response body into a writer while computing a digest.
@@ -238,10 +237,10 @@ pub async fn stream_body_to_sink<W: std::io::Write>(
 
     while let Some(frame) = timeout(BODY_TIMEOUT, body.frame())
         .await
-        .map_err(|error| body_timeout_error(url, BODY_TIMEOUT, error))?
+        .map_err(|error| network::body_timeout(url, BODY_TIMEOUT, error))?
     {
         let frame =
-            frame.map_err(|error| network_error(url, "Failed to read response body", error))?;
+            frame.map_err(|error| network::error(url, "Failed to read response body", error))?;
 
         if let Some(data) = frame.data_ref() {
             digest.update(data);
@@ -254,7 +253,7 @@ pub async fn stream_body_to_sink<W: std::io::Write>(
 
 fn write_frame<W: std::io::Write>(url: &str, sink: &mut W, data: &[u8]) -> Result<()> {
     sink.write_all(data)
-        .map_err(|error| network_error(url, "Failed to write response body", error))
+        .map_err(|error| network::error(url, "Failed to write response body", error))
 }
 
 async fn get_with_range(
@@ -293,13 +292,13 @@ async fn send(
     timeout(HTTP_TIMEOUT, client.request(req))
         .await
         .map_err(|error| {
-            network_error(
+            network::error(
                 url,
                 &format!("HTTP request timed out after {HTTP_TIMEOUT:?}"),
                 error,
             )
         })?
-        .map_err(|error| network_error(url, "HTTP request failed", error))
+        .map_err(|error| network::error(url, "HTTP request failed", error))
 }
 
 fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<Incoming>> {
@@ -399,12 +398,12 @@ mod tests {
     }
 
     #[test]
-    fn network_error_formats_context_url_and_cause() {
+    fn error_formats_context_url_and_cause() {
         // ARRANGE
         let url = "https://registry.example/v2/foo/blobs/sha256:abc";
 
         // ACT
-        let message = network_error(url, "HTTP request failed", "connection refused").to_string();
+        let message = network::error(url, "HTTP request failed", "connection refused").to_string();
 
         // ASSERT
         assert_eq!(
@@ -414,12 +413,12 @@ mod tests {
     }
 
     #[test]
-    fn body_timeout_error_names_the_url() {
+    fn body_timeout_names_the_url() {
         // ARRANGE
         let url = "https://registry.example/v2/foo/blobs/sha256:abc";
 
         // ACT
-        let message = body_timeout_error(url, BODY_TIMEOUT, "elapsed").to_string();
+        let message = network::body_timeout(url, BODY_TIMEOUT, "elapsed").to_string();
 
         // ASSERT
         assert!(
@@ -433,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn every_network_error_construction_uses_the_helper() {
+    fn every_network_failure_uses_the_helper() {
         // ARRANGE
         let http = include_str!("http.rs")
             .split("#[cfg(test)]")
@@ -448,7 +447,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             constructions, 1,
-            "every ClientError::Network must be built by network_error"
+            "every ClientError::Network must be built by network::error"
         );
     }
 
