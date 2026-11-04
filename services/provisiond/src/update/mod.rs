@@ -3,6 +3,7 @@
 mod commit;
 mod failure;
 pub mod kexec;
+mod progress;
 mod readiness;
 pub(crate) mod rollback;
 mod secureboot;
@@ -152,8 +153,10 @@ async fn prepare_inner(
 
     let request_version = version.to_owned();
     let request_registry = registry.to_owned();
+    let reporter_progress = progress.clone();
 
     tokio::task::spawn_blocking(move || {
+        let reporter = progress::Forwarder::new(reporter_progress);
         let pair = sb_hierarchy
             .as_ref()
             .map(|hierarchy| sbolt::keys::SigningPair {
@@ -173,6 +176,7 @@ async fn prepare_inner(
             Some(pair) => request.sign(pair),
             None => request,
         };
+        let request = request.progress(&reporter);
 
         request
             .build(&install_profile)
