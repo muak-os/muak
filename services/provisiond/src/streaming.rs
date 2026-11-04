@@ -36,6 +36,11 @@ where
     Box::pin(tokio_stream::wrappers::ReceiverStream::new(out_rx))
 }
 
+/// Returns a stream that emits `item` once and then ends.
+pub fn single<T: Send + 'static>(item: T) -> ProgressStream<T> {
+    Box::pin(tokio_stream::iter(core::iter::once(Ok(item))))
+}
+
 async fn forward_progress<T>(
     mut progress_rx: mpsc::Receiver<T>,
     forward_tx: mpsc::Sender<Result<T, Status>>,
@@ -114,6 +119,20 @@ mod tests {
 
         // ACT & ASSERT
         send_progress(&tx, 1_u32).await;
+    }
+
+    #[tokio::test]
+    async fn single_emits_one_item_and_ends() {
+        // ARRANGE
+        let mut stream = single(7_u32);
+
+        // ACT
+        let first = stream.next().await;
+        let second = stream.next().await;
+
+        // ASSERT
+        assert_eq!(first.and_then(core::result::Result::ok), Some(7_u32));
+        assert!(second.is_none(), "stream must end after a single item");
     }
 
     #[tokio::test]

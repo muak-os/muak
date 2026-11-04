@@ -157,7 +157,9 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
             auth::enroll(endpoint, console).await?;
             Ok(true)
         }
-        Commands::Update { version, config } => {
+        Commands::Update {
+            version, config, ..
+        } => {
             update::ensure_target(version.as_deref(), config.as_deref())?;
             Ok(false)
         }
@@ -250,6 +252,7 @@ async fn handle_cmd(
         Commands::Update {
             version,
             config: config_path,
+            force,
         } => {
             let ctx_name = context.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -262,7 +265,7 @@ async fn handle_cmd(
                 .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?
                 .clone();
             ctx.endpoint = endpoint;
-            update::handle(&ctx, version, config_path, console).await
+            update::handle(&ctx, version, config_path, force, console).await
         }
         Commands::Disks { action, wide } => {
             let mut client = ProvisionServiceClient::new(channel);

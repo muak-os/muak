@@ -120,6 +120,9 @@ pub enum Commands {
         version: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Stage the update even when the system already matches the target.
+        #[arg(long)]
+        force: bool,
     },
     Reset {
         /// Print what a factory reset would remove without touching the system.

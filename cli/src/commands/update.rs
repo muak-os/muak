@@ -74,6 +74,7 @@ pub async fn handle(
     ctx: &ServerContext,
     version: Option<String>,
     config_path: Option<PathBuf>,
+    force: bool,
     console: &Console,
 ) -> Result<()> {
     ensure_target(version.as_deref(), config_path.as_deref())?;
@@ -113,12 +114,14 @@ pub async fn handle(
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
             version: version_str,
             config: config_bytes,
+            force,
         }))
         .await
         .context("Failed to send prepare_update request")?;
 
     let mut stream = response.into_inner();
     let mut update_id = String::new();
+    let mut noop = None;
 
     while let Some(progress) = stream.next().await {
         let progress = progress.context("Error receiving prepare_update progress")?;
@@ -130,11 +133,21 @@ pub async fn handle(
             return Err(anyhow::anyhow!("{msg}"));
         }
 
+        if progress.already_current {
+            noop = Some(progress.message);
+            continue;
+        }
+
         if progress.update_id.is_empty() {
             steps.start(&progress.message);
         } else {
             update_id = progress.update_id;
         }
+    }
+
+    if let Some(message) = noop {
+        steps.complete(message.as_str());
+        return Ok(());
     }
 
     if update_id.is_empty() {

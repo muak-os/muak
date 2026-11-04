@@ -112,12 +112,14 @@ message InstallProgress {
 message PrepareUpdateRequest {
     string version = 1;
     bytes config = 2;
+    bool force = 3;
 }
 
 message PrepareUpdateProgress {
     string message = 1;
     string update_id = 2;
     string error = 3;
+    bool already_current = 4;
 }
 
 message UpdateRequest {
