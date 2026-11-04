@@ -347,12 +347,12 @@ features *pkgs:
             case "$pkg" in
                 firmware | sbolt) extra="--exclude-no-default-features" ;;
             esac
-            cargo hack check --locked --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
+            cargo hack check --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
         done
     else
-        cargo hack check --locked --each-feature --no-dev-deps --keep-going \
+        cargo hack check --each-feature --no-dev-deps --keep-going \
             --workspace --exclude e2e --exclude firmware --exclude sbolt
-        cargo hack check --locked --each-feature --no-dev-deps --keep-going \
+        cargo hack check --each-feature --no-dev-deps --keep-going \
             --exclude-no-default-features -p firmware -p sbolt
     fi
 
