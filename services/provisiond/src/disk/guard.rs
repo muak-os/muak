@@ -179,7 +179,7 @@ fn role(disk: &DiskInfo) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disk::PartitionInfo;
+    use crate::disk::types::PartitionInfo;
 
     fn disk(name: &str) -> DiskInfo {
         DiskInfo {

@@ -1,10 +1,10 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Seek as _, Write as _};
 
+use ::disk::role::Role;
 use anyhow::Result;
 use parttable::gpt;
 
-use super::Role;
 use super::blkpg::delete_all_partitions_blkpg;
 use super::constants::MB;
 use super::guard::Target;

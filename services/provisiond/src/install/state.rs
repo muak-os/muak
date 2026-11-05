@@ -78,7 +78,7 @@ pub fn init(
 
     sync();
 
-    disk::try_unmount(MOUNT_POINT);
+    disk::mount::try_unmount(MOUNT_POINT);
 
     Ok(())
 }

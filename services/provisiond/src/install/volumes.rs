@@ -1,26 +1,22 @@
 //! Volume pipeline: partitioning, LUKS formatting, mapping and btrfs creation.
 
-use std::path::Path;
-
-use anyhow::{Context as _, Result, bail};
-use rustix::fs::{Mode, mkdir, sync};
-use rustix::io::Errno;
-use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
+use ::disk::role::Role;
+use anyhow::{Context as _, Result};
 use tokio::sync::mpsc;
 
 use super::layout::plans_from_doc;
 use super::send_progress;
+use crate::disk;
 use crate::ipc::proto::provision::InstallProgress;
-use crate::{cache, disk};
 
 // dm-crypt mapping name for the STATE volume.
-const DM_STATE: &str = disk::Role::State.dm_name();
+const DM_STATE: &str = Role::State.dm_name();
 
 // dm-crypt mapping name for the EPHEMERAL volume.
-const DM_EPHEMERAL: &str = disk::Role::Ephemeral.dm_name();
+const DM_EPHEMERAL: &str = Role::Ephemeral.dm_name();
 
 // dm-crypt mapping name for the DATA volume.
-const DM_DATA: &str = disk::Role::Data.dm_name();
+const DM_DATA: &str = Role::Data.dm_name();
 
 pub(super) struct PartitionInfo {
     pub(super) efi: String,
@@ -36,7 +32,7 @@ pub(super) struct Mapped {
 }
 
 pub(super) async fn partition(
-    targets: &disk::Targets,
+    targets: &disk::target::Targets,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<PartitionInfo> {
     send_progress(progress, &format!("Partitioning {}", targets.system)).await;
@@ -55,12 +51,12 @@ pub(super) async fn format_luks(
 ) -> Result<()> {
     send_progress(progress, "Formatting partitions...").await;
 
-    disk::format_efi_partition(&partitions.efi)?;
+    disk::format::efi(&partitions.efi)?;
 
     let (state_result, ephemeral_result, data_result) = tokio::join!(
-        luks_format(&partitions.state, luks_key, disk::Role::State),
-        luks_format(&partitions.ephemeral, luks_key, disk::Role::Ephemeral),
-        luks_format(&partitions.data, luks_key, disk::Role::Data),
+        luks_format(&partitions.state, luks_key, Role::State),
+        luks_format(&partitions.ephemeral, luks_key, Role::Ephemeral),
+        luks_format(&partitions.data, luks_key, Role::Data),
     );
 
     state_result?;
@@ -72,9 +68,9 @@ pub(super) async fn format_luks(
 
 pub(super) async fn open_luks(partitions: &PartitionInfo, luks_key: &[u8]) -> Result<Mapped> {
     let (state_result, ephemeral_result, data_result) = tokio::join!(
-        luks_open(&partitions.state, luks_key, disk::Role::State),
-        luks_open(&partitions.ephemeral, luks_key, disk::Role::Ephemeral),
-        luks_open(&partitions.data, luks_key, disk::Role::Data),
+        luks_open(&partitions.state, luks_key, Role::State),
+        luks_open(&partitions.ephemeral, luks_key, Role::Ephemeral),
+        luks_open(&partitions.data, luks_key, Role::Data),
     );
 
     state_result?;
@@ -90,9 +86,9 @@ pub(super) async fn open_luks(partitions: &PartitionInfo, luks_key: &[u8]) -> Re
 
 pub(super) async fn format_btrfs(mapped: &Mapped) -> Result<()> {
     let (state_result, ephemeral_result, data_result) = tokio::join!(
-        btrfs_format(&mapped.state, disk::Role::State),
-        btrfs_format(&mapped.ephemeral, disk::Role::Ephemeral),
-        btrfs_format(&mapped.data, disk::Role::Data),
+        btrfs_format(&mapped.state, Role::State),
+        btrfs_format(&mapped.ephemeral, Role::Ephemeral),
+        btrfs_format(&mapped.data, Role::Data),
     );
 
     state_result?;
@@ -100,37 +96,6 @@ pub(super) async fn format_btrfs(mapped: &Mapped) -> Result<()> {
     data_result?;
 
     Ok(())
-}
-
-pub(super) fn mount_ephemeral(device: &str) -> Result<()> {
-    if !Path::new(device).exists() {
-        bail!("EPHEMERAL device {device} does not exist");
-    }
-
-    create_mount_point(cache::EPHEMERAL_MOUNT)?;
-
-    mount(
-        device,
-        cache::EPHEMERAL_MOUNT,
-        "btrfs",
-        MountFlags::empty(),
-        None,
-    )
-    .with_context(|| {
-        format!(
-            "Failed to mount EPHEMERAL partition {device} at {}",
-            cache::EPHEMERAL_MOUNT
-        )
-    })
-}
-
-pub(super) fn unmount_ephemeral() {
-    sync();
-
-    match unmount(cache::EPHEMERAL_MOUNT, UnmountFlags::empty()) {
-        Ok(()) | Err(Errno::NOENT | Errno::INVAL) => {}
-        Err(error) => kmsg::warn!("Failed to unmount {}: {}", cache::EPHEMERAL_MOUNT, error),
-    }
 }
 
 pub(super) fn close_luks() -> Result<()> {
@@ -156,21 +121,21 @@ fn partition_blocking(system_disk: &str, data_disk: &str, split: bool) -> Result
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
 
-    disk::fits_plan(system_disk, &system_plan)?;
+    disk::validate::fits_plan(system_disk, &system_plan)?;
     if let Some(ref plan) = data_plan {
-        disk::fits_plan(data_disk, plan)?;
+        disk::validate::fits_plan(data_disk, plan)?;
     }
 
-    let system = disk::apply_plan(system_disk, &system_plan)?;
-    let efi = system.role(disk::Role::Esp)?.device.clone();
-    let state = system.role(disk::Role::State)?.device.clone();
-    let ephemeral = system.role(disk::Role::Ephemeral)?.device.clone();
+    let system = disk::apply::plan(system_disk, &system_plan)?;
+    let efi = system.role(Role::Esp)?.device.clone();
+    let state = system.role(Role::State)?.device.clone();
+    let ephemeral = system.role(Role::Ephemeral)?.device.clone();
     let data = match data_plan {
-        Some(ref plan) => disk::apply_plan(data_disk, plan)?
-            .role(disk::Role::Data)?
+        Some(ref plan) => disk::apply::plan(data_disk, plan)?
+            .role(Role::Data)?
             .device
             .clone(),
-        None => system.role(disk::Role::Data)?.device.clone(),
+        None => system.role(Role::Data)?.device.clone(),
     };
 
     Ok(PartitionInfo {
@@ -181,7 +146,7 @@ fn partition_blocking(system_disk: &str, data_disk: &str, split: bool) -> Result
     })
 }
 
-async fn luks_format(device: &str, luks_key: &[u8], role: disk::Role) -> Result<()> {
+async fn luks_format(device: &str, luks_key: &[u8], role: Role) -> Result<()> {
     let device = device.to_owned();
     let luks_key = luks_key.to_vec();
 
@@ -192,7 +157,7 @@ async fn luks_format(device: &str, luks_key: &[u8], role: disk::Role) -> Result<
     .await
 }
 
-async fn luks_open(device: &str, luks_key: &[u8], role: disk::Role) -> Result<()> {
+async fn luks_open(device: &str, luks_key: &[u8], role: Role) -> Result<()> {
     let device = device.to_owned();
     let name = role.dm_name();
     let luks_key = luks_key.to_vec();
@@ -204,53 +169,17 @@ async fn luks_open(device: &str, luks_key: &[u8], role: disk::Role) -> Result<()
     .await
 }
 
-async fn btrfs_format(device: &str, role: disk::Role) -> Result<()> {
+async fn btrfs_format(device: &str, role: Role) -> Result<()> {
     let device = device.to_owned();
 
     flatten_join_result(tokio::task::spawn_blocking(move || {
-        disk::format_btrfs_partition(&device, role.gpt_name())
+        disk::format::btrfs(&device, role.gpt_name())
     }))
     .await
-}
-
-fn create_mount_point(path: &str) -> Result<()> {
-    match mkdir(path, Mode::RWXU | Mode::RWXG | Mode::ROTH) {
-        Ok(()) | Err(Errno::EXIST) => Ok(()),
-        Err(error) => bail!("Failed to create mount point {path}: {error}"),
-    }
 }
 
 async fn flatten_join_result<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
     handle
         .await
         .map_err(|e| anyhow::anyhow!("Task panicked: {e}"))?
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mount_ephemeral_rejects_missing_device() {
-        // ACT
-        let result = mount_ephemeral("/dev/mapper/nonexistent-ephemeral");
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn create_mount_point_reuses_existing_directory() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("temp dir must be created");
-        let path = dir.path().join("ephemeral");
-        let mount_point = path.to_str().expect("temp path must be UTF-8");
-
-        // ACT
-        create_mount_point(mount_point).expect("first creation must succeed");
-        create_mount_point(mount_point).expect("reuse must succeed");
-
-        // ASSERT
-        assert!(path.is_dir());
-    }
 }

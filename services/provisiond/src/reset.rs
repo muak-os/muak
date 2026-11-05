@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use ::disk::discover::{find_partition_device, parent_disk};
 use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
 use firmware::nvram::VariableStore;
@@ -23,9 +24,9 @@ pub fn factory_reset() -> Result<()> {
 
     clear_secureboot(&firmware::system(), Path::new(SECRETS_DIR))?;
 
-    disk::unmount_partition("/run/data")?;
-    disk::unmount_partition("/run/state")?;
-    disk::unmount_partition("/run/ephemeral")?;
+    disk::mount::unmount("/run/data")?;
+    disk::mount::unmount("/run/state")?;
+    disk::mount::unmount("/run/ephemeral")?;
 
     if let Err(e) = luks2::close(Role::State.dm_name()) {
         kmsg::warn!("Failed to close LUKS STATE mapping (may not exist): {}", e);
@@ -40,17 +41,17 @@ pub fn factory_reset() -> Result<()> {
         kmsg::warn!("Failed to close LUKS DATA mapping (may not exist): {}", e);
     }
 
-    let state_device = disk::find_partition_device(Role::State)
-        .context("STATE partition not found on any disk")?;
-    let state_disk = disk::parent_disk(&state_device)
+    let state_device =
+        find_partition_device(Role::State).context("STATE partition not found on any disk")?;
+    let state_disk = parent_disk(&state_device)
         .map(|name| format!("/dev/{name}"))
         .context("Failed to resolve the disk carrying the STATE partition")?;
     delete_role(&state_disk, Role::State)?;
     delete_role(&state_disk, Role::Ephemeral)?;
 
-    match disk::find_partition_device(Role::Data) {
+    match find_partition_device(Role::Data) {
         Some(data_device) => {
-            let data_disk = disk::parent_disk(&data_device)
+            let data_disk = parent_disk(&data_device)
                 .map(|name| format!("/dev/{name}"))
                 .context("Failed to resolve the disk carrying the DATA partition")?;
             if data_disk == state_disk {
@@ -89,8 +90,8 @@ fn clear_secureboot<S: VariableStore>(store: &S, secrets_dir: &Path) -> Result<(
 
 fn delete_role(disk: &str, role: Role) -> Result<()> {
     let name = role.gpt_name();
-    match disk::find_partition_number(disk, name)? {
-        Some(number) => disk::delete_partitions(disk, &[number])?,
+    match disk::manage::find_partition_number(disk, name)? {
+        Some(number) => disk::manage::delete_partitions(disk, &[number])?,
         None => kmsg::info!("No '{name}' partition found on {disk}, nothing to delete"),
     }
 

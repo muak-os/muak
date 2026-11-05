@@ -36,7 +36,7 @@ pub async fn run(
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
-    let targets = disk::resolve(&config.disks).await?;
+    let targets = disk::target::resolve(&config.disks).await?;
     validate_disks(&targets, config, force, allow_system_disk, &progress).await?;
     let enroll_secureboot = verify_secureboot(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
@@ -56,7 +56,7 @@ pub async fn run(
     )
     .await;
 
-    volumes::unmount_ephemeral();
+    disk::mount::try_unmount(cache::EPHEMERAL_MOUNT);
     let closed = volumes::close_luks();
 
     let client_result = installed?;
@@ -76,7 +76,7 @@ async fn install_volumes(
 ) -> Result<InstallResult> {
     let mapped = volumes::open_luks(partitions, luks_key).await?;
     volumes::format_btrfs(&mapped).await?;
-    volumes::mount_ephemeral(&mapped.ephemeral)?;
+    disk::mount::ephemeral(&mapped.ephemeral, cache::EPHEMERAL_MOUNT)?;
 
     cache::init();
     cache::enforce();
@@ -140,7 +140,7 @@ fn seal_luks_key(
 }
 
 async fn validate_disks(
-    targets: &disk::Targets,
+    targets: &disk::target::Targets,
     config: &system::Config,
     force: bool,
     allow_system_disk: bool,
@@ -153,7 +153,7 @@ async fn validate_disks(
     tokio::task::spawn_blocking(move || {
         let checks = preflight::checks(&targets, force, allow_system_disk, secureboot);
         check::enforce(&checks)?;
-        disk::unmount_targets(&targets)
+        disk::mount::unmount_targets(&targets)
     })
     .await??;
 

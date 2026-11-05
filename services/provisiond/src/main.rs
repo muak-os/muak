@@ -40,7 +40,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             cache::init();
             cache::enforce();
         } else {
-            kmsg::warn!("EPHEMERAL is not a btrfs mount; koci pull cache disabled");
+            kmsg::warn!("pull cache filesystem is not btrfs; koci cache GC disabled");
         }
 
         let _result = update::check_and_handle_pending_validation()

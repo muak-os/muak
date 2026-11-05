@@ -2,11 +2,12 @@
 
 use std::path::Path;
 
+use ::disk::discover::find_partition_device;
+use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
 use uki::measure::{self, MeasuredSection};
 
 use super::{UPDATE_DIR, secureboot};
-use crate::disk::{Role, find_partition_device};
 use crate::{cache, efi, secrets};
 
 /// Applies a staged update by deploying the UKI and resealing the LUKS key.
