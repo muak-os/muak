@@ -239,6 +239,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "blockdev"
+version = "0.0.0"
+dependencies = [
+ "parttable",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "btrfs"
 version = "0.0.0"
 dependencies = [
@@ -1235,6 +1244,7 @@ name = "millefeuille"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "blockdev",
  "btrfs",
  "disk",
  "kmod",
@@ -1775,6 +1785,7 @@ name = "provisiond"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "blockdev",
  "btrfs",
  "config",
  "disk",

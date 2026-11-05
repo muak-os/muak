@@ -1,47 +1,20 @@
 //! Detection of foreign device-mapper holders and active swap on a wipe target.
 
-use std::io::ErrorKind;
-use std::path::Path;
-
-use ::disk::discover::parent_disk_in;
 use ::disk::role::Role;
 use anyhow::{Context as _, Result};
+use blockdev::roots::Roots;
+use blockdev::types::Disk;
+use blockdev::{discover, holders, mounts};
 
-use super::sysfs::{SYSFS_BLOCK_ROOT, SYSFS_CLASS_BLOCK_ROOT};
-use super::types::DiskInfo;
 use crate::check::Check;
 
-/// Path of the kernel swap table.
-pub(crate) const SWAPS_PATH: &str = "/proc/swaps";
-
-/// Filesystem locations consulted when detecting foreign users of a disk.
-pub(crate) struct Paths<'a> {
-    /// Root of the block device tree, normally `/sys/block`.
-    pub sysfs_root: &'a Path,
-    /// Flat block device class tree, normally `/sys/class/block`.
-    pub class_block: &'a Path,
-    /// Kernel swap table, normally `/proc/swaps`.
-    pub swaps: &'a Path,
-}
-
-impl Paths<'_> {
-    /// Returns the paths of the running system.
-    pub(crate) fn system() -> Paths<'static> {
-        Paths {
-            sysfs_root: Path::new(SYSFS_BLOCK_ROOT),
-            class_block: Path::new(SYSFS_CLASS_BLOCK_ROOT),
-            swaps: Path::new(SWAPS_PATH),
-        }
-    }
-}
-
 /// Returns the checks refusing a disk used by foreign holders or active swap.
-pub(crate) fn checks(disk: &DiskInfo, paths: &Paths<'_>) -> Vec<Check> {
-    vec![holders(disk, paths.sysfs_root), swap(disk, paths)]
+pub(crate) fn checks(disk: &Disk, roots: &Roots) -> Vec<Check> {
+    vec![foreign_holders(disk, roots), swap(disk, roots)]
 }
 
-fn holders(disk: &DiskInfo, sysfs_root: &Path) -> Check {
-    match holder_names(disk, sysfs_root) {
+fn foreign_holders(disk: &Disk, roots: &Roots) -> Check {
+    match holder_names(disk, roots) {
         Ok(names) if names.is_empty() => Check::pass(
             "foreign_holders",
             format!("'{}' has no foreign holders", disk.path),
@@ -57,8 +30,8 @@ fn holders(disk: &DiskInfo, sysfs_root: &Path) -> Check {
     }
 }
 
-fn swap(disk: &DiskInfo, paths: &Paths<'_>) -> Check {
-    match swap_device(disk, paths) {
+fn swap(disk: &Disk, roots: &Roots) -> Check {
+    match swap_device(disk, roots) {
         Ok(Some(device)) => Check::fail(
             "active_swap",
             format!("Disk '{}' has active swap on '{device}'", disk.path),
@@ -71,132 +44,105 @@ fn swap(disk: &DiskInfo, paths: &Paths<'_>) -> Check {
     }
 }
 
-fn holder_names(disk: &DiskInfo, sysfs_root: &Path) -> Result<Vec<String>> {
-    let disk_path = sysfs_root.join(&disk.name);
-    let mut names = read_holders(&disk_path)?;
+fn holder_names(disk: &Disk, roots: &Roots) -> Result<Vec<String>> {
+    let mut names = holders::try_names(roots, &disk.name)
+        .with_context(|| format!("failed to read the holders of '{}'", disk.name))?;
 
     for partition in &disk.partitions {
-        names.extend(read_holders(&disk_path.join(&partition.name))?);
+        let path = format!("{}/{}", disk.name, partition.name);
+        names.extend(
+            holders::try_names(roots, &path)
+                .with_context(|| format!("failed to read the holders of '{path}'"))?,
+        );
     }
 
-    names.retain(|holder| !is_muak_mapping(holder, sysfs_root));
+    names.retain(|holder| !is_muak_mapping(holder));
     names.sort();
     names.dedup();
 
     Ok(names)
 }
 
-fn is_muak_mapping(holder: &str, sysfs_root: &Path) -> bool {
-    let Ok(name) = std::fs::read_to_string(sysfs_root.join(holder).join("dm/name")) else {
-        return false;
-    };
-    let name = name.trim();
-
-    name == Role::State.dm_name()
-        || name == Role::Ephemeral.dm_name()
-        || name == Role::Data.dm_name()
+fn is_muak_mapping(holder: &str) -> bool {
+    holder == Role::State.dm_name()
+        || holder == Role::Ephemeral.dm_name()
+        || holder == Role::Data.dm_name()
 }
 
-fn read_holders(device: &Path) -> Result<Vec<String>> {
-    let holders = device.join("holders");
-    let entries = match std::fs::read_dir(&holders) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e).with_context(|| format!("failed to read {}", holders.display())),
-    };
-
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry =
-            entry.with_context(|| format!("failed to read an entry in {}", holders.display()))?;
-        names.push(entry.file_name().to_string_lossy().into_owned());
-    }
-
-    Ok(names)
-}
-
-fn swap_device(disk: &DiskInfo, paths: &Paths<'_>) -> Result<Option<String>> {
-    let swaps = read_swaps(paths.swaps)?;
+fn swap_device(disk: &Disk, roots: &Roots) -> Result<Option<String>> {
+    let swaps = mounts::try_read_swaps(&roots.swaps)
+        .with_context(|| format!("failed to read {}", roots.swaps.display()))?;
 
     Ok(swaps
         .into_iter()
-        .find(|device| belongs_to(device, disk, paths.class_block)))
+        .map(|swap| swap.device)
+        .find(|device| belongs_to(device, disk, roots)))
 }
 
-fn read_swaps(path: &Path) -> Result<Vec<String>> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
-    };
-
-    Ok(content
-        .lines()
-        .skip(1)
-        .filter_map(|line| line.split_whitespace().next())
-        .map(str::to_owned)
-        .collect())
-}
-
-fn belongs_to(device: &str, disk: &DiskInfo, class_block: &Path) -> bool {
+fn belongs_to(device: &str, disk: &Disk, roots: &Roots) -> bool {
     if device == disk.path || disk.partitions.iter().any(|part| part.path == device) {
         return true;
     }
 
-    parent_disk_in(class_block, device).as_deref() == Some(disk.name.as_str())
+    discover::parent_disk_in(roots, device).as_deref() == Some(disk.name.as_str())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use blockdev::types::Partition;
 
     use super::*;
-    use crate::disk::types::PartitionInfo;
 
-    fn disk(name: &str) -> DiskInfo {
-        DiskInfo {
+    fn disk(name: &str) -> Disk {
+        Disk {
             name: name.to_owned(),
             path: format!("/dev/{name}"),
-            ..DiskInfo::default()
+            ..Disk::default()
         }
     }
 
-    fn partition(number: u32) -> PartitionInfo {
-        PartitionInfo {
+    fn partition(number: u32) -> Partition {
+        Partition {
             number,
-            start_sector: 0,
-            size_bytes: 0,
             name: format!("sda{number}"),
             path: format!("/dev/sda{number}"),
-            fstype: String::new(),
-            gpt_name: String::new(),
-            mount_point: String::new(),
-            in_use: false,
+            ..Partition::default()
         }
     }
 
-    fn sysfs() -> tempfile::TempDir {
-        tempfile::tempdir().expect("tempdir")
+    fn roots() -> (tempfile::TempDir, Roots) {
+        let dir = tempfile::tempdir().expect("test roots");
+        let roots = Roots {
+            block: dir.path().join("sys/block"),
+            class_block: dir.path().join("sys/class/block"),
+            dev: dir.path().join("dev"),
+            mounts: dir.path().join("proc/mounts"),
+            swaps: dir.path().join("proc/swaps"),
+        };
+
+        for relative in ["sys/block", "sys/class/block", "dev", "proc"] {
+            std::fs::create_dir_all(dir.path().join(relative)).expect("test root");
+        }
+        std::fs::write(&roots.mounts, "").expect("mount table");
+        std::fs::write(&roots.swaps, "").expect("swap table");
+
+        (dir, roots)
     }
 
-    fn swaps(content: &str) -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("swaps");
-        std::fs::write(&path, content).expect("write swaps");
-
-        (dir, path)
-    }
-
-    fn make_holder(sysfs_root: &Path, device: &str, holder: &str) {
-        let holders = sysfs_root.join(device).join("holders");
+    fn holder(roots: &Roots, device: &str, holder: &str) {
+        let holders = roots.block.join(device).join("holders");
         std::fs::create_dir_all(&holders).expect("holders dir");
         std::fs::write(holders.join(holder), "").expect("holder");
     }
 
-    fn make_mapping(sysfs_root: &Path, holder: &str, dm_name: &str) {
-        let dm = sysfs_root.join(holder).join("dm");
+    fn mapping(roots: &Roots, holder: &str, dm_name: &str) {
+        let dm = roots.block.join(holder).join("dm");
         std::fs::create_dir_all(&dm).expect("dm dir");
         std::fs::write(dm.join("name"), dm_name).expect("dm name");
+    }
+
+    fn swaps(roots: &Roots, content: &str) {
+        std::fs::write(&roots.swaps, content).expect("swap table");
     }
 
     fn check<'a>(checks: &'a [Check], name: &str) -> &'a Check {
@@ -209,16 +155,11 @@ mod tests {
     #[test]
     fn holders_on_the_disk_are_refused() {
         // ARRANGE
-        let sysfs = sysfs();
-        make_holder(sysfs.path(), "sda", "dm-0");
-        let paths = Paths {
-            sysfs_root: sysfs.path(),
-            class_block: Path::new("/does-not-exist"),
-            swaps: Path::new("/does-not-exist"),
-        };
+        let (_dir, roots) = roots();
+        holder(&roots, "sda", "dm-0");
 
         // ACT
-        let checks = checks(&disk("sda"), &paths);
+        let checks = checks(&disk("sda"), &roots);
 
         // ASSERT
         let holders = check(&checks, "foreign_holders");
@@ -229,18 +170,13 @@ mod tests {
     #[test]
     fn holders_on_a_partition_are_refused() {
         // ARRANGE
-        let sysfs = sysfs();
-        make_holder(sysfs.path(), "sda/sda1", "luks-1234");
+        let (_dir, roots) = roots();
+        holder(&roots, "sda/sda1", "luks-1234");
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
-        let paths = Paths {
-            sysfs_root: sysfs.path(),
-            class_block: Path::new("/does-not-exist"),
-            swaps: Path::new("/does-not-exist"),
-        };
 
         // ACT
-        let checks = checks(&disk, &paths);
+        let checks = checks(&disk, &roots);
 
         // ASSERT
         let holders = check(&checks, "foreign_holders");
@@ -251,18 +187,13 @@ mod tests {
     #[test]
     fn holders_on_an_unrelated_disk_are_ignored() {
         // ARRANGE
-        let sysfs = sysfs();
-        make_holder(sysfs.path(), "sdb/sdb1", "dm-0");
+        let (_dir, roots) = roots();
+        holder(&roots, "sdb/sdb1", "dm-0");
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
-        let paths = Paths {
-            sysfs_root: sysfs.path(),
-            class_block: Path::new("/does-not-exist"),
-            swaps: Path::new("/does-not-exist"),
-        };
 
         // ACT
-        let checks = checks(&disk, &paths);
+        let checks = checks(&disk, &roots);
 
         // ASSERT
         assert!(check(&checks, "foreign_holders").passed);
@@ -271,25 +202,20 @@ mod tests {
     #[test]
     fn muak_mappings_are_not_foreign() {
         // ARRANGE
-        let sysfs = sysfs();
-        make_holder(sysfs.path(), "sda/sda1", "dm-0");
-        make_holder(sysfs.path(), "sda/sda2", "dm-1");
-        make_holder(sysfs.path(), "sda/sda3", "dm-2");
-        make_mapping(sysfs.path(), "dm-0", Role::State.dm_name());
-        make_mapping(sysfs.path(), "dm-1", Role::Ephemeral.dm_name());
-        make_mapping(sysfs.path(), "dm-2", Role::Data.dm_name());
+        let (_dir, roots) = roots();
+        holder(&roots, "sda/sda1", "dm-0");
+        holder(&roots, "sda/sda2", "dm-1");
+        holder(&roots, "sda/sda3", "dm-2");
+        mapping(&roots, "dm-0", Role::State.dm_name());
+        mapping(&roots, "dm-1", Role::Ephemeral.dm_name());
+        mapping(&roots, "dm-2", Role::Data.dm_name());
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
         disk.partitions.push(partition(2));
         disk.partitions.push(partition(3));
-        let paths = Paths {
-            sysfs_root: sysfs.path(),
-            class_block: Path::new("/does-not-exist"),
-            swaps: Path::new("/does-not-exist"),
-        };
 
         // ACT
-        let checks = checks(&disk, &paths);
+        let checks = checks(&disk, &roots);
 
         // ASSERT
         assert!(check(&checks, "foreign_holders").passed);
@@ -298,16 +224,11 @@ mod tests {
     #[test]
     fn unreadable_holders_refuse_the_disk() {
         // ARRANGE
-        let sysfs = sysfs();
-        std::fs::write(sysfs.path().join("sda"), "").expect("blocking file");
-        let paths = Paths {
-            sysfs_root: sysfs.path(),
-            class_block: Path::new("/does-not-exist"),
-            swaps: Path::new("/does-not-exist"),
-        };
+        let (_dir, roots) = roots();
+        std::fs::write(roots.block.join("sda"), "").expect("blocking file");
 
         // ACT
-        let checks = checks(&disk("sda"), &paths);
+        let checks = checks(&disk("sda"), &roots);
 
         // ASSERT
         let holders = check(&checks, "foreign_holders");
@@ -322,18 +243,16 @@ mod tests {
     #[test]
     fn swap_on_a_partition_is_refused() {
         // ARRANGE
-        let (_dir, swaps) =
-            swaps("Filename\tType\tSize\tUsed\tPriority\n/dev/sda1\tpartition\t1024\t0\t-2\n");
+        let (_dir, roots) = roots();
+        swaps(
+            &roots,
+            "Filename\tType\tSize\tUsed\tPriority\n/dev/sda1\tpartition\t1024\t0\t-2\n",
+        );
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
-        let paths = Paths {
-            sysfs_root: Path::new("/does-not-exist"),
-            class_block: Path::new("/does-not-exist"),
-            swaps: &swaps,
-        };
 
         // ACT
-        let checks = checks(&disk, &paths);
+        let checks = checks(&disk, &roots);
 
         // ASSERT
         let swap = check(&checks, "active_swap");
@@ -344,20 +263,17 @@ mod tests {
     #[test]
     fn swap_outside_the_inventory_is_resolved_through_sysfs() {
         // ARRANGE
-        let class_block = tempfile::tempdir().expect("tempdir");
-        let partition = class_block.path().join("sda").join("sda2");
+        let (_dir, roots) = roots();
+        let partition = roots.class_block.join("sda").join("sda2");
         std::fs::create_dir_all(&partition).expect("partition");
-        std::os::unix::fs::symlink(&partition, class_block.path().join("sda2")).expect("symlink");
-        let (_dir, swaps) =
-            swaps("Filename\tType\tSize\tUsed\tPriority\n/dev/sda2\tpartition\t1024\t0\t-2\n");
-        let paths = Paths {
-            sysfs_root: Path::new("/does-not-exist"),
-            class_block: class_block.path(),
-            swaps: &swaps,
-        };
+        std::os::unix::fs::symlink(&partition, roots.class_block.join("sda2")).expect("symlink");
+        swaps(
+            &roots,
+            "Filename\tType\tSize\tUsed\tPriority\n/dev/sda2\tpartition\t1024\t0\t-2\n",
+        );
 
         // ACT
-        let checks = checks(&disk("sda"), &paths);
+        let checks = checks(&disk("sda"), &roots);
 
         // ASSERT
         let swap = check(&checks, "active_swap");
@@ -368,16 +284,14 @@ mod tests {
     #[test]
     fn swap_on_an_unrelated_disk_is_ignored() {
         // ARRANGE
-        let (_dir, swaps) =
-            swaps("Filename\tType\tSize\tUsed\tPriority\n/dev/sdb1\tpartition\t1024\t0\t-2\n");
-        let paths = Paths {
-            sysfs_root: Path::new("/does-not-exist"),
-            class_block: Path::new("/does-not-exist"),
-            swaps: &swaps,
-        };
+        let (_dir, roots) = roots();
+        swaps(
+            &roots,
+            "Filename\tType\tSize\tUsed\tPriority\n/dev/sdb1\tpartition\t1024\t0\t-2\n",
+        );
 
         // ACT
-        let checks = checks(&disk("sda"), &paths);
+        let checks = checks(&disk("sda"), &roots);
 
         // ASSERT
         assert!(check(&checks, "active_swap").passed);
@@ -386,18 +300,12 @@ mod tests {
     #[test]
     fn a_clean_disk_passes_every_check() {
         // ARRANGE
-        let sysfs = sysfs();
-        let (_dir, swaps) = swaps("Filename\tType\tSize\tUsed\tPriority\n");
+        let (_dir, roots) = roots();
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
-        let paths = Paths {
-            sysfs_root: sysfs.path(),
-            class_block: Path::new("/does-not-exist"),
-            swaps: &swaps,
-        };
 
         // ACT
-        let checks = checks(&disk, &paths);
+        let checks = checks(&disk, &roots);
 
         // ASSERT
         assert!(checks.iter().all(|check| check.passed));

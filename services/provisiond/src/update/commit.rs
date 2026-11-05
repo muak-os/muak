@@ -2,12 +2,12 @@
 
 use std::path::Path;
 
-use ::disk::discover::find_partition_device;
 use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
 use uki::measure::{self, MeasuredSection};
 
 use super::{UPDATE_DIR, secureboot};
+use crate::disk::roles;
 use crate::{cache, efi, secrets};
 
 /// Applies a staged update by deploying the UKI and resealing the LUKS key.
@@ -16,9 +16,9 @@ pub async fn apply() -> Result<()> {
 
     let (efi_device, state_device, ephemeral_device) = tokio::task::spawn_blocking(move || {
         (
-            find_partition_device(Role::Esp),
-            find_partition_device(Role::State),
-            find_partition_device(Role::Ephemeral),
+            roles::device(Role::Esp),
+            roles::device(Role::State),
+            roles::device(Role::Ephemeral),
         )
     })
     .await

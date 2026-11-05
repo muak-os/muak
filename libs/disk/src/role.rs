@@ -38,6 +38,14 @@ impl Role {
         }
     }
 
+    /// Role carrying `gpt_name`, or `None` when the name is not a Muak role.
+    #[must_use]
+    pub fn from_gpt_name(gpt_name: &str) -> Option<Self> {
+        [Self::Esp, Self::State, Self::Ephemeral, Self::Data]
+            .into_iter()
+            .find(|role| role.gpt_name() == gpt_name)
+    }
+
     /// Device-mapper name for this role's encrypted volume.
     #[must_use]
     pub const fn dm_name(self) -> &'static str {

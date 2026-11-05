@@ -2,15 +2,16 @@
 
 use std::path::Path;
 
-use ::disk::discover::{find_partition_device, parent_disk};
 use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
+use blockdev::discover;
 use firmware::nvram::VariableStore;
 use firmware::secureboot;
 use sbolt::efi::enrollment;
 use sbolt::keys::storage::load_hierarchy;
 
 use crate::disk;
+use crate::disk::roles;
 use crate::secrets::SECRETS_DIR;
 
 /// Performs a factory reset by deleting the STATE, EPHEMERAL and DATA partitions.
@@ -42,16 +43,16 @@ pub fn factory_reset() -> Result<()> {
     }
 
     let state_device =
-        find_partition_device(Role::State).context("STATE partition not found on any disk")?;
-    let state_disk = parent_disk(&state_device)
+        roles::device(Role::State).context("STATE partition not found on any disk")?;
+    let state_disk = discover::parent_disk(&state_device)
         .map(|name| format!("/dev/{name}"))
         .context("Failed to resolve the disk carrying the STATE partition")?;
     delete_role(&state_disk, Role::State)?;
     delete_role(&state_disk, Role::Ephemeral)?;
 
-    match find_partition_device(Role::Data) {
+    match roles::device(Role::Data) {
         Some(data_device) => {
-            let data_disk = parent_disk(&data_device)
+            let data_disk = discover::parent_disk(&data_device)
                 .map(|name| format!("/dev/{name}"))
                 .context("Failed to resolve the disk carrying the DATA partition")?;
             if data_disk == state_disk {

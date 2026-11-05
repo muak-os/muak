@@ -3,12 +3,12 @@
 use core::mem;
 
 use anyhow::{Result, bail};
+use blockdev::device;
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
 use rustix::ioctl::{Opcode, Setter, ioctl};
 
 use super::constants::SECTOR_SIZE;
-use super::gpt::format_partition_name;
 use super::types::{BlkpgIoctlArg, BlkpgPartition};
 
 const BLKPG_ADD_PARTITION: i32 = 1;
@@ -72,7 +72,7 @@ pub fn delete_all_partitions_blkpg(disk: &str) -> Result<()> {
     kmsg::info!("Removing all existing partitions from kernel for {}", disk);
 
     for partition_num in 1..=128 {
-        let part_path = format_partition_name(disk, partition_num);
+        let part_path = device::partition_path(disk, partition_num);
         if !std::path::Path::new(&part_path).exists() {
             continue;
         }
@@ -108,7 +108,7 @@ pub fn add_partition_blkpg(
     let mut devname = [0_u8; 64];
     let volname = [0_u8; 64];
 
-    let partition_name = format_partition_name(disk.trim_start_matches("/dev/"), partition_num);
+    let partition_name = device::partition_path(disk.trim_start_matches("/dev/"), partition_num);
     let partition_name_bytes = partition_name.as_bytes();
     let copy_len = partition_name_bytes.len().min(63);
     let (Some(dest), Some(source)) = (

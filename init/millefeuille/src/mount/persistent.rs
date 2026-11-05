@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use blockdev::discover;
 use btrfs::quota;
-use disk::discover::find_by_partname;
 use disk::role::Role;
 use rustix::fs::{AtFlags, CWD, Mode, mkdirat, unlinkat};
 use rustix::io::Errno;
@@ -19,12 +19,12 @@ const STATE_CONFIG: &str = "/run/state/config.toml";
 
 /// Mount persistent STATE, DATA, and EPHEMERAL partitions if the system is installed.
 pub(crate) fn persistent() -> bool {
-    let state_devices = find_by_partname(Role::State.gpt_name());
+    let state_devices = discover::find_by_partname(Role::State.gpt_name());
     if state_devices.is_empty() {
         return false;
     }
 
-    let data_devices = find_by_partname(Role::Data.gpt_name());
+    let data_devices = discover::find_by_partname(Role::Data.gpt_name());
     for state_dev in state_devices {
         match try_mount_persistent_candidate(&state_dev, &data_devices) {
             Ok(()) => return true,
@@ -82,7 +82,7 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
 }
 
 fn mount_ephemeral(key: &[u8]) {
-    let Some(device) = find_by_partname(Role::Ephemeral.gpt_name())
+    let Some(device) = discover::find_by_partname(Role::Ephemeral.gpt_name())
         .into_iter()
         .next()
     else {

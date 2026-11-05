@@ -30,21 +30,22 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
-firmware = { workspace = true, features = ["linux"] }
+blockdev = { workspace = true }
 btrfs = { workspace = true }
+config = { workspace = true }
 disk = { workspace = true }
 esp = { workspace = true }
 fatfs = { workspace = true }
-wizard = { workspace = true }
-parttable = { workspace = true }
+firmware = { workspace = true, features = ["linux"] }
 granola = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
+parttable = { workspace = true }
 pki = { workspace = true }
-config = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }
 tpm2 = { workspace = true }
 uki = { workspace = true }
+wizard = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process", "system", "net"] }

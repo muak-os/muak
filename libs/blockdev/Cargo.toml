@@ -1,0 +1,23 @@
+[package]
+name = "blockdev"
+description = "Block devices and partitions reported by the kernel through sysfs and procfs"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+parttable = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

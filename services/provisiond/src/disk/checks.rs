@@ -2,13 +2,16 @@
 
 use std::path::Path;
 
-use ::disk::discover::{find_partition_device, parent_disk};
 use ::disk::role::Role;
+use anyhow::{Result, bail};
+use blockdev::mounts::{self, Mount};
+use blockdev::roots::Roots;
+use blockdev::{device, discover};
 
-use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
+use super::constants::{GB, MB, MIN_DISK_SIZE};
 use super::manage::{disk_is_non_empty, has_state_partition};
 use super::mount::get_disk_mounts;
-use super::sysfs::{validate_block_device, validate_disk_size};
+use super::{roles, size};
 use crate::check::Check;
 
 pub(crate) fn for_device(device: &str, force: bool) -> Vec<Check> {
@@ -52,14 +55,53 @@ pub(crate) fn system_disk_in_use(device: &str, running: Option<&str>, allow: boo
 
 /// Returns the device path of the disk hosting the running system.
 pub(crate) fn running_system_disk() -> Option<String> {
-    if let Some(partition) = find_partition_device(Role::State)
-        && let Some(disk) = parent_disk(&partition)
+    if let Some(partition) = roles::device(Role::State)
+        && let Some(disk) = discover::parent_disk(&partition)
     {
         return Some(device_path(&disk));
     }
 
-    let mounts = read_mounts(Path::new(MOUNTS_PATH));
+    let mounts = mounts::read(&Roots::system().mounts);
     mount_disk(mounts.iter().find(|mount| mount.mount_point == "/"))
+}
+
+/// Returns an error when `disk` is smaller than the minimum install size.
+pub(crate) fn validate_disk_size(disk: &str) -> Result<()> {
+    let file = std::fs::File::open(disk)?;
+    let disk_size = size::bytes(&file)?;
+
+    if disk_size < MIN_DISK_SIZE {
+        bail!(
+            "Disk '{}' is too small ({} MB). Minimum required: {} MB",
+            disk,
+            disk_size.checked_div(MB).unwrap_or(0),
+            MIN_DISK_SIZE.checked_div(MB).unwrap_or(0)
+        );
+    }
+
+    kmsg::info!(
+        "Disk size: {} GB ({} MB)",
+        disk_size.checked_div(GB).unwrap_or(0),
+        disk_size.checked_div(MB).unwrap_or(0)
+    );
+
+    Ok(())
+}
+
+/// Returns an error when `disk` is not a block device.
+pub(crate) fn validate_block_device(disk: &str) -> Result<()> {
+    if !device::is_block(Path::new(disk)) {
+        bail!("'{disk}' is not a block device. Please specify a disk (e.g., /dev/sda, /dev/vda)");
+    }
+
+    if device::looks_like_partition(disk) {
+        kmsg::warn!(
+            "'{}' appears to be a partition. You should install to a whole disk (e.g., /dev/sda, not /dev/sda1)",
+            disk
+        );
+    }
+
+    Ok(())
 }
 
 fn device_exists(device: &str) -> Check {
@@ -140,10 +182,10 @@ fn empty_disk(device: &str, force: bool) -> Check {
 }
 
 fn mount_disk(mount: Option<&Mount>) -> Option<String> {
-    let disk = parent_disk(&mount?.device)?;
-    let device = device_path(&disk);
+    let disk = discover::parent_disk(&mount?.device)?;
+    let path = device_path(&disk);
 
-    Path::new(&device).exists().then_some(device)
+    Path::new(&path).exists().then_some(path)
 }
 
 fn device_path(disk_name: &str) -> String {

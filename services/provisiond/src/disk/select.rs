@@ -1,13 +1,13 @@
 //! Selection of a physical disk from a config selector entry.
 
 use anyhow::{Result, bail};
+use blockdev::types::Disk;
 use config::system::disk::Entry;
 
 use super::pattern;
-use super::types::DiskInfo;
 
 /// Returns true when `disk` satisfies every matcher present on a selector `entry`.
-pub(crate) fn matches(entry: &Entry, disk: &DiskInfo) -> bool {
+pub(crate) fn matches(entry: &Entry, disk: &Disk) -> bool {
     entry.device.is_none()
         && !disk.read_only
         && string_matches(entry.serial.as_deref(), &disk.serial)
@@ -21,8 +21,8 @@ pub(crate) fn matches(entry: &Entry, disk: &DiskInfo) -> bool {
 }
 
 /// Resolves the disk selected by `entry`, refusing ambiguous matches.
-pub(crate) fn resolve<'a>(entry: &Entry, disks: &'a [DiskInfo]) -> Result<&'a DiskInfo> {
-    let candidates: Vec<&DiskInfo> = disks.iter().filter(|disk| matches(entry, disk)).collect();
+pub(crate) fn resolve<'a>(entry: &Entry, disks: &'a [Disk]) -> Result<&'a Disk> {
+    let candidates: Vec<&Disk> = disks.iter().filter(|disk| matches(entry, disk)).collect();
 
     if candidates.is_empty() {
         let available: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
@@ -78,7 +78,7 @@ fn push_matcher(parts: &mut Vec<String>, name: &str, value: Option<&str>) {
     }
 }
 
-fn identify(disk: &DiskInfo) -> String {
+fn identify(disk: &Disk) -> String {
     let mut facts = Vec::new();
     if !disk.serial.is_empty() {
         facts.push(format!("serial {}", disk.serial));
@@ -108,24 +108,11 @@ mod tests {
 
     use super::*;
 
-    fn disk(name: &str) -> DiskInfo {
-        DiskInfo {
+    fn disk(name: &str) -> Disk {
+        Disk {
             name: name.to_owned(),
             path: format!("/dev/{name}"),
-            size_bytes: 0,
-            model: String::new(),
-            serial: String::new(),
-            wwid: String::new(),
-            bus_path: String::new(),
-            subsystem: String::new(),
-            rotational: false,
-            cdrom: false,
-            removable: false,
-            read_only: false,
-            symlinks: Vec::new(),
-            is_system: false,
-            is_data: false,
-            partitions: Vec::new(),
+            ..Disk::default()
         }
     }
 

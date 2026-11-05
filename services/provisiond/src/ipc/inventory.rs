@@ -1,11 +1,17 @@
 //! Conversion of the disk inventory into its protobuf representation.
 
+use blockdev::types;
+
 use super::proto::provision::{DiskInfo, PartitionInfo};
-use crate::disk;
+use crate::disk::roles;
 
 /// Converts a discovered disk into its protobuf representation.
-pub(crate) fn to_disk_info(disk: disk::types::DiskInfo) -> DiskInfo {
+pub(crate) fn to_disk_info(disk: types::Disk) -> DiskInfo {
     DiskInfo {
+        is_system: roles::is_system(&disk),
+        is_data: roles::is_data(&disk),
+        cdrom: false,
+        symlinks: Vec::new(),
         name: disk.name,
         path: disk.path,
         size_bytes: disk.size_bytes,
@@ -17,17 +23,14 @@ pub(crate) fn to_disk_info(disk: disk::types::DiskInfo) -> DiskInfo {
         bus_path: disk.bus_path,
         subsystem: disk.subsystem,
         rotational: disk.rotational,
-        cdrom: disk.cdrom,
-        symlinks: disk.symlinks,
-        is_system: disk.is_system,
-        is_data: disk.is_data,
         partitions: disk.partitions.into_iter().map(to_partition_info).collect(),
     }
 }
 
 /// Converts a discovered partition into its protobuf representation.
-pub(crate) fn to_partition_info(partition: disk::types::PartitionInfo) -> PartitionInfo {
+pub(crate) fn to_partition_info(partition: types::Partition) -> PartitionInfo {
     PartitionInfo {
+        in_use: roles::in_use(&partition),
         number: partition.number,
         start_sector: partition.start_sector,
         size_bytes: partition.size_bytes,
@@ -36,18 +39,19 @@ pub(crate) fn to_partition_info(partition: disk::types::PartitionInfo) -> Partit
         fstype: partition.fstype,
         gpt_name: partition.gpt_name,
         mount_point: partition.mount_point,
-        in_use: partition.in_use,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ::disk::role::Role;
+
     use super::*;
 
     #[test]
     fn to_disk_info_maps_the_inventory_fields() {
         // ARRANGE
-        let disk = disk::types::DiskInfo {
+        let disk = types::Disk {
             name: "sda".to_owned(),
             path: "/dev/sda".to_owned(),
             size_bytes: 4096,
@@ -57,22 +61,17 @@ mod tests {
             bus_path: "/pci0000:00/sda".to_owned(),
             subsystem: "scsi".to_owned(),
             rotational: true,
-            cdrom: false,
             removable: false,
             read_only: true,
-            symlinks: vec!["/dev/disk/by-id/sda".to_owned()],
-            is_system: true,
-            is_data: true,
-            partitions: vec![disk::types::PartitionInfo {
+            partitions: vec![types::Partition {
                 number: 1,
                 start_sector: 2048,
                 size_bytes: 1024,
                 name: "sda1".to_owned(),
                 path: "/dev/sda1".to_owned(),
                 fstype: "ext4".to_owned(),
-                gpt_name: "STATE".to_owned(),
+                gpt_name: Role::State.gpt_name().to_owned(),
                 mount_point: "/mnt".to_owned(),
-                in_use: true,
             }],
         };
 
@@ -85,13 +84,13 @@ mod tests {
         assert_eq!(proto.bus_path, "/pci0000:00/sda");
         assert_eq!(proto.subsystem, "scsi");
         assert!(proto.rotational);
-        assert!(!proto.cdrom);
-        assert_eq!(proto.symlinks, ["/dev/disk/by-id/sda"]);
+        assert!(!proto.cdrom, "cdrom is a constant of the proto mapping");
+        assert!(proto.symlinks.is_empty(), "symlinks are always empty");
         assert!(proto.is_system);
-        assert!(proto.is_data);
+        assert!(!proto.is_data);
 
-        let partition = &proto.partitions[0];
-        assert_eq!(partition.gpt_name, "STATE");
+        let partition = proto.partitions.first().expect("partition");
+        assert_eq!(partition.gpt_name, Role::State.gpt_name());
         assert_eq!(partition.mount_point, "/mnt");
         assert!(partition.in_use);
     }

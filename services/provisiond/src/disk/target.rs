@@ -1,11 +1,10 @@
 //! Resolution of configured disk entries to kernel device paths.
 
 use anyhow::{Context as _, Result, bail};
+use blockdev::types::Disk;
 use config::system::disk::{self, Entry};
 
-use super::select;
-use super::sysfs::list_disks;
-use super::types::DiskInfo;
+use super::{list_disks, select};
 
 /// Device paths resolved from the configured disk entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,7 +35,7 @@ pub(crate) async fn resolve(entries: &[Entry]) -> Result<Targets> {
 }
 
 /// Resolves the configured entries against one inventory snapshot.
-pub(crate) fn resolve_with(entries: &[Entry], disks: &[DiskInfo]) -> Result<Targets> {
+pub(crate) fn resolve_with(entries: &[Entry], disks: &[Disk]) -> Result<Targets> {
     let system = system_device(entries, disks)?;
 
     let Some(data_entry) = disk::data(entries) else {
@@ -63,13 +62,13 @@ pub(crate) async fn resolve_system(entries: &[Entry]) -> Result<String> {
     system_device(entries, &disks)
 }
 
-fn system_device(entries: &[Entry], disks: &[DiskInfo]) -> Result<String> {
+fn system_device(entries: &[Entry], disks: &[Disk]) -> Result<String> {
     let entry = disk::system(entries).context("config has no system disk entry")?;
 
     resolve_device(entry, disks)
 }
 
-fn resolve_device(entry: &Entry, disks: &[DiskInfo]) -> Result<String> {
+fn resolve_device(entry: &Entry, disks: &[Disk]) -> Result<String> {
     if let Some(path) = entry.device.as_deref() {
         return canonical_device(path);
     }
@@ -77,7 +76,7 @@ fn resolve_device(entry: &Entry, disks: &[DiskInfo]) -> Result<String> {
     resolve_selector(entry, disks)
 }
 
-fn resolve_selector(entry: &Entry, disks: &[DiskInfo]) -> Result<String> {
+fn resolve_selector(entry: &Entry, disks: &[Disk]) -> Result<String> {
     Ok(select::resolve(entry, disks)?.path.clone())
 }
 
@@ -98,24 +97,12 @@ mod tests {
 
     use super::*;
 
-    fn disk(name: &str, serial: &str) -> DiskInfo {
-        DiskInfo {
+    fn disk(name: &str, serial: &str) -> Disk {
+        Disk {
             name: name.to_owned(),
             path: format!("/dev/{name}"),
-            size_bytes: 0,
-            model: String::new(),
             serial: serial.to_owned(),
-            wwid: String::new(),
-            bus_path: String::new(),
-            subsystem: String::new(),
-            rotational: false,
-            cdrom: false,
-            removable: false,
-            read_only: false,
-            symlinks: Vec::new(),
-            is_system: false,
-            is_data: false,
-            partitions: Vec::new(),
+            ..Disk::default()
         }
     }
 

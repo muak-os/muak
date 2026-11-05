@@ -1,5 +1,6 @@
 //! gRPC service implementation for provisioning operations.
 
+use blockdev::types::Disk;
 use tokio::task;
 use tonic::{Request, Response, Status};
 
@@ -213,7 +214,7 @@ impl ProvisionService for ServiceImpl {
         &self,
         _request: Request<ListDisksRequest>,
     ) -> Result<Response<ListDisksResponse>, Status> {
-        let disks = disk::sysfs::list_disks()
+        let disks = disk::list_disks()
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
 
@@ -232,7 +233,7 @@ impl ProvisionService for ServiceImpl {
         let req = request.into_inner();
         let method = wipe_method(req.method)?;
 
-        let disks = disk::sysfs::list_disks()
+        let disks = disk::list_disks()
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
         let verdict = disk::guard::validate(&disks, &req.disk, req.allow_system_disk)
@@ -453,11 +454,7 @@ pub fn service() -> ProvisionServiceServer<ServiceImpl> {
     ProvisionServiceServer::new(ServiceImpl)
 }
 
-fn wipe_response(
-    refusal: Option<String>,
-    disk: disk::types::DiskInfo,
-    checks: Vec<Check>,
-) -> WipeDiskResponse {
+fn wipe_response(refusal: Option<String>, disk: Disk, checks: Vec<Check>) -> WipeDiskResponse {
     WipeDiskResponse {
         success: refusal.is_none(),
         error: refusal.unwrap_or_default(),
@@ -502,24 +499,12 @@ fn extract_author<T>(request: &Request<T>) -> String {
 mod tests {
     use super::*;
 
-    fn disk() -> disk::types::DiskInfo {
-        disk::types::DiskInfo {
+    fn disk() -> Disk {
+        Disk {
             name: "nvme0n1".to_owned(),
             path: "/dev/nvme0n1".to_owned(),
             size_bytes: 1024,
-            model: String::new(),
-            serial: String::new(),
-            wwid: String::new(),
-            bus_path: String::new(),
-            subsystem: String::new(),
-            rotational: false,
-            cdrom: false,
-            removable: false,
-            read_only: false,
-            symlinks: Vec::new(),
-            is_system: false,
-            is_data: false,
-            partitions: Vec::new(),
+            ..Disk::default()
         }
     }
 

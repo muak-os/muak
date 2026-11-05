@@ -7,6 +7,7 @@ use ::disk::plan;
 use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
 use anyhow::{Result, anyhow, bail};
+use blockdev::device;
 use parttable::gpt;
 use parttable::gpt::layout::{Placement, PlacementRequest, Size as PlacementSize, Start};
 use parttable::gpt::partition::Partition as GptPartition;
@@ -15,7 +16,7 @@ use parttable::gpt::table::Table;
 use super::blkpg::{add_partition_blkpg, delete_all_partitions_blkpg};
 use super::constants::SECTOR_SIZE;
 use super::format::wait_for_device;
-use super::gpt::{commit, format_partition_name, uuid_now, verify};
+use super::gpt::{commit, uuid_now, verify};
 use super::size;
 use super::wipe::fast;
 
@@ -97,14 +98,14 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
             placement.partition.ending_lba,
         )?;
 
-        let device = format_partition_name(disk, placement.number);
-        wait_for_device(&device)?;
+        let path = device::partition_path(disk, placement.number);
+        wait_for_device(&path)?;
         applied.push(AppliedPartition {
             role,
             name: placement.partition.name.clone(),
             type_guid: plan::guid(&placement.partition.type_guid),
             size_bytes: partition_bytes(&placement.partition),
-            device,
+            device: path,
         });
     }
 

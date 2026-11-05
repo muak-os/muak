@@ -2,6 +2,7 @@
 
 use ::disk::plan::{Plan as LayoutPlan, Size};
 use anyhow::{Context as _, Result};
+use blockdev::types::Disk;
 use config::system;
 
 use super::layout::plans_from_doc;
@@ -20,8 +21,8 @@ pub(crate) struct PlannedPartition {
 
 /// Everything the install will resolve, create and destroy.
 pub(crate) struct InstallPlan {
-    pub system: disk::types::DiskInfo,
-    pub data: disk::types::DiskInfo,
+    pub system: Disk,
+    pub data: Disk,
     pub shared_data: bool,
     pub wipe: bool,
     pub partitions: Vec<PlannedPartition>,
@@ -34,7 +35,7 @@ pub(crate) async fn resolve(
     force: bool,
     allow_system_disk: bool,
 ) -> Result<InstallPlan> {
-    let inventory = disk::sysfs::list_disks().await?;
+    let inventory = disk::list_disks().await?;
     let targets = disk::target::resolve_with(&config.disks, &inventory)?;
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, !targets.is_split())?;
@@ -60,11 +61,7 @@ pub(crate) async fn resolve(
     })
 }
 
-fn inventory_disk(
-    inventory: &[disk::types::DiskInfo],
-    device: &str,
-    role: &str,
-) -> Result<disk::types::DiskInfo> {
+fn inventory_disk(inventory: &[Disk], device: &str, role: &str) -> Result<Disk> {
     inventory
         .iter()
         .find(|disk| disk.path == device)
@@ -109,24 +106,12 @@ mod tests {
 
     use super::*;
 
-    fn info(path: &str) -> disk::types::DiskInfo {
-        disk::types::DiskInfo {
+    fn info(path: &str) -> Disk {
+        Disk {
             name: path.rsplit('/').next().unwrap_or_default().to_owned(),
             path: path.to_owned(),
             size_bytes: 1024,
-            model: String::new(),
-            serial: String::new(),
-            wwid: String::new(),
-            bus_path: String::new(),
-            subsystem: String::new(),
-            rotational: false,
-            cdrom: false,
-            removable: false,
-            read_only: false,
-            symlinks: Vec::new(),
-            is_system: false,
-            is_data: false,
-            partitions: Vec::new(),
+            ..Disk::default()
         }
     }
 

@@ -3,16 +3,17 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use blockdev::mounts::{self, Mount};
+use blockdev::roots::Roots;
 use rustix::fs::{Mode, mkdir, sync};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount as sys_unmount};
 
-use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
 use super::target::Targets;
 
 /// Retrieves all partitions mounted from the specified disk.
 pub fn get_disk_mounts(disk: &str) -> Vec<Mount> {
-    read_mounts(Path::new(MOUNTS_PATH))
+    mounts::read(&Roots::system().mounts)
         .into_iter()
         .filter(|mount| mount.device.starts_with(disk))
         .collect()

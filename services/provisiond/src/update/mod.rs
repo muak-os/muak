@@ -13,9 +13,9 @@ mod validation;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
-use ::disk::discover::{find_partition_device, parent_disk};
 use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
+use blockdev::discover;
 use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
 use tokio::sync::mpsc;
@@ -23,6 +23,7 @@ use wizard::artifact::Artifact;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
+use crate::disk::roles;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::journal::{self, ChangeKind, Entry};
 use crate::{disk, medium, streaming};
@@ -216,8 +217,8 @@ fn verify_system_disk(configured: &str) -> Result<()> {
     }
 
     let state_device =
-        find_partition_device(Role::State).context("STATE partition not found on any disk")?;
-    let actual = parent_disk(&state_device)
+        roles::device(Role::State).context("STATE partition not found on any disk")?;
+    let actual = discover::parent_disk(&state_device)
         .context("Failed to resolve the disk carrying the STATE partition")?;
 
     let configured = std::fs::canonicalize(configured)

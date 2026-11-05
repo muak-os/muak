@@ -23,6 +23,7 @@ members = [
     "toolchain/sbolt",
     "toolchain/yuki",
 
+    "libs/blockdev",
     "libs/btrfs",
     "libs/config",
     "libs/disk",
@@ -68,6 +69,7 @@ sbolt = { path = "toolchain/sbolt", default-features = false }
 yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
+blockdev = { path = "libs/blockdev" }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }

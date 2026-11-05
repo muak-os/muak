@@ -1,39 +1,4 @@
-//! Type definitions for disk and partition information.
-
-/// Information about a partition on a disk.
-#[derive(Debug, Clone)]
-pub struct PartitionInfo {
-    pub number: u32,
-    pub start_sector: u64,
-    pub size_bytes: u64,
-    pub name: String,
-    pub path: String,
-    pub fstype: String,
-    pub gpt_name: String,
-    pub mount_point: String,
-    pub in_use: bool,
-}
-
-/// Information about a physical disk including all its partitions.
-#[derive(Debug, Clone, Default)]
-pub struct DiskInfo {
-    pub name: String,
-    pub path: String,
-    pub size_bytes: u64,
-    pub model: String,
-    pub serial: String,
-    pub wwid: String,
-    pub bus_path: String,
-    pub subsystem: String,
-    pub rotational: bool,
-    pub cdrom: bool,
-    pub removable: bool,
-    pub read_only: bool,
-    pub symlinks: Vec<String>,
-    pub is_system: bool,
-    pub is_data: bool,
-    pub partitions: Vec<PartitionInfo>,
-}
+//! Type definitions for kernel partition table operations.
 
 /// BLKPG ioctl argument structure for partition operations.
 #[repr(C)]

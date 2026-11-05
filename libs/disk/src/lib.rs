@@ -1,8 +1,7 @@
-//! Disk plans, layouts, and partition discovery.
+//! Disk plans and layouts.
 
 #![warn(missing_docs)]
 
-pub mod discover;
 pub mod error;
 pub mod layout;
 pub mod plan;

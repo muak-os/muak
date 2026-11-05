@@ -1,6 +1,6 @@
 [package]
 name = "disk"
-description = "Disk layout documents, plans, and partition discovery"
+description = "Disk layout documents and plans"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
