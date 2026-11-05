@@ -1,10 +1,12 @@
 //! Cache primitives for the koci pull cache.
 
 use std::collections::HashSet;
+use std::hash::BuildHasher;
 use std::path::Path;
 
 use koci::pull::cache::{
     INGEST_DIR as CACHE_INGEST_DIR, bump_use_count as cache_bump_use_count,
+    is_metadata as cache_is_metadata, is_shared as cache_is_shared,
     shared_digests as cache_shared_digests, use_count as cache_use_count,
 };
 
@@ -15,6 +17,18 @@ pub const INGEST_DIR: &str = CACHE_INGEST_DIR;
 #[must_use]
 pub fn shared_digests(root: &Path) -> HashSet<String> {
     cache_shared_digests(root)
+}
+
+/// Whether `path` holds cache metadata that every cached image depends on.
+#[must_use]
+pub fn is_metadata(root: &Path, path: &Path) -> bool {
+    cache_is_metadata(root, path)
+}
+
+/// Whether `path` is still referenced by something kept in the cache.
+#[must_use]
+pub fn is_shared<S: BuildHasher>(root: &Path, path: &Path, shared: &HashSet<String, S>) -> bool {
+    cache_is_shared(root, path, shared)
 }
 
 /// Number of times the file at `path` has been used.

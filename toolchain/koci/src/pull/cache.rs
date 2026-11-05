@@ -1,6 +1,7 @@
 //! OCI blob cache backed by the local filesystem.
 
 use std::collections::HashSet;
+use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -14,8 +15,20 @@ use rustix::io::Errno;
 /// Subtree holding in-progress ingests, shared with the content store.
 pub const INGEST_DIR: &str = "ingest";
 
+// Subtree holding tag references, keyed by registry, name and tag.
+const REFS_DIR: &str = "refs";
+
 // Subtree holding the digests each cached manifest references.
 const INDEX_DIR: &str = "index";
+
+// Subtree holding committed blobs, grouped by digest algorithm.
+const BLOBS_DIR: &str = "blobs";
+
+// Digest prefix of the only algorithm the cache stores.
+const SHA256_PREFIX: &str = "sha256:";
+
+// Directory name of the only algorithm the cache stores.
+const SHA256_ALGORITHM: &str = "sha256";
 
 // Extended attribute recording how often a cache entry was used.
 const USE_COUNT_XATTR: &str = "user.muak.use_count";
@@ -52,7 +65,7 @@ impl Store {
 
     /// Return a cached manifest.
     pub(crate) fn get_manifest(&self, image: &Image, manifest_ref: &str) -> Option<String> {
-        if manifest_ref.starts_with("sha256:") {
+        if manifest_ref.starts_with(SHA256_PREFIX) {
             let path = self.blob_path(manifest_ref)?;
             let manifest = std::fs::read_to_string(&path).ok()?;
             touch(&path);
@@ -64,12 +77,12 @@ impl Store {
 
     /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
     pub(crate) fn put_manifest(&self, image: &Image, manifest_ref: &str, manifest: &str) {
-        if manifest_ref.starts_with("sha256:") {
+        if manifest_ref.starts_with(SHA256_PREFIX) {
             self.put_blob(manifest_ref, manifest.as_bytes());
             self.put_index(manifest_ref, manifest);
         } else {
             self.put_ref(&image.registry, &image.name, manifest_ref, manifest);
-            let digest = format!("sha256:{}", sha256_hex(manifest.as_bytes()));
+            let digest = format!("{SHA256_PREFIX}{}", sha256_hex(manifest.as_bytes()));
             self.put_index(&digest, manifest);
         }
     }
@@ -108,7 +121,7 @@ impl Store {
         let Some(root) = self.root.as_ref() else {
             return;
         };
-        let Some(hash) = manifest_digest.strip_prefix("sha256:") else {
+        let Some(hash) = manifest_digest.strip_prefix(SHA256_PREFIX) else {
             return;
         };
         let Ok(parsed) = oci::manifest::parse(manifest) else {
@@ -131,7 +144,7 @@ impl Store {
     fn ref_path(&self, registry: &str, name: &str, tag: &str) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
 
-        Some(root.join("refs").join(registry).join(name).join(tag))
+        Some(root.join(REFS_DIR).join(registry).join(name).join(tag))
     }
 }
 
@@ -149,7 +162,7 @@ pub fn shared_digests(root: &Path) -> HashSet<String> {
             continue;
         };
         if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-            digests.insert(format!("sha256:{name}"));
+            digests.insert(format!("{SHA256_PREFIX}{name}"));
         }
         for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
             digests.insert(line.to_owned());
@@ -157,6 +170,26 @@ pub fn shared_digests(root: &Path) -> HashSet<String> {
     }
 
     digests
+}
+
+/// Whether `path` holds cache metadata that every cached image depends on.
+#[must_use]
+pub fn is_metadata(root: &Path, path: &Path) -> bool {
+    matches!(subtree(root, path), Some(REFS_DIR | INDEX_DIR))
+}
+
+/// Whether `path` is still referenced by something kept in the cache.
+#[must_use]
+pub fn is_shared<S: BuildHasher>(root: &Path, path: &Path, shared: &HashSet<String, S>) -> bool {
+    if is_metadata(root, path) {
+        return true;
+    }
+    let Some(hash) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let digest = format!("{SHA256_PREFIX}{hash}");
+
+    shared.contains(&digest) && blob_file_path(Some(root), &digest).as_deref() == Some(path)
 }
 
 /// The recorded use count of a cache entry, or `0` when it carries none.
@@ -225,9 +258,9 @@ pub(crate) fn root() -> Option<PathBuf> {
 /// The filesystem path holding a committed blob, or `None` when `root` is
 /// unset or the digest has no `sha256:` prefix.
 pub(crate) fn blob_file_path(root: Option<&Path>, digest: &str) -> Option<PathBuf> {
-    let hash = digest.strip_prefix("sha256:")?;
+    let hash = digest.strip_prefix(SHA256_PREFIX)?;
 
-    Some(root?.join("blobs").join("sha256").join(hash))
+    Some(root?.join(BLOBS_DIR).join(SHA256_ALGORITHM).join(hash))
 }
 
 fn unsupported() -> bool {
@@ -264,6 +297,13 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
     let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
 
     path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
+}
+
+// Name of the top level subtree holding `path`, or `None` when it is outside `root`.
+fn subtree<'a>(root: &Path, path: &'a Path) -> Option<&'a str> {
+    let relative = path.strip_prefix(root).ok()?;
+
+    relative.components().next()?.as_os_str().to_str()
 }
 
 fn atomic_write(path: &Path, data: &[u8]) {
@@ -613,6 +653,105 @@ mod tests {
 
         // ASSERT
         assert!(digests.is_empty());
+    }
+
+    #[test]
+    fn refs_are_shared_metadata() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("refs/registry/image/tag");
+        let shared = HashSet::new();
+
+        // ACT
+        let metadata = is_metadata(tmp.path(), &path);
+        let kept = is_shared(tmp.path(), &path, &shared);
+
+        // ASSERT
+        assert!(metadata, "refs are cache metadata");
+        assert!(kept, "refs are shared");
+    }
+
+    #[test]
+    fn index_entries_are_shared_metadata() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("index/abcd1234");
+        let shared = HashSet::new();
+
+        // ACT
+        let metadata = is_metadata(tmp.path(), &path);
+        let kept = is_shared(tmp.path(), &path, &shared);
+
+        // ASSERT
+        assert!(metadata, "index entries are cache metadata");
+        assert!(kept, "index entries are shared");
+    }
+
+    #[test]
+    fn blob_is_shared_when_its_digest_is_in_the_set() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("blobs/sha256/abcd1234");
+        let shared: HashSet<String> = ["sha256:abcd1234".to_owned()].into_iter().collect();
+
+        // ACT
+        let metadata = is_metadata(tmp.path(), &path);
+        let kept = is_shared(tmp.path(), &path, &shared);
+
+        // ASSERT
+        assert!(!metadata, "blobs are not cache metadata");
+        assert!(kept, "a blob with a shared digest is kept");
+    }
+
+    #[test]
+    fn manifest_blob_layout_matches_is_shared() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        let manifest = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:layer"}]}"#;
+        let digest = "sha256:manifestdigest";
+
+        // ACT
+        cache.put_manifest(&image, digest, manifest);
+        let path = cache.blob_path(digest).expect("blob path");
+        let shared = shared_digests(tmp.path());
+
+        // ASSERT
+        assert!(
+            is_shared(tmp.path(), &path, &shared),
+            "a manifest written by the store must be shared at its blob path"
+        );
+    }
+
+    #[test]
+    fn blob_is_unshared_without_a_matching_digest() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("blobs/sha256/abcd1234");
+        let shared: HashSet<String> = ["sha256:other".to_owned()].into_iter().collect();
+
+        // ACT
+        let kept = is_shared(tmp.path(), &path, &shared);
+
+        // ASSERT
+        assert!(!kept, "a blob no manifest references is unshared");
+    }
+
+    #[test]
+    fn unrelated_paths_are_not_metadata_nor_shared() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let path = tmp.path().join("misc/abcd1234");
+        let shared: HashSet<String> = ["sha256:abcd1234".to_owned()].into_iter().collect();
+
+        // ACT
+        let metadata = is_metadata(tmp.path(), &path);
+        let kept = is_shared(tmp.path(), &path, &shared);
+
+        // ASSERT
+        assert!(!metadata, "only refs and index are cache metadata");
+        assert!(!kept, "paths outside the layout are unshared");
     }
 
     #[test]

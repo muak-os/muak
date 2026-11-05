@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use wizard::cache::{shared_digests, use_count};
+use wizard::cache::{is_shared, shared_digests, use_count};
 
 use super::INGEST_DIR;
 
@@ -177,23 +177,6 @@ fn collect(
             uses,
             shared,
         });
-    }
-}
-
-fn is_shared(root: &Path, path: &Path, shared: &HashSet<String>) -> bool {
-    let Ok(relative) = path.strip_prefix(root) else {
-        return true;
-    };
-    let Some(component) = relative.components().next() else {
-        return true;
-    };
-    match component.as_os_str().to_str() {
-        Some("refs" | "index") => true,
-        Some("blobs") => path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|hash| shared.contains(&format!("sha256:{hash}"))),
-        _ => false,
     }
 }
 
