@@ -108,8 +108,6 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
-        yes: bool,
-        #[arg(long)]
         allow_system_disk: bool,
     },
     Update {
@@ -334,7 +332,6 @@ mod tests {
             "--config",
             "system.toml",
             "--dry-run",
-            "--yes",
             "--allow-system-disk",
         ])
         .expect("parse install flags");
@@ -343,7 +340,6 @@ mod tests {
         let Commands::Install {
             force,
             dry_run,
-            yes,
             allow_system_disk,
             ..
         } = cli.command
@@ -354,7 +350,6 @@ mod tests {
         // ASSERT
         assert!(!force);
         assert!(dry_run);
-        assert!(yes);
         assert!(allow_system_disk);
     }
 

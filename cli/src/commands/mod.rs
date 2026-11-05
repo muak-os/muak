@@ -236,7 +236,6 @@ async fn handle_cmd(
             force,
             config,
             dry_run,
-            yes,
             allow_system_disk,
         } => {
             let mut client = ProvisionServiceClient::new(channel);
@@ -244,7 +243,6 @@ async fn handle_cmd(
                 force,
                 config,
                 dry_run,
-                yes,
                 allow_system_disk,
             };
             install::handle(&mut client, options, &endpoint, console).await
