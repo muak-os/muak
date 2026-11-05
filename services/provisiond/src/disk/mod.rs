@@ -12,6 +12,7 @@ mod manage;
 mod mount;
 mod pattern;
 pub(crate) mod preflight;
+mod secureboot;
 mod select;
 mod sysfs;
 mod target;
@@ -32,6 +33,7 @@ pub(crate) use manage::{
     delete_partitions, disk_is_non_empty, find_partition_number, has_state_partition,
 };
 pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
+pub(crate) use secureboot::check as secureboot_check;
 pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
 pub(crate) use target::{Targets, resolve, resolve_system, resolve_with};
 pub(crate) use types::{DiskInfo, PartitionInfo};

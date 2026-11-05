@@ -18,7 +18,9 @@ pub(crate) struct PlannedPartition {
 
 /// Everything the install will resolve, create and destroy.
 pub(crate) struct InstallPlan {
+    /// Always populated: both disks are resolved from the inventory before planning.
     pub system: Option<disk::DiskInfo>,
+    /// Always populated, and the system disk itself when data shares it.
     pub data: Option<disk::DiskInfo>,
     pub shared_data: bool,
     pub wipe: bool,
@@ -41,10 +43,12 @@ pub(crate) async fn resolve(
     let data = inventory_disk(&inventory, targets.data(), "data")?;
 
     let checked = targets.clone();
-    let checks =
-        tokio::task::spawn_blocking(move || preflight::checks(&checked, force, allow_system_disk))
-            .await
-            .context("preflight task")?;
+    let secureboot = config.host.secureboot;
+    let checks = tokio::task::spawn_blocking(move || {
+        preflight::checks(&checked, force, allow_system_disk, secureboot)
+    })
+    .await
+    .context("preflight task")?;
 
     Ok(InstallPlan {
         system: Some(system),

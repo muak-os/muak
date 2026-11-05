@@ -1,44 +1,27 @@
 //! Install preflight checks shared by the dry-run plan and the installer.
 
+mod check;
+
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+pub(crate) use check::Check;
 use rustix::fs::sync;
 
 use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
 use super::mount::{get_disk_mounts, unmount_all};
 use super::{
     Role, Targets, disk_is_non_empty, find_partition_device, has_state_partition, parent_disk,
-    validate_block_device, validate_disk_size,
+    secureboot_check, validate_block_device, validate_disk_size,
 };
 
-/// Outcome of one install preflight check.
-pub(crate) struct Check {
-    pub name: &'static str,
-    pub passed: bool,
-    pub detail: String,
-}
-
-impl Check {
-    pub(crate) fn pass(name: &'static str, detail: String) -> Self {
-        Self {
-            name,
-            passed: true,
-            detail,
-        }
-    }
-
-    pub(crate) fn fail(name: &'static str, detail: String) -> Self {
-        Self {
-            name,
-            passed: false,
-            detail,
-        }
-    }
-}
-
 /// Runs every preflight check against the resolved install targets.
-pub(crate) fn checks(targets: &Targets, force: bool, allow_system_disk: bool) -> Vec<Check> {
+pub(crate) fn checks(
+    targets: &Targets,
+    force: bool,
+    allow_system_disk: bool,
+    secureboot: bool,
+) -> Vec<Check> {
     let mut checks = vec![not_installed(force)];
     checks.extend(disk_checks(&targets.system, force));
     if targets.is_split() {
@@ -49,6 +32,7 @@ pub(crate) fn checks(targets: &Targets, force: bool, allow_system_disk: bool) ->
         running_system_disk().as_deref(),
         allow_system_disk,
     ));
+    checks.push(secureboot_check(secureboot));
 
     checks
 }
