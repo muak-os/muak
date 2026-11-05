@@ -3,6 +3,7 @@
 mod apply;
 mod attrs;
 mod blkpg;
+pub(crate) mod checks;
 mod constants;
 mod foreign;
 mod format;
@@ -32,7 +33,7 @@ pub(crate) use guard::validate as validate_wipe;
 pub(crate) use manage::{
     delete_partitions, disk_is_non_empty, find_partition_number, has_state_partition,
 };
-pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition};
+pub(crate) use mount::{mount_efi_partition, try_unmount, unmount_partition, unmount_targets};
 pub(crate) use secureboot::check as secureboot_check;
 pub(crate) use sysfs::{list_disks, validate_block_device, validate_disk_size};
 pub(crate) use target::{Targets, resolve, resolve_system, resolve_with};

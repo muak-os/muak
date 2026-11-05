@@ -151,7 +151,7 @@ async fn validate_disks(
     tokio::task::spawn_blocking(move || {
         let checks = disk::preflight::checks(&targets, force, allow_system_disk, secureboot);
         check::enforce(&checks)?;
-        disk::preflight::unmount_targets(&targets)
+        disk::unmount_targets(&targets)
     })
     .await??;
 
