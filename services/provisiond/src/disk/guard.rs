@@ -2,7 +2,7 @@
 
 use anyhow::{Result, bail};
 
-use super::checks::{running_system_disk, system_disk_in_use};
+use super::checks;
 use super::foreign::{self, Paths};
 use super::types::DiskInfo;
 use crate::check::Check;
@@ -43,7 +43,7 @@ pub(crate) fn validate_in(
     let disk = find(disks, name)?;
     let checks = checks(
         disk,
-        running_system_disk().as_deref(),
+        checks::running_system_disk().as_deref(),
         allow_system_disk,
         paths,
     );
@@ -67,7 +67,7 @@ pub(crate) fn validate_in(
 fn checks(disk: &DiskInfo, running: Option<&str>, allow: bool, paths: &Paths<'_>) -> Vec<Check> {
     let mut checks = vec![
         read_only(disk),
-        system_disk_in_use(&disk.path, running, allow),
+        checks::system_disk_in_use(&disk.path, running, allow),
         mounted_partitions(disk, allow),
         muak_partitions(disk, allow),
     ];
