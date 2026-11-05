@@ -2,16 +2,24 @@
 
 use std::collections::HashSet;
 use std::hash::BuildHasher;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use koci::pull::cache::{
     INGEST_DIR as CACHE_INGEST_DIR, bump_use_count as cache_bump_use_count,
-    is_metadata as cache_is_metadata, is_shared as cache_is_shared,
+    is_metadata as cache_is_metadata, is_shared as cache_is_shared, root as cache_root,
     shared_digests as cache_shared_digests, use_count as cache_use_count,
 };
 
 /// Subtree holding in-progress ingests, which the content store collects itself.
 pub const INGEST_DIR: &str = CACHE_INGEST_DIR;
+
+/// The cache root koci resolves, honors `MUAK_KOCI_CACHE` and the configured directory.
+///
+/// `None` means the pull cache is disabled.
+#[must_use]
+pub fn root() -> Option<PathBuf> {
+    cache_root()
+}
 
 /// Digests still referenced by images in the cache.
 #[must_use]

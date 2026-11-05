@@ -253,7 +253,8 @@ pub fn bump_use_count(path: &Path) {
 /// 1. `MUAK_KOCI_CACHE` environment variable (highest priority)
 /// 2. [`Store::set_dir`]
 /// 3. `None`: both caches are disabled
-pub(crate) fn root() -> Option<PathBuf> {
+#[must_use]
+pub fn root() -> Option<PathBuf> {
     std::env::var("MUAK_KOCI_CACHE")
         .ok()
         .map(PathBuf::from)
