@@ -76,9 +76,13 @@ impl Store {
     }
 
     /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
+    ///
+    /// Digest references are anchored under the image's ref path as well, so cache
+    /// retention reaches the manifests pulled by digest and everything they reference.
     pub(crate) fn put_manifest(&self, image: &Image, manifest_ref: &str, manifest: &str) {
         if manifest_ref.starts_with(SHA256_PREFIX) {
             self.put_blob(manifest_ref, manifest.as_bytes());
+            self.put_ref(&image.registry, &image.name, manifest_ref, manifest);
             self.put_index(manifest_ref, manifest);
         } else {
             self.put_ref(&image.registry, &image.name, manifest_ref, manifest);
@@ -148,25 +152,19 @@ impl Store {
     }
 }
 
-/// Every digest referenced by the manifests indexed under `root`.
+/// Every digest reachable from the tag references under `root`.
 #[must_use]
 pub fn shared_digests(root: &Path) -> HashSet<String> {
     let mut digests = HashSet::new();
-    let Ok(entries) = std::fs::read_dir(root.join(INDEX_DIR)) else {
-        return digests;
-    };
+    let mut pending = Vec::new();
+    ref_manifest_digests(&root.join(REFS_DIR), &mut pending);
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(text) = std::fs::read_to_string(&path) else {
+    while let Some(digest) = pending.pop() {
+        if digests.contains(&digest) {
             continue;
-        };
-        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-            digests.insert(format!("{SHA256_PREFIX}{name}"));
         }
-        for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
-            digests.insert(line.to_owned());
-        }
+        pending.extend(index_digests(root, &digest));
+        digests.insert(digest);
     }
 
     digests
@@ -181,15 +179,22 @@ pub fn is_metadata(root: &Path, path: &Path) -> bool {
 /// Whether `path` is still referenced by something kept in the cache.
 #[must_use]
 pub fn is_shared<S: BuildHasher>(root: &Path, path: &Path, shared: &HashSet<String, S>) -> bool {
-    if is_metadata(root, path) {
+    if matches!(subtree(root, path), Some(REFS_DIR)) {
         return true;
     }
     let Some(hash) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
     let digest = format!("{SHA256_PREFIX}{hash}");
+    if !shared.contains(&digest) {
+        return false;
+    }
 
-    shared.contains(&digest) && blob_file_path(Some(root), &digest).as_deref() == Some(path)
+    match subtree(root, path) {
+        Some(INDEX_DIR) => root.join(INDEX_DIR).join(hash) == path,
+        Some(BLOBS_DIR) => blob_file_path(Some(root), &digest).as_deref() == Some(path),
+        _ => false,
+    }
 }
 
 /// The recorded use count of a cache entry, or `0` when it carries none.
@@ -297,6 +302,44 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
     let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
 
     path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
+}
+
+// Push the digest of every tag ref manifest stored under `dir`.
+fn ref_manifest_digests(dir: &Path, digests: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            ref_manifest_digests(&path, digests);
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        digests.push(format!("{SHA256_PREFIX}{}", sha256_hex(&bytes)));
+    }
+}
+
+// Every digest recorded in the index file of `digest`, or nothing when it has none.
+fn index_digests(root: &Path, digest: &str) -> Vec<String> {
+    let Some(hash) = digest.strip_prefix(SHA256_PREFIX) else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(root.join(INDEX_DIR).join(hash)) else {
+        return Vec::new();
+    };
+
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 // Name of the top level subtree holding `path`, or `None` when it is outside `root`.
@@ -623,23 +666,98 @@ mod tests {
     }
 
     #[test]
-    fn shared_digests_returns_indexed_digests() {
+    fn shared_digests_follows_tag_refs() {
         // ARRANGE
         let tmp = TempDir::new().expect("temp dir");
         let cache = new_cache(&tmp);
         let image = Image::parse("ghcr.io/org/image:v1");
         let manifest = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:layer"}]}"#;
+        let ref_digest = format!("sha256:{}", sha256_hex(manifest.as_bytes()));
 
         // ACT
-        cache.put_manifest(&image, "sha256:multi", manifest);
         cache.put_manifest(&image, "v1", manifest);
         let digests = shared_digests(tmp.path());
 
         // ASSERT
-        assert!(digests.contains("sha256:multi"), "index files are shared");
+        assert!(
+            digests.contains(&ref_digest),
+            "the digest of a tag ref manifest is shared"
+        );
         assert!(
             digests.contains("sha256:layer"),
             "referenced digests are shared"
+        );
+    }
+
+    #[test]
+    fn shared_digests_skips_orphan_index_files() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let manifest = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:orphaned"}]}"#;
+
+        // ACT
+        cache.put_index("sha256:orphan", manifest);
+        let digests = shared_digests(tmp.path());
+        let path = tmp.path().join("index/orphan");
+
+        // ASSERT
+        assert!(
+            !digests.contains("sha256:orphan"),
+            "an index file no anchored manifest reaches must not share its digest"
+        );
+        assert!(
+            !is_shared(tmp.path(), &path, &digests),
+            "an orphan index file is unshared"
+        );
+    }
+
+    #[test]
+    fn deleting_the_tag_ref_unshares_everything() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        let manifest = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:layer"}]}"#;
+        cache.put_manifest(&image, "v1", manifest);
+        let ref_path = cache
+            .ref_path("ghcr.io", "org/image", "v1")
+            .expect("ref path");
+
+        // ACT
+        std::fs::remove_file(&ref_path).expect("remove ref");
+        let digests = shared_digests(tmp.path());
+
+        // ASSERT
+        assert!(
+            digests.is_empty(),
+            "without a tag ref nothing is shared any more"
+        );
+    }
+
+    #[test]
+    fn shared_digests_follows_a_manifest_list_child() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        let child = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:childlayer"}]}"#;
+        let child_digest = format!("sha256:{}", sha256_hex(child.as_bytes()));
+        cache.put_manifest(&image, &child_digest, child);
+        let list = format!(r#"{{"schemaVersion":2,"manifests":[{{"digest":"{child_digest}"}}]}}"#);
+
+        // ACT
+        cache.put_manifest(&image, "v1", &list);
+        let digests = shared_digests(tmp.path());
+
+        // ASSERT
+        assert!(
+            digests.contains(&child_digest),
+            "the child manifest of a manifest list is shared"
+        );
+        assert!(
+            digests.contains("sha256:childlayer"),
+            "digests of the child manifest are shared"
         );
     }
 
@@ -684,7 +802,10 @@ mod tests {
 
         // ASSERT
         assert!(metadata, "index entries are cache metadata");
-        assert!(kept, "index entries are shared");
+        assert!(
+            !kept,
+            "an index entry whose manifest digest is absent is unshared"
+        );
     }
 
     #[test]
@@ -710,17 +831,50 @@ mod tests {
         let cache = new_cache(&tmp);
         let image = Image::parse("ghcr.io/org/image:v1");
         let manifest = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:layer"}]}"#;
-        let digest = "sha256:manifestdigest";
+        let digest = format!("sha256:{}", sha256_hex(manifest.as_bytes()));
+        cache.put_manifest(&image, &digest, manifest);
 
         // ACT
-        cache.put_manifest(&image, digest, manifest);
-        let path = cache.blob_path(digest).expect("blob path");
+        let path = cache.blob_path(&digest).expect("blob path");
         let shared = shared_digests(tmp.path());
 
         // ASSERT
         assert!(
             is_shared(tmp.path(), &path, &shared),
             "a manifest written by the store must be shared at its blob path"
+        );
+    }
+
+    #[test]
+    fn digest_pinned_pull_stays_shared() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image@sha256:abc");
+        let manifest = r#"{"schemaVersion":2,"config":{"digest":"sha256:cfg"},"layers":[{"digest":"sha256:layer"}]}"#;
+        let digest = format!("sha256:{}", sha256_hex(manifest.as_bytes()));
+
+        // ACT
+        cache.put_manifest(&image, &digest, manifest);
+        let digests = shared_digests(tmp.path());
+
+        // ASSERT
+        let blob = cache.blob_path(&digest).expect("blob path");
+        let index = tmp
+            .path()
+            .join("index")
+            .join(digest.trim_start_matches(SHA256_PREFIX));
+        assert!(
+            is_shared(tmp.path(), &blob, &digests),
+            "a manifest pulled by digest is shared at its blob path"
+        );
+        assert!(
+            is_shared(tmp.path(), &index, &digests),
+            "the index entry of a digest-pinned manifest is shared"
+        );
+        assert!(
+            digests.contains("sha256:cfg") && digests.contains("sha256:layer"),
+            "the config and layers of a digest-pinned manifest are shared"
         );
     }
 
