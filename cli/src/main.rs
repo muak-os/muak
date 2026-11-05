@@ -125,7 +125,11 @@ pub enum Commands {
         yes: bool,
     },
     Reboot,
-    Shutdown,
+    Shutdown {
+        /// Skip the interactive confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
     Disks {
         #[arg(long, global = true)]
         wide: bool,
@@ -400,6 +404,21 @@ mod tests {
 
         // ASSERT
         assert!(dry_run);
+        assert!(yes);
+    }
+
+    #[test]
+    fn shutdown_flags_parse() {
+        // ARRANGE
+        let cli =
+            Cli::try_parse_from(["muakctl", "shutdown", "--yes"]).expect("parse shutdown flags");
+
+        // ACT
+        let Commands::Shutdown { yes } = cli.command else {
+            panic!("expected the shutdown command");
+        };
+
+        // ASSERT
         assert!(yes);
     }
 

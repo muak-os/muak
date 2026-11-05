@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+mod consent;
 pub mod context;
 pub mod disks;
 pub mod dmesg;
@@ -186,7 +187,7 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
         | Commands::Logs { .. }
         | Commands::Reset { .. }
         | Commands::Reboot
-        | Commands::Shutdown
+        | Commands::Shutdown { .. }
         | Commands::Version => Ok(false),
     }
 }
@@ -290,9 +291,9 @@ async fn handle_cmd(
             let mut client = ProvisionServiceClient::new(channel);
             power::reboot(&mut client, console).await
         }
-        Commands::Shutdown => {
+        Commands::Shutdown { yes } => {
             let mut client = ProvisionServiceClient::new(channel);
-            power::shutdown(&mut client, console).await
+            power::shutdown(&mut client, console, yes).await
         }
         Commands::Version => version::handle(channel, console).await,
         Commands::Context { .. } => bail!("Command not handled"),
