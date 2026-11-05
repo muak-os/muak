@@ -10,8 +10,8 @@ use crate::install::plan::{InstallPlan as DomainPlan, PlannedPartition as Domain
 /// Converts an install plan into its protobuf representation.
 pub(crate) fn to_install_plan(plan: DomainPlan) -> InstallPlan {
     InstallPlan {
-        system_disk: plan.system.map(to_disk_info),
-        data_disk: plan.data.map(to_disk_info),
+        system_disk: Some(to_disk_info(plan.system)),
+        data_disk: Some(to_disk_info(plan.data)),
         shared_data: plan.shared_data,
         wipe: plan.wipe,
         partitions: plan

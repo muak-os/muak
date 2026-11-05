@@ -19,10 +19,8 @@ pub(crate) struct PlannedPartition {
 
 /// Everything the install will resolve, create and destroy.
 pub(crate) struct InstallPlan {
-    /// Always populated: both disks are resolved from the inventory before planning.
-    pub system: Option<disk::DiskInfo>,
-    /// Always populated, and the system disk itself when data shares it.
-    pub data: Option<disk::DiskInfo>,
+    pub system: disk::DiskInfo,
+    pub data: disk::DiskInfo,
     pub shared_data: bool,
     pub wipe: bool,
     pub partitions: Vec<PlannedPartition>,
@@ -52,8 +50,8 @@ pub(crate) async fn resolve(
     .context("preflight task")?;
 
     Ok(InstallPlan {
-        system: Some(system),
-        data: Some(data),
+        system,
+        data,
         shared_data: !targets.is_split(),
         wipe: doc.wipe(),
         partitions: planned(&targets, &system_plan, data_plan.as_ref()),
