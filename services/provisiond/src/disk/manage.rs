@@ -10,6 +10,7 @@ use parttable::mbr::read;
 use super::blkpg::delete_partition_blkpg;
 use super::constants::SECTOR_SIZE;
 use super::gpt::commit;
+use super::size;
 
 /// Returns `true` when `disk` contains GPT or MBR partition state.
 pub fn disk_is_non_empty(disk: &str) -> Result<bool> {
@@ -65,11 +66,7 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
         kmsg::info!("Removed partition {} from GPT", partition_num);
     }
 
-    let sc = file
-        .metadata()
-        .map_or(0, |meta| meta.len())
-        .checked_div(SECTOR_SIZE)
-        .unwrap_or(0);
+    let sc = size::bytes(&file)?.checked_div(SECTOR_SIZE).unwrap_or(0);
     commit(&mut file, &gpt, sc)?;
     drop(file);
 
@@ -85,7 +82,7 @@ pub fn delete_partitions(disk: &str, partitions: &[u32]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::fs::OpenOptions;
-    use std::io::Write as _;
+    use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 
     use parttable::gpt::partition::{LINUX_FS_GUID, Partition};
     use parttable::gpt::table::Table;
@@ -260,6 +257,36 @@ mod tests {
 
         // ASSERT
         assert_eq!(result, u32::MAX);
+    }
+
+    #[test]
+    fn delete_partitions_keeps_gpt_structurally_valid() {
+        // ARRANGE
+        let disk = disk_with_partitions(&["EFI", "STATE"]);
+        let path = disk.path().to_str().expect("path");
+
+        // ACT
+        let _cleanup = delete_partitions(path, &[2]);
+
+        // ASSERT
+        let mut file = File::open(disk.path()).expect("open");
+        let gpt = gpt::io::read(&mut file).expect("GPT must stay readable");
+        assert!(!gpt.is_partition_used(2), "deleted partition must be gone");
+        assert!(gpt.is_partition_used(1), "kept partition must survive");
+
+        let mut sector = [0_u8; 512];
+        file.seek(SeekFrom::Start(0)).expect("rewind");
+        file.read_exact(&mut sector).expect("read protective mbr");
+        assert_eq!(
+            sector.get(510..512),
+            Some(&[0x55, 0xAA][..]),
+            "protective MBR boot signature must survive the commit"
+        );
+        assert_eq!(
+            sector.get(450),
+            Some(&0xEE),
+            "protective MBR partition type must survive the commit"
+        );
     }
 
     #[test]

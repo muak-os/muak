@@ -13,6 +13,7 @@ pub(crate) mod manage;
 pub(crate) mod mount;
 mod pattern;
 mod select;
+pub(crate) mod size;
 pub(crate) mod sysfs;
 pub(crate) mod target;
 pub(crate) mod types;

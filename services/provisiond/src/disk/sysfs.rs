@@ -1,6 +1,5 @@
 //! Sysfs-based disk and partition discovery utilities.
 
-use std::io::Seek as _;
 use std::os::unix::fs::FileTypeExt as _;
 use std::path::Path;
 
@@ -12,6 +11,7 @@ use super::attrs::{
     read_sysfs_string, read_sysfs_u64,
 };
 use super::constants::{GB, MB, MIN_DISK_SIZE, SECTOR_SIZE};
+use super::size;
 use super::types::{DiskInfo, PartitionInfo};
 
 /// Path of the block device tree, one directory per disk.
@@ -22,8 +22,8 @@ pub(crate) const SYSFS_CLASS_BLOCK_ROOT: &str = "/sys/class/block";
 
 /// Validates that a disk meets minimum size requirements.
 pub fn validate_disk_size(disk: &str) -> Result<()> {
-    let mut file = std::fs::File::open(disk)?;
-    let disk_size = file.seek(std::io::SeekFrom::End(0))?;
+    let file = std::fs::File::open(disk)?;
+    let disk_size = size::bytes(&file)?;
 
     if disk_size < MIN_DISK_SIZE {
         bail!(

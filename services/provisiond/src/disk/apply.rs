@@ -1,12 +1,12 @@
 //! Generic executor that materializes a declarative plan onto a physical disk.
 
 use std::fs::{File, OpenOptions};
-use std::io::Seek as _;
+use std::io::{Seek as _, SeekFrom};
 
 use ::disk::plan;
 use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use parttable::gpt;
 use parttable::gpt::layout::{Placement, PlacementRequest, Size as PlacementSize, Start};
 use parttable::gpt::partition::Partition as GptPartition;
@@ -16,6 +16,7 @@ use super::blkpg::{add_partition_blkpg, delete_all_partitions_blkpg};
 use super::constants::SECTOR_SIZE;
 use super::format::wait_for_device;
 use super::gpt::{commit, format_partition_name, uuid_now, verify};
+use super::size;
 use super::wipe::fast;
 
 /// Deterministic disk GUID used so provisioned disks share a stable identifier.
@@ -124,16 +125,33 @@ fn partition_bytes(partition: &GptPartition) -> u64 {
 }
 
 fn load_table(file: &mut File, sector_count: u64, wipe: bool) -> Result<Table> {
+    file.seek(SeekFrom::Start(0))?;
+
     if wipe {
         return Ok(Table::create(sector_count, SECTOR_SIZE, DISK_GUID)?);
     }
 
-    match gpt::io::read(file) {
-        Ok(table) => Ok(table),
-        Err(error) => Err(anyhow!(
-            "no partition table found; cannot append to a blank disk: {error}"
-        )),
+    let table = gpt::io::read(file).map_err(|error| {
+        anyhow!("no partition table found; cannot append to a blank disk: {error}")
+    })?;
+
+    if table
+        .partitions()
+        .any(|(_, partition)| partition.name == Role::State.gpt_name())
+    {
+        bail!("disk already holds a Muak STATE partition; wipe it before applying a plan");
     }
+
+    let device = Table::create(sector_count, SECTOR_SIZE, DISK_GUID)?;
+    if table.last_usable_lba() > device.last_usable_lba() {
+        bail!(
+            "partition table claims usable LBA {} but the device only has {} sectors",
+            table.last_usable_lba(),
+            sector_count
+        );
+    }
+
+    Ok(table)
 }
 
 fn place_all(gpt: &mut Table, plan: &Plan) -> Result<Vec<(Placement, Option<Role>)>> {
@@ -161,9 +179,105 @@ fn placement_size(size: Size) -> PlacementSize {
     }
 }
 
+// Returns the open disk with its cursor still at the start, plus its byte size.
 fn open_disk_rw(disk: &str) -> Result<(File, u64)> {
-    let mut file = OpenOptions::new().read(true).write(true).open(disk)?;
-    let size = file.seek(std::io::SeekFrom::End(0))?;
+    let file = OpenOptions::new().read(true).write(true).open(disk)?;
+    let size = size::bytes(&file)?;
 
     Ok((file, size))
+}
+
+#[cfg(test)]
+mod tests {
+    use parttable::gpt::partition::{LINUX_FS_GUID, Partition};
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    // Creates a disk image of `sector_count` sectors holding a GPT with `names`.
+    fn disk_with_table(sector_count: u64, names: &[&str]) -> NamedTempFile {
+        let mut disk = NamedTempFile::new().expect("temp file");
+        disk.as_file()
+            .set_len(sector_count.saturating_mul(SECTOR_SIZE))
+            .expect("resize");
+        let mut table = Table::create(sector_count, SECTOR_SIZE, DISK_GUID).expect("table");
+
+        for (index, name) in names.iter().enumerate() {
+            let offset = u64::try_from(index).unwrap_or(0);
+            let starting_lba = 2048_u64.saturating_add(offset.saturating_mul(4096));
+            table.set_partition(
+                u32::try_from(offset.saturating_add(1)).unwrap_or(0),
+                Partition {
+                    type_guid: LINUX_FS_GUID,
+                    unique_guid: [u8::try_from(offset).unwrap_or(0); 16],
+                    starting_lba,
+                    ending_lba: starting_lba.saturating_add(4095),
+                    attributes: 0,
+                    name: (*name).to_owned(),
+                },
+            );
+        }
+
+        commit(disk.as_file_mut(), &table, sector_count).expect("commit table");
+        disk
+    }
+
+    fn open(disk: &NamedTempFile) -> File {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(disk.path())
+            .expect("open disk")
+    }
+
+    #[test]
+    fn load_table_rejects_geometry_larger_than_device() {
+        // ARRANGE
+        let disk = disk_with_table(0x0002_0000, &[]);
+        disk.as_file()
+            .set_len(32 * 1024 * 1024)
+            .expect("truncate disk");
+        let mut file = open(&disk);
+
+        // ACT
+        let result = load_table(&mut file, 0x0001_0000, false);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "a table authored for a larger disk must not be appended to"
+        );
+    }
+
+    #[test]
+    fn load_table_rejects_already_provisioned_disk() {
+        // ARRANGE
+        let disk = disk_with_table(0x0002_0000, &[Role::State.gpt_name()]);
+        let mut file = open(&disk);
+
+        // ACT
+        let result = load_table(&mut file, 0x0002_0000, false);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "re-provisioning must not append a second Muak partition set"
+        );
+    }
+
+    #[test]
+    fn load_table_keeps_foreign_partitions() {
+        // ARRANGE
+        let disk = disk_with_table(0x0002_0000, &["Apple_APFS"]);
+        let mut file = open(&disk);
+
+        // ACT
+        let table = load_table(&mut file, 0x0002_0000, false).expect("foreign table must load");
+
+        // ASSERT
+        assert!(
+            table.is_partition_used(1),
+            "preserved platform partitions must survive"
+        );
+    }
 }

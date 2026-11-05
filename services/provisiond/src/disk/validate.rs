@@ -1,9 +1,8 @@
-use std::io::{Seek as _, SeekFrom};
-
 use ::disk::plan::{Plan, Size};
 use anyhow::{Context as _, Result, bail};
 
 use super::constants::MB;
+use super::size;
 
 /// Validates that a disk is large enough for the plan.
 ///
@@ -49,10 +48,10 @@ fn required_bytes(plan: &Plan) -> u64 {
 }
 
 fn disk_size(disk: &str) -> Result<u64> {
-    let mut file = std::fs::File::open(disk)
+    let file = std::fs::File::open(disk)
         .with_context(|| format!("Failed to open '{disk}' for size probe"))?;
 
-    Ok(file.seek(SeekFrom::End(0))?)
+    size::bytes(&file)
 }
 
 #[cfg(test)]

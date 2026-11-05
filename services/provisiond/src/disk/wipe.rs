@@ -10,6 +10,7 @@ use super::constants::MB;
 use super::guard::Target;
 use super::manage::delete_partitions;
 use super::mount::{get_disk_mounts, unmount_all};
+use super::size;
 
 const ZERO_CHUNK: usize = 16 * 1024;
 const HEAD_BYTES: u64 = 10 * MB;
@@ -122,7 +123,7 @@ fn drop_entries(target: &Target) -> Result<()> {
 
 fn write(disk: &str, method: Method) -> Result<()> {
     let mut file = OpenOptions::new().read(true).write(true).open(disk)?;
-    let size = file.seek(std::io::SeekFrom::End(0))?;
+    let size = size::bytes(&file)?;
     file.seek(std::io::SeekFrom::Start(0))?;
 
     overwrite(&mut file, size, method)?;
