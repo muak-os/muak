@@ -149,7 +149,9 @@ pub async fn handle(
     }
 
     if let Some(message) = noop {
-        steps.complete(message.as_str());
+        steps.finish()?;
+        console.success(&message);
+
         return Ok(());
     }
 
