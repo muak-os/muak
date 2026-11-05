@@ -1292,6 +1292,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mount"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "kmsg",
+ "rustix",
+ "tempfile",
+]
+
+[[package]]
 name = "muakctl"
 version = "0.0.0"
 dependencies = [
@@ -1785,6 +1795,7 @@ dependencies = [
  "kmsg",
  "libc",
  "luks2",
+ "mount",
  "parttable",
  "pki",
  "prost",

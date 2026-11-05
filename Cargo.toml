@@ -31,6 +31,7 @@ members = [
     "libs/kmod",
     "libs/kmsg",
     "libs/luks2",
+    "libs/mount",
     "libs/pki",
     "libs/tpm2",
     "libs/tui",
@@ -79,6 +80,7 @@ granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
+mount = { path = "libs/mount" }
 netlib = { path = "libs/netlib" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }

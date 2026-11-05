@@ -1,17 +1,12 @@
 //! Volume pipeline: partitioning, LUKS formatting, mapping and btrfs creation.
 
-use std::path::Path;
-
-use anyhow::{Context as _, Result, bail};
-use rustix::fs::{Mode, mkdir, sync};
-use rustix::io::Errno;
-use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
+use anyhow::{Context as _, Result};
 use tokio::sync::mpsc;
 
 use super::layout::plans_from_doc;
 use super::send_progress;
+use crate::disk;
 use crate::ipc::proto::provision::InstallProgress;
-use crate::{cache, disk};
 
 // dm-crypt mapping name for the STATE volume.
 const DM_STATE: &str = disk::Role::State.dm_name();
@@ -102,37 +97,6 @@ pub(super) async fn format_btrfs(mapped: &Mapped) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn mount_ephemeral(device: &str) -> Result<()> {
-    if !Path::new(device).exists() {
-        bail!("EPHEMERAL device {device} does not exist");
-    }
-
-    create_mount_point(cache::EPHEMERAL_MOUNT)?;
-
-    mount(
-        device,
-        cache::EPHEMERAL_MOUNT,
-        "btrfs",
-        MountFlags::empty(),
-        None,
-    )
-    .with_context(|| {
-        format!(
-            "Failed to mount EPHEMERAL partition {device} at {}",
-            cache::EPHEMERAL_MOUNT
-        )
-    })
-}
-
-pub(super) fn unmount_ephemeral() {
-    sync();
-
-    match unmount(cache::EPHEMERAL_MOUNT, UnmountFlags::empty()) {
-        Ok(()) | Err(Errno::NOENT | Errno::INVAL) => {}
-        Err(error) => kmsg::warn!("Failed to unmount {}: {}", cache::EPHEMERAL_MOUNT, error),
-    }
-}
-
 pub(super) fn close_luks() -> Result<()> {
     let mut failure = None;
     for name in [DM_DATA, DM_EPHEMERAL, DM_STATE] {
@@ -213,44 +177,8 @@ async fn btrfs_format(device: &str, role: disk::Role) -> Result<()> {
     .await
 }
 
-fn create_mount_point(path: &str) -> Result<()> {
-    match mkdir(path, Mode::RWXU | Mode::RWXG | Mode::ROTH) {
-        Ok(()) | Err(Errno::EXIST) => Ok(()),
-        Err(error) => bail!("Failed to create mount point {path}: {error}"),
-    }
-}
-
 async fn flatten_join_result<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
     handle
         .await
         .map_err(|e| anyhow::anyhow!("Task panicked: {e}"))?
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mount_ephemeral_rejects_missing_device() {
-        // ACT
-        let result = mount_ephemeral("/dev/mapper/nonexistent-ephemeral");
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn create_mount_point_reuses_existing_directory() {
-        // ARRANGE
-        let dir = tempfile::tempdir().expect("temp dir must be created");
-        let path = dir.path().join("ephemeral");
-        let mount_point = path.to_str().expect("temp path must be UTF-8");
-
-        // ACT
-        create_mount_point(mount_point).expect("first creation must succeed");
-        create_mount_point(mount_point).expect("reuse must succeed");
-
-        // ASSERT
-        assert!(path.is_dir());
-    }
 }

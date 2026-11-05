@@ -40,6 +40,7 @@ parttable = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
+mount = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }

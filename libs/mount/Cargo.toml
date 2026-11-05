@@ -1,0 +1,26 @@
+[package]
+name = "mount"
+description = "Mount and unmount helpers"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Error handling
+anyhow = { workspace = true }
+
+# Internal
+kmsg = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
