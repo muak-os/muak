@@ -13,7 +13,6 @@ pub(crate) const DIR: &str = "/run/ephemeral/koci";
 /// Mount point of the EPHEMERAL partition.
 pub(crate) const EPHEMERAL_MOUNT: &str = "/run/ephemeral";
 
-// Btrfs `f_type` magic reported by statfs.
 const BTRFS_MAGIC: i64 = 0x9123_683E;
 
 /// Configures the koci pull cache under the EPHEMERAL partition.
@@ -22,8 +21,6 @@ pub(crate) fn init() {
 }
 
 /// Whether the filesystem hosting the koci pull cache supports it.
-///
-/// An unresolved root falls back to the EPHEMERAL mount.
 pub(crate) fn available() -> bool {
     let root = wizard::cache::root();
 
@@ -51,7 +48,6 @@ pub(crate) fn enforce() {
     prune::enforce(&root, total, free);
 }
 
-// The path whose filesystem hosts the cache, falling back to the EPHEMERAL mount.
 fn host(root: Option<&Path>) -> &Path {
     root.unwrap_or(Path::new(EPHEMERAL_MOUNT))
 }

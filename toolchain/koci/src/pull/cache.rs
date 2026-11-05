@@ -15,35 +15,21 @@ use rustix::io::Errno;
 /// Subtree holding in-progress ingests, shared with the content store.
 pub const INGEST_DIR: &str = "ingest";
 
-// Subtree holding tag references, keyed by registry, name and tag.
 const REFS_DIR: &str = "refs";
-
-// Subtree holding the digests each cached manifest references.
 const INDEX_DIR: &str = "index";
-
-// Subtree holding committed blobs, grouped by digest algorithm.
 const BLOBS_DIR: &str = "blobs";
-
-// Digest prefix of the only algorithm the cache stores.
 const SHA256_PREFIX: &str = "sha256:";
-
-// Directory name of the only algorithm the cache stores.
 const SHA256_ALGORITHM: &str = "sha256";
-
-// Extended attribute recording how often a cache entry was used.
 const USE_COUNT_XATTR: &str = "user.muak.use_count";
 
-// Process-wide xattr capability, learned from the first filesystem reply.
 const XATTR_UNKNOWN: u8 = 0;
 const XATTR_SUPPORTED: u8 = 1;
 const XATTR_UNSUPPORTED: u8 = 2;
 
 static XATTR_STATE: AtomicU8 = AtomicU8::new(XATTR_UNKNOWN);
 
-/// Cache directory configuration.
 static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-/// Sequence number for unique temporary filenames.
 static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// A local filesystem cache for OCI blobs and tag-to-manifest mappings.
@@ -75,10 +61,7 @@ impl Store {
         self.get_ref(&image.registry, &image.name, manifest_ref)
     }
 
-    /// Store a manifest as a blob for digest references and under the image's ref path for tag references.
-    ///
-    /// Digest references are anchored under the image's ref path as well, so cache
-    /// retention reaches the manifests pulled by digest and everything they reference.
+    /// Store a manifest and anchor its digest for cache retention.
     pub(crate) fn put_manifest(&self, image: &Image, manifest_ref: &str, manifest: &str) {
         if manifest_ref.starts_with(SHA256_PREFIX) {
             self.put_blob(manifest_ref, manifest.as_bytes());
@@ -103,7 +86,6 @@ impl Store {
         blob_file_path(self.root.as_deref(), digest)
     }
 
-    // Return cached manifest JSON for a tag reference.
     fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
         let path = self.ref_path(registry, name, tag)?;
         let manifest = std::fs::read_to_string(&path).ok()?;
@@ -112,7 +94,6 @@ impl Store {
         Some(manifest)
     }
 
-    /// Store manifest JSON for a tag reference.
     fn put_ref(&self, registry: &str, name: &str, tag: &str, manifest: &str) {
         let Some(path) = self.ref_path(registry, name, tag) else {
             return;
@@ -120,7 +101,6 @@ impl Store {
         atomic_write(&path, manifest.as_bytes());
     }
 
-    // Record every digest `manifest` references under `manifest_digest`.
     fn put_index(&self, manifest_digest: &str, manifest: &str) {
         let Some(root) = self.root.as_ref() else {
             return;
@@ -247,12 +227,7 @@ pub fn bump_use_count(path: &Path) {
     }
 }
 
-/// The cache root shared by the manifest cache and the content store.
-///
-/// Resolution order:
-/// 1. `MUAK_KOCI_CACHE` environment variable (highest priority)
-/// 2. [`Store::set_dir`]
-/// 3. `None`: both caches are disabled
+/// The resolved cache root, or `None` when both caches are disabled.
 #[must_use]
 pub fn root() -> Option<PathBuf> {
     std::env::var("MUAK_KOCI_CACHE")
@@ -261,8 +236,7 @@ pub fn root() -> Option<PathBuf> {
         .or_else(|| CACHE_DIR.get().cloned().flatten())
 }
 
-/// The filesystem path holding a committed blob, or `None` when `root` is
-/// unset or the digest has no `sha256:` prefix.
+/// The filesystem path for a committed blob digest.
 pub(crate) fn blob_file_path(root: Option<&Path>, digest: &str) -> Option<PathBuf> {
     let hash = digest.strip_prefix(SHA256_PREFIX)?;
 
@@ -273,7 +247,6 @@ fn unsupported() -> bool {
     XATTR_STATE.load(Ordering::Relaxed) == XATTR_UNSUPPORTED
 }
 
-// Map a failed xattr call to the capability state it implies.
 fn classify(errno: Errno) -> Option<u8> {
     match errno {
         Errno::NODATA => Some(XATTR_SUPPORTED),
@@ -305,7 +278,6 @@ pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{}.part.{seq}", std::process::id()))
 }
 
-// Push the digest of every tag ref manifest stored under `dir`.
 fn ref_manifest_digests(dir: &Path, digests: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -327,7 +299,6 @@ fn ref_manifest_digests(dir: &Path, digests: &mut Vec<String>) {
     }
 }
 
-// Every digest recorded in the index file of `digest`, or nothing when it has none.
 fn index_digests(root: &Path, digest: &str) -> Vec<String> {
     let Some(hash) = digest.strip_prefix(SHA256_PREFIX) else {
         return Vec::new();
@@ -343,7 +314,6 @@ fn index_digests(root: &Path, digest: &str) -> Vec<String> {
         .collect()
 }
 
-// Name of the top level subtree holding `path`, or `None` when it is outside `root`.
 fn subtree<'a>(root: &Path, path: &'a Path) -> Option<&'a str> {
     let relative = path.strip_prefix(root).ok()?;
 

@@ -13,9 +13,7 @@ use koci::pull::cache::{
 /// Subtree holding in-progress ingests, which the content store collects itself.
 pub const INGEST_DIR: &str = CACHE_INGEST_DIR;
 
-/// The cache root koci resolves, honors `MUAK_KOCI_CACHE` and the configured directory.
-///
-/// `None` means the pull cache is disabled.
+/// The resolved cache root, or `None` when the cache is disabled.
 #[must_use]
 pub fn root() -> Option<PathBuf> {
     cache_root()

@@ -9,10 +9,8 @@ use wizard::cache::{is_metadata, is_shared, shared_digests, use_count};
 
 use super::INGEST_DIR;
 
-// Unshared entries older than this are always removed.
 const KEEP_DURATION: Duration = Duration::from_hours(60 * 24);
 
-// Hard caps applied to the limits derived from the filesystem size.
 const MAX_RESERVED: u64 = 10 * 1024 * 1024 * 1024;
 const MAX_USED: u64 = 100 * 1024 * 1024 * 1024;
 
@@ -48,6 +46,7 @@ struct Stats {
     removed_bytes: u64,
 }
 
+/// Enforces the cache eviction policy.
 pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
     let ingest = root.join(INGEST_DIR);
     let shared = shared_digests(root);
@@ -74,8 +73,6 @@ pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
     });
     let mut fired = stats.removed_files > 0;
 
-    // Unshared entries go first, then blobs, then refs and index metadata, so the sweeps
-    // free bytes before tiny files.
     entries.sort_by_key(|entry| (entry.shared, entry.metadata, entry.modified, entry.uses));
 
     let keep = keep_bytes(stats.unshared_used, free, &limits);
