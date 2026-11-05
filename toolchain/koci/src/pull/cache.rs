@@ -107,7 +107,7 @@ impl Store {
     fn get_ref(&self, registry: &str, name: &str, tag: &str) -> Option<String> {
         let path = self.ref_path(registry, name, tag)?;
         let manifest = std::fs::read_to_string(&path).ok()?;
-        bump_use_count(&path);
+        touch(&path);
 
         Some(manifest)
     }
@@ -621,6 +621,39 @@ mod tests {
             count.saturating_add(1),
             "every touch must bump the use count"
         );
+    }
+
+    #[test]
+    fn tag_ref_reads_refresh_mtime_and_use_count() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let cache = new_cache(&tmp);
+        let image = Image::parse("ghcr.io/org/image:v1");
+        cache.put_manifest(&image, "v1", "{}");
+        let path = cache
+            .ref_path("ghcr.io", "org/image", "v1")
+            .expect("ref path");
+        let old = SystemTime::now()
+            .checked_sub(std::time::Duration::from_hours(2))
+            .expect("old timestamp");
+        let file = std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open ref");
+        file.set_modified(old).expect("set mtime");
+        drop(file);
+
+        // ACT
+        let cached = cache.get_manifest(&image, "v1");
+
+        // ASSERT
+        let modified = std::fs::metadata(&path)
+            .expect("ref meta")
+            .modified()
+            .expect("ref mtime");
+        assert_eq!(cached.as_deref(), Some("{}"));
+        assert!(modified > old, "a tag hit must refresh the ref mtime");
+        assert_eq!(use_count(&path), 1, "a tag hit must bump the ref use count");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use wizard::cache::{is_shared, shared_digests, use_count};
+use wizard::cache::{is_metadata, is_shared, shared_digests, use_count};
 
 use super::INGEST_DIR;
 
@@ -38,6 +38,7 @@ struct Entry {
     size: u64,
     uses: u64,
     shared: bool,
+    metadata: bool,
 }
 
 struct Stats {
@@ -73,7 +74,9 @@ pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
     });
     let mut fired = stats.removed_files > 0;
 
-    entries.sort_by_key(|entry| (entry.modified, entry.uses));
+    // Unshared entries go first, then blobs, then refs and index metadata, so the sweeps
+    // free bytes before tiny files.
+    entries.sort_by_key(|entry| (entry.shared, entry.metadata, entry.modified, entry.uses));
 
     let keep = keep_bytes(stats.unshared_used, free, &limits);
     if stats.unshared_used > keep {
@@ -162,20 +165,22 @@ fn collect(
             collect(root, &path, ingest, shared, entries);
             continue;
         }
-        let Ok(metadata) = entry.metadata() else {
+        let Ok(meta) = entry.metadata() else {
             continue;
         };
-        let Ok(modified) = metadata.modified() else {
+        let Ok(modified) = meta.modified() else {
             continue;
         };
         let shared = is_shared(root, &path, shared);
         let uses = use_count(&path);
+        let metadata = is_metadata(root, &path);
         entries.push(Entry {
             path,
             modified,
-            size: metadata.len(),
+            size: meta.len(),
             uses,
             shared,
+            metadata,
         });
     }
 }
@@ -213,7 +218,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use tempfile::TempDir;
-    use wizard::cache::bump_use_count;
+    use wizard::cache::{bump_use_count, shared_digests};
 
     use super::{Limits, enforce, keep_bytes};
     use crate::cache::INGEST_DIR;
@@ -241,6 +246,19 @@ mod tests {
 
     fn ingest_path(name: &str) -> String {
         format!("{INGEST_DIR}/{name}")
+    }
+
+    fn shared_ref(root: &Path, relative: &str, manifest: &[u8]) -> String {
+        write(root, relative, manifest);
+        let digest = shared_digests(root)
+            .into_iter()
+            .next()
+            .expect("ref manifest digest");
+
+        digest
+            .strip_prefix("sha256:")
+            .expect("sha256 digest")
+            .to_owned()
     }
 
     #[test]
@@ -336,6 +354,29 @@ mod tests {
         // ASSERT
         assert!(!cold.exists(), "the least used entry is evicted first");
         assert!(hot.exists());
+    }
+
+    #[test]
+    fn shared_blobs_are_evicted_before_shared_refs() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let root = tmp.path();
+        let manifest = br#"{"schemaVersion":2}"#;
+        let reference = root.join("refs/registry/name/tag");
+        let digest = shared_ref(root, "refs/registry/name/tag", manifest);
+        let index = write(root, &format!("index/{digest}"), b"sha256:abc\n");
+        let blob = write(root, "blobs/sha256/abc", &[0; 1100]);
+        set_modified(&reference, aged(Duration::from_hours(4)));
+        set_modified(&index, aged(Duration::from_hours(3)));
+        set_modified(&blob, aged(Duration::from_hours(1)));
+
+        // ACT
+        enforce(root, 4000, 0);
+
+        // ASSERT
+        assert!(!blob.exists(), "the blob yields its bytes first");
+        assert!(index.exists(), "a shared index outlives the blob it names");
+        assert!(reference.exists(), "a shared tag ref survives the sweep");
     }
 
     #[test]
