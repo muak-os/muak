@@ -508,10 +508,7 @@ dependencies = [
 name = "disk"
 version = "0.0.0"
 dependencies = [
- "anyhow",
- "kmsg",
  "parttable",
- "rustix",
  "serde",
  "tempfile",
  "thiserror 2.0.21",

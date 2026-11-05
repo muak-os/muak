@@ -76,7 +76,7 @@ async fn install_volumes(
 ) -> Result<InstallResult> {
     let mapped = volumes::open_luks(partitions, luks_key).await?;
     volumes::format_btrfs(&mapped).await?;
-    disk::ephemeral(&mapped.ephemeral, cache::EPHEMERAL_MOUNT)?;
+    disk::mount_ephemeral(&mapped.ephemeral, cache::EPHEMERAL_MOUNT)?;
 
     cache::init();
     cache::enforce();
