@@ -3,8 +3,9 @@
 use anyhow::{Result, bail};
 
 use super::foreign::{self, Paths};
-use super::preflight::{self, Check};
+use super::preflight;
 use super::types::DiskInfo;
+use crate::check::Check;
 
 /// A disk cleared for wiping together with the partitions it carries.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -18,7 +18,7 @@ use uki::measure::MeasuredSection;
 use wizard::domain::profile::Profile;
 
 use crate::ipc::proto::provision::InstallProgress;
-use crate::{cache, disk, medium, secrets, streaming};
+use crate::{cache, check, disk, medium, secrets, streaming};
 
 struct PkiResult {
     client_result: InstallResult,
@@ -150,7 +150,7 @@ async fn validate_disks(
 
     tokio::task::spawn_blocking(move || {
         let checks = disk::preflight::checks(&targets, force, allow_system_disk, secureboot);
-        disk::preflight::enforce(&checks)?;
+        check::enforce(&checks)?;
         disk::preflight::unmount_targets(&targets)
     })
     .await??;

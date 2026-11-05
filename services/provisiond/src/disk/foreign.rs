@@ -5,10 +5,10 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::preflight::Check;
 use super::sysfs::{SYSFS_BLOCK_ROOT, SYSFS_CLASS_BLOCK_ROOT};
 use super::types::DiskInfo;
 use super::{Role, parent_disk_in};
+use crate::check::Check;
 
 /// Path of the kernel swap table.
 pub(crate) const SWAPS_PATH: &str = "/proc/swaps";

@@ -1,11 +1,8 @@
 //! Install preflight checks shared by the dry-run plan and the installer.
 
-mod check;
-
 use std::path::Path;
 
-use anyhow::{Context as _, Result, bail};
-pub(crate) use check::Check;
+use anyhow::{Context as _, Result};
 use rustix::fs::sync;
 
 use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
@@ -14,6 +11,7 @@ use super::{
     Role, Targets, disk_is_non_empty, find_partition_device, has_state_partition, parent_disk,
     secureboot_check, validate_block_device, validate_disk_size,
 };
+use crate::check::Check;
 
 /// Runs every preflight check against the resolved install targets.
 pub(crate) fn checks(
@@ -35,21 +33,6 @@ pub(crate) fn checks(
     checks.push(secureboot_check(secureboot));
 
     checks
-}
-
-/// Returns an error listing every refusing check, if any.
-pub(crate) fn enforce(checks: &[Check]) -> Result<()> {
-    let refused: Vec<&str> = checks
-        .iter()
-        .filter(|check| !check.passed)
-        .map(|check| check.detail.as_str())
-        .collect();
-
-    if refused.is_empty() {
-        return Ok(());
-    }
-
-    bail!("{}", refused.join("; "))
 }
 
 /// Unmounts every filesystem on the targets so partitioning can proceed.
@@ -226,10 +209,6 @@ mod tests {
 
     use super::*;
 
-    fn passing(name: &'static str) -> Check {
-        Check::pass(name, "ok".to_owned())
-    }
-
     #[test]
     fn device_checks_short_circuit_when_the_device_is_missing() {
         // ARRANGE
@@ -311,35 +290,5 @@ mod tests {
         // ASSERT
         assert!(check.passed, "{}", check.detail);
         assert!(check.detail.contains("could not be determined"));
-    }
-
-    #[test]
-    fn enforce_accepts_passing_checks() {
-        // ARRANGE
-        let checks = vec![passing("device_exists"), passing("disk_size")];
-
-        // ACT
-        let result = enforce(&checks);
-
-        // ASSERT
-        result.expect("passing checks must be accepted");
-    }
-
-    #[test]
-    fn enforce_reports_every_refusal() {
-        // ARRANGE
-        let checks = vec![
-            passing("device_exists"),
-            Check::fail("disk_size", "too small".to_owned()),
-            Check::fail("empty_disk", "not empty".to_owned()),
-        ];
-
-        // ACT
-        let error = enforce(&checks).expect_err("refusals must fail");
-
-        // ASSERT
-        let message = error.to_string();
-        assert!(message.contains("too small"), "{message}");
-        assert!(message.contains("not empty"), "{message}");
     }
 }

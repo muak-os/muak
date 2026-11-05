@@ -1,6 +1,6 @@
 //! Secure Boot key enrollment check shared by the dry-run plan and the installer.
 
-use super::preflight::Check;
+use crate::check::Check;
 
 /// Refuses Secure Boot key enrollment when the firmware is not in Setup Mode.
 pub(crate) fn check(secureboot: bool) -> Check {

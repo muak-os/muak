@@ -5,8 +5,8 @@ use anyhow::{Context as _, Result};
 use config::system;
 
 use super::layout::plans_from_doc;
-use crate::disk::preflight::{self, Check};
-use crate::disk::{self, Targets};
+use crate::check::Check;
+use crate::disk::{self, Targets, preflight};
 
 /// One partition the install will place.
 pub(crate) struct PlannedPartition {
