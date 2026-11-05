@@ -3,10 +3,10 @@
 use std::io::{Read as _, Seek as _};
 use std::path::Path;
 
+use ::disk::role::Role;
 use anyhow::Result;
 use tokio::fs;
 
-use super::Role;
 use super::constants::SECTOR_SIZE;
 use super::types::PartitionInfo;
 

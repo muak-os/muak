@@ -19,13 +19,13 @@ pub fn mount(efi_device: &str) -> Result<()> {
         bail!("EFI device {efi_device} does not exist");
     }
 
-    disk::mount_efi_partition(efi_device, MOUNT_POINT)
+    disk::mount::efi(efi_device, MOUNT_POINT)
 }
 
 /// Syncs filesystem buffers and unmounts the EFI partition.
 pub fn unmount() {
     sync();
-    disk::try_unmount(MOUNT_POINT);
+    disk::mount::try_unmount(MOUNT_POINT);
 }
 
 /// Opens a new file at `relative_path` under `esp_root` for writing.

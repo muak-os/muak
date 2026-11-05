@@ -2,12 +2,13 @@
 
 use std::path::Path;
 
+use ::disk::discover::{find_partition_device, parent_disk};
+use ::disk::role::Role;
+
 use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
+use super::manage::{disk_is_non_empty, has_state_partition};
 use super::mount::get_disk_mounts;
-use super::{
-    Role, disk_is_non_empty, find_partition_device, has_state_partition, parent_disk,
-    validate_block_device, validate_disk_size,
-};
+use super::sysfs::{validate_block_device, validate_disk_size};
 use crate::check::Check;
 
 pub(crate) fn for_device(device: &str, force: bool) -> Vec<Check> {

@@ -4,7 +4,7 @@ use super::proto::provision::{DiskInfo, PartitionInfo};
 use crate::disk;
 
 /// Converts a discovered disk into its protobuf representation.
-pub(crate) fn to_disk_info(disk: disk::DiskInfo) -> DiskInfo {
+pub(crate) fn to_disk_info(disk: disk::types::DiskInfo) -> DiskInfo {
     DiskInfo {
         name: disk.name,
         path: disk.path,
@@ -26,7 +26,7 @@ pub(crate) fn to_disk_info(disk: disk::DiskInfo) -> DiskInfo {
 }
 
 /// Converts a discovered partition into its protobuf representation.
-pub(crate) fn to_partition_info(partition: disk::PartitionInfo) -> PartitionInfo {
+pub(crate) fn to_partition_info(partition: disk::types::PartitionInfo) -> PartitionInfo {
     PartitionInfo {
         number: partition.number,
         start_sector: partition.start_sector,
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn to_disk_info_maps_the_inventory_fields() {
         // ARRANGE
-        let disk = disk::DiskInfo {
+        let disk = disk::types::DiskInfo {
             name: "sda".to_owned(),
             path: "/dev/sda".to_owned(),
             size_bytes: 4096,
@@ -63,7 +63,7 @@ mod tests {
             symlinks: vec!["/dev/disk/by-id/sda".to_owned()],
             is_system: true,
             is_data: true,
-            partitions: vec![disk::PartitionInfo {
+            partitions: vec![disk::types::PartitionInfo {
                 number: 1,
                 start_sector: 2048,
                 size_bytes: 1024,

@@ -3,11 +3,12 @@
 use std::io::ErrorKind;
 use std::path::Path;
 
+use ::disk::discover::parent_disk_in;
+use ::disk::role::Role;
 use anyhow::{Context as _, Result};
 
 use super::sysfs::{SYSFS_BLOCK_ROOT, SYSFS_CLASS_BLOCK_ROOT};
 use super::types::DiskInfo;
-use super::{Role, parent_disk_in};
 use crate::check::Check;
 
 /// Path of the kernel swap table.
@@ -150,7 +151,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::disk::PartitionInfo;
+    use crate::disk::types::PartitionInfo;
 
     fn disk(name: &str) -> DiskInfo {
         DiskInfo {

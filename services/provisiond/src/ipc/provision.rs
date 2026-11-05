@@ -213,7 +213,7 @@ impl ProvisionService for ServiceImpl {
         &self,
         _request: Request<ListDisksRequest>,
     ) -> Result<Response<ListDisksResponse>, Status> {
-        let disks = disk::list_disks()
+        let disks = disk::sysfs::list_disks()
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
 
@@ -232,10 +232,10 @@ impl ProvisionService for ServiceImpl {
         let req = request.into_inner();
         let method = wipe_method(req.method)?;
 
-        let disks = disk::list_disks()
+        let disks = disk::sysfs::list_disks()
             .await
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
-        let verdict = disk::validate_wipe(&disks, &req.disk, req.allow_system_disk)
+        let verdict = disk::guard::validate(&disks, &req.disk, req.allow_system_disk)
             .map_err(|e| Status::failed_precondition(format!("{e:#}")))?;
         let refusal = check::enforce(&verdict.checks)
             .err()
@@ -246,14 +246,14 @@ impl ProvisionService for ServiceImpl {
             return Ok(Response::new(response));
         }
 
-        let options = disk::WipeOptions {
+        let options = disk::wipe::Options {
             method,
             drop_partition: req.drop_partition,
             _allow_system_disk: req.allow_system_disk,
             dry_run: req.dry_run,
         };
 
-        match task::spawn_blocking(move || disk::run_wipe(&verdict.target, options)).await {
+        match task::spawn_blocking(move || disk::wipe::run(&verdict.target, options)).await {
             Ok(Ok(message)) => response.message = message,
             Ok(Err(e)) => {
                 response.success = false;
@@ -455,7 +455,7 @@ pub fn service() -> ProvisionServiceServer<ServiceImpl> {
 
 fn wipe_response(
     refusal: Option<String>,
-    disk: disk::DiskInfo,
+    disk: disk::types::DiskInfo,
     checks: Vec<Check>,
 ) -> WipeDiskResponse {
     WipeDiskResponse {
@@ -481,10 +481,10 @@ fn parse_install_config(config_bytes: Vec<u8>) -> Result<config::system::Config,
     Ok(config)
 }
 
-fn wipe_method(value: i32) -> Result<disk::WipeMethod, Status> {
+fn wipe_method(value: i32) -> Result<disk::wipe::Method, Status> {
     match ProtoWipeMethod::try_from(value) {
-        Ok(ProtoWipeMethod::Fast) => Ok(disk::WipeMethod::Fast),
-        Ok(ProtoWipeMethod::Zeroes) => Ok(disk::WipeMethod::Zeroes),
+        Ok(ProtoWipeMethod::Fast) => Ok(disk::wipe::Method::Fast),
+        Ok(ProtoWipeMethod::Zeroes) => Ok(disk::wipe::Method::Zeroes),
         Err(_) => Err(Status::invalid_argument("unknown wipe method")),
     }
 }
@@ -502,8 +502,8 @@ fn extract_author<T>(request: &Request<T>) -> String {
 mod tests {
     use super::*;
 
-    fn disk() -> disk::DiskInfo {
-        disk::DiskInfo {
+    fn disk() -> disk::types::DiskInfo {
+        disk::types::DiskInfo {
             name: "nvme0n1".to_owned(),
             path: "/dev/nvme0n1".to_owned(),
             size_bytes: 1024,

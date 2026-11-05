@@ -20,7 +20,7 @@ pub fn wait_for_device(device: &str) -> Result<()> {
 }
 
 /// Formats a partition as FAT32 for EFI System Partition use.
-pub fn format_efi_partition(device: &str) -> Result<()> {
+pub fn efi(device: &str) -> Result<()> {
     kmsg::info!("Formatting {} as FAT32", device);
 
     wait_for_device(device)?;
@@ -38,7 +38,7 @@ pub fn format_efi_partition(device: &str) -> Result<()> {
 }
 
 /// Formats a partition as Btrfs with the specified label.
-pub fn format_btrfs_partition(device: &str, label: &str) -> Result<()> {
+pub fn btrfs(device: &str, label: &str) -> Result<()> {
     kmsg::info!("Formatting {} as btrfs with label '{}'", device, label);
 
     wait_for_device(device)?;

@@ -63,7 +63,7 @@ impl AppliedPlan {
 ///
 /// Returns an error when the plan cannot be materialized or devices fail to
 /// appear.
-pub(crate) fn apply_plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
+pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
     kmsg::info!(
         "Applying partition plan to {} ({} partitions, wipe={})",
         disk,

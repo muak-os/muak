@@ -250,8 +250,9 @@ fn is_physical_disk(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use ::disk::role::Role;
+
     use super::*;
-    use crate::disk::Role;
 
     #[test]
     fn is_physical_disk_rejects_loop_devices() {

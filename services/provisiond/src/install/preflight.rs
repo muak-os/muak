@@ -4,8 +4,8 @@ use std::path::Path;
 
 use super::secureboot;
 use crate::check::Check;
-use crate::disk::Targets;
 use crate::disk::checks::{for_device, running_system_disk, system_disk_in_use};
+use crate::disk::target::Targets;
 
 /// Runs every preflight check against the resolved install targets.
 pub(crate) fn checks(

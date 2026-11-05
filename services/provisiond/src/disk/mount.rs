@@ -5,10 +5,10 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use rustix::fs::{Mode, mkdir, sync};
 use rustix::io::Errno;
-use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
+use rustix::mount::{MountFlags, UnmountFlags, mount, unmount as sys_unmount};
 
-use super::Targets;
 use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
+use super::target::Targets;
 
 /// Retrieves all partitions mounted from the specified disk.
 pub fn get_disk_mounts(disk: &str) -> Vec<Mount> {
@@ -24,7 +24,7 @@ pub fn unmount_all(partitions: &[Mount]) -> Result<()> {
     sorted.sort_by_key(|mount| core::cmp::Reverse(mount.mount_point.len()));
 
     for mount in sorted {
-        unmount(mount.mount_point.as_str(), UnmountFlags::empty()).with_context(|| {
+        sys_unmount(mount.mount_point.as_str(), UnmountFlags::empty()).with_context(|| {
             format!(
                 "Failed to unmount {} from {}",
                 mount.device, mount.mount_point
@@ -54,7 +54,7 @@ pub(crate) fn ephemeral(device: &str, mount_point: &str) -> Result<()> {
 
     sync();
 
-    match unmount(mount_point, UnmountFlags::empty()) {
+    match sys_unmount(mount_point, UnmountFlags::empty()) {
         Ok(()) | Err(Errno::NOENT | Errno::INVAL) => {}
         Err(error) => bail!(
             "Mount point {mount_point} is already mounted and could not be unmounted: {error}"
@@ -69,17 +69,17 @@ pub(crate) fn ephemeral(device: &str, mount_point: &str) -> Result<()> {
 
 /// Unmounts `mount_point`, logging a warning instead of returning an error.
 pub(crate) fn try_unmount(mount_point: &str) {
-    if let Err(error) = unmount_partition(mount_point) {
+    if let Err(error) = unmount(mount_point) {
         kmsg::warn!("Failed to unmount {}: {}", mount_point, error);
     }
 }
 
 /// Unmounts `mount_point`, treating an absent mount as success.
-pub(crate) fn unmount_partition(mount_point: &str) -> Result<()> {
+pub(crate) fn unmount(mount_point: &str) -> Result<()> {
     kmsg::info!("Unmounting {}", mount_point);
     sync();
 
-    match unmount(mount_point, UnmountFlags::empty()) {
+    match sys_unmount(mount_point, UnmountFlags::empty()) {
         Ok(()) => {
             kmsg::info!("Unmounted {}", mount_point);
             Ok(())
@@ -155,7 +155,7 @@ mod tests {
         let mount_point = "/run/nonexistent-mount";
 
         // ACT
-        let result = unmount_partition(mount_point);
+        let result = unmount(mount_point);
 
         // ASSERT
         assert!(result.is_ok(), "an absent mount must unmount successfully");
