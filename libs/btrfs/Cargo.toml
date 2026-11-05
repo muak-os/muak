@@ -13,6 +13,9 @@ categories.workspace = true
 # Error handling
 thiserror = { workspace = true }
 
+# Internal
+blockdev = { workspace = true }
+
 # Filesystem
 crc32c = { workspace = true }
 

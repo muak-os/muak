@@ -21,6 +21,10 @@ pub enum BtrfsError {
     #[error("System error: {0}")]
     Errno(#[from] Errno),
 
+    /// Block device inspection error.
+    #[error("Block device error: {0}")]
+    Blockdev(#[from] blockdev::error::BlockdevError),
+
     /// Subvolume operation failed.
     #[error("Failed to {operation} subvolume {path}: {source}")]
     Subvolume {

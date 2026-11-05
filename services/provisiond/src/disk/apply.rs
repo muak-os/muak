@@ -1,24 +1,20 @@
 //! Generic executor that materializes a declarative plan onto a physical disk.
 
 use std::fs::{File, OpenOptions};
-use std::io::{Seek as _, SeekFrom};
 
 use ::disk::plan;
 use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
 use anyhow::{Result, anyhow, bail};
 use blockdev::device;
-use parttable::gpt;
+use partdev::{blkpg, clear, table};
 use parttable::gpt::layout::{Placement, PlacementRequest, Size as PlacementSize, Start};
 use parttable::gpt::partition::Partition as GptPartition;
 use parttable::gpt::table::Table;
 
-use super::blkpg::{add_partition_blkpg, delete_all_partitions_blkpg};
 use super::constants::SECTOR_SIZE;
 use super::format::wait_for_device;
-use super::gpt::{commit, uuid_now, verify};
-use super::size;
-use super::wipe::fast;
+use super::gpt::{uuid_now, verify};
 
 /// Deterministic disk GUID used so provisioned disks share a stable identifier.
 const DISK_GUID: [u8; 16] = [0xff; 16];
@@ -74,29 +70,38 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
     );
 
     if plan.wipe {
-        delete_all_partitions_blkpg(disk)?;
-        fast(disk)?;
+        kmsg::info!("Removing all existing partitions from kernel for {}", disk);
+        let removed = blkpg::delete_all(disk)?;
+        super::log_removed(disk, &removed);
+        clear::fast(disk)?;
     }
 
-    let (mut file, disk_size) = open_disk_rw(disk)?;
-    let sector_count = disk_size.checked_div(SECTOR_SIZE).unwrap_or(0);
-    let mut gpt = load_table(&mut file, sector_count, plan.wipe)?;
+    let file = open_disk_rw(disk)?;
+    let sector_count = table::sector_count(&file)?;
+    let mut gpt = load_table(&file, sector_count, plan.wipe)?;
 
     let created = place_all(&mut gpt, plan)?;
 
-    commit(&mut file, &gpt, sector_count)?;
+    table::commit(&file, &gpt, sector_count)?;
     drop(file);
     verify(disk);
 
     let mut applied = Vec::new();
 
     for (placement, role) in created {
-        add_partition_blkpg(
+        kmsg::info!(
+            "Adding partition {} using BLKPG ioctl (LBA {} to {})",
+            placement.number,
+            placement.partition.starting_lba,
+            placement.partition.ending_lba
+        );
+        blkpg::add(
             disk,
             placement.number,
             placement.partition.starting_lba,
             placement.partition.ending_lba,
         )?;
+        kmsg::info!("BLKPG: Successfully added partition {}", placement.number);
 
         let path = device::partition_path(disk, placement.number);
         wait_for_device(&path)?;
@@ -125,14 +130,12 @@ fn partition_bytes(partition: &GptPartition) -> u64 {
         .unwrap_or(0)
 }
 
-fn load_table(file: &mut File, sector_count: u64, wipe: bool) -> Result<Table> {
-    file.seek(SeekFrom::Start(0))?;
-
+fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<Table> {
     if wipe {
         return Ok(Table::create(sector_count, SECTOR_SIZE, DISK_GUID)?);
     }
 
-    let table = gpt::io::read(file).map_err(|error| {
+    let table = table::read(file).map_err(|error| {
         anyhow!("no partition table found; cannot append to a blank disk: {error}")
     })?;
 
@@ -180,12 +183,8 @@ fn placement_size(size: Size) -> PlacementSize {
     }
 }
 
-// Returns the open disk with its cursor still at the start, plus its byte size.
-fn open_disk_rw(disk: &str) -> Result<(File, u64)> {
-    let file = OpenOptions::new().read(true).write(true).open(disk)?;
-    let size = size::bytes(&file)?;
-
-    Ok((file, size))
+fn open_disk_rw(disk: &str) -> Result<File> {
+    Ok(OpenOptions::new().read(true).write(true).open(disk)?)
 }
 
 #[cfg(test)]
@@ -197,7 +196,7 @@ mod tests {
 
     // Creates a disk image of `sector_count` sectors holding a GPT with `names`.
     fn disk_with_table(sector_count: u64, names: &[&str]) -> NamedTempFile {
-        let mut disk = NamedTempFile::new().expect("temp file");
+        let disk = NamedTempFile::new().expect("temp file");
         disk.as_file()
             .set_len(sector_count.saturating_mul(SECTOR_SIZE))
             .expect("resize");
@@ -219,7 +218,8 @@ mod tests {
             );
         }
 
-        commit(disk.as_file_mut(), &table, sector_count).expect("commit table");
+        partdev::table::commit(disk.as_file(), &table, sector_count).expect("commit table");
+
         disk
     }
 
@@ -238,10 +238,10 @@ mod tests {
         disk.as_file()
             .set_len(32 * 1024 * 1024)
             .expect("truncate disk");
-        let mut file = open(&disk);
+        let file = open(&disk);
 
         // ACT
-        let result = load_table(&mut file, 0x0001_0000, false);
+        let result = load_table(&file, 0x0001_0000, false);
 
         // ASSERT
         assert!(
@@ -254,10 +254,10 @@ mod tests {
     fn load_table_rejects_already_provisioned_disk() {
         // ARRANGE
         let disk = disk_with_table(0x0002_0000, &[Role::State.gpt_name()]);
-        let mut file = open(&disk);
+        let file = open(&disk);
 
         // ACT
-        let result = load_table(&mut file, 0x0002_0000, false);
+        let result = load_table(&file, 0x0002_0000, false);
 
         // ASSERT
         assert!(
@@ -270,10 +270,10 @@ mod tests {
     fn load_table_keeps_foreign_partitions() {
         // ARRANGE
         let disk = disk_with_table(0x0002_0000, &["Apple_APFS"]);
-        let mut file = open(&disk);
+        let file = open(&disk);
 
         // ACT
-        let table = load_table(&mut file, 0x0002_0000, false).expect("foreign table must load");
+        let table = load_table(&file, 0x0002_0000, false).expect("foreign table must load");
 
         // ASSERT
         assert!(

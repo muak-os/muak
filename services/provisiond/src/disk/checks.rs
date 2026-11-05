@@ -7,11 +7,11 @@ use anyhow::{Result, bail};
 use blockdev::mounts::{self, Mount};
 use blockdev::roots::Roots;
 use blockdev::{device, discover};
+use partdev::manage;
 
 use super::constants::{GB, MB, MIN_DISK_SIZE};
-use super::manage::{disk_is_non_empty, has_state_partition};
 use super::mount::get_disk_mounts;
-use super::{roles, size};
+use super::roles;
 use crate::check::Check;
 
 pub(crate) fn for_device(device: &str, force: bool) -> Vec<Check> {
@@ -68,7 +68,7 @@ pub(crate) fn running_system_disk() -> Option<String> {
 /// Returns an error when `disk` is smaller than the minimum install size.
 pub(crate) fn validate_disk_size(disk: &str) -> Result<()> {
     let file = std::fs::File::open(disk)?;
-    let disk_size = size::bytes(&file)?;
+    let disk_size = device::size(&file)?;
 
     if disk_size < MIN_DISK_SIZE {
         bail!(
@@ -167,8 +167,12 @@ fn no_muak_install(device: &str, force: bool) -> Check {
     }
 }
 
+fn has_state_partition(device: &str) -> Result<bool> {
+    Ok(manage::partition_number(device, Role::State.gpt_name())?.is_some())
+}
+
 fn empty_disk(device: &str, force: bool) -> Check {
-    match disk_is_non_empty(device) {
+    match manage::is_non_empty(device) {
         Ok(true) if !force => Check::fail(
             "empty_disk",
             format!(

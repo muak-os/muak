@@ -1,0 +1,27 @@
+[package]
+name = "partdev"
+description = "Read, write it, and keep the kernel's view in sync of the partition table"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+blockdev = { workspace = true }
+parttable = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,4 +1,4 @@
-//! Integration tests for block device path helpers.
+//! Integration tests for block device path helpers and size probing.
 
 #[cfg(test)]
 mod tests {
@@ -44,6 +44,19 @@ mod tests {
         // ASSERT
         assert_eq!(partition_flags, [true, true, true], "numbered disk nodes");
         assert_eq!(disk_flags, [false, false, false], "whole disk nodes");
+    }
+
+    #[test]
+    fn size_returns_byte_length_of_regular_file() {
+        // ARRANGE
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        file.as_file().set_len(1234).expect("resize");
+
+        // ACT
+        let size = device::size(file.as_file()).expect("size probe");
+
+        // ASSERT
+        assert_eq!(size, 1234, "regular files report their metadata len");
     }
 
     #[test]

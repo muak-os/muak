@@ -7,6 +7,7 @@ use anyhow::{Context as _, Result, bail};
 use blockdev::discover;
 use firmware::nvram::VariableStore;
 use firmware::secureboot;
+use partdev::manage;
 use sbolt::efi::enrollment;
 use sbolt::keys::storage::load_hierarchy;
 
@@ -91,8 +92,11 @@ fn clear_secureboot<S: VariableStore>(store: &S, secrets_dir: &Path) -> Result<(
 
 fn delete_role(disk: &str, role: Role) -> Result<()> {
     let name = role.gpt_name();
-    match disk::manage::find_partition_number(disk, name)? {
-        Some(number) => disk::manage::delete_partitions(disk, &[number])?,
+    match manage::partition_number(disk, name)? {
+        Some(number) => {
+            let removed = manage::delete_partitions(disk, &[number])?;
+            disk::log_removed(disk, &removed);
+        }
         None => kmsg::info!("No '{name}' partition found on {disk}, nothing to delete"),
     }
 

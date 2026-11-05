@@ -243,6 +243,7 @@ name = "blockdev"
 version = "0.0.0"
 dependencies = [
  "parttable",
+ "rustix",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -251,6 +252,7 @@ dependencies = [
 name = "btrfs"
 version = "0.0.0"
 dependencies = [
+ "blockdev",
  "crc32c",
  "rustix",
  "thiserror 2.0.21",
@@ -1504,6 +1506,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "partdev"
+version = "0.0.0"
+dependencies = [
+ "blockdev",
+ "parttable",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "parttable"
 version = "0.0.0"
 dependencies = [
@@ -1796,6 +1809,7 @@ dependencies = [
  "kmsg",
  "libc",
  "luks2",
+ "partdev",
  "parttable",
  "pki",
  "prost",

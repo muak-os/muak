@@ -40,6 +40,7 @@ firmware = { workspace = true, features = ["linux"] }
 granola = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
+partdev = { workspace = true }
 parttable = { workspace = true }
 pki = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }

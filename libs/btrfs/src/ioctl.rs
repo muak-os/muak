@@ -78,9 +78,6 @@ pub const BTRFS_UUID_SIZE: usize = 16;
 /// Maximum device path length.
 pub const BTRFS_DEVICE_PATH_NAME_MAX: usize = 1024;
 
-/// BLKGETSIZE64 opcode: `_IOR(0x12, 114, size_t)`.
-pub const BLKGETSIZE64: Opcode = opcode::read::<u64>(0x12, 114);
-
 /// Arguments for subvolume/snapshot create/destroy ioctls.
 #[repr(C)]
 pub struct VolArgs {

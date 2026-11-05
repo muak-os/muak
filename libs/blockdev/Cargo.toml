@@ -16,6 +16,9 @@ thiserror = { workspace = true }
 # Internal
 parttable = { workspace = true }
 
+# System/platform APIs
+rustix = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 

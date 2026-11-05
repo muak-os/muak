@@ -28,6 +28,7 @@ members = [
     "libs/config",
     "libs/disk",
     "libs/esp",
+    "libs/partdev",
     "libs/parttable",
     "libs/kmod",
     "libs/kmsg",
@@ -84,6 +85,7 @@ luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
+partdev = { path = "libs/partdev" }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }

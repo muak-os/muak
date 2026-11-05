@@ -11,13 +11,10 @@ mod structures;
 mod trees;
 
 use std::fs::File;
-use std::os::fd::AsFd as _;
 
 use context::MkfsContext;
-use rustix::ioctl::{Getter, ioctl};
 
 use crate::error::{BtrfsError, Result};
-use crate::ioctl::BLKGETSIZE64;
 
 /// Format a device with Btrfs filesystem.
 ///
@@ -28,7 +25,7 @@ use crate::ioctl::BLKGETSIZE64;
 /// # Errors
 /// Returns an error if the device size cannot be read or filesystem creation fails.
 pub fn format(device: File, label: &str) -> Result<()> {
-    let device_size = get_device_size(&device)?;
+    let device_size = blockdev::device::size(&device)?;
 
     let mut ctx = MkfsContext::new(device, device_size, label.to_owned());
 
@@ -37,17 +34,4 @@ pub fn format(device: File, label: &str) -> Result<()> {
     ctx.sync_device()?;
 
     Ok(())
-}
-
-/// Get device size in bytes using BLKGETSIZE64 ioctl.
-///
-/// # Errors
-/// Returns an error if the block device ioctl fails.
-pub fn get_device_size(device: &File) -> Result<u64> {
-    // SAFETY: `BLKGETSIZE64` writes a `u64` and `Getter` carries the matching type.
-    let getter = unsafe { Getter::<BLKGETSIZE64, u64>::new() };
-
-    // SAFETY: The file descriptor is valid and the ioctl argument type matches the opcode.
-    unsafe { ioctl(device.as_fd(), getter) }
-        .map_err(|error| BtrfsError::Io(std::io::Error::from(error)))
 }

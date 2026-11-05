@@ -2,7 +2,6 @@ use ::disk::plan::{Plan, Size};
 use anyhow::{Context as _, Result, bail};
 
 use super::constants::MB;
-use super::size;
 
 /// Validates that a disk is large enough for the plan.
 ///
@@ -51,7 +50,7 @@ fn disk_size(disk: &str) -> Result<u64> {
     let file = std::fs::File::open(disk)
         .with_context(|| format!("Failed to open '{disk}' for size probe"))?;
 
-    size::bytes(&file)
+    Ok(blockdev::device::size(&file)?)
 }
 
 #[cfg(test)]
