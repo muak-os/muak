@@ -4,6 +4,8 @@ mod deploy;
 mod layout;
 pub mod pki;
 pub(crate) mod plan;
+mod preflight;
+mod secureboot;
 mod state;
 mod volumes;
 
@@ -149,7 +151,7 @@ async fn validate_disks(
     let secureboot = config.host.secureboot;
 
     tokio::task::spawn_blocking(move || {
-        let checks = disk::preflight::checks(&targets, force, allow_system_disk, secureboot);
+        let checks = preflight::checks(&targets, force, allow_system_disk, secureboot);
         check::enforce(&checks)?;
         disk::unmount_targets(&targets)
     })
@@ -159,7 +161,7 @@ async fn validate_disks(
 }
 
 fn verify_secureboot(config: &system::Config) -> Result<bool> {
-    let check = disk::secureboot_check(config.host.secureboot);
+    let check = secureboot::check(config.host.secureboot);
     if !check.passed {
         bail!("{}", check.detail);
     }
