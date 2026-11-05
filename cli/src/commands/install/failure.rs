@@ -24,7 +24,8 @@ impl Failure {
         }
     }
 
-    /// Creates a declined confirmation, reported as exit code 4.
+    /// Creates a failure for a destructive command that could not obtain consent,
+    /// reported as exit code 4 by every prompting command (wipe, reset, shutdown).
     pub(crate) fn declined(message: impl Into<String>) -> Self {
         Self {
             code: 4,

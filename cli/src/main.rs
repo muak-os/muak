@@ -426,15 +426,18 @@ mod tests {
     fn install_failures_map_to_their_exit_codes() {
         // ARRANGE
         let cases = [
-            (Failure::usage("usage"), 2_i32),
-            (Failure::preflight("preflight"), 3_i32),
-            (Failure::declined("declined"), 4_i32),
-            (Failure::incomplete("incomplete"), 5_i32),
+            (anyhow::Error::new(Failure::usage("usage")), 2_i32),
+            (anyhow::Error::new(Failure::preflight("preflight")), 3_i32),
+            (
+                anyhow::Error::new(Failure::declined("declined")).context("Shutdown the system?"),
+                4_i32,
+            ),
+            (anyhow::Error::new(Failure::incomplete("incomplete")), 5_i32),
         ];
 
         // ACT & ASSERT
-        for (failure, expected) in cases {
-            assert_eq!(exit_code(&anyhow::Error::new(failure)), expected);
+        for (error, expected) in cases {
+            assert_eq!(exit_code(&error), expected);
         }
     }
 
