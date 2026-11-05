@@ -39,14 +39,6 @@ pub(crate) fn refused(plan: &InstallPlan) -> bool {
     plan.checks.iter().any(|check| !check.passed)
 }
 
-/// Returns the phrase the operator must type to confirm the install.
-pub(crate) fn confirmation(plan: &InstallPlan) -> String {
-    format!(
-        "INSTALL {}",
-        system_disk(plan).map_or("unknown", |disk| &disk.name)
-    )
-}
-
 /// Returns the device path of the system disk, for operator messages.
 pub(crate) fn system_path(plan: &InstallPlan) -> &str {
     system_disk(plan).map_or("unknown disk", |disk| &disk.path)
@@ -316,18 +308,6 @@ mod tests {
         // ASSERT
         assert!(refused(&refusing));
         assert!(!refused(&accepted));
-    }
-
-    #[test]
-    fn confirmation_names_the_system_disk() {
-        // ARRANGE
-        let plan = plan(false);
-
-        // ACT
-        let phrase = confirmation(&plan);
-
-        // ASSERT
-        assert_eq!(phrase, "INSTALL sda");
     }
 
     #[test]

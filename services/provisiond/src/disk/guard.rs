@@ -2,9 +2,10 @@
 
 use anyhow::{Result, bail};
 
+use super::checks;
 use super::foreign::{self, Paths};
-use super::preflight::{self, Check};
 use super::types::DiskInfo;
+use crate::check::Check;
 
 /// A disk cleared for wiping together with the partitions it carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +43,7 @@ pub(crate) fn validate_in(
     let disk = find(disks, name)?;
     let checks = checks(
         disk,
-        preflight::running_system_disk().as_deref(),
+        checks::running_system_disk().as_deref(),
         allow_system_disk,
         paths,
     );
@@ -66,7 +67,7 @@ pub(crate) fn validate_in(
 fn checks(disk: &DiskInfo, running: Option<&str>, allow: bool, paths: &Paths<'_>) -> Vec<Check> {
     let mut checks = vec![
         read_only(disk),
-        preflight::system_disk_in_use(&disk.path, running, allow),
+        checks::system_disk_in_use(&disk.path, running, allow),
         mounted_partitions(disk, allow),
         muak_partitions(disk, allow),
     ];

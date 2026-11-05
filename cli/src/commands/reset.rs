@@ -2,7 +2,6 @@ use anyhow::{Context as _, Result};
 use config::user::ClientConfig;
 use tonic::transport::Channel;
 use tui::console::Console;
-use tui::prompt::Prompter;
 use tui::style::Role;
 use tui::table::Table;
 use tui::units;
@@ -11,7 +10,7 @@ use crate::client::provision_service::provision_service_client::ProvisionService
 use crate::client::provision_service::{
     DiskInfo, FactoryResetRequest, GetConfigRequest, PartitionInfo,
 };
-use crate::commands::Failure;
+use crate::commands::consent;
 use crate::commands::disks::{self, column_refs, text};
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
@@ -70,17 +69,7 @@ pub async fn handle(
         return print_plan(&plan(&disks, installed, context_name.as_deref()), console);
     }
 
-    if !yes {
-        let confirmed = match Prompter::stdio() {
-            Some(mut prompter) => prompter.confirm_phrase("", CONFIRM_PHRASE)?,
-            None => false,
-        };
-
-        if !confirmed {
-            console.line(Role::Warn, "Factory reset cancelled.");
-            return Err(Failure::declined("Factory reset cancelled").into());
-        }
-    }
+    consent::require(CONFIRM_PHRASE, yes)?;
 
     let steps = console.steps()?;
 

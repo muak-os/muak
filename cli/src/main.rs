@@ -108,8 +108,6 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
-        yes: bool,
-        #[arg(long)]
         allow_system_disk: bool,
     },
     Update {
@@ -127,7 +125,10 @@ pub enum Commands {
         yes: bool,
     },
     Reboot,
-    Shutdown,
+    Shutdown {
+        #[arg(long)]
+        yes: bool,
+    },
     Disks {
         #[arg(long, global = true)]
         wide: bool,
@@ -175,8 +176,8 @@ async fn main() {
 fn exit_code(error: &anyhow::Error) -> i32 {
     error
         .chain()
-        .find_map(|cause| cause.downcast_ref::<commands::install::failure::Failure>())
-        .map_or(1, commands::install::failure::Failure::code)
+        .find_map(|cause| cause.downcast_ref::<commands::Failure>())
+        .map_or(1, commands::Failure::code)
 }
 
 // Handles and displays errors with user-friendly messages.
@@ -223,8 +224,8 @@ mod tests {
     use tui::output::Flags;
 
     use super::{Cli, Commands, DisksAction, OutputFlags, exit_code};
+    use crate::commands::Failure;
     use crate::commands::disks::wipe::Method;
-    use crate::commands::install::failure::Failure;
 
     #[test]
     fn global_output_flags_parse_after_the_subcommand() {
@@ -334,7 +335,6 @@ mod tests {
             "--config",
             "system.toml",
             "--dry-run",
-            "--yes",
             "--allow-system-disk",
         ])
         .expect("parse install flags");
@@ -343,7 +343,6 @@ mod tests {
         let Commands::Install {
             force,
             dry_run,
-            yes,
             allow_system_disk,
             ..
         } = cli.command
@@ -354,7 +353,6 @@ mod tests {
         // ASSERT
         assert!(!force);
         assert!(dry_run);
-        assert!(yes);
         assert!(allow_system_disk);
     }
 
@@ -409,18 +407,36 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_flags_parse() {
+        // ARRANGE
+        let cli =
+            Cli::try_parse_from(["muakctl", "shutdown", "--yes"]).expect("parse shutdown flags");
+
+        // ACT
+        let Commands::Shutdown { yes } = cli.command else {
+            panic!("expected the shutdown command");
+        };
+
+        // ASSERT
+        assert!(yes);
+    }
+
+    #[test]
     fn install_failures_map_to_their_exit_codes() {
         // ARRANGE
         let cases = [
-            (Failure::usage("usage"), 2_i32),
-            (Failure::preflight("preflight"), 3_i32),
-            (Failure::declined("declined"), 4_i32),
-            (Failure::incomplete("incomplete"), 5_i32),
+            (anyhow::Error::new(Failure::usage("usage")), 2_i32),
+            (anyhow::Error::new(Failure::preflight("preflight")), 3_i32),
+            (
+                anyhow::Error::new(Failure::declined("declined")).context("Shutdown the system?"),
+                4_i32,
+            ),
+            (anyhow::Error::new(Failure::incomplete("incomplete")), 5_i32),
         ];
 
         // ACT & ASSERT
-        for (failure, expected) in cases {
-            assert_eq!(exit_code(&anyhow::Error::new(failure)), expected);
+        for (error, expected) in cases {
+            assert_eq!(exit_code(&error), expected);
         }
     }
 

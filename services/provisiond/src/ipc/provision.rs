@@ -17,7 +17,7 @@ use super::proto::provision::{
     PrepareUpdateRequest, RebootRequest, RollbackHistoryEntry, ShutdownRequest, UpdateRequest,
     UpdateResponse, WipeDiskRequest, WipeDiskResponse, WipeMethod as ProtoWipeMethod,
 };
-use crate::disk::preflight;
+use crate::check::{self, Check};
 use crate::{disk, install, journal, power, reset, streaming, template, update};
 
 /// Implementation of the `ProvisionService` gRPC interface.
@@ -237,7 +237,7 @@ impl ProvisionService for ServiceImpl {
             .map_err(|e| Status::internal(format!("Failed to list disks: {e}")))?;
         let verdict = disk::validate_wipe(&disks, &req.disk, req.allow_system_disk)
             .map_err(|e| Status::failed_precondition(format!("{e:#}")))?;
-        let refusal = preflight::enforce(&verdict.checks)
+        let refusal = check::enforce(&verdict.checks)
             .err()
             .map(|e| format!("{e:#}"));
         let mut response = wipe_response(refusal, verdict.disk, verdict.checks);
@@ -456,7 +456,7 @@ pub fn service() -> ProvisionServiceServer<ServiceImpl> {
 fn wipe_response(
     refusal: Option<String>,
     disk: disk::DiskInfo,
-    checks: Vec<preflight::Check>,
+    checks: Vec<Check>,
 ) -> WipeDiskResponse {
     WipeDiskResponse {
         success: refusal.is_none(),
@@ -527,8 +527,8 @@ mod tests {
     fn response_carries_the_resolved_disk_and_checks() {
         // ARRANGE
         let checks = vec![
-            preflight::Check::pass("read_only", "writable".to_owned()),
-            preflight::Check::fail("muak_partitions", "STATE present".to_owned()),
+            Check::pass("read_only", "writable".to_owned()),
+            Check::fail("muak_partitions", "STATE present".to_owned()),
         ];
 
         // ACT
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn refusal_fails_the_response_but_keeps_the_preview() {
         // ARRANGE
-        let checks = vec![preflight::Check::fail("read_only", "read-only".to_owned())];
+        let checks = vec![Check::fail("read_only", "read-only".to_owned())];
 
         // ACT
         let response = wipe_response(Some("read-only".to_owned()), disk(), checks);

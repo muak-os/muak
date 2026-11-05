@@ -172,6 +172,8 @@ mod tests {
             MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/GetDefaultConfig")
         );
         assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/Reboot"));
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/PlanInstall"));
+        assert!(MAINTENANCE_METHODS.contains(&"/muak.provision.v1.ProvisionService/WipeDisk"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/GetLogs"));
         assert!(MAINTENANCE_METHODS.contains(&"/muak.log.v1.LogService/FollowLogs"));
         assert_ne!(MAINTENANCE_METHODS, Vec::<&str>::new());

@@ -3,6 +3,7 @@
 extern crate alloc;
 
 mod cache;
+mod check;
 mod disk;
 mod efi;
 mod install;

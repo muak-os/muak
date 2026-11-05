@@ -1,6 +1,4 @@
-pub mod failure;
 mod plan;
-mod prompt;
 mod reboot;
 
 use std::path::{Path, PathBuf};
@@ -12,7 +10,7 @@ use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
 use tui::console::Console;
 
-use self::failure::Failure;
+use super::Failure;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{InstallPlan, InstallRequest, PlanInstallRequest};
 
@@ -28,11 +26,10 @@ pub struct Options {
     pub force: bool,
     pub config: PathBuf,
     pub dry_run: bool,
-    pub yes: bool,
     pub allow_system_disk: bool,
 }
 
-/// Plans the install, confirms it and runs it.
+/// Plans the install and runs it.
 pub async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     options: Options,
@@ -51,8 +48,6 @@ pub async fn handle(
         console.info("Dry run: nothing was written");
         return Ok(());
     }
-
-    prompt::confirm(&plan, options.yes)?;
 
     install(
         client,

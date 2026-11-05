@@ -4,6 +4,8 @@ mod deploy;
 mod layout;
 pub mod pki;
 pub(crate) mod plan;
+mod preflight;
+mod secureboot;
 mod state;
 mod volumes;
 
@@ -18,7 +20,7 @@ use uki::measure::MeasuredSection;
 use wizard::domain::profile::Profile;
 
 use crate::ipc::proto::provision::InstallProgress;
-use crate::{cache, disk, medium, secrets, streaming};
+use crate::{cache, check, disk, medium, secrets, streaming};
 
 struct PkiResult {
     client_result: InstallResult,
@@ -35,7 +37,7 @@ pub async fn run(
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     let targets = disk::resolve(&config.disks).await?;
-    validate_disks(&targets, force, allow_system_disk, &progress).await?;
+    validate_disks(&targets, config, force, allow_system_disk, &progress).await?;
     let enroll_secureboot = verify_secureboot(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
@@ -139,17 +141,19 @@ fn seal_luks_key(
 
 async fn validate_disks(
     targets: &disk::Targets,
+    config: &system::Config,
     force: bool,
     allow_system_disk: bool,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<()> {
     send_progress(progress, "Validating disks").await;
     let targets = targets.clone();
+    let secureboot = config.host.secureboot;
 
     tokio::task::spawn_blocking(move || {
-        let checks = disk::preflight::checks(&targets, force, allow_system_disk);
-        disk::preflight::enforce(&checks)?;
-        disk::preflight::unmount_targets(&targets)
+        let checks = preflight::checks(&targets, force, allow_system_disk, secureboot);
+        check::enforce(&checks)?;
+        disk::unmount_targets(&targets)
     })
     .await??;
 
@@ -157,20 +161,12 @@ async fn validate_disks(
 }
 
 fn verify_secureboot(config: &system::Config) -> Result<bool> {
-    if !config.host.secureboot {
-        return Ok(false);
+    let check = secureboot::check(config.host.secureboot);
+    if !check.passed {
+        bail!("{}", check.detail);
     }
 
-    let setup_mode = firmware::secureboot::system().is_ok_and(|state| state.setup_mode);
-    if !setup_mode {
-        bail!(
-            "Firmware is not in Setup Mode, cannot enroll Secure Boot keys. \
-             Please reset your firmware to Setup Mode and try again or disable \
-             the secureboot option in the config."
-        );
-    }
-
-    Ok(true)
+    Ok(config.host.secureboot)
 }
 
 async fn enroll_secureboot_keys(

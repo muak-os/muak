@@ -3,7 +3,6 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 use tui::console::Console;
-use tui::prompt::Prompter;
 use tui::style::Role;
 
 use super::preview;
@@ -11,7 +10,7 @@ use crate::client::provision_service::provision_service_client::ProvisionService
 use crate::client::provision_service::{
     DiskInfo, WipeDiskRequest, WipeDiskResponse, WipeMethod as ProtoWipeMethod,
 };
-use crate::commands::Failure;
+use crate::commands::{Failure, consent};
 
 /// Wipe method selected on the command line.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -89,9 +88,7 @@ pub async fn handle(
         .ok_or_else(|| Failure::incomplete("Server did not return the resolved disk"))?;
     let phrase = confirmation(disk);
 
-    if !args.yes {
-        confirm(&phrase)?;
-    }
+    consent::require(&phrase, args.yes)?;
 
     let request = WipeDiskRequest {
         disk: args.id,
@@ -122,30 +119,6 @@ fn failure(response: &WipeDiskResponse) -> Failure {
     } else {
         Failure::incomplete(response.error.clone())
     }
-}
-
-fn confirm(phrase: &str) -> Result<()> {
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        return Err(Failure::declined(
-            "Refusing to wipe without confirmation: standard input is not a terminal. \
-             Add --yes to skip the prompt.",
-        )
-        .into());
-    }
-
-    let Some(mut prompter) = Prompter::stdio() else {
-        return Err(Failure::declined(
-            "Refusing to wipe without confirmation: standard input is not a terminal. \
-             Add --yes to skip the prompt.",
-        )
-        .into());
-    };
-
-    if prompter.confirm_phrase("", phrase)? {
-        return Ok(());
-    }
-
-    Err(Failure::declined("Disk wipe cancelled").into())
 }
 
 fn method(value: Method) -> i32 {

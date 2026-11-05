@@ -20,30 +20,29 @@ pub(crate) fn matches(entry: &Entry, disk: &DiskInfo) -> bool {
             .is_none_or(|expected| expected == disk.rotational)
 }
 
-/// Resolves the disk selected by `entry`, warning about discarded candidates.
+/// Resolves the disk selected by `entry`, refusing ambiguous matches.
 pub(crate) fn resolve<'a>(entry: &Entry, disks: &'a [DiskInfo]) -> Result<&'a DiskInfo> {
-    let mut candidates = disks.iter().filter(|disk| matches(entry, disk));
+    let candidates: Vec<&DiskInfo> = disks.iter().filter(|disk| matches(entry, disk)).collect();
 
-    let Some(selected) = candidates.next() else {
+    if candidates.is_empty() {
         let available: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
         bail!(
             "no disk matches {} (available: {})",
             describe(entry),
             names(&available)
         );
-    };
-
-    let discarded: Vec<&str> = candidates.map(|disk| disk.name.as_str()).collect();
-    if !discarded.is_empty() {
-        kmsg::warn!(
-            "multiple disks match {}: selected '{}', ignored {}",
-            describe(entry),
-            selected.name,
-            names(&discarded)
-        );
     }
 
-    Ok(selected)
+    if let [selected] = *candidates.as_slice() {
+        return Ok(selected);
+    }
+
+    let identified: Vec<String> = candidates.iter().map(|disk| identify(disk)).collect();
+    bail!(
+        "{} matches multiple disks: {}; pin one with device, serial or wwid",
+        describe(entry),
+        identified.join(", ")
+    );
 }
 
 /// Renders a human readable description of a disk entry for messages.
@@ -77,6 +76,22 @@ fn push_matcher(parts: &mut Vec<String>, name: &str, value: Option<&str>) {
     if let Some(value) = value {
         parts.push(format!("{name}={value}"));
     }
+}
+
+fn identify(disk: &DiskInfo) -> String {
+    let mut facts = Vec::new();
+    if !disk.serial.is_empty() {
+        facts.push(format!("serial {}", disk.serial));
+    }
+    if !disk.wwid.is_empty() {
+        facts.push(format!("wwid {}", disk.wwid));
+    }
+
+    if facts.is_empty() {
+        return disk.name.clone();
+    }
+
+    format!("{} ({})", disk.name, facts.join(", "))
 }
 
 fn names(disks: &[&str]) -> String {
@@ -260,16 +275,48 @@ mod tests {
     }
 
     #[test]
-    fn resolve_returns_first_of_several_matches() {
+    fn resolve_returns_the_only_match() {
         // ARRANGE
-        let disks = vec![disk("sda"), disk("sdb")];
+        let mut matched = disk("sda");
+        matched.serial = "SN123".to_owned();
+        let mut other = disk("sdb");
+        other.serial = "SN456".to_owned();
+        let disks = vec![matched, other];
         let mut entry = selector();
-        entry.rotational = Some(false);
+        entry.serial = Some("SN123".to_owned());
 
         // ACT
         let selected = resolve(&entry, &disks).unwrap();
 
         // ASSERT
         assert_eq!(selected.name, "sda");
+    }
+
+    #[test]
+    fn resolve_errors_on_several_matches() {
+        // ARRANGE
+        let mut first = disk("sda");
+        first.serial = "SN123".to_owned();
+        first.wwid = "naa.5000".to_owned();
+        let mut second = disk("sdb");
+        second.serial = "SN456".to_owned();
+        second.wwid = "naa.6000".to_owned();
+        let disks = vec![first, second];
+        let mut entry = selector();
+        entry.rotational = Some(false);
+
+        // ACT
+        let error = resolve(&entry, &disks).unwrap_err();
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("multiple disks"), "{message}");
+        assert!(message.contains("sda"), "{message}");
+        assert!(message.contains("sdb"), "{message}");
+        assert!(message.contains("SN123"), "{message}");
+        assert!(message.contains("SN456"), "{message}");
+        assert!(message.contains("naa.5000"), "{message}");
+        assert!(message.contains("naa.6000"), "{message}");
+        assert!(message.contains("pin one"), "{message}");
     }
 }

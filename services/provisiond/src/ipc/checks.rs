@@ -1,7 +1,7 @@
 //! Conversion of preflight checks into their protobuf representation.
 
 use super::proto::provision::PreflightCheck;
-use crate::disk::preflight::Check;
+use crate::check::Check;
 
 /// Converts a preflight check into its protobuf representation.
 pub(crate) fn to_proto(check: Check) -> PreflightCheck {

@@ -30,13 +30,20 @@ impl Targets {
 
 /// Resolves the configured entries into concrete device paths.
 pub(crate) async fn resolve(entries: &[Entry]) -> Result<Targets> {
-    let system = resolve_system(entries).await?;
+    let disks = list_disks().await?;
+
+    resolve_with(entries, &disks)
+}
+
+/// Resolves the configured entries against one inventory snapshot.
+pub(crate) fn resolve_with(entries: &[Entry], disks: &[DiskInfo]) -> Result<Targets> {
+    let system = system_device(entries, disks)?;
 
     let Some(data_entry) = disk::data(entries) else {
         return Ok(Targets { system, data: None });
     };
 
-    let data = resolve_device(data_entry).await?;
+    let data = resolve_device(data_entry, disks)?;
     if data == system {
         bail!(
             "data disk resolves to the system disk '{system}', omit the data entry to share the system disk"
@@ -51,19 +58,23 @@ pub(crate) async fn resolve(entries: &[Entry]) -> Result<Targets> {
 
 /// Resolves only the configured system disk to its kernel device path.
 pub(crate) async fn resolve_system(entries: &[Entry]) -> Result<String> {
-    let entry = disk::system(entries).context("config has no system disk entry")?;
+    let disks = list_disks().await?;
 
-    resolve_device(entry).await
+    system_device(entries, &disks)
 }
 
-async fn resolve_device(entry: &Entry) -> Result<String> {
+fn system_device(entries: &[Entry], disks: &[DiskInfo]) -> Result<String> {
+    let entry = disk::system(entries).context("config has no system disk entry")?;
+
+    resolve_device(entry, disks)
+}
+
+fn resolve_device(entry: &Entry, disks: &[DiskInfo]) -> Result<String> {
     if let Some(path) = entry.device.as_deref() {
         return canonical_device(path);
     }
 
-    let disks = list_disks().await?;
-
-    resolve_selector(entry, &disks)
+    resolve_selector(entry, disks)
 }
 
 fn resolve_selector(entry: &Entry, disks: &[DiskInfo]) -> Result<String> {
@@ -161,8 +172,8 @@ mod tests {
         assert_eq!(targets.data(), "/dev/sdb");
     }
 
-    #[tokio::test]
-    async fn resolve_system_ignores_data_entry() {
+    #[test]
+    fn system_device_ignores_data_entry() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("temp dir");
         std::fs::write(dir.path().join("sda"), b"").expect("device file");
@@ -174,14 +185,14 @@ mod tests {
         ];
 
         // ACT
-        let system = resolve_system(&entries).await.expect("system disk");
+        let system = system_device(&entries, &[]).expect("system disk");
 
         // ASSERT
         assert_eq!(system, "/dev/sda");
     }
 
-    #[tokio::test]
-    async fn duplicate_resolved_devices_error() {
+    #[test]
+    fn duplicate_resolved_devices_error() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("temp dir");
         std::fs::write(dir.path().join("sda"), b"").expect("device file");
@@ -195,7 +206,61 @@ mod tests {
         ];
 
         // ACT
-        let error = resolve(&entries).await.unwrap_err();
+        let error = resolve_with(&entries, &[]).unwrap_err();
+
+        // ASSERT
+        assert!(
+            error.to_string().contains("share the system disk"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn resolve_with_uses_the_given_snapshot() {
+        // ARRANGE
+        let disks = vec![disk("sda", "SN123"), disk("sdb", "SN456")];
+        let mut system_entry = Entry::selector(Kind::System);
+        system_entry.serial = Some("SN123".to_owned());
+        let mut data_entry = Entry::selector(Kind::Data);
+        data_entry.serial = Some("SN456".to_owned());
+        let entries = vec![system_entry, data_entry];
+
+        // ACT
+        let targets = resolve_with(&entries, &disks).expect("targets");
+
+        // ASSERT
+        assert_eq!(targets.system, "/dev/sda");
+        assert_eq!(targets.data.as_deref(), Some("/dev/sdb"));
+    }
+
+    #[test]
+    fn resolve_with_shares_the_system_disk_without_a_data_entry() {
+        // ARRANGE
+        let disks = vec![disk("sda", "SN123")];
+        let mut system_entry = Entry::selector(Kind::System);
+        system_entry.serial = Some("SN123".to_owned());
+        let entries = vec![system_entry];
+
+        // ACT
+        let targets = resolve_with(&entries, &disks).expect("targets");
+
+        // ASSERT
+        assert!(!targets.is_split());
+        assert_eq!(targets.data(), "/dev/sda");
+    }
+
+    #[test]
+    fn resolve_with_refuses_the_same_disk_for_system_and_data() {
+        // ARRANGE
+        let disks = vec![disk("sda", "SN123")];
+        let mut system_entry = Entry::selector(Kind::System);
+        system_entry.serial = Some("SN123".to_owned());
+        let mut data_entry = Entry::selector(Kind::Data);
+        data_entry.serial = Some("SN123".to_owned());
+        let entries = vec![system_entry, data_entry];
+
+        // ACT
+        let error = resolve_with(&entries, &disks).unwrap_err();
 
         // ASSERT
         assert!(

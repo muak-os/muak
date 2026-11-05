@@ -3,11 +3,10 @@
 use anyhow::{Context as _, Result};
 use tonic::transport::Channel;
 use tui::console::Console;
-use tui::prompt::Prompter;
-use tui::style::Role;
 
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{RebootRequest, ShutdownRequest};
+use crate::commands::consent;
 
 /// Requests a reboot of the target system.
 pub async fn reboot(client: &mut ProvisionServiceClient<Channel>, console: &Console) -> Result<()> {
@@ -35,16 +34,9 @@ pub async fn reboot(client: &mut ProvisionServiceClient<Channel>, console: &Cons
 pub async fn shutdown(
     client: &mut ProvisionServiceClient<Channel>,
     console: &Console,
+    yes: bool,
 ) -> Result<()> {
-    let confirmed = match Prompter::stdio() {
-        Some(mut prompter) => prompter.confirm("Shutdown the system?")?,
-        None => false,
-    };
-
-    if !confirmed {
-        console.line(Role::Warn, "Shutdown cancelled.");
-        return Ok(());
-    }
+    consent::confirm("Shutdown the system?", yes)?;
 
     let steps = console.steps()?;
 

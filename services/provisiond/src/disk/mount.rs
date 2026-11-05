@@ -3,9 +3,11 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use rustix::fs::sync;
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
+use super::Targets;
 use super::attrs::{MOUNTS_PATH, Mount, read_mounts};
 
 /// Retrieves all partitions mounted from the specified disk.
@@ -70,4 +72,19 @@ pub fn unmount_partition(mount_point: &str) -> Result<()> {
             bail!("Failed to unmount {mount_point}: {e}");
         }
     }
+}
+
+/// Unmounts every filesystem on the targets so partitioning can proceed.
+pub(crate) fn unmount_targets(targets: &Targets) -> Result<()> {
+    for device in [targets.system.as_str(), targets.data()] {
+        let mounted = get_disk_mounts(device);
+        if mounted.is_empty() {
+            continue;
+        }
+
+        sync();
+        unmount_all(&mounted).with_context(|| format!("Failed to unmount '{device}'"))?;
+    }
+
+    Ok(())
 }
