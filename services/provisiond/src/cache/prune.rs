@@ -5,9 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use wizard::cache::{is_metadata, is_shared, shared_digests, use_count};
-
-use super::INGEST_DIR;
+use wizard::cache;
 
 const KEEP_DURATION: Duration = Duration::from_hours(60 * 24);
 
@@ -48,8 +46,8 @@ struct Stats {
 
 /// Enforces the cache eviction policy.
 pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
-    let ingest = root.join(INGEST_DIR);
-    let shared = shared_digests(root);
+    let ingest = root.join(cache::INGEST_DIR);
+    let shared = cache::shared_digests(root);
     let mut entries = Vec::new();
     collect(root, root, &ingest, &shared, &mut entries);
 
@@ -168,9 +166,9 @@ fn collect(
         let Ok(modified) = meta.modified() else {
             continue;
         };
-        let shared = is_shared(root, &path, shared);
-        let uses = use_count(&path);
-        let metadata = is_metadata(root, &path);
+        let shared = cache::is_shared(root, &path, shared);
+        let uses = cache::use_count(&path);
+        let metadata = cache::is_metadata(root, &path);
         entries.push(Entry {
             path,
             modified,
@@ -215,10 +213,9 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use tempfile::TempDir;
-    use wizard::cache::{bump_use_count, shared_digests};
+    use wizard::cache;
 
     use super::{Limits, enforce, keep_bytes};
-    use crate::cache::INGEST_DIR;
 
     fn write(root: &Path, relative: &str, data: &[u8]) -> PathBuf {
         let path = root.join(relative);
@@ -242,12 +239,12 @@ mod tests {
     }
 
     fn ingest_path(name: &str) -> String {
-        format!("{INGEST_DIR}/{name}")
+        format!("{}/{name}", cache::INGEST_DIR)
     }
 
     fn shared_ref(root: &Path, relative: &str, manifest: &[u8]) -> String {
         write(root, relative, manifest);
-        let digest = shared_digests(root)
+        let digest = cache::shared_digests(root)
             .into_iter()
             .next()
             .expect("ref manifest digest");
@@ -342,7 +339,7 @@ mod tests {
         set_modified(&cold, instant);
         set_modified(&hot, instant);
         for _ in 0..3_u64 {
-            bump_use_count(&hot);
+            cache::bump_use_count(&hot);
         }
 
         // ACT
@@ -410,6 +407,9 @@ mod tests {
         assert!(!blob.exists());
         assert!(!root.join("blobs").exists(), "emptied dirs are removed");
         assert!(staged.exists());
-        assert!(root.join(INGEST_DIR).exists(), "ingest is never pruned");
+        assert!(
+            root.join(cache::INGEST_DIR).exists(),
+            "ingest is never pruned"
+        );
     }
 }

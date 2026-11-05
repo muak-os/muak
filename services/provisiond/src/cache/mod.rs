@@ -4,9 +4,6 @@ mod prune;
 
 use std::path::Path;
 
-/// Subtree holding in-progress ingests, which the content store collects itself.
-pub(crate) use wizard::cache::INGEST_DIR;
-
 /// Base directory for the koci pull cache on the EPHEMERAL partition.
 pub(crate) const DIR: &str = "/run/ephemeral/koci";
 
