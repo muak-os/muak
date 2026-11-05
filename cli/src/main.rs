@@ -126,7 +126,6 @@ pub enum Commands {
     },
     Reboot,
     Shutdown {
-        /// Skip the interactive confirmation.
         #[arg(long)]
         yes: bool,
     },

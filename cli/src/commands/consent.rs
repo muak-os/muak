@@ -22,8 +22,7 @@ enum Decision {
 ///
 /// # Errors
 ///
-/// Returns a declined failure when the session is not interactive or the typed
-/// answer does not match.
+/// Returns a declined failure when the session is not interactive or the typed answer does not match.
 pub(crate) fn require(phrase: &str, yes: bool) -> Result<()> {
     gate(decision(yes, interactive()), || {
         let mut prompter = Prompter::stdio().ok_or_else(refusal)?;
@@ -31,13 +30,11 @@ pub(crate) fn require(phrase: &str, yes: bool) -> Result<()> {
     })
 }
 
-/// Asks `question` and continues only on a positive answer, unless `yes` skips
-/// the prompt.
+/// Asks `question` and continues only on a positive answer, unless `yes` skips the prompt.
 ///
 /// # Errors
 ///
-/// Returns a declined failure when the session is not interactive or the
-/// answer is negative.
+/// Returns a declined failure when the session is not interactive or the answer is negative.
 pub(crate) fn confirm(question: &str, yes: bool) -> Result<()> {
     gate(decision(yes, interactive()), || {
         let mut prompter = Prompter::stdio().ok_or_else(refusal)?;
