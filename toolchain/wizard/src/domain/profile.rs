@@ -1,6 +1,6 @@
 //! The version-neutral, content-addressed customization spec.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::domain::identity::ProfileId;
 use crate::domain::{canonical_toml, non_empty, non_empty_vec, reject_empty};
@@ -110,12 +110,18 @@ impl OverlaySpec {
     }
 }
 
-/// Kernel package source identity, registry-neutral and version-neutral.
+/// Kernel package source and ordered additional boot parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KernelSpec {
     #[serde(deserialize_with = "non_empty")]
     source: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "kernel_parameters_append"
+    )]
+    parameters_append: Vec<String>,
 }
 
 impl KernelSpec {
@@ -127,13 +133,36 @@ impl KernelSpec {
     pub fn new(source: String) -> Result<Self> {
         reject_empty(&source, "kernel.source")?;
 
-        Ok(Self { source })
+        Ok(Self {
+            source,
+            parameters_append: Vec::new(),
+        })
+    }
+
+    /// Adds parameters after the kernel package's command line, in the given order.
+    /// Values containing spaces must use Linux double-quote syntax.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty parameter, control characters, unquoted
+    /// whitespace, unmatched double quotes, or the init-argument separator `--`.
+    pub fn with_parameters_append(mut self, parameters: Vec<String>) -> Result<Self> {
+        validate_kernel_parameters_append(&parameters)?;
+        self.parameters_append = parameters;
+
+        Ok(self)
     }
 
     /// Returns the logical kernel source identity.
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// Returns additional parameters in command-line order, including duplicates.
+    #[must_use]
+    pub fn parameters_append(&self) -> &[String] {
+        &self.parameters_append
     }
 }
 
@@ -166,6 +195,37 @@ impl CustomizationSpec {
     pub fn extensions(&self) -> &[String] {
         &self.extensions
     }
+}
+
+fn kernel_parameters_append<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    let parameters = Vec::<String>::deserialize(deserializer)?;
+    validate_kernel_parameters_append(&parameters).map_err(serde::de::Error::custom)?;
+
+    Ok(parameters)
+}
+
+fn validate_kernel_parameters_append(parameters: &[String]) -> Result<()> {
+    for parameter in parameters {
+        let mut quoted = false;
+        let mut invalid = parameter.trim_matches('"').is_empty()
+            || parameter
+                .chars()
+                .filter(|character| *character != '"')
+                .eq(['-', '-']);
+        for character in parameter.chars() {
+            quoted ^= character == '"';
+            invalid |= character.is_control() || (character.is_whitespace() && !quoted);
+        }
+        if invalid || quoted {
+            return Err(WizardError::ProfileValidation(
+                "kernel.parameters_append must contain individual non-empty parameters with balanced double quotes, no control characters or unquoted whitespace, and no -- separator".to_owned(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Sorts extension names and rejects duplicates.
@@ -222,6 +282,92 @@ extensions = ["qemu"]
         assert!(doc.overlay().is_none());
         assert_eq!(doc.kernel().source(), "muak-os/linux");
         assert_eq!(doc.customization().extensions(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn empty_parameters_preserve_the_existing_profile_identity() {
+        // ARRANGE
+        let profile = Profile::from_toml(minimal_toml().as_bytes()).expect("parse");
+        let explicit = minimal_toml().replace(
+            "source = \"muak-os/linux\"",
+            "source = \"muak-os/linux\"\nparameters_append = []",
+        );
+        let explicit = Profile::from_toml(explicit.as_bytes()).expect("parse explicit empty");
+
+        // ACT / ASSERT
+        for profile in [profile, explicit] {
+            assert_eq!(profile.kernel().parameters_append(), Vec::<String>::new());
+            assert_eq!(
+                profile.profile_id().expect("id").to_string(),
+                "5b94fd5d6a48980e85acaa357fdcebf7e675ea3a104b3d6a43328d599bab71b5",
+                "profiles without parameters must retain their pre-customization identity"
+            );
+        }
+    }
+
+    #[test]
+    fn parameters_roundtrip_with_quoted_values_and_keep_duplicates_in_order() {
+        // ARRANGE
+        let parameters = vec![
+            "console=ttyS0".to_owned(),
+            "console=tty0".to_owned(),
+            "test.message=\"hello world\"".to_owned(),
+        ];
+        let profile = Profile::new(
+            None,
+            CustomizationSpec::new(Vec::new()).expect("customization"),
+            KernelSpec::new("muak-os/linux".to_owned())
+                .expect("kernel")
+                .with_parameters_append(parameters.clone())
+                .expect("parameters"),
+        );
+
+        // ACT
+        let restored =
+            Profile::from_toml(&profile.canonical_bytes().expect("serialize")).expect("restore");
+
+        // ASSERT
+        assert_eq!(restored.kernel().parameters_append(), parameters);
+        assert_eq!(profile, restored);
+        let mut reversed = profile.clone();
+        reversed.kernel.parameters_append.reverse();
+        let base = Profile::from_toml(minimal_toml().as_bytes()).expect("base");
+        assert_ne!(
+            profile.profile_id().expect("id"),
+            base.profile_id().expect("base id")
+        );
+        assert_ne!(
+            profile.profile_id().expect("id"),
+            reversed.profile_id().expect("reversed id")
+        );
+    }
+
+    #[test]
+    fn invalid_parameters_are_rejected_by_both_the_builder_and_toml() {
+        // ARRANGE
+        for parameter in [
+            "",
+            "\"\"",
+            "--",
+            "\"--\"",
+            "foo bar",
+            "foo\tbar",
+            "foo\nbar",
+            "foo\0bar",
+            "foo=\"unclosed",
+        ] {
+            let parameters = vec![parameter.to_owned()];
+            let kernel = KernelSpec::new("muak-os/linux".to_owned()).expect("kernel");
+            let mut raw = Profile::from_toml(minimal_toml().as_bytes()).expect("profile");
+            raw.kernel.parameters_append = parameters.clone();
+
+            // ACT / ASSERT
+            kernel
+                .with_parameters_append(parameters)
+                .expect_err("invalid parameter builder");
+            Profile::from_toml(&raw.canonical_bytes().expect("serialize"))
+                .expect_err("invalid parameter TOML");
+        }
     }
 
     #[test]

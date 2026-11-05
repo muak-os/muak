@@ -579,6 +579,73 @@ digest = "{unsorted}"
     }
 
     #[test]
+    fn profile_parameters_reach_cmdline_uki_iso_and_raw_with_exact_sizes() {
+        // ARRANGE
+        let env = env();
+        let profile = Profile::from_toml(
+            br#"[kernel]
+source = "muak-os/linux"
+parameters_append = ["loglevel=7", "console=tty0", 'test.message="hello world"']
+
+[customization]
+extensions = []
+"#,
+        )
+        .expect("profile with parameters");
+        let expected =
+            b"console=ttyS0 quiet loglevel=7 console=tty0 test.message=\"hello world\"\n";
+        let mut kernel = Vec::new();
+        let mut cmdline = Vec::new();
+        let mut uki = Vec::new();
+        let mut iso = Vec::new();
+        let mut initramfs = Vec::new();
+        let mut raw = Vec::new();
+
+        // ACT
+        let report = request(RELEASE)
+            .arch(Arch::Amd64)
+            .codec(Codec::None)
+            .artifact(Artifact::Kernel, &mut kernel)
+            .expect("kernel")
+            .artifact(Artifact::Cmdline, &mut cmdline)
+            .expect("cmdline")
+            .artifact(Artifact::Uki, &mut uki)
+            .expect("uki")
+            .artifact(Artifact::Iso, &mut iso)
+            .expect("iso")
+            .artifact(Artifact::Initramfs, &mut initramfs)
+            .expect("initramfs")
+            .artifact(Artifact::Raw, &mut raw)
+            .expect("raw")
+            .build(&profile)
+            .expect("build with parameters");
+
+        // ASSERT
+        assert_eq!(kernel, kernel_bytes(&env.images.kernel));
+        assert_eq!(cmdline, expected);
+        assert!(
+            contains(&raw, expected),
+            "raw disk must carry the customized UKI command line"
+        );
+        assert_eq!(
+            measured_section_content(&uki, uki::section::CMDLINE),
+            expected
+        );
+        assert!(
+            contains(&iso, expected),
+            "ISO must carry the customized UKI command line"
+        );
+        assert!(contains(
+            &initramfs,
+            &profile.canonical_bytes().expect("canonical profile")
+        ));
+        assert_eq!(
+            report.identity.expect("identity").profile(),
+            &profile.profile_id().expect("profile id")
+        );
+    }
+
+    #[test]
     fn build_reports_stages_nodes_and_pull_notes() {
         // ARRANGE
         let recorded = Recorded::default();
