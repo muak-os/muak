@@ -4,6 +4,7 @@ mod consent;
 pub mod context;
 pub mod disks;
 pub mod dmesg;
+mod failure;
 pub mod install;
 pub mod logs;
 pub mod power;
@@ -17,7 +18,7 @@ pub mod vm;
 
 use ::config::user::ClientConfig;
 use anyhow::{Result, bail};
-pub(crate) use install::failure::Failure;
+pub(crate) use failure::Failure;
 use tonic::transport::Channel;
 use tui::console::Console;
 use tui::style::Role;

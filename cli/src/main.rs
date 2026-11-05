@@ -177,8 +177,8 @@ async fn main() {
 fn exit_code(error: &anyhow::Error) -> i32 {
     error
         .chain()
-        .find_map(|cause| cause.downcast_ref::<commands::install::failure::Failure>())
-        .map_or(1, commands::install::failure::Failure::code)
+        .find_map(|cause| cause.downcast_ref::<commands::Failure>())
+        .map_or(1, commands::Failure::code)
 }
 
 // Handles and displays errors with user-friendly messages.
@@ -225,8 +225,8 @@ mod tests {
     use tui::output::Flags;
 
     use super::{Cli, Commands, DisksAction, OutputFlags, exit_code};
+    use crate::commands::Failure;
     use crate::commands::disks::wipe::Method;
-    use crate::commands::install::failure::Failure;
 
     #[test]
     fn global_output_flags_parse_after_the_subcommand() {

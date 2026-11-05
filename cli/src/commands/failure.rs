@@ -1,6 +1,6 @@
-//! Install failures and the process exit status they report.
+//! Failures carrying the process exit status a command reports.
 
-/// Install failure carrying the process exit status it must report.
+/// Failure carrying the process exit status it must report.
 #[derive(Debug)]
 pub(crate) struct Failure {
     code: i32,
@@ -16,7 +16,7 @@ impl Failure {
         }
     }
 
-    /// Creates a preflight refusal, reported as exit code 3.
+    /// Creates a refused preflight check, reported as exit code 3.
     pub(crate) fn preflight(message: impl Into<String>) -> Self {
         Self {
             code: 3,

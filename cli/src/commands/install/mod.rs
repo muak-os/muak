@@ -1,4 +1,3 @@
-pub mod failure;
 mod plan;
 mod reboot;
 
@@ -11,7 +10,7 @@ use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
 use tui::console::Console;
 
-use self::failure::Failure;
+use super::Failure;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{InstallPlan, InstallRequest, PlanInstallRequest};
 
