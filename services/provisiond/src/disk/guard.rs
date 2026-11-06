@@ -1,6 +1,7 @@
 //! Guard checks for a disk selected for wiping.
 
 use anyhow::{Result, bail};
+use blockdev::device;
 use blockdev::roots::Roots;
 use blockdev::types::Disk;
 
@@ -82,25 +83,14 @@ fn find<'a>(disks: &'a [Disk], name: &str) -> Result<&'a Disk> {
         return Ok(disk);
     }
 
-    if disks.iter().any(|disk| is_partition_of(name, &disk.name)) {
+    if disks
+        .iter()
+        .any(|disk| device::belongs_to(name, &disk.name))
+    {
         bail!("'{name}' is a partition, wipe the whole disk instead");
     }
 
     bail!("disk '{name}' not found")
-}
-
-fn is_partition_of(name: &str, disk: &str) -> bool {
-    let Some(suffix) = name.strip_prefix(disk) else {
-        return false;
-    };
-
-    if suffix.chars().all(|character| character.is_ascii_digit()) {
-        return !suffix.is_empty();
-    }
-
-    suffix.strip_prefix('p').is_some_and(|number| {
-        !number.is_empty() && number.chars().all(|character| character.is_ascii_digit())
-    })
 }
 
 #[cfg(test)]
@@ -202,8 +192,33 @@ mod tests {
         let nvme = validate(&disks, "/dev/nvme0n1p2", true);
 
         // ASSERT
-        assert!(sata.is_err(), "sda1 is a partition");
-        assert!(nvme.is_err(), "nvme0n1p2 is a partition");
+        let sata = sata.err().expect("sda1 is a partition").to_string();
+        let nvme = nvme.err().expect("nvme0n1p2 is a partition").to_string();
+        assert!(sata.contains("is a partition, wipe the whole disk instead"));
+        assert!(nvme.contains("is a partition, wipe the whole disk instead"));
+    }
+
+    #[test]
+    fn validate_treats_partition_look_alikes_as_missing_disks() {
+        // ARRANGE
+        let disks = vec![disk("sda"), disk("nvme0n1")];
+
+        // ACT
+        let sdaa1 = validate(&disks, "sdaa1", true);
+        let namespace = validate(&disks, "nvme0n11", true);
+
+        // ASSERT
+        assert_eq!(
+            sdaa1.err().expect("sdaa1 is another disk").to_string(),
+            "disk 'sdaa1' not found"
+        );
+        assert_eq!(
+            namespace
+                .err()
+                .expect("nvme0n11 is namespace 11")
+                .to_string(),
+            "disk 'nvme0n11' not found"
+        );
     }
 
     #[test]

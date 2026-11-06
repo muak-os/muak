@@ -26,6 +26,37 @@ mod tests {
     }
 
     #[test]
+    fn belongs_to_matches_only_the_disk_family_separator() {
+        // ARRANGE
+        let cases = [
+            ("/dev/sda", "/dev/sda", true),
+            ("/dev/sda1", "/dev/sda", true),
+            ("/dev/sda12", "/dev/sda", true),
+            ("/dev/sdaa1", "/dev/sda", false),
+            ("/dev/nvme0n1p1", "/dev/nvme0n1", true),
+            ("/dev/nvme0n1p12", "/dev/nvme0n1", true),
+            ("/dev/nvme0n11", "/dev/nvme0n1", false),
+            ("/dev/mmcblk0p2", "/dev/mmcblk0", true),
+            ("/dev/mmcblk0boot0", "/dev/mmcblk0", false),
+            ("/dev/md0p1", "/dev/md0", true),
+            ("/dev/md01", "/dev/md0", false),
+            ("/dev/loop0p1", "/dev/loop0", true),
+            ("/dev/pmem0p1", "/dev/pmem0", true),
+            ("/dev/sdap1", "/dev/sda", false),
+            ("/dev/mapper/muak-state", "/dev/sda", false),
+            ("tmpfs", "/dev/sda", false),
+        ];
+
+        // ACT
+        for &(device, disk, expected) in &cases {
+            let matched = device::belongs_to(device, disk);
+
+            // ASSERT
+            assert_eq!(matched, expected, "{device} against {disk}");
+        }
+    }
+
+    #[test]
     fn looks_like_partition_flags_numbered_disk_nodes() {
         // ARRANGE
         let partitions = ["/dev/sda1", "/dev/vda2", "/dev/hda12"];

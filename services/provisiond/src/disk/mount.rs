@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use blockdev::device;
 use blockdev::mounts::{self, Mount};
 use blockdev::roots::Roots;
 use rustix::fs::{Mode, mkdir, sync};
@@ -13,10 +14,7 @@ use super::target::Targets;
 
 /// Retrieves all partitions mounted from the specified disk.
 pub fn get_disk_mounts(disk: &str) -> Vec<Mount> {
-    mounts::read(&Roots::system().mounts)
-        .into_iter()
-        .filter(|mount| mount.device.starts_with(disk))
-        .collect()
+    of_disk(mounts::read(&Roots::system().mounts), disk)
 }
 
 /// Unmounts all partitions in the provided list, deepest mount points first.
@@ -108,6 +106,12 @@ pub(crate) fn unmount_targets(targets: &Targets) -> Result<()> {
     Ok(())
 }
 
+fn of_disk(mut mounts: Vec<Mount>, disk: &str) -> Vec<Mount> {
+    mounts.retain(|mount| device::belongs_to(&mount.device, disk));
+
+    mounts
+}
+
 fn create_mount_point(path: &str) -> Result<()> {
     match mkdir(path, Mode::RWXU | Mode::RWXG | Mode::ROTH) {
         Ok(()) | Err(Errno::EXIST) => Ok(()),
@@ -120,6 +124,32 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn of_disk_keeps_the_disk_and_its_own_partitions() {
+        // ARRANGE
+        let mounts = vec![
+            Mount {
+                device: "/dev/sda".to_owned(),
+                mount_point: "/".to_owned(),
+            },
+            Mount {
+                device: "/dev/sda1".to_owned(),
+                mount_point: "/boot".to_owned(),
+            },
+            Mount {
+                device: "/dev/sdaa1".to_owned(),
+                mount_point: "/mnt/other".to_owned(),
+            },
+        ];
+
+        // ACT
+        let selected = of_disk(mounts, "/dev/sda");
+
+        // ASSERT
+        let devices: Vec<&str> = selected.iter().map(|mount| mount.device.as_str()).collect();
+        assert_eq!(devices, ["/dev/sda", "/dev/sda1"]);
+    }
 
     #[test]
     fn mount_point_creation_is_idempotent() {
