@@ -20,6 +20,7 @@ const DM_DATA: &str = Role::Data.dm_name();
 
 pub(super) struct PartitionInfo {
     pub(super) efi: String,
+    pub(super) efi_size: u64,
     pub(super) state: String,
     pub(super) ephemeral: String,
     pub(super) data: String,
@@ -51,7 +52,7 @@ pub(super) async fn format_luks(
 ) -> Result<()> {
     send_progress(progress, "Formatting partitions...").await;
 
-    disk::format::efi(&partitions.efi)?;
+    disk::format::efi(&partitions.efi, partitions.efi_size)?;
 
     let (state_result, ephemeral_result, data_result) = tokio::join!(
         luks_format(&partitions.state, luks_key, Role::State),
@@ -127,7 +128,9 @@ fn partition_blocking(system_disk: &str, data_disk: &str, split: bool) -> Result
     }
 
     let system = disk::apply::plan(system_disk, &system_plan)?;
-    let efi = system.role(Role::Esp)?.device.clone();
+    let esp = system.role(Role::Esp)?;
+    let efi = esp.device.clone();
+    let efi_size = esp.size_bytes;
     let state = system.role(Role::State)?.device.clone();
     let ephemeral = system.role(Role::Ephemeral)?.device.clone();
     let data = match data_plan {
@@ -140,6 +143,7 @@ fn partition_blocking(system_disk: &str, data_disk: &str, split: bool) -> Result
 
     Ok(PartitionInfo {
         efi,
+        efi_size,
         state,
         ephemeral,
         data,
