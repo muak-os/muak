@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_treats_partition_look_alikes_as_missing_disks() {
+    fn validate_treats_partition_lookalike_as_missing_disks() {
         // ARRANGE
         let disks = vec![disk("sda"), disk("nvme0n1")];
 
