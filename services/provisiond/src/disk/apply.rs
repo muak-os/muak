@@ -121,16 +121,11 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
     })
 }
 
-fn partition_bytes(partition: &GptPartition) -> u64 {
-    partition
-        .ending_lba
-        .checked_sub(partition.starting_lba)
-        .and_then(|spans| spans.checked_add(1))
-        .and_then(|lbas| lbas.checked_mul(SECTOR_SIZE))
-        .unwrap_or(0)
-}
-
-fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<Table> {
+/// Loads the table to place into, creating an empty one when `wipe` is set.
+///
+/// # Errors
+/// Returns an error when the table is unreadable or larger than the device.
+pub(crate) fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<Table> {
     if wipe {
         return Ok(Table::create(sector_count, SECTOR_SIZE, DISK_GUID)?);
     }
@@ -158,7 +153,11 @@ fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<Table> {
     Ok(table)
 }
 
-fn place_all(gpt: &mut Table, plan: &Plan) -> Result<Vec<(Placement, Option<Role>)>> {
+/// Places every plan partition into `gpt`, returning the resolved placements.
+///
+/// # Errors
+/// Returns an error when a partition cannot be placed or does not fit.
+pub(crate) fn place_all(gpt: &mut Table, plan: &Plan) -> Result<Vec<(Placement, Option<Role>)>> {
     let mut created = Vec::new();
 
     for spec in &plan.partitions {
@@ -174,6 +173,15 @@ fn place_all(gpt: &mut Table, plan: &Plan) -> Result<Vec<(Placement, Option<Role
     }
 
     Ok(created)
+}
+
+fn partition_bytes(partition: &GptPartition) -> u64 {
+    partition
+        .ending_lba
+        .checked_sub(partition.starting_lba)
+        .and_then(|spans| spans.checked_add(1))
+        .and_then(|lbas| lbas.checked_mul(SECTOR_SIZE))
+        .unwrap_or(0)
 }
 
 fn placement_size(size: Size) -> PlacementSize {
