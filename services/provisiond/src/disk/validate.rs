@@ -90,10 +90,6 @@ mod tests {
     #[test]
     fn fits_plan_accepts_the_exact_boundary_and_rejects_one_sector_less() {
         // ARRANGE
-        // A 1 MiB fixed partition starts at LBA 2048 (the first MiB boundary
-        // after first usable LBA 34) and spans 2048 sectors, so it ends at LBA
-        // 4095. The last usable LBA is `sector_count - 34`, so the smallest
-        // disk that holds it has 4129 sectors.
         let exact = disk_image(4129);
         let short = disk_image(4128);
         let plan = fixed_plan(MB);
@@ -113,9 +109,6 @@ mod tests {
     #[test]
     fn fits_plan_rejects_a_fixed_size_that_rounds_past_the_last_sector() {
         // ARRANGE
-        // 1 MiB + one sector starts at LBA 2048 and spans 2049 sectors, ending
-        // at LBA 4096, while a 4128-sector disk ends at usable LBA 4094. The
-        // old heuristic charged 2 MiB plus one sector and accepted this disk.
         let disk = disk_image(4128);
         let plan = fixed_plan(MB + SECTOR_SIZE);
 
@@ -132,9 +125,6 @@ mod tests {
     #[test]
     fn fits_plan_fills_to_last_usable_after_a_fixed_partition() {
         // ARRANGE
-        // The 1 MiB partition ends at LBA 4095, so the fill partition starts at
-        // LBA 4096 and needs the last usable LBA to be at least 4096, which a
-        // 4130-sector disk provides exactly (4130 - 34 = 4096).
         let exact = disk_image(4130);
         let short = disk_image(4129);
         let plan = Plan::wiped(vec![
@@ -174,9 +164,6 @@ mod tests {
     #[test]
     fn fits_plan_appends_a_non_wipe_plan_after_a_foreign_partition() {
         // ARRANGE
-        // A 1 MiB foreign partition sits at the first aligned slot, so the plan
-        // must start at LBA 4096. A 6177-sector disk ends exactly at LBA 6143,
-        // the last sector the plan needs.
         let disk = disk_with_foreign_partition(6177);
         let mut plan = fixed_plan(MB);
         plan.wipe = false;
@@ -191,9 +178,6 @@ mod tests {
     #[test]
     fn fits_plan_is_table_aware_for_a_non_wipe_plan() {
         // ARRANGE
-        // 5000 sectors hold the plan if it starts at the first aligned slot, but
-        // not after the foreign partition, so only a table-aware dry run rejects
-        // it.
         let disk = disk_with_foreign_partition(5000);
         let mut plan = fixed_plan(MB);
         plan.wipe = false;

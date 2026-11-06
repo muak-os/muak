@@ -20,9 +20,6 @@ pub fn wait_for_device(device: &str) -> Result<()> {
 
 /// Formats a partition as FAT32 for EFI System Partition use.
 ///
-/// The FAT volume is sized from `size_bytes`, the placed size of the target
-/// partition, so the filesystem always matches the space it lives in.
-///
 /// # Errors
 ///
 /// Returns an error when `size_bytes` is zero, when the device does not appear,

@@ -59,8 +59,7 @@ impl AppliedPlan {
 ///
 /// # Errors
 ///
-/// Returns an error when the plan cannot be materialized or devices fail to
-/// appear.
+/// Returns an error when the plan cannot be materialized or devices fail to appear.
 pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
     kmsg::info!(
         "Applying partition plan to {} ({} partitions, wipe={})",
@@ -124,6 +123,7 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
 /// Loads the table to place into, creating an empty one when `wipe` is set.
 ///
 /// # Errors
+///
 /// Returns an error when the table is unreadable or larger than the device.
 pub(crate) fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<Table> {
     if wipe {
@@ -156,6 +156,7 @@ pub(crate) fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<T
 /// Places every plan partition into `gpt`, returning the resolved placements.
 ///
 /// # Errors
+///
 /// Returns an error when a partition cannot be placed or does not fit.
 pub(crate) fn place_all(gpt: &mut Table, plan: &Plan) -> Result<Vec<(Placement, Option<Role>)>> {
     let mut created = Vec::new();

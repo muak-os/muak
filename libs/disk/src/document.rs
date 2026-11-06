@@ -22,8 +22,7 @@ pub struct Partition {
     pub size: Size,
 }
 
-/// The serialized disk document authored at build time and applied by the
-/// installer.
+/// The serialized disk document authored at build time and applied by the installer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     /// Schema version of this document.
