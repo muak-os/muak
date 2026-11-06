@@ -250,7 +250,6 @@ impl ProvisionService for ServiceImpl {
         let options = disk::wipe::Options {
             method,
             drop_partition: req.drop_partition,
-            _allow_system_disk: req.allow_system_disk,
             dry_run: req.dry_run,
         };
 

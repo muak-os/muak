@@ -21,7 +21,6 @@ pub(crate) enum Method {
 pub(crate) struct Options {
     pub method: Method,
     pub drop_partition: bool,
-    pub _allow_system_disk: bool,
     pub dry_run: bool,
 }
 
