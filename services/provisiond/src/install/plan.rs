@@ -40,16 +40,16 @@ pub(crate) async fn resolve(
     let doc = disk::load_document()?;
     let (system_plan, data_plan) = plans_from_doc(&doc, !targets.is_split())?;
 
-    let system = inventory_disk(&inventory, &targets.system, "system")?;
-    let data = inventory_disk(&inventory, targets.data(), "data")?;
+    let system = disk::listed(&inventory, &targets.system, "system")?.clone();
+    let data = disk::listed(&inventory, targets.data(), "data")?.clone();
 
     let checked = targets.clone();
     let secureboot = config.host.secureboot;
     let checks = tokio::task::spawn_blocking(move || {
-        preflight::checks(&checked, force, allow_system_disk, secureboot)
+        preflight::checks(&checked, &inventory, force, allow_system_disk, secureboot)
     })
     .await
-    .context("preflight task")?;
+    .context("preflight task")??;
 
     Ok(InstallPlan {
         system,
@@ -59,18 +59,6 @@ pub(crate) async fn resolve(
         partitions: planned(&targets, &system_plan, data_plan.as_ref()),
         checks,
     })
-}
-
-fn inventory_disk(inventory: &[Disk], device: &str, role: &str) -> Result<Disk> {
-    inventory
-        .iter()
-        .find(|disk| disk.path == device)
-        .cloned()
-        .with_context(|| {
-            format!(
-                "resolved {role} disk '{device}' is missing from the disk inventory, confirm the disk is attached and is a whole disk"
-            )
-        })
 }
 
 fn planned(
@@ -105,42 +93,6 @@ mod tests {
     use ::disk::layout::Layout;
 
     use super::*;
-
-    fn info(path: &str) -> Disk {
-        Disk {
-            name: path.rsplit('/').next().unwrap_or_default().to_owned(),
-            path: path.to_owned(),
-            size_bytes: 1024,
-            ..Disk::default()
-        }
-    }
-
-    #[test]
-    fn listed_disks_are_found_by_path() {
-        // ARRANGE
-        let inventory = vec![info("/dev/sda")];
-
-        // ACT
-        let found = inventory_disk(&inventory, "/dev/sda", "system").expect("listed disk");
-
-        // ASSERT
-        assert_eq!(found.path, "/dev/sda");
-    }
-
-    #[test]
-    fn resolved_devices_missing_from_the_inventory_are_refused() {
-        // ARRANGE
-        let inventory = vec![info("/dev/sda")];
-
-        // ACT
-        let error = inventory_disk(&inventory, "/dev/sdb", "system").unwrap_err();
-
-        // ASSERT
-        assert_eq!(
-            error.to_string(),
-            "resolved system disk '/dev/sdb' is missing from the disk inventory, confirm the disk is attached and is a whole disk"
-        );
-    }
 
     #[test]
     fn partitions_carry_the_device_they_belong_to() {

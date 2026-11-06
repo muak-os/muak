@@ -188,9 +188,9 @@ mod tests {
             }],
             checks: vec![
                 PreflightCheck {
-                    name: "device_exists".to_owned(),
+                    name: "disk_size".to_owned(),
                     passed: true,
-                    detail: "'/dev/sda' exists".to_owned(),
+                    detail: "'/dev/sda' meets the minimum size".to_owned(),
                 },
                 PreflightCheck {
                     name: "system_disk_in_use".to_owned(),

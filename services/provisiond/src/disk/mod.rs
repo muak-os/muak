@@ -34,6 +34,22 @@ pub(crate) async fn list_disks() -> Result<Vec<Disk>> {
         .context("failed to read the disk inventory")
 }
 
+/// Finds the inventory record for the `role` disk at `device`.
+///
+/// # Errors
+///
+/// Returns an error when `device` is absent from the inventory.
+pub(crate) fn listed<'a>(inventory: &'a [Disk], device: &str, role: &str) -> Result<&'a Disk> {
+    inventory
+        .iter()
+        .find(|disk| disk.path == device)
+        .with_context(|| {
+            format!(
+                "resolved {role} disk '{device}' is missing from the disk inventory, confirm the disk is attached and is a whole disk"
+            )
+        })
+}
+
 /// Loads the disk document carried by the booted image.
 pub(crate) fn load_document() -> Result<Document> {
     Document::read(Path::new(PLAN_BOOT_PATH))

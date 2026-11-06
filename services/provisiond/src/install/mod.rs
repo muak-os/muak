@@ -10,6 +10,7 @@ mod state;
 mod volumes;
 
 use anyhow::{Context as _, Result, bail};
+use blockdev::types::Disk;
 use config::system;
 use luks2::key::Passphrase;
 use pki::InstallResult;
@@ -36,8 +37,17 @@ pub async fn run(
     admin_csr_pem: &str,
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
-    let targets = disk::target::resolve(&config.disks).await?;
-    validate_disks(&targets, config, force, allow_system_disk, &progress).await?;
+    let inventory = disk::list_disks().await?;
+    let targets = disk::target::resolve_with(&config.disks, &inventory)?;
+    validate_disks(
+        &targets,
+        inventory,
+        config,
+        force,
+        allow_system_disk,
+        &progress,
+    )
+    .await?;
     let enroll_secureboot = verify_secureboot(config)?;
     let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
@@ -141,6 +151,7 @@ fn seal_luks_key(
 
 async fn validate_disks(
     targets: &disk::target::Targets,
+    inventory: Vec<Disk>,
     config: &system::Config,
     force: bool,
     allow_system_disk: bool,
@@ -151,7 +162,7 @@ async fn validate_disks(
     let secureboot = config.host.secureboot;
 
     tokio::task::spawn_blocking(move || {
-        let checks = preflight::checks(&targets, force, allow_system_disk, secureboot);
+        let checks = preflight::checks(&targets, &inventory, force, allow_system_disk, secureboot)?;
         check::enforce(&checks)?;
         disk::mount::unmount_targets(&targets)
     })

@@ -4,6 +4,7 @@ use anyhow::{Result, bail};
 use blockdev::roots::Roots;
 use blockdev::types::Disk;
 
+use super::checks::partitions;
 use super::{checks, foreign, roles};
 use crate::check::Check;
 
@@ -66,80 +67,14 @@ pub(crate) fn validate_in(
 
 fn checks(disk: &Disk, running: Option<&str>, allow: bool, roots: &Roots) -> Vec<Check> {
     let mut checks = vec![
-        read_only(disk),
+        partitions::read_only(disk),
         checks::system_disk_in_use(&disk.path, running, allow),
-        mounted_partitions(disk, allow),
-        muak_partitions(disk, allow),
+        partitions::mounted(disk, allow),
+        partitions::muak(disk, allow),
     ];
     checks.extend(foreign::checks(disk, roots));
 
     checks
-}
-
-fn read_only(disk: &Disk) -> Check {
-    if disk.read_only {
-        return Check::fail(
-            "read_only",
-            format!("Disk '{}' is read-only and cannot be wiped", disk.path),
-        );
-    }
-
-    Check::pass("read_only", format!("'{}' is writable", disk.path))
-}
-
-fn mounted_partitions(disk: &Disk, allow: bool) -> Check {
-    let mounted = disk
-        .partitions
-        .iter()
-        .map(|partition| partition.mount_point.as_str())
-        .find(|mount_point| !mount_point.is_empty());
-
-    match mounted {
-        Some(mount_point) if !allow => Check::fail(
-            "mounted_partitions",
-            format!(
-                "Disk '{}' is mounted at '{mount_point}', unmount it or pass --allow-system-disk",
-                disk.path
-            ),
-        ),
-        Some(_) => Check::pass(
-            "mounted_partitions",
-            format!("'{}' is mounted and will be unmounted", disk.path),
-        ),
-        None => Check::pass(
-            "mounted_partitions",
-            format!("'{}' has no mounted partitions", disk.path),
-        ),
-    }
-}
-
-fn muak_partitions(disk: &Disk, allow: bool) -> Check {
-    if !(roles::is_system(disk) || roles::is_data(disk)) {
-        return Check::pass(
-            "muak_partitions",
-            format!("'{}' has no Muak STATE or DATA partition", disk.path),
-        );
-    }
-
-    if allow {
-        return Check::pass(
-            "muak_partitions",
-            format!(
-                "'{}' carries the Muak {} partition and --allow-system-disk was given",
-                disk.path,
-                role(disk)
-            ),
-        );
-    }
-
-    Check::fail(
-        "muak_partitions",
-        format!(
-            "Disk '{}' carries the Muak {} partition, pass --allow-system-disk to wipe it",
-            disk.path,
-            role(disk)
-        ),
-    )
 }
 
 fn find<'a>(disks: &'a [Disk], name: &str) -> Result<&'a Disk> {
@@ -168,14 +103,6 @@ fn is_partition_of(name: &str, disk: &str) -> bool {
     })
 }
 
-fn role(disk: &Disk) -> &'static str {
-    match (roles::is_system(disk), roles::is_data(disk)) {
-        (true, true) => "STATE and DATA",
-        (true, false) => "STATE",
-        (false, _) => "DATA",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::disk::role::Role;
@@ -200,14 +127,6 @@ mod tests {
             mount_point: mount_point.to_owned(),
             ..Partition::default()
         }
-    }
-
-    fn check<'a>(verdict: &'a Verdict, name: &str) -> &'a Check {
-        verdict
-            .checks
-            .iter()
-            .find(|check| check.name == name)
-            .expect("check")
     }
 
     fn roots() -> (tempfile::TempDir, Roots) {
@@ -285,55 +204,6 @@ mod tests {
         // ASSERT
         assert!(sata.is_err(), "sda1 is a partition");
         assert!(nvme.is_err(), "nvme0n1p2 is a partition");
-    }
-
-    #[test]
-    fn validate_rejects_read_only_disks() {
-        // ARRANGE
-        let mut disks = vec![disk("sda")];
-        disks[0].read_only = true;
-
-        // ACT
-        let verdict = validate(&disks, "sda", true).expect("resolved");
-
-        // ASSERT
-        assert!(!check(&verdict, "read_only").passed);
-    }
-
-    #[test]
-    fn validate_rejects_mounted_disks_without_allow_system_disk() {
-        // ARRANGE
-        let mut disks = vec![disk("sda")];
-        disks[0].partitions.push(partition(1, "/mnt/data", ""));
-
-        // ACT
-        let refused = validate(&disks, "sda", false).expect("resolved");
-        let allowed = validate(&disks, "sda", true).expect("resolved");
-
-        // ASSERT
-        assert!(!check(&refused, "mounted_partitions").passed);
-        assert!(check(&allowed, "mounted_partitions").passed);
-    }
-
-    #[test]
-    fn validate_refuses_system_and_data_disks_without_allow_system_disk() {
-        // ARRANGE
-        let mut system = disk("sda");
-        system
-            .partitions
-            .push(partition(1, "", Role::State.gpt_name()));
-        let mut data = disk("sdb");
-        data.partitions
-            .push(partition(1, "", Role::Data.gpt_name()));
-        let disks = vec![system, data];
-
-        // ACT
-        let system_result = validate(&disks, "sda", false).expect("resolved");
-        let data_result = validate(&disks, "sdb", false).expect("resolved");
-
-        // ASSERT
-        assert!(!check(&system_result, "muak_partitions").passed);
-        assert!(!check(&data_result, "muak_partitions").passed);
     }
 
     #[test]

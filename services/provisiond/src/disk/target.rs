@@ -27,13 +27,6 @@ impl Targets {
     }
 }
 
-/// Resolves the configured entries into concrete device paths.
-pub(crate) async fn resolve(entries: &[Entry]) -> Result<Targets> {
-    let disks = list_disks().await?;
-
-    resolve_with(entries, &disks)
-}
-
 /// Resolves the configured entries against one inventory snapshot.
 pub(crate) fn resolve_with(entries: &[Entry], disks: &[Disk]) -> Result<Targets> {
     let system = system_device(entries, disks)?;
