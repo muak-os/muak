@@ -714,7 +714,7 @@ extensions = []
         let profile_len = u64::try_from(profile_bytes.len()).expect("profile length");
         let version_len = u64::try_from(RELEASE.len()).expect("version length");
         let system_plan = disk::layout::Layout::Uefi.plan();
-        let disk_plan = disk::plan::Document::from_plan(&system_plan)
+        let disk_plan = disk::convert::from_plan(&system_plan)
             .expect("doc from plan")
             .to_toml()
             .expect("disk plan toml");

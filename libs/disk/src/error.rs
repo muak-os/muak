@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::plan::API_VERSION;
+use crate::document::API_VERSION;
 
 /// Error type for disk plan and layout operations.
 #[derive(Debug, Error)]

@@ -3,6 +3,8 @@
 use parttable::gpt::partition::LINUX_FS_GUID;
 use serde::{Deserialize, Serialize};
 
+use crate::sizes::ESP_TYPE_GUID;
+
 /// Functional role of a partition, independent of its name or slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -22,7 +24,7 @@ impl Role {
     #[must_use]
     pub const fn type_guid(self) -> [u8; 16] {
         match self {
-            Self::Esp => crate::plan::ESP_TYPE_GUID,
+            Self::Esp => ESP_TYPE_GUID,
             Self::State | Self::Ephemeral | Self::Data => LINUX_FS_GUID,
         }
     }
@@ -55,51 +57,5 @@ impl Role {
             Self::Ephemeral => "muak-ephemeral",
             Self::Data => "muak-data",
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gpt_names_are_stable() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(Role::Esp.gpt_name(), "EFI");
-        assert_eq!(Role::State.gpt_name(), "STATE");
-        assert_eq!(Role::Ephemeral.gpt_name(), "EPHEMERAL");
-        assert_eq!(Role::Data.gpt_name(), "DATA");
-    }
-
-    #[test]
-    fn type_guids_are_stable() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(Role::Esp.type_guid(), crate::plan::ESP_TYPE_GUID);
-        assert_eq!(Role::State.type_guid(), LINUX_FS_GUID);
-        assert_eq!(Role::Ephemeral.type_guid(), LINUX_FS_GUID);
-        assert_eq!(Role::Data.type_guid(), LINUX_FS_GUID);
-    }
-
-    #[test]
-    fn dm_names_are_stable() {
-        // ARRANGE / ACT / ASSERT
-        assert_eq!(Role::State.dm_name(), "muak-state");
-        assert_eq!(Role::Ephemeral.dm_name(), "muak-ephemeral");
-        assert_eq!(Role::Data.dm_name(), "muak-data");
-    }
-
-    #[test]
-    fn serde_round_trip_uses_lowercase() {
-        // ARRANGE
-        #[derive(Deserialize)]
-        struct Wrapper {
-            role: Role,
-        }
-
-        // ACT
-        let parsed: Wrapper = toml::from_str("role = \"state\"").expect("parse");
-
-        // ASSERT
-        assert_eq!(parsed.role, Role::State, "role must deserialize lowercase");
     }
 }

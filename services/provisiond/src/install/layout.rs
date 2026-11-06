@@ -1,6 +1,8 @@
 //! Platform layout planning driven by the boot image's disk plan.
 
-use ::disk::plan::{Document, Plan};
+use ::disk::convert;
+use ::disk::document::Document;
+use ::disk::plan::Plan;
 use ::disk::role::Role;
 use anyhow::{Result, bail};
 
@@ -12,7 +14,7 @@ use anyhow::{Result, bail};
 /// Returns an error when the document cannot be converted to a plan or is
 /// missing a required role.
 pub fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
-    let plan = doc.to_plan()?;
+    let plan = convert::to_plan(doc)?;
 
     for role in [Role::Esp, Role::State, Role::Ephemeral, Role::Data] {
         if !plan.partitions.iter().any(|spec| spec.role == Some(role)) {
@@ -46,13 +48,13 @@ pub fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option
 
 #[cfg(test)]
 mod tests {
+    use ::disk::document::{Document, Partition};
     use ::disk::layout::Layout;
-    use ::disk::plan::{Document, Partition};
 
     use super::*;
 
     fn standard_doc() -> Document {
-        Document::from_plan(&Layout::Uefi.plan()).expect("doc from plan")
+        convert::from_plan(&Layout::Uefi.plan()).expect("doc from plan")
     }
 
     fn replace(doc: &Document, partition: &Partition) -> Document {
@@ -129,7 +131,7 @@ mod tests {
         let doc = Document::new(
             true,
             vec![
-                Document::from_plan(&Layout::Uefi.plan())
+                convert::from_plan(&Layout::Uefi.plan())
                     .expect("doc from plan")
                     .find(Role::Esp)
                     .cloned()

@@ -4,7 +4,7 @@ use alloc::borrow::Cow;
 use alloc::collections::BTreeSet;
 use std::io::Read;
 
-use disk::plan::Document;
+use disk::convert;
 use ramune::Entry;
 
 use crate::artifact::Artifact;
@@ -196,7 +196,7 @@ fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Result<Vec<MetadataFi
         bytes: Cow::Borrowed(ctx.build.version().as_bytes()),
     });
 
-    let doc = Document::from_plan(&ctx.build.layout().plan())?;
+    let doc = convert::from_plan(&ctx.build.layout().plan())?;
     files.push(MetadataFile {
         name: "disk.toml",
         bytes: Cow::Owned(doc.to_toml()?.into_bytes()),

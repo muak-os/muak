@@ -17,7 +17,7 @@ pub(crate) mod wipe;
 
 use std::path::Path;
 
-use ::disk::plan::Document;
+use ::disk::document::Document;
 use anyhow::{Context as _, Result};
 use blockdev::inventory;
 use blockdev::types::Disk;

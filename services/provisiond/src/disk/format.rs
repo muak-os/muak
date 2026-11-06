@@ -4,7 +4,7 @@ use core::time::Duration;
 use std::fs::OpenOptions;
 use std::path::Path;
 
-use ::disk::plan::EFI_SIZE;
+use ::disk::sizes::EFI_SIZE;
 use anyhow::{Context as _, Result, bail};
 
 // Wait for a device node to appear.

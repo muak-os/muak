@@ -2,7 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 
-use ::disk::plan;
+use ::disk::document;
 use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
 use anyhow::{Result, anyhow, bail};
@@ -108,7 +108,7 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
         applied.push(AppliedPartition {
             role,
             name: placement.partition.name.clone(),
-            type_guid: plan::guid(&placement.partition.type_guid),
+            type_guid: document::guid(&placement.partition.type_guid),
             size_bytes: partition_bytes(&placement.partition),
             device: path,
         });
