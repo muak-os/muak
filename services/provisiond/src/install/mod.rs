@@ -172,9 +172,11 @@ async fn validate_disks(
 }
 
 fn verify_secureboot(config: &system::Config) -> Result<bool> {
-    let check = secureboot::check(config.host.secureboot);
-    if !check.passed {
-        bail!("{}", check.detail);
+    if let Some(failed) = secureboot::system_checks(config.host.secureboot)
+        .iter()
+        .find(|check| !check.passed)
+    {
+        bail!("{}", failed.detail);
     }
 
     Ok(config.host.secureboot)
