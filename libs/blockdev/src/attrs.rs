@@ -3,6 +3,8 @@
 use std::fs;
 use std::path::Path;
 
+use parttable::gpt;
+
 /// Returns the value of the first `PARTNAME=` line of a `uevent` file.
 pub(crate) fn partname(content: &str) -> String {
     content
@@ -14,6 +16,11 @@ pub(crate) fn partname(content: &str) -> String {
 /// Reads a trimmed integer value from a sysfs attribute file.
 pub(crate) fn read_u64(path: &Path) -> Option<u64> {
     read_string(path)?.parse().ok()
+}
+
+/// Reads a sysfs `size` attribute, converting its 512-byte sectors to bytes.
+pub(crate) fn read_size_bytes(path: &Path) -> Option<u64> {
+    read_u64(path)?.checked_mul(gpt::plan::SECTOR_SIZE)
 }
 
 /// Reads a trimmed string value from a sysfs attribute file.

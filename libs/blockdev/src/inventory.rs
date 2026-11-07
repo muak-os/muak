@@ -3,8 +3,6 @@
 use std::fs;
 use std::path::Path;
 
-use parttable::gpt;
-
 use crate::error::{BlockdevError, Result};
 use crate::mounts::{self, Mount};
 use crate::roots::Roots;
@@ -59,8 +57,7 @@ fn try_read(roots: &Roots, name: &str, mounts_table: &[Mount]) -> Option<Disk> {
 fn read(roots: &Roots, name: &str, mounts_table: &[Mount]) -> Option<Disk> {
     let sysfs_path = roots.block.join(name);
 
-    let size_sectors = attrs::read_u64(&sysfs_path.join("size"))?;
-    let size_bytes = size_sectors.saturating_mul(gpt::plan::SECTOR_SIZE);
+    let size_bytes = attrs::read_size_bytes(&sysfs_path.join("size"))?;
     let removable = attrs::read_u64(&sysfs_path.join("removable"))? != 0;
     let read_only = attrs::read_u64(&sysfs_path.join("ro"))? != 0;
 

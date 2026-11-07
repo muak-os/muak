@@ -3,8 +3,6 @@
 use std::fs;
 use std::path::Path;
 
-use parttable::gpt;
-
 use crate::mounts::{self, Mount};
 use crate::roots::Roots;
 use crate::types::Partition;
@@ -58,8 +56,7 @@ fn read(roots: &Roots, disk_name: &str, name: &str, mounts_table: &[Mount]) -> O
 
     let number = u32::try_from(attrs::read_u64(&sysfs_path.join("partition"))?).ok()?;
     let start_sector = attrs::read_u64(&sysfs_path.join("start"))?;
-    let size_sectors = attrs::read_u64(&sysfs_path.join("size"))?;
-    let size_bytes = size_sectors.saturating_mul(gpt::plan::SECTOR_SIZE);
+    let size_bytes = attrs::read_size_bytes(&sysfs_path.join("size"))?;
 
     let device_path = roots.dev.join(name);
     let path = device_path.to_string_lossy().into_owned();
