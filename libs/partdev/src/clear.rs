@@ -24,7 +24,7 @@ pub fn fast(device: &str) -> Result<()> {
     if size > TAIL_BYTES {
         write_zeros(&file, size.saturating_sub(TAIL_BYTES), TAIL_BYTES)?;
     }
-    file.sync_all()?;
+    io::sync(&file)?;
 
     Ok(())
 }
@@ -39,7 +39,7 @@ pub fn zero(device: &str) -> Result<()> {
     let size = blockdev::device::size(&file)?;
 
     write_zeros(&file, 0, size)?;
-    file.sync_all()?;
+    io::sync(&file)?;
 
     Ok(())
 }

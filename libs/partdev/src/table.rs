@@ -36,7 +36,7 @@ pub fn commit(file: &File, table: &Table, sector_count: u64) -> Result<()> {
         sector_count,
         &mut io::Positioned::at(file, table.backup_data_offset(sector_count)),
     )?;
-    file.sync_all()?;
+    io::sync(file)?;
 
     Ok(())
 }

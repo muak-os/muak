@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read as _, Write as _};
+    use std::io::{Read as _, Seek as _, Write as _};
 
     use blockdev::io::{self, Positioned};
 
@@ -66,6 +66,35 @@ mod tests {
         assert_eq!(first_read, first, "first read sees the seeded bytes");
         assert_eq!(second_read, second, "second read advances past the first");
         assert_eq!(landed, written, "write lands at the positioned offset");
+    }
+
+    #[test]
+    fn write_at_leaves_the_file_cursor_where_it_was() {
+        // ARRANGE
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        file.as_file().set_len(4096).expect("resize");
+
+        // ACT
+        io::write_at(file.as_file(), 2048, b"positioned").expect("positioned write");
+        let position = file.as_file().stream_position().expect("cursor position");
+
+        // ASSERT
+        assert_eq!(position, 0, "positioned writes never move the cursor");
+    }
+
+    #[test]
+    fn positioned_read_reports_unexpected_eof_on_a_truncated_file() {
+        // ARRANGE
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        file.as_file().set_len(4).expect("resize");
+        let mut positioned = Positioned::at(file.as_file(), 0);
+        let mut buffer = [0_u8; 8];
+
+        // ACT
+        let error = positioned.read(&mut buffer).expect_err("short read");
+
+        // ASSERT
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 
     #[test]

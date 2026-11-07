@@ -3,6 +3,8 @@
 use std::fs::File;
 use std::path::Path;
 
+use crate::io;
+
 const EXT4_MAGIC_OFFSET: u64 = 0x438;
 const EXT4_MAGIC: [u8; 2] = [0x53, 0xEF];
 
@@ -37,12 +39,12 @@ fn has_magic(file: &File, offset: u64, expected: &[u8]) -> bool {
         return false;
     };
 
-    crate::io::read_at(file, offset, slot).is_ok() && slot == expected
+    io::read_at(file, offset, slot).is_ok() && slot == expected
 }
 
 fn fat(file: &File) -> Option<&'static str> {
     let mut boot_sector = [0_u8; 512];
-    if crate::io::read_at(file, 0, &mut boot_sector).is_err() {
+    if io::read_at(file, 0, &mut boot_sector).is_err() {
         return None;
     }
 
@@ -57,4 +59,45 @@ fn fat(file: &File) -> Option<&'static str> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::FileExt as _;
+
+    use super::*;
+
+    const PROBE_FILE_SIZE: u64 = 0x2_0000;
+
+    fn file_with(bytes: &[u8], offset: u64) -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        file.as_file().set_len(PROBE_FILE_SIZE).unwrap();
+        file.as_file().write_all_at(bytes, offset).unwrap();
+        file
+    }
+
+    #[test]
+    fn filesystem_detects_a_btrfs_magic() {
+        // ARRANGE
+        let file = file_with(&BTRFS_MAGIC, BTRFS_MAGIC_OFFSET);
+
+        // ACT
+        let filesystem = filesystem(file.path());
+
+        // ASSERT
+        assert_eq!(filesystem, Some("btrfs"));
+    }
+
+    #[test]
+    fn filesystem_detects_a_fat32_signature() {
+        // ARRANGE
+        let offset = u64::try_from(FAT32_SIGNATURE.start).unwrap();
+        let file = file_with(b"FAT32   ", offset);
+
+        // ACT
+        let filesystem = filesystem(file.path());
+
+        // ASSERT
+        assert_eq!(filesystem, Some("vfat"));
+    }
 }
