@@ -54,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn enroll_keys_writes_pk_kek_and_db_in_order() {
+    fn enroll_keys_writes_db_kek_and_pk_in_order() {
         // ARRANGE
         let store = Firmware::ready().with_variable(SETUP_MODE, vec![1]);
         let hierarchy = hierarchy::Bundle::generate("Enroll Success").expect("generate hierarchy");
@@ -68,13 +68,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(writes.len(), 3);
-        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
+        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(DB));
         assert_eq!(writes.get(1).map(|&(id, ref _payload)| id), Some(KEK));
-        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(DB));
+        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(PK));
         assert!(
             writes
                 .first()
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&pk_sigdb))
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&db_sigdb))
         );
         assert!(
             writes
@@ -84,8 +84,45 @@ mod tests {
         assert!(
             writes
                 .get(2)
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&db_sigdb))
+                .is_some_and(|&(_id, ref payload)| payload.ends_with(&pk_sigdb))
         );
+    }
+
+    #[test]
+    fn enroll_leaves_platform_in_setup_mode_when_a_write_fails_before_pk() {
+        // ARRANGE
+        let store = Firmware::ready()
+            .with_variable(SETUP_MODE, vec![1])
+            .failing_on(KEK);
+        let hierarchy =
+            hierarchy::Bundle::generate("Enroll Failure Before PK").expect("generate hierarchy");
+
+        // ACT
+        let result = enrollment::enroll(&store, &hierarchy);
+
+        // ASSERT
+        let error = result.expect_err("a failed KEK write must abort enrollment");
+        assert!(
+            error.to_string().contains("failed to enroll KEK"),
+            "error must name the failing variable: {error}"
+        );
+        assert!(
+            !store.exists(&PK),
+            "PK must never be written when a prior write fails"
+        );
+        assert!(
+            secureboot::setup_mode(&store).expect("read SetupMode"),
+            "platform must remain in Setup Mode after a failure before PK"
+        );
+
+        // ARRANGE
+        let healthy = Firmware::ready().with_variable(SETUP_MODE, vec![1]);
+
+        // ACT
+        let retry = enrollment::enroll(&healthy, &hierarchy);
+
+        // ASSERT
+        retry.expect("a retry on a healthy store must succeed");
     }
 
     #[test]

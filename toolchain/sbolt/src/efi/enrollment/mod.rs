@@ -23,6 +23,11 @@ pub(super) enum SigningAuthority {
 
 /// Enroll the complete key hierarchy into UEFI firmware.
 ///
+/// Variables are written in the order db, KEK, PK. Enrolling the Platform Key
+/// transitions the platform out of Setup Mode, so writing it last keeps the db
+/// and KEK writes unauthenticated and retryable. A failure before the PK write
+/// therefore leaves the platform in Setup Mode.
+///
 /// # Errors
 ///
 /// Returns an error if firmware variable storage is unavailable, the system is
@@ -56,12 +61,12 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
 
     write_signed_variable(
         store,
-        secureboot::PK,
-        &pk_sigdb.to_bytes(),
+        secureboot::DB,
+        &db_sigdb.to_bytes(),
         hierarchy,
-        SigningAuthority::PlatformKey,
+        SigningAuthority::KeyExchangeKey,
     )
-    .map_err(|e| SboltError::EfiVar(format!("failed to enroll PK: {e}")))?;
+    .map_err(|e| SboltError::EfiVar(format!("failed to enroll db: {e}")))?;
     write_signed_variable(
         store,
         secureboot::KEK,
@@ -72,12 +77,12 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
     .map_err(|e| SboltError::EfiVar(format!("failed to enroll KEK: {e}")))?;
     write_signed_variable(
         store,
-        secureboot::DB,
-        &db_sigdb.to_bytes(),
+        secureboot::PK,
+        &pk_sigdb.to_bytes(),
         hierarchy,
-        SigningAuthority::KeyExchangeKey,
+        SigningAuthority::PlatformKey,
     )
-    .map_err(|e| SboltError::EfiVar(format!("failed to enroll db: {e}")))?;
+    .map_err(|e| SboltError::EfiVar(format!("failed to enroll PK: {e}")))?;
 
     verify_database(store, hierarchy)
 }
@@ -284,6 +289,42 @@ mod tests {
             writes
                 .iter()
                 .all(|&(_id, ref payload)| payload.ends_with(content))
+        );
+    }
+
+    #[test]
+    fn signer_and_certificate_maps_each_authority_to_its_certificate() {
+        // ARRANGE
+        let hierarchy =
+            hierarchy::Bundle::generate("Signing Authority").expect("generate hierarchy");
+        let pk_der = hierarchy
+            .pk
+            .certificate
+            .to_der()
+            .expect("encode pk certificate");
+        let kek_der = hierarchy
+            .kek
+            .certificate
+            .to_der()
+            .expect("encode kek certificate");
+
+        // ACT
+        let (_, platform_key) = signer_and_certificate(&hierarchy, SigningAuthority::PlatformKey);
+        let (_, key_exchange_key) =
+            signer_and_certificate(&hierarchy, SigningAuthority::KeyExchangeKey);
+
+        // ASSERT
+        assert_eq!(
+            platform_key
+                .to_der()
+                .expect("encode platform key certificate"),
+            pk_der
+        );
+        assert_eq!(
+            key_exchange_key
+                .to_der()
+                .expect("encode key exchange key certificate"),
+            kek_der
         );
     }
 
