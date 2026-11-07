@@ -8,7 +8,7 @@ use getrandom::SysRng;
 use getrandom::rand_core::UnwrapErr;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::{DecodePrivateKey as _, EncodePrivateKey as _};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::{PrivateKey, PublicKey};
 use sha2::{Digest as _, Sha256};
 use signature::{DigestSigner as _, SignatureEncoding as _};
 use spki::AlgorithmIdentifierOwned;
@@ -43,7 +43,7 @@ impl Signer {
     ///
     /// Returns an error if the PKCS#8 document cannot be decoded as an RSA key.
     pub fn from_pkcs8_der(pkcs8_der: &[u8]) -> Result<Self> {
-        let key = RsaPrivateKey::from_pkcs8_der(pkcs8_der)
+        let key = PrivateKey::from_pkcs8_der(pkcs8_der)
             .map_err(|e| SboltError::KeyGeneration(format!("failed to load RSA key: {e}")))?;
         let signing_key = SigningKey::new(key);
 
@@ -65,7 +65,7 @@ impl Signer {
 
     /// Get the public key.
     #[must_use]
-    pub fn public_key(&self) -> RsaPublicKey {
+    pub fn public_key(&self) -> PublicKey {
         self.signing_key.as_ref().to_public_key()
     }
 
@@ -86,7 +86,7 @@ impl Signer {
 }
 
 impl signature::Keypair for Signer {
-    type VerifyingKey = RsaPublicKey;
+    type VerifyingKey = PublicKey;
 
     fn verifying_key(&self) -> Self::VerifyingKey {
         self.public_key()
