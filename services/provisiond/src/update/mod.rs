@@ -177,7 +177,7 @@ async fn prepare_inner(
             });
 
         let request = Request::new(request_version, &request_registry)
-            .with_strategy(strategy)
+            .strategy(strategy)
             .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
             .artifact(Artifact::Kernel, &mut kernel_file)

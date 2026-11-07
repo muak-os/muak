@@ -28,7 +28,8 @@ pub struct Request<'a> {
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
     progress: Option<&'a dyn Reporter>,
-    strategy: pull::Strategy,
+    /// Cache access strategy for every pull performed by the build.
+    pub(crate) strategy: pull::Strategy,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
 
@@ -133,18 +134,12 @@ impl<'a> Request<'a> {
         self
     }
 
-    /// Sets the cache access strategy for every pull performed by the build.
+    /// Sets the cache access strategy for every pull performed by the build (default `Network`).
     #[must_use]
-    pub fn with_strategy(mut self, strategy: pull::Strategy) -> Self {
+    pub fn strategy(mut self, strategy: pull::Strategy) -> Self {
         self.strategy = strategy;
 
         self
-    }
-
-    /// Returns the cache access strategy for the build.
-    #[must_use]
-    pub(crate) const fn strategy(&self) -> pull::Strategy {
-        self.strategy
     }
 
     /// Returns the artifact kinds targeted by this request.
@@ -336,6 +331,20 @@ mod tests {
 
         // ACT & ASSERT
         request.validate_codec().expect("raw accepts codecs");
+    }
+
+    #[test]
+    fn strategy_defaults_to_network_and_is_settable() {
+        // ARRANGE
+        let mut request = Request::new("v1.0.0", "registry.test");
+        let default = request.strategy;
+
+        // ACT
+        request = request.strategy(pull::Strategy::CacheOnly);
+
+        // ASSERT
+        assert_eq!(default, pull::Strategy::Network);
+        assert_eq!(request.strategy, pull::Strategy::CacheOnly);
     }
 
     #[test]

@@ -32,7 +32,7 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let registry = request.registry();
     let arch = request.target_arch().unwrap_or_else(arch::host);
     let release = request.version();
-    let strategy = request.strategy();
+    let strategy = request.strategy;
     valid_release(release)?;
     let profile_id = profile.profile_id()?;
 
