@@ -5,7 +5,6 @@
 
 use core::mem::size_of;
 use std::fs::File;
-use std::io::{Seek as _, SeekFrom, Write as _};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
@@ -138,13 +137,6 @@ impl MkfsContext {
         }
     }
 
-    /// Write data to a specific physical offset.
-    fn write_at(&mut self, buf: &[u8], phys: u64) -> Result<()> {
-        self.device.seek(SeekFrom::Start(phys))?;
-        self.device.write_all(buf)?;
-        Ok(())
-    }
-
     /// Build a leaf node with header and checksum.
     fn build_node(
         &self,
@@ -215,8 +207,8 @@ impl MkfsContext {
         let node = self.build_node(logical, owner, items, data)?;
         let phys_0 = self.layout.meta_logical_to_phys(logical);
         let phys_1 = phys_0.saturating_add(self.layout.meta_stripe_size());
-        self.write_at(&node, phys_0)?;
-        self.write_at(&node, phys_1)?;
+        blockdev::io::write_at(&self.device, phys_0, &node)?;
+        blockdev::io::write_at(&self.device, phys_1, &node)?;
         Ok(())
     }
 
@@ -234,13 +226,9 @@ impl MkfsContext {
         )?;
         let phys_0 = self.layout.sys_logical_to_phys(result.logical_offset);
         let phys_1 = phys_0.saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE);
-        self.write_at(&node, phys_0)?;
-        self.write_at(&node, phys_1)?;
+        blockdev::io::write_at(&self.device, phys_0, &node)?;
+        blockdev::io::write_at(&self.device, phys_1, &node)?;
 
-        // Return system chunk data for superblock
-        // The system chunk is the second item in the chunk tree
-        // We need to extract it from the built data
-        // This is a bit of a hack - we rebuild just the system chunk
         let sys_chunk = ChunkBuilder::dup(
             BTRFS_MKFS_SYSTEM_DUP_SIZE,
             BTRFS_BLOCK_GROUP_SYSTEM,
@@ -303,8 +291,7 @@ impl MkfsContext {
         let csum = compute_checksum(checksum_input);
         copy_into(&mut sb.csum, 0, &csum)?;
 
-        self.device.seek(SeekFrom::Start(bytenr))?;
-        self.device.write_all(sb.as_bytes())?;
+        blockdev::io::write_at(&self.device, bytenr, sb.as_bytes())?;
         Ok(())
     }
 
@@ -392,10 +379,8 @@ impl MkfsContext {
             .map_err(|_error| BtrfsError::Mkfs("system chunk array is too large".to_owned()))?;
         write_u32(&mut sb.sys_chunk_array_size, sys_chunk_array_size);
 
-        // Phase 1: temporary magic
         self.write_superblock(&mut sb, BTRFS_SUPER_INFO_OFFSET)?;
 
-        // Phase 2: real magic on all mirrors
         write_u64(&mut sb.magic, BTRFS_MAGIC);
         self.write_superblock_mirrors(&mut sb)?;
 
@@ -416,8 +401,7 @@ impl MkfsContext {
         }
 
         let zeros = vec![0_u8; BTRFS_MKFS_RESERVED_SIZE_USIZE];
-        self.device.seek(SeekFrom::Start(0))?;
-        self.device.write_all(&zeros)?;
+        blockdev::io::write_at(&self.device, 0, &zeros)?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -436,8 +420,9 @@ impl MkfsContext {
     ///
     /// # Errors
     /// Returns an error if the device cannot be synced.
-    pub fn sync_device(&mut self) -> Result<()> {
-        self.device.sync_all()?;
+    pub fn sync_device(&self) -> Result<()> {
+        blockdev::io::sync(&self.device)?;
+
         Ok(())
     }
 }
