@@ -4,6 +4,7 @@ use core::fmt;
 use std::io::Write;
 
 use koci::arch::Arch;
+use koci::pull::policy::Policy;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
@@ -27,6 +28,7 @@ pub struct Request<'a> {
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
     progress: Option<&'a dyn Reporter>,
+    policy: Policy,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
 
@@ -37,6 +39,7 @@ impl fmt::Debug for Request<'_> {
             .field("arch", &self.arch)
             .field("signing", &self.signing.is_some())
             .field("progress", &self.progress.is_some())
+            .field("policy", &self.policy)
             .field(
                 "targets",
                 &self.targets.iter().map(|item| &item.0).collect::<Vec<_>>(),
@@ -56,6 +59,7 @@ impl<'a> Request<'a> {
             codec: None,
             signing: None,
             progress: None,
+            policy: Policy::Network,
             targets: Vec::new(),
         }
     }
@@ -129,6 +133,20 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Sets the cache access policy for every pull performed by the build.
+    #[must_use]
+    pub fn policy(mut self, policy: Policy) -> Self {
+        self.policy = policy;
+
+        self
+    }
+
+    /// Returns the cache access policy for the build.
+    #[must_use]
+    pub(crate) const fn pull_policy(&self) -> Policy {
+        self.policy
+    }
+
     /// Returns the artifact kinds targeted by this request.
     pub fn targets(&self) -> impl Iterator<Item = &Artifact> {
         self.targets.iter().map(|item| &item.0)
@@ -161,7 +179,7 @@ impl<'a> Request<'a> {
             progress.report(Event::Started {
                 label: "Discovering overlay assets",
             });
-            resolver::discover::assets(&mut resolution)?;
+            resolver::discover::assets(&mut resolution, self.policy)?;
             let assets = resolution
                 .build()
                 .overlay_assets()
@@ -174,7 +192,7 @@ impl<'a> Request<'a> {
         progress.report(Event::Started {
             label: "Resolving disk layout",
         });
-        resolver::discover::layout(&mut resolution)?;
+        resolver::discover::layout(&mut resolution, self.policy)?;
         progress.report(Event::Completed {
             label: &format!("disk layout {}", resolution.build().layout().name()),
         });
@@ -187,6 +205,7 @@ impl<'a> Request<'a> {
             signing: self.signing,
             codec: self.codec.unwrap_or_default(),
             progress,
+            policy: self.policy,
         };
         let mut writers = TargetWriters::new(self.targets);
 

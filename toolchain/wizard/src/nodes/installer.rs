@@ -37,7 +37,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
-    let size = measured_size(build.installer(), build.arch(), INITRAMFS_PATH)?;
+    let size = measured_size(build.installer(), build.arch(), INITRAMFS_PATH, ctx.policy)?;
 
     let binding = graph
         .node(id)?
@@ -60,10 +60,11 @@ fn run(
 ) -> Result<NodeReport> {
     let mut output = ports.output(INITRAMFS)?;
 
-    pull::files(
+    pull::files_with(
         ctx.build.installer(),
         &ctx.build.arch(),
         None,
+        ctx.policy,
         &ctx.reporter(kind),
         |mut entry| {
             if entry.path == INITRAMFS_PATH {

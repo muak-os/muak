@@ -66,10 +66,11 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let kind = graph.node(id)?.kind;
 
     let mut prefix = Vec::new();
-    pull::files(
+    pull::files_with(
         build.stub(),
         &build.arch(),
         None,
+        ctx.policy,
         &ctx.reporter(kind),
         |entry| {
             if entry.path == "stub.efi" {

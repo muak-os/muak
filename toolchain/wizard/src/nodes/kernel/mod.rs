@@ -54,7 +54,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let source = ctx.build.kernel().source();
 
-    let sizes = measured_sizes(source, ctx.build.arch())?;
+    let sizes = measured_sizes(source, ctx.build.arch(), ctx.policy)?;
 
     let bindings = graph
         .node(id)?
@@ -91,10 +91,11 @@ fn run(
     let mut outputs: Vec<(PortId, OutputStream<'_>)> = ports.output_pairs_from(PortId(0), None)?;
     let mut seen_cmdline = false;
 
-    pull::files(
+    pull::files_with(
         source,
         &ctx.build.arch(),
         None,
+        ctx.policy,
         &ctx.reporter(kind),
         |mut entry| {
             route_entry(

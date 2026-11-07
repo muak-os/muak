@@ -12,6 +12,7 @@ pub(crate) mod uki;
 
 use koci::arch::Arch;
 use koci::pull;
+use koci::pull::policy::Policy;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
@@ -106,8 +107,12 @@ pub(crate) fn produces(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortI
 ///
 /// Returns an error when the manifest cannot be resolved, signature
 /// verification fails, or a layer carries no footer.
-pub(crate) fn measured_sizes(reference: &str, arch: Arch) -> Result<Vec<(String, u64)>> {
-    pull::toc::entries(reference, &arch, None)
+pub(crate) fn measured_sizes(
+    reference: &str,
+    arch: Arch,
+    policy: Policy,
+) -> Result<Vec<(String, u64)>> {
+    pull::toc::entries_with(reference, &arch, None, policy)
         .map(|entries| {
             entries
                 .into_iter()
@@ -122,8 +127,13 @@ pub(crate) fn measured_sizes(reference: &str, arch: Arch) -> Result<Vec<(String,
 /// # Errors
 ///
 /// Returns an error when the manifest cannot be resolved or the entry is missing.
-pub(crate) fn measured_size(reference: &str, arch: Arch, path: &str) -> Result<u64> {
-    measured_sizes(reference, arch)?
+pub(crate) fn measured_size(
+    reference: &str,
+    arch: Arch,
+    path: &str,
+    policy: Policy,
+) -> Result<u64> {
+    measured_sizes(reference, arch, policy)?
         .iter()
         .find_map(|entry| (entry.0.as_str() == path).then_some(entry.1))
         .ok_or_else(|| WizardError::BuildError(format!("missing entry {path} in {reference}")))
@@ -134,8 +144,12 @@ pub(crate) fn measured_size(reference: &str, arch: Arch, path: &str) -> Result<u
 /// # Errors
 ///
 /// Returns an error when the annotations cannot be fetched.
-pub(crate) fn disk_layout_annotation(reference: &str, arch: Arch) -> Result<Option<String>> {
-    let annotations = pull::annotations(reference, &arch, None)
+pub(crate) fn disk_layout_annotation(
+    reference: &str,
+    arch: Arch,
+    policy: Policy,
+) -> Result<Option<String>> {
+    let annotations = pull::annotations_with(reference, &arch, None, policy)
         .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
 
     Ok(annotations.get(DISK_ANNOTATION).cloned())
@@ -144,6 +158,7 @@ pub(crate) fn disk_layout_annotation(reference: &str, arch: Arch) -> Result<Opti
 #[cfg(test)]
 mod tests {
     use koci::arch::Arch;
+    use koci::pull::policy::Policy;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 
@@ -177,6 +192,7 @@ mod tests {
             signing: None,
             codec: Codec::Zstd,
             progress: &NOOP,
+            policy: Policy::Network,
         }
     }
 
@@ -267,6 +283,7 @@ mod tests {
             signing: Some(&signing),
             codec: Codec::Zstd,
             progress: &NOOP,
+            policy: Policy::Network,
         };
 
         // ACT

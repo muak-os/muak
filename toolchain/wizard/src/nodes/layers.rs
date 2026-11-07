@@ -7,6 +7,7 @@ use koci::error::KociError;
 use koci::progress::Reporter;
 use koci::pull;
 use koci::pull::entries::FileEntry;
+use koci::pull::policy::Policy;
 
 use crate::artifact::Artifact;
 use crate::domain::input::Extension;
@@ -57,7 +58,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 pub(crate) fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let kind = graph.node(id)?.kind;
     let layers = layer_specs(ctx)?;
-    let mut payloads = pull_payloads(&layers, &ctx.reporter(kind))?;
+    let mut payloads = pull_payloads(&layers, &ctx.reporter(kind), ctx.policy)?;
     let planned = measure(&mut payloads, &layers)?;
     let staged = payloads.into_iter().zip(planned).collect::<Staged>();
 
@@ -95,7 +96,7 @@ pub(crate) fn run(
     let layers = layer_specs(ctx)?;
     let mut staged = match STAGED.lock().unwrap_or_else(PoisonError::into_inner).take() {
         Some(staged) if matches(&staged, &layers) => staged,
-        _ => pull_and_measure(&layers, &ctx.reporter(kind))?,
+        _ => pull_and_measure(&layers, &ctx.reporter(kind), ctx.policy)?,
     };
 
     let mut outputs = ports.outputs_from(FIRST_OUTPUT, Some(staged.len()))?;
@@ -147,8 +148,8 @@ fn matches(staged: &Staged, layers: &[Layer]) -> bool {
             .all(|(pair, layer)| pair.1.meta().name == layer.name)
 }
 
-fn pull_and_measure(layers: &[Layer], progress: &dyn Reporter) -> Result<Staged> {
-    let mut payloads = pull_payloads(layers, progress)?;
+fn pull_and_measure(layers: &[Layer], progress: &dyn Reporter, policy: Policy) -> Result<Staged> {
+    let mut payloads = pull_payloads(layers, progress, policy)?;
     let planned = measure(&mut payloads, layers)?;
 
     Ok(payloads.into_iter().zip(planned).collect())
@@ -195,13 +196,22 @@ fn measure(
     Ok(planned)
 }
 
-fn pull_payloads(layers: &[Layer], progress: &dyn Reporter) -> Result<Vec<mumi::payload::Payload>> {
+fn pull_payloads(
+    layers: &[Layer],
+    progress: &dyn Reporter,
+    policy: Policy,
+) -> Result<Vec<mumi::payload::Payload>> {
     let mut payloads = Vec::with_capacity(layers.len());
     for layer in layers {
         let mut payload = mumi::payload::Payload::new(layer.name.clone());
-        pull::files(&layer.source, &layer.arch, None, progress, |entry| {
-            add_entry(&mut payload, entry, layer.entry)
-        })
+        pull::files_with(
+            &layer.source,
+            &layer.arch,
+            None,
+            policy,
+            progress,
+            |entry| add_entry(&mut payload, entry, layer.entry),
+        )
         .map_err(|e| WizardError::pull(&format!("pull layer {}", layer.name), &layer.source, &e))?;
         payloads.push(payload);
     }
@@ -371,6 +381,7 @@ mod tests {
             signing: None,
             codec: Codec::Zstd,
             progress: &NOOP,
+            policy: Policy::Network,
         };
 
         // ACT
