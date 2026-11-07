@@ -18,12 +18,24 @@ pub mod toc;
 use alloc::collections::BTreeMap;
 
 use oci::arch::Arch;
-use oci_client::auth::Access;
+use oci_client::client::Client;
 
 use crate::error::Result;
 use crate::progress::Reporter;
+use crate::runtime;
 use crate::signature::Verification;
-use crate::{registry, runtime};
+
+/// Where pull data may be read from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Strategy {
+    /// Cache first, registry on a miss.
+    #[default]
+    Network,
+    /// Registry for tag references, cache for everything else.
+    Refresh,
+    /// Cache only; any miss is an error.
+    CacheOnly,
+}
 
 /// Resolution of a pull to one platform manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,44 +46,55 @@ pub struct Resolution {
     pub layers: usize,
 }
 
-/// Fetch the manifest annotations of the platform manifest matching `arch`.
+/// Fetch the manifest annotations of the platform manifest matching `arch` under `strategy`.
 ///
 /// # Errors
 ///
-/// Returns an error if the manifest cannot be fetched or signature
-/// verification fails.
+/// Returns an error if the manifest cannot be fetched, a cache-only miss
+/// occurs, or signature verification fails.
 pub fn annotations(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
+    strategy: Strategy,
 ) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
-        let client = registry::connect(reference, Access::Pull).await?;
+        let client = Client::local(reference);
         let cache = cache::Store::new();
-        let json = resolve::platform_manifest_json(&client, &cache, arch, verification).await?;
+        let content = content::Content::new();
+        let json = resolve::platform_manifest_json(
+            &client,
+            &cache,
+            &content,
+            arch,
+            verification,
+            strategy,
+        )
+        .await?;
         let parsed = oci::manifest::parse(&json)?;
 
         Ok(parsed.annotations.unwrap_or_default().into_iter().collect())
     })
 }
 
-/// Stream file data from an OCI image.
+/// Stream file data from an OCI image under `strategy`.
 ///
 /// # Errors
 ///
-/// Returns an error if the image cannot be fetched, signature verification
-/// fails, a layer cannot be decompressed, or the handler returns an error.
+/// Returns an error if the image cannot be fetched, a cache-only miss occurs, signature
+/// verification fails, a layer cannot be decompressed, or the handler returns an error.
 pub fn files<F>(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
+    strategy: Strategy,
     reporter: &dyn Reporter,
     handler: F,
 ) -> Result<Resolution>
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    let session = session::open(reference, arch, verification)?;
+    let session = session::open(reference, arch, verification, strategy)?;
     let resolution = Resolution {
         digest: session.digest().to_owned(),
         layers: session.layers().len(),

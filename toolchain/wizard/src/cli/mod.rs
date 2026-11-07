@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use koci::arch::Arch;
+use koci::pull;
 use tui::console::Console;
 use tui::output::Flags;
 use wizard::domain::profile::Profile;
@@ -132,7 +133,7 @@ fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -
     let profile = Profile::from_toml(&bytes)?;
     let request = Request::new(version, registry).arch(arch);
     let mut resolved = resolver::plan(&request, &profile)?;
-    discover::layout(&mut resolved)?;
+    discover::layout(&mut resolved, pull::Strategy::Network)?;
 
     println!("profile id: {}", resolved.profile_id());
     println!("resolution id: {}", resolved.resolution_id());

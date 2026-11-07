@@ -22,7 +22,7 @@ mod tests {
     use koci::error::KociError;
     use koci::progress::{Event, Noop, Phase, Reporter};
     use koci::pull::demux::Demux;
-    use koci::pull::{cache, session};
+    use koci::pull::{Strategy, cache, session};
     use koci::{annotations, merge, pull, push, repack};
     use oci::arch::Arch;
     use oci::error::OciError;
@@ -113,7 +113,7 @@ mod tests {
 
     fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
         let mut files = Vec::new();
-        pull::files(reference, &arch, None, &Noop, |entry| {
+        pull::files(reference, &arch, None, Strategy::Network, &Noop, |entry| {
             let path = entry.path.clone();
             let mut contents = Vec::new();
             entry.reader.read_to_end(&mut contents)?;
@@ -124,9 +124,30 @@ mod tests {
         files
     }
 
+    fn collect_session_files(session: &session::Session) -> Vec<CollectedFile> {
+        let mut files = Vec::new();
+        session
+            .walk(&Noop, |entry| {
+                let path = entry.path.clone();
+                let mut contents = Vec::new();
+                entry.reader.read_to_end(&mut contents)?;
+                files.push(CollectedFile { path, contents });
+                Ok(())
+            })
+            .expect("walk session should succeed");
+        files
+    }
+
     fn expect_stream_error(reference: &str) -> KociError {
-        pull::files(reference, &Arch::Amd64, None, &Noop, |_entry| Ok(()))
-            .expect_err("stream should fail")
+        pull::files(
+            reference,
+            &Arch::Amd64,
+            None,
+            Strategy::Network,
+            &Noop,
+            |_entry| Ok(()),
+        )
+        .expect_err("stream should fail")
     }
 
     fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
@@ -217,6 +238,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Strategy::Network,
             &counter,
             |entry| {
                 let path = entry.path.clone();
@@ -318,6 +340,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -345,6 +368,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1308,6 +1332,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Strategy::Network,
             &counter,
             |entry| {
                 let path = entry.path.clone();
@@ -1536,9 +1561,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let annotations =
-            pull::annotations(&registry.reference("repo", "test"), &Arch::Amd64, None)
-                .expect("read annotations");
+        let annotations = pull::annotations(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            Strategy::Network,
+        )
+        .expect("read annotations");
 
         // ASSERT
         assert_eq!(
@@ -1591,9 +1620,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let annotations =
-            pull::annotations(&registry.reference("repo", "test"), &Arch::Arm64, None)
-                .expect("read annotations");
+        let annotations = pull::annotations(
+            &registry.reference("repo", "test"),
+            &Arch::Arm64,
+            None,
+            Strategy::Network,
+        )
+        .expect("read annotations");
 
         // ASSERT
         assert_eq!(
@@ -1612,9 +1645,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let annotations =
-            pull::annotations(&registry.reference("repo", "test"), &Arch::Amd64, None)
-                .expect("read annotations");
+        let annotations = pull::annotations(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            Strategy::Network,
+        )
+        .expect("read annotations");
 
         // ASSERT
         assert!(annotations.is_empty());
@@ -1634,6 +1671,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1657,6 +1695,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1809,6 +1848,7 @@ mod tests {
             &server.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1882,6 +1922,199 @@ mod tests {
     }
 
     #[test]
+    fn offline_pull_serves_a_warm_cache_without_the_registry() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer =
+            plain_tar_layer("hello.txt", b"offline cache payload").expect("build tar layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest json");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let mut registry = MockRegistry::start(HashMap::from([
+            get(
+                "/v2/repo/manifests/offline",
+                HttpResponse::json(manifest.clone()),
+            ),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer.clone()),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "offline");
+
+        // ACT
+        let warm = collect_files(&reference, Arch::Amd64);
+        let manifest_requests = registry
+            .count("GET", "/v2/repo/manifests/offline")
+            .expect("count");
+        let layer_requests = registry
+            .count("GET", &format!("/v2/repo/blobs/{digest}"))
+            .expect("count");
+        let probe_requests = registry.count("GET", "/v2/").expect("count");
+        registry.stop();
+        let offline = session::open(&reference, &Arch::Amd64, None, Strategy::CacheOnly)
+            .map(|session| collect_session_files(&session))
+            .expect("a cache-only session must open from the warm cache");
+        let manifest_after = registry
+            .count("GET", "/v2/repo/manifests/offline")
+            .expect("count");
+        let layer_after = registry
+            .count("GET", &format!("/v2/repo/blobs/{digest}"))
+            .expect("count");
+        let probe_after = registry.count("GET", "/v2/").expect("count");
+
+        // ASSERT
+        assert_eq!(warm, offline, "the offline pull must stream the same files");
+        assert_eq!(
+            manifest_after, manifest_requests,
+            "the warm offline pull must not refetch the manifest"
+        );
+        assert_eq!(
+            layer_after, layer_requests,
+            "the warm offline pull must not redownload the layer"
+        );
+        assert_eq!(
+            probe_after, probe_requests,
+            "the warm offline pull must not probe registry auth"
+        );
+    }
+
+    #[test]
+    fn cache_only_rejects_a_cold_cache_without_connecting() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let reference = "127.0.0.1:1/repo:cold";
+
+        // ACT
+        let result = session::open(reference, &Arch::Amd64, None, Strategy::CacheOnly);
+
+        // ASSERT
+        let Err(error) = result else {
+            panic!("a cold cache must fail offline");
+        };
+        assert!(matches!(error, KociError::Offline { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn refresh_refetches_the_tag_manifest_but_not_cached_layers() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let shared = plain_tar_layer("keep.txt", b"shared layer").expect("build shared layer");
+        let shared_digest = sha256_digest(&shared);
+        let added = plain_tar_layer("new.txt", b"refreshed layer").expect("build added layer");
+        let added_digest = sha256_digest(&added);
+        let first_manifest = manifest_with_layers_json(&[(
+            shared_digest.as_str(),
+            shared.len(),
+            PLAIN_LAYER_MEDIA_TYPE,
+        )])
+        .expect("build first manifest");
+        let refreshed_manifest = manifest_with_layers_json(&[
+            (shared_digest.as_str(), shared.len(), PLAIN_LAYER_MEDIA_TYPE),
+            (added_digest.as_str(), added.len(), PLAIN_LAYER_MEDIA_TYPE),
+        ])
+        .expect("build refreshed manifest");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get(
+                "/v2/repo/manifests/refresh",
+                HttpResponse::json(first_manifest),
+            ),
+            get(
+                format!("/v2/repo/blobs/{shared_digest}"),
+                HttpResponse::octet_stream(shared),
+            ),
+            get(
+                format!("/v2/repo/blobs/{added_digest}"),
+                HttpResponse::octet_stream(added),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "refresh");
+        let first = collect_files(&reference, Arch::Amd64);
+        registry.set_response(
+            "GET",
+            "/v2/repo/manifests/refresh",
+            HttpResponse::json(refreshed_manifest),
+        );
+
+        // ACT
+        let refreshed = session::open(&reference, &Arch::Amd64, None, Strategy::Refresh)
+            .map(|session| collect_session_files(&session))
+            .expect("a refresh session must open");
+
+        // ASSERT
+        assert_eq!(first.len(), 1, "the warm pull serves only the shared layer");
+        assert_eq!(refreshed.len(), 2, "the refresh must serve the new layer");
+        assert!(
+            refreshed.iter().any(|file| file.path == "new.txt"),
+            "the refreshed manifest content must be returned"
+        );
+        assert_eq!(
+            registry
+                .count("GET", "/v2/repo/manifests/refresh")
+                .expect("count"),
+            2,
+            "a refresh must re-fetch the tag manifest exactly once"
+        );
+        assert_eq!(
+            registry
+                .count("GET", &format!("/v2/repo/blobs/{shared_digest}"))
+                .expect("count"),
+            1,
+            "the shared layer must stay cache-first on refresh"
+        );
+    }
+
+    #[test]
+    fn failed_refresh_keeps_the_cached_tag_reference() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer = plain_tar_layer("hello.txt", b"cached before refresh").expect("build layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest json");
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/stale", HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "stale");
+        let warm = collect_files(&reference, Arch::Amd64);
+        registry.set_response(
+            "GET",
+            "/v2/repo/manifests/stale",
+            HttpResponse::server_error(),
+        );
+
+        // ACT
+        let refresh = session::open(&reference, &Arch::Amd64, None, Strategy::Refresh);
+        let cached = session::open(&reference, &Arch::Amd64, None, Strategy::CacheOnly)
+            .map(|session| collect_session_files(&session))
+            .expect("the cached tag reference must survive a failed refresh");
+
+        // ASSERT
+        assert!(
+            refresh.is_err(),
+            "a failing refresh must surface the registry error"
+        );
+        assert_eq!(warm, cached, "the cached tag reference must still serve");
+    }
+
+    #[test]
     fn session_demux_serves_many_consumers_in_one_pass() {
         // ARRANGE
         let layer = layer_archive(&[
@@ -1901,8 +2134,13 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let session = session::open(&registry.reference("repo", "demux"), &Arch::Amd64, None)
-            .expect("open session");
+        let session = session::open(
+            &registry.reference("repo", "demux"),
+            &Arch::Amd64,
+            None,
+            Strategy::Network,
+        )
+        .expect("open session");
         let counter = PassCounter::new();
         let mut demux = Demux::by_name(HashMap::from([
             ("a".to_owned(), Vec::new()),
@@ -1968,8 +2206,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let session = session::open(&registry.reference("repo", "lazy"), &Arch::Amd64, None)
-            .expect("open session");
+        let session = session::open(
+            &registry.reference("repo", "lazy"),
+            &Arch::Amd64,
+            None,
+            Strategy::Network,
+        )
+        .expect("open session");
         let lazy = session.lazy();
         let mut first_blob = Vec::new();
         let mut first = Vec::new();

@@ -3,12 +3,12 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use oci::model::Descriptor;
-use oci::reference::Image;
+use oci_client::auth::Access;
 use oci_client::client::Client;
-use oci_client::transport::Transport;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
+use super::Strategy;
 use super::content::Content;
 use super::download::ByteProgress;
 use super::fetch::fetch_one;
@@ -45,7 +45,13 @@ pub(crate) async fn download_all(
     content: &Content,
     layers: &[Descriptor],
     reporter: &dyn Reporter,
+    strategy: Strategy,
 ) -> Result<Vec<Option<Vec<u8>>>> {
+    let client = if strategy == Strategy::CacheOnly || !needs_network(content, layers) {
+        client.clone()
+    } else {
+        client.authenticate(Access::Pull).await?
+    };
     let total = layers.len();
     let workers = parallel_downloads().min(total);
     let total_bytes = layers
@@ -72,17 +78,14 @@ pub(crate) async fn download_all(
     let mut downloads = JoinSet::new();
     for worker_idx in 0..workers {
         let content = content.clone();
-        let http = client.http().clone();
-        let image = client.image().clone();
-        let authorization = client.authorization().map(str::to_owned);
+        let worker_client = client.clone();
         let assigned = assigned_layers(worker_idx, workers, layers);
         downloads.spawn(download_batch(
             content,
-            http,
-            image,
-            authorization,
+            worker_client,
             assigned,
             sender.clone(),
+            strategy,
         ));
     }
     drop(sender);
@@ -96,6 +99,12 @@ pub(crate) async fn download_all(
     }
 
     Ok(bytes)
+}
+
+fn needs_network(content: &Content, layers: &[Descriptor]) -> bool {
+    layers
+        .iter()
+        .any(|layer| content.has_blob(&layer.digest).is_none())
 }
 
 fn parallel_downloads() -> usize {
@@ -132,25 +141,16 @@ fn assigned_layers(
 
 async fn download_batch(
     content: Content,
-    http: Transport,
-    image: Image,
-    authorization: Option<String>,
+    client: Client,
     assigned: Vec<(usize, Descriptor)>,
     sender: UnboundedSender<ByteSample>,
+    strategy: Strategy,
 ) -> FetchBatch {
     let mut results = Vec::with_capacity(assigned.len());
     for (layer_idx, layer) in assigned {
         let index = layer_idx.saturating_add(1);
         let progress = ByteProgress::new(sender.clone(), index, layer.size);
-        let blob = fetch_one(
-            &content,
-            &http,
-            &image,
-            &layer.digest,
-            authorization.as_deref(),
-            Some(progress),
-        )
-        .await;
+        let blob = fetch_one(&content, &client, &layer.digest, Some(progress), strategy).await;
         results.push((layer_idx, blob));
     }
 

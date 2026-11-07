@@ -113,6 +113,7 @@ message PrepareUpdateRequest {
     string version = 1;
     bytes config = 2;
     bool force = 3;
+    bool offline = 4;
 }
 
 message PrepareUpdateProgress {

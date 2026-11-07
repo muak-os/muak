@@ -9,6 +9,9 @@ use koci::pull;
 /// Subtree holding in-progress ingests, re-exported from the koci pull cache.
 pub const INGEST_DIR: &str = pull::cache::INGEST_DIR;
 
+/// Cache access strategy for pulls, as defined by the koci pull module.
+pub type Strategy = pull::Strategy;
+
 /// The resolved cache root, or `None` when the cache is disabled.
 #[must_use]
 pub fn root() -> Option<PathBuf> {

@@ -25,6 +25,9 @@ pub struct Args {
     #[arg(short, long)]
     output: PathBuf,
 
+    #[arg(long)]
+    offline: bool,
+
     #[arg(long, value_name = "PATH", requires = "sig_annotation")]
     pub_key: Option<PathBuf>,
 
@@ -38,6 +41,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
         image,
         arch,
         output,
+        offline,
         pub_key,
         sig_annotation,
     } = args;
@@ -57,6 +61,11 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
             });
 
     let target_arch = arch.unwrap_or(arch::host());
+    let strategy = if offline {
+        pull::Strategy::CacheOnly
+    } else {
+        pull::Strategy::Network
+    };
 
     if verification.is_none() {
         console.warn(
@@ -71,6 +80,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
             &image,
             &target_arch,
             verification.as_ref(),
+            strategy,
             reporter,
             |entry| write_entry_to_dir(entry, &output),
         )
@@ -155,6 +165,29 @@ mod tests {
         assert_eq!(pulled.output, Path::new("out"));
         assert_eq!(pulled.pub_key.as_deref(), Some(Path::new("koci.pub")));
         assert_eq!(pulled.sig_annotation.as_deref(), Some("dev.muak.sig"));
+    }
+
+    #[test]
+    fn pull_parses_the_offline_flag() {
+        // ARRANGE
+        let args = CliArgs::try_parse_from([
+            "koci",
+            "pull",
+            "--image",
+            "repo:test",
+            "--output",
+            "out",
+            "--offline",
+        ])
+        .expect("parse pull args");
+
+        // ACT
+        let Command::Pull(pulled) = args.command else {
+            panic!("expected pull command");
+        };
+
+        // ASSERT
+        assert!(pulled.offline);
     }
 
     #[test]

@@ -5,15 +5,14 @@ use std::io::{self, Read};
 use flate2::read::GzDecoder;
 use oci::arch::Arch;
 use oci::model::Descriptor;
-use oci_client::auth::Access;
 use oci_client::client::Client;
 use tar::Archive;
 
 use crate::error::{KociError, Result};
-use crate::pull::{cache, content, fetch};
+use crate::pull::{Strategy, cache, content, fetch};
+use crate::runtime;
 use crate::signature::Verification;
 use crate::stargz::toc::{FOOTER_SIZE, Record, TOC_NAME, Toc, parse_footer};
-use crate::{registry, runtime};
 
 /// The `(path, size)` of one regular-file layer entry, measured without decoding the layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,34 +23,44 @@ pub struct EntryInfo {
     pub size: u64,
 }
 
-/// Measure the regular-file entries of the platform manifest matching `arch`.
+/// Measure the regular-file entries of the platform manifest matching `arch` under `strategy`.
 ///
 /// # Errors
 ///
-/// Returns an error if the manifest cannot be resolved, signature
-/// verification fails, a footer or TOC is missing, or a fetch fails.
+/// Returns an error if the manifest cannot be resolved, a cache-only miss occurs,
+/// signature verification fails, a footer or TOC is missing, or a fetch fails.
 pub fn entries(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
+    strategy: Strategy,
 ) -> Result<Vec<EntryInfo>> {
-    runtime::runtime()?.block_on(measure_all(reference, arch, verification))
+    runtime::runtime()?.block_on(measure_all(reference, arch, verification, strategy))
 }
 
 async fn measure_all(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
+    strategy: Strategy,
 ) -> Result<Vec<EntryInfo>> {
-    let client = registry::connect(reference, Access::Pull).await?;
+    let client = Client::local(reference);
     let cache = cache::Store::new();
     let content = content::Content::new();
-    let json = super::resolve::platform_manifest_json(&client, &cache, arch, verification).await?;
+    let json = super::resolve::platform_manifest_json(
+        &client,
+        &cache,
+        &content,
+        arch,
+        verification,
+        strategy,
+    )
+    .await?;
     let parsed = oci::manifest::parse(&json)?;
 
     let mut measured: Vec<EntryInfo> = Vec::new();
     for layer in &parsed.layers {
-        let entries = layer_entries(&client, &content, layer).await?;
+        let entries = layer_entries(&client, &content, layer, strategy).await?;
         let files = entries
             .into_iter()
             .filter(|entry| entry.kind == "reg")
@@ -72,18 +81,10 @@ async fn layer_entries(
     client: &Client,
     content: &content::Content,
     layer: &Descriptor,
+    strategy: Strategy,
 ) -> Result<Vec<Record>> {
     let size = layer.size;
-    let authorization = client.authorization().map(str::to_owned);
-    let fetched = fetch::fetch_one(
-        content,
-        client.http(),
-        client.image(),
-        &layer.digest,
-        authorization.as_deref(),
-        None,
-    )
-    .await?;
+    let fetched = fetch::fetch_one(content, client, &layer.digest, None, strategy).await?;
 
     let decoded = match fetched {
         Some(bytes) => decode_from_bytes(&bytes, size),

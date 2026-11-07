@@ -70,6 +70,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
         build.stub(),
         &build.arch(),
         None,
+        ctx.strategy,
         &ctx.reporter(kind),
         |entry| {
             if entry.path == "stub.efi" {

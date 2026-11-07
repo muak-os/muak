@@ -46,7 +46,13 @@ impl Store {
 
     /// Create a new cache.
     pub(crate) fn new() -> Self {
-        Self { root: root() }
+        Self::at(root())
+    }
+
+    /// Create a cache over `root`, or a disabled cache when it is `None`.
+    #[must_use]
+    pub(crate) fn at(root: Option<PathBuf>) -> Self {
+        Self { root }
     }
 
     /// Return a cached manifest.
@@ -320,7 +326,8 @@ fn subtree<'a>(root: &Path, path: &'a Path) -> Option<&'a str> {
     relative.components().next()?.as_os_str().to_str()
 }
 
-fn atomic_write(path: &Path, data: &[u8]) {
+/// Write `data` to `path` via a temp sibling, so a crash never leaves a partial file.
+pub(crate) fn atomic_write(path: &Path, data: &[u8]) {
     let Some(parent) = path.parent() else {
         return;
     };

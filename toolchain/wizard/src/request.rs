@@ -4,6 +4,7 @@ use core::fmt;
 use std::io::Write;
 
 use koci::arch::Arch;
+use koci::pull;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
@@ -27,6 +28,7 @@ pub struct Request<'a> {
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
     progress: Option<&'a dyn Reporter>,
+    pub(crate) strategy: pull::Strategy,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
 
@@ -37,6 +39,7 @@ impl fmt::Debug for Request<'_> {
             .field("arch", &self.arch)
             .field("signing", &self.signing.is_some())
             .field("progress", &self.progress.is_some())
+            .field("strategy", &self.strategy)
             .field(
                 "targets",
                 &self.targets.iter().map(|item| &item.0).collect::<Vec<_>>(),
@@ -56,6 +59,7 @@ impl<'a> Request<'a> {
             codec: None,
             signing: None,
             progress: None,
+            strategy: pull::Strategy::Network,
             targets: Vec::new(),
         }
     }
@@ -129,6 +133,14 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Sets the cache access strategy for every pull performed by the build (default `Network`).
+    #[must_use]
+    pub fn strategy(mut self, strategy: pull::Strategy) -> Self {
+        self.strategy = strategy;
+
+        self
+    }
+
     /// Returns the artifact kinds targeted by this request.
     pub fn targets(&self) -> impl Iterator<Item = &Artifact> {
         self.targets.iter().map(|item| &item.0)
@@ -161,7 +173,7 @@ impl<'a> Request<'a> {
             progress.report(Event::Started {
                 label: "Discovering overlay assets",
             });
-            resolver::discover::assets(&mut resolution)?;
+            resolver::discover::assets(&mut resolution, self.strategy)?;
             let assets = resolution
                 .build()
                 .overlay_assets()
@@ -174,7 +186,7 @@ impl<'a> Request<'a> {
         progress.report(Event::Started {
             label: "Resolving disk layout",
         });
-        resolver::discover::layout(&mut resolution)?;
+        resolver::discover::layout(&mut resolution, self.strategy)?;
         progress.report(Event::Completed {
             label: &format!("disk layout {}", resolution.build().layout().name()),
         });
@@ -187,6 +199,7 @@ impl<'a> Request<'a> {
             signing: self.signing,
             codec: self.codec.unwrap_or_default(),
             progress,
+            strategy: self.strategy,
         };
         let mut writers = TargetWriters::new(self.targets);
 
@@ -317,6 +330,20 @@ mod tests {
 
         // ACT & ASSERT
         request.validate_codec().expect("raw accepts codecs");
+    }
+
+    #[test]
+    fn strategy_defaults_to_network_and_is_settable() {
+        // ARRANGE
+        let mut request = Request::new("v1.0.0", "registry.test");
+        let default = request.strategy;
+
+        // ACT
+        request = request.strategy(pull::Strategy::CacheOnly);
+
+        // ASSERT
+        assert_eq!(default, pull::Strategy::Network);
+        assert_eq!(request.strategy, pull::Strategy::CacheOnly);
     }
 
     #[test]

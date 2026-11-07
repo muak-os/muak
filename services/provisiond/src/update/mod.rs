@@ -20,13 +20,14 @@ use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
+use wizard::cache::Strategy;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
 use crate::disk::roles;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
 use crate::journal::{self, ChangeKind, Entry};
-use crate::{disk, medium, streaming};
+use crate::{cache, disk, medium, streaming};
 
 /// Staging directory for update operations.
 pub(crate) const UPDATE_DIR: &str = "/run/state/update";
@@ -78,9 +79,14 @@ pub async fn prepare(
     extensions: &[String],
     new_config: Option<system::Config>,
     author: &str,
+    strategy: Strategy,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    match prepare_inner(registry, version, extensions, new_config, author, progress).await {
+    match prepare_inner(
+        registry, version, extensions, new_config, author, strategy, progress,
+    )
+    .await
+    {
         Ok(update_id) => Ok(update_id),
         Err(error) => {
             failure::record(version, author, &error);
@@ -95,9 +101,12 @@ async fn prepare_inner(
     extensions: &[String],
     new_config: Option<system::Config>,
     author: &str,
+    strategy: Strategy,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    crate::cache::enforce();
+    if strategy != Strategy::CacheOnly {
+        cache::enforce();
+    }
     let installed = config::system::config()?;
     let system = disk::target::resolve_system(&installed.disks).await?;
     verify_system_disk(&system)?;
@@ -168,6 +177,7 @@ async fn prepare_inner(
             });
 
         let request = Request::new(request_version, &request_registry)
+            .strategy(strategy)
             .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
             .artifact(Artifact::Kernel, &mut kernel_file)
@@ -206,7 +216,7 @@ async fn prepare_inner(
     }
 
     sync();
-    crate::cache::enforce();
+    cache::enforce();
 
     Ok(update_id)
 }
@@ -250,7 +260,6 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
     ))
 }
 
-/// Checks for a pending update snapshot and spawns validation in the background.
 pub fn check_and_handle_pending_validation() -> Result<()> {
     let Some((update_id, snapshot_path)) = snapshot::find_pending()? else {
         return Ok(());
@@ -379,6 +388,15 @@ pub(crate) fn already_current(
     !force && version == installed.host.version && desired.same_as(installed)
 }
 
+/// Maps the offline flag to the pull cache access strategy.
+pub(crate) const fn strategy(offline: bool) -> Strategy {
+    if offline {
+        Strategy::CacheOnly
+    } else {
+        Strategy::Network
+    }
+}
+
 pub fn signal_cli_contact() {
     validation::signal_cli_contact();
 }
@@ -386,8 +404,11 @@ pub fn signal_cli_contact() {
 #[cfg(test)]
 mod tests {
     use config::system::{self, disk, host};
+    use wizard::cache::Strategy;
 
-    use super::{UpdateStatus, already_current, desired_config, resolve_status, resolve_target};
+    use super::{
+        UpdateStatus, already_current, desired_config, resolve_status, resolve_target, strategy,
+    };
     use crate::journal::{ChangeKind, Entry};
 
     fn installed_config() -> system::Config {
@@ -400,6 +421,21 @@ mod tests {
             disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sda")],
             ..system::Config::default()
         }
+    }
+
+    #[test]
+    fn offline_flag_selects_the_cache_only_strategy() {
+        // ARRANGE
+        let offline = true;
+        let online = false;
+
+        // ACT
+        let selected = strategy(offline);
+        let default = strategy(online);
+
+        // ASSERT
+        assert_eq!(selected, Strategy::CacheOnly);
+        assert_eq!(default, Strategy::Network);
     }
 
     #[test]

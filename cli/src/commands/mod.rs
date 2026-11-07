@@ -253,6 +253,7 @@ async fn handle_cmd(
             version,
             config: config_path,
             force,
+            offline,
         } => {
             let ctx_name = context.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -265,7 +266,7 @@ async fn handle_cmd(
                 .ok_or_else(|| anyhow::anyhow!("Context '{ctx_name}' not found."))?
                 .clone();
             ctx.endpoint = endpoint;
-            update::handle(&ctx, version, config_path, force, console).await
+            update::handle(&ctx, version, config_path, force, offline, console).await
         }
         Commands::Disks { action, wide } => {
             let mut client = ProvisionServiceClient::new(channel);

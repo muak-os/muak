@@ -80,7 +80,7 @@ fn run(
         .overlay_assets()
         .ok_or_else(|| WizardError::BuildError("overlay node has no overlay source".to_owned()))?;
     let outputs = ports.outputs_from(PULL_OUTPUTS_FIRST, None)?;
-    let session = pull::session::open(&overlay.source, &overlay.arch, None)
+    let session = pull::session::open(&overlay.source, &overlay.arch, None, ctx.strategy)
         .map_err(|e| WizardError::pull("open overlay session", &overlay.source, &e))?;
 
     demux_pass(

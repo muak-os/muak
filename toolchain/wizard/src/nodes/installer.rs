@@ -37,7 +37,12 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
-    let size = measured_size(build.installer(), build.arch(), INITRAMFS_PATH)?;
+    let size = measured_size(
+        build.installer(),
+        build.arch(),
+        INITRAMFS_PATH,
+        ctx.strategy,
+    )?;
 
     let binding = graph
         .node(id)?
@@ -64,6 +69,7 @@ fn run(
         ctx.build.installer(),
         &ctx.build.arch(),
         None,
+        ctx.strategy,
         &ctx.reporter(kind),
         |mut entry| {
             if entry.path == INITRAMFS_PATH {
