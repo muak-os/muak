@@ -76,7 +76,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
 
     let started = Instant::now();
     let resolution = progress::tracked(console, "pull image", |reporter| {
-        pull::files_with(
+        pull::files(
             &image,
             &target_arch,
             verification.as_ref(),

@@ -38,7 +38,7 @@ pub(super) fn fetch_tag(
 ) -> Result<Fetched> {
     let reference = format!("{registry}/{}:{tag}", kind.dir());
     let mut document: Option<Vec<u8>> = None;
-    let resolution = pull::files_with(
+    let resolution = pull::files(
         &reference,
         &Arch::Amd64,
         None,

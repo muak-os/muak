@@ -112,7 +112,7 @@ pub(crate) fn measured_sizes(
     arch: Arch,
     policy: Policy,
 ) -> Result<Vec<(String, u64)>> {
-    pull::toc::entries_with(reference, &arch, None, policy)
+    pull::toc::entries(reference, &arch, None, policy)
         .map(|entries| {
             entries
                 .into_iter()
@@ -149,7 +149,7 @@ pub(crate) fn disk_layout_annotation(
     arch: Arch,
     policy: Policy,
 ) -> Result<Option<String>> {
-    let annotations = pull::annotations_with(reference, &arch, None, policy)
+    let annotations = pull::annotations(reference, &arch, None, policy)
         .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
 
     Ok(annotations.get(DISK_ANNOTATION).cloned())

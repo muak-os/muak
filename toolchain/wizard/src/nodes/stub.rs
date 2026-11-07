@@ -61,7 +61,7 @@ fn run(
     let build = ctx.build;
     let mut output = ports.output(STUB)?;
 
-    pull::files_with(
+    pull::files(
         build.stub(),
         &build.arch(),
         None,

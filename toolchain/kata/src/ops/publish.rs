@@ -59,6 +59,7 @@ fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
         reference,
         &Arch::Amd64,
         None,
+        pull::policy::Policy::Network,
         &koci::progress::Noop,
         |entry| {
             if entry.path == DOCUMENT_PATH {

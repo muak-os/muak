@@ -36,27 +36,14 @@ pub struct Resolution {
     pub layers: usize,
 }
 
-/// Fetch the manifest annotations of the platform manifest matching `arch`.
-///
-/// # Errors
-///
-/// Returns an error if the manifest cannot be fetched or signature
-/// verification fails.
-pub fn annotations(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-) -> Result<BTreeMap<String, String>> {
-    annotations_with(reference, arch, verification, Policy::Network)
-}
-
-/// Fetch the manifest annotations of `arch` under an explicit cache access policy.
+/// Fetch the manifest annotations of the platform manifest matching `arch`
+/// under `policy`.
 ///
 /// # Errors
 ///
 /// Returns an error if the manifest cannot be fetched, a cache-only miss
 /// occurs, or signature verification fails.
-pub fn annotations_with(
+pub fn annotations(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
@@ -75,40 +62,14 @@ pub fn annotations_with(
     })
 }
 
-/// Stream file data from an OCI image.
-///
-/// # Errors
-///
-/// Returns an error if the image cannot be fetched, signature verification
-/// fails, a layer cannot be decompressed, or the handler returns an error.
-pub fn files<F>(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-    reporter: &dyn Reporter,
-    handler: F,
-) -> Result<Resolution>
-where
-    F: FnMut(entries::FileEntry<'_>) -> Result<()>,
-{
-    files_with(
-        reference,
-        arch,
-        verification,
-        Policy::Network,
-        reporter,
-        handler,
-    )
-}
-
-/// Stream file data from an OCI image under an explicit cache access policy.
+/// Stream file data from an OCI image under `policy`.
 ///
 /// # Errors
 ///
 /// Returns an error if the image cannot be fetched, a cache-only miss occurs,
 /// signature verification fails, a layer cannot be decompressed, or the
 /// handler returns an error.
-pub fn files_with<F>(
+pub fn files<F>(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
@@ -119,7 +80,7 @@ pub fn files_with<F>(
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    let session = session::open_with(reference, arch, verification, policy)?;
+    let session = session::open(reference, arch, verification, policy)?;
     let resolution = Resolution {
         digest: session.digest().to_owned(),
         layers: session.layers().len(),

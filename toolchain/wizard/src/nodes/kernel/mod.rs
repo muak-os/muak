@@ -91,7 +91,7 @@ fn run(
     let mut outputs: Vec<(PortId, OutputStream<'_>)> = ports.output_pairs_from(PortId(0), None)?;
     let mut seen_cmdline = false;
 
-    pull::files_with(
+    pull::files(
         source,
         &ctx.build.arch(),
         None,

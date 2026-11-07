@@ -204,7 +204,7 @@ fn pull_payloads(
     let mut payloads = Vec::with_capacity(layers.len());
     for layer in layers {
         let mut payload = mumi::payload::Payload::new(layer.name.clone());
-        pull::files_with(
+        pull::files(
             &layer.source,
             &layer.arch,
             None,

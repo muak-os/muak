@@ -91,27 +91,13 @@ impl Session {
     }
 }
 
-/// Open a pull session for `reference` under the network policy.
-///
-/// # Errors
-///
-/// Returns an error when the reference cannot be parsed, the registry
-/// handshake fails, or signature verification fails.
-pub fn open(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-) -> Result<Session> {
-    open_with(reference, arch, verification, Policy::Network)
-}
-
-/// Open a pull session for `reference` under an explicit cache access policy.
+/// Open a pull session for `reference` under `policy`.
 ///
 /// # Errors
 ///
 /// Returns an error when the reference cannot be parsed, the registry
 /// handshake fails, signature verification fails, or a cache-only miss occurs.
-pub fn open_with(
+pub fn open(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,

@@ -114,7 +114,7 @@ mod tests {
 
     fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
         let mut files = Vec::new();
-        pull::files(reference, &arch, None, &Noop, |entry| {
+        pull::files(reference, &arch, None, Policy::Network, &Noop, |entry| {
             let path = entry.path.clone();
             let mut contents = Vec::new();
             entry.reader.read_to_end(&mut contents)?;
@@ -140,8 +140,15 @@ mod tests {
     }
 
     fn expect_stream_error(reference: &str) -> KociError {
-        pull::files(reference, &Arch::Amd64, None, &Noop, |_entry| Ok(()))
-            .expect_err("stream should fail")
+        pull::files(
+            reference,
+            &Arch::Amd64,
+            None,
+            Policy::Network,
+            &Noop,
+            |_entry| Ok(()),
+        )
+        .expect_err("stream should fail")
     }
 
     fn expect_sign_error(reference: &str, private_key_pem: &str) -> KociError {
@@ -232,6 +239,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Policy::Network,
             &counter,
             |entry| {
                 let path = entry.path.clone();
@@ -333,6 +341,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
+            Policy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -360,6 +369,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
+            Policy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1323,6 +1333,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Policy::Network,
             &counter,
             |entry| {
                 let path = entry.path.clone();
@@ -1551,9 +1562,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let annotations =
-            pull::annotations(&registry.reference("repo", "test"), &Arch::Amd64, None)
-                .expect("read annotations");
+        let annotations = pull::annotations(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            Policy::Network,
+        )
+        .expect("read annotations");
 
         // ASSERT
         assert_eq!(
@@ -1606,9 +1621,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let annotations =
-            pull::annotations(&registry.reference("repo", "test"), &Arch::Arm64, None)
-                .expect("read annotations");
+        let annotations = pull::annotations(
+            &registry.reference("repo", "test"),
+            &Arch::Arm64,
+            None,
+            Policy::Network,
+        )
+        .expect("read annotations");
 
         // ASSERT
         assert_eq!(
@@ -1627,9 +1646,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let annotations =
-            pull::annotations(&registry.reference("repo", "test"), &Arch::Amd64, None)
-                .expect("read annotations");
+        let annotations = pull::annotations(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            Policy::Network,
+        )
+        .expect("read annotations");
 
         // ASSERT
         assert!(annotations.is_empty());
@@ -1649,6 +1672,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Policy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1672,6 +1696,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Policy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1824,6 +1849,7 @@ mod tests {
             &server.reference("repo", "test"),
             &Arch::Amd64,
             None,
+            Policy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1931,7 +1957,7 @@ mod tests {
             .expect("count");
         let probe_requests = registry.count("GET", "/v2/").expect("count");
         registry.stop();
-        let offline = session::open_with(&reference, &Arch::Amd64, None, Policy::CacheOnly)
+        let offline = session::open(&reference, &Arch::Amd64, None, Policy::CacheOnly)
             .map(|session| collect_session_files(&session))
             .expect("a cache-only session must open from the warm cache");
         let manifest_after = registry
@@ -1967,7 +1993,7 @@ mod tests {
         let reference = "127.0.0.1:1/repo:cold";
 
         // ACT
-        let result = session::open_with(reference, &Arch::Amd64, None, Policy::CacheOnly);
+        let result = session::open(reference, &Arch::Amd64, None, Policy::CacheOnly);
 
         // ASSERT
         let Err(error) = result else {
@@ -2021,7 +2047,7 @@ mod tests {
         );
 
         // ACT
-        let refreshed = session::open_with(&reference, &Arch::Amd64, None, Policy::Refresh)
+        let refreshed = session::open(&reference, &Arch::Amd64, None, Policy::Refresh)
             .map(|session| collect_session_files(&session))
             .expect("a refresh session must open");
 
@@ -2076,8 +2102,8 @@ mod tests {
         );
 
         // ACT
-        let refresh = session::open_with(&reference, &Arch::Amd64, None, Policy::Refresh);
-        let cached = session::open_with(&reference, &Arch::Amd64, None, Policy::CacheOnly)
+        let refresh = session::open(&reference, &Arch::Amd64, None, Policy::Refresh);
+        let cached = session::open(&reference, &Arch::Amd64, None, Policy::CacheOnly)
             .map(|session| collect_session_files(&session))
             .expect("the cached tag reference must survive a failed refresh");
 
@@ -2109,8 +2135,13 @@ mod tests {
             ),
         ]))
         .expect("start mock registry");
-        let session = session::open(&registry.reference("repo", "demux"), &Arch::Amd64, None)
-            .expect("open session");
+        let session = session::open(
+            &registry.reference("repo", "demux"),
+            &Arch::Amd64,
+            None,
+            Policy::Network,
+        )
+        .expect("open session");
         let counter = PassCounter::new();
         let mut demux = Demux::by_name(HashMap::from([
             ("a".to_owned(), Vec::new()),
@@ -2176,8 +2207,13 @@ mod tests {
         .expect("start mock registry");
 
         // ACT
-        let session = session::open(&registry.reference("repo", "lazy"), &Arch::Amd64, None)
-            .expect("open session");
+        let session = session::open(
+            &registry.reference("repo", "lazy"),
+            &Arch::Amd64,
+            None,
+            Policy::Network,
+        )
+        .expect("open session");
         let lazy = session.lazy();
         let mut first_blob = Vec::new();
         let mut first = Vec::new();

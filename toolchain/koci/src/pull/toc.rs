@@ -24,28 +24,15 @@ pub struct EntryInfo {
     pub size: u64,
 }
 
-/// Measure the regular-file entries of the platform manifest matching `arch`.
-///
-/// # Errors
-///
-/// Returns an error if the manifest cannot be resolved, signature
-/// verification fails, a footer or TOC is missing, or a fetch fails.
-pub fn entries(
-    reference: &str,
-    arch: &Arch,
-    verification: Option<&Verification<'_>>,
-) -> Result<Vec<EntryInfo>> {
-    entries_with(reference, arch, verification, Policy::Network)
-}
-
-/// Measure the regular-file entries of `arch` under an explicit cache access policy.
+/// Measure the regular-file entries of the platform manifest matching `arch`
+/// under `policy`.
 ///
 /// # Errors
 ///
 /// Returns an error if the manifest cannot be resolved, a cache-only miss
 /// occurs, signature verification fails, a footer or TOC is missing, or a fetch
 /// fails.
-pub fn entries_with(
+pub fn entries(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,

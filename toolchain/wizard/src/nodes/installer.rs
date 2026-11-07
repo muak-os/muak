@@ -60,7 +60,7 @@ fn run(
 ) -> Result<NodeReport> {
     let mut output = ports.output(INITRAMFS)?;
 
-    pull::files_with(
+    pull::files(
         ctx.build.installer(),
         &ctx.build.arch(),
         None,

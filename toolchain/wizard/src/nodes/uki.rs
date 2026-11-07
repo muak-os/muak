@@ -66,7 +66,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let kind = graph.node(id)?.kind;
 
     let mut prefix = Vec::new();
-    pull::files_with(
+    pull::files(
         build.stub(),
         &build.arch(),
         None,
