@@ -1,8 +1,13 @@
 //! Platform-independent Secure Boot firmware variable enrollment and removal.
 
+mod checks;
+mod removal;
+
+use checks::{verify_database, verify_platform_key_absent};
 use der::Encode as _;
 use firmware::nvram::{Id, Update, VariableStore};
 use firmware::secureboot;
+use removal::{clear_database, delete_signed_variable};
 use uefi::runtime::VariableAttributes;
 use x509_cert::Certificate;
 
@@ -10,9 +15,8 @@ use super::{authvar, siglist};
 use crate::error::{Result, SboltError};
 use crate::keys::{hierarchy, rsa2048};
 
-/// Signature authority for an authenticated firmware variable update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SigningAuthority {
+pub(super) enum SigningAuthority {
     PlatformKey,
     KeyExchangeKey,
 }
@@ -125,73 +129,7 @@ pub fn clear<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Resu
     Ok(())
 }
 
-fn clear_database<S: VariableStore>(
-    store: &S,
-    id: Id,
-    hierarchy: &hierarchy::Bundle,
-    authority: SigningAuthority,
-) {
-    let _result = delete_signed_variable(store, id, hierarchy, authority);
-}
-
-fn delete_signed_variable<S: VariableStore>(
-    store: &S,
-    id: Id,
-    hierarchy: &hierarchy::Bundle,
-    authority: SigningAuthority,
-) -> Result<()> {
-    if !store.exists(&id) {
-        return Ok(());
-    }
-
-    write_signed_variable(store, id, &[], hierarchy, authority)
-}
-
-fn verify_database<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Result<()> {
-    let payload = store
-        .read(&secureboot::DB)?
-        .ok_or_else(|| SboltError::EfiVar("db is absent after enrollment".into()))?;
-    let database = siglist::SignatureDatabase::from_bytes(&payload)?;
-    let certificate = hierarchy
-        .db
-        .certificate
-        .to_der()
-        .map_err(|e| SboltError::EfiVar(format!("encode enrolled db cert: {e}")))?;
-
-    if !database.contains_x509(&certificate) {
-        return Err(SboltError::EfiVar(
-            "enrolled db does not contain the signing certificate".into(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn verify_platform_key_absent<S: VariableStore>(store: &S) -> Result<()> {
-    if secureboot::pk_present(store)? {
-        return Err(SboltError::EfiVar(
-            "firmware still reports an enrolled Platform Key after removal".into(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn certificate_database(
-    owner_guid: &uefi::Guid,
-    certificate: &Certificate,
-    encode_context: &str,
-) -> Result<siglist::SignatureDatabase> {
-    let cert_der = certificate
-        .to_der()
-        .map_err(|e| SboltError::EfiVar(format!("{encode_context}: {e}")))?;
-    let mut sigdb = siglist::SignatureDatabase::new();
-    sigdb.add_x509(owner_guid, &cert_der)?;
-
-    Ok(sigdb)
-}
-
-fn write_signed_variable<S: VariableStore>(
+pub(super) fn write_signed_variable<S: VariableStore>(
     store: &S,
     id: Id,
     content: &[u8],
@@ -210,6 +148,20 @@ fn write_signed_variable<S: VariableStore>(
     )?;
 
     Ok(store.write(Update::new(id, attributes.bits(), &payload))?)
+}
+
+fn certificate_database(
+    owner_guid: &uefi::Guid,
+    certificate: &Certificate,
+    encode_context: &str,
+) -> Result<siglist::SignatureDatabase> {
+    let cert_der = certificate
+        .to_der()
+        .map_err(|e| SboltError::EfiVar(format!("{encode_context}: {e}")))?;
+    let mut sigdb = siglist::SignatureDatabase::new();
+    sigdb.add_x509(owner_guid, &cert_der)?;
+
+    Ok(sigdb)
 }
 
 fn signer_and_certificate(
