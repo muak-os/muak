@@ -28,7 +28,6 @@ pub struct Request<'a> {
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
     progress: Option<&'a dyn Reporter>,
-    /// Cache access strategy for every pull performed by the build.
     pub(crate) strategy: pull::Strategy,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }

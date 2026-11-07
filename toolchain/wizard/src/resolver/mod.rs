@@ -69,12 +69,14 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
             .map(String::as_str)
             .collect();
         let fetched = fetch_named_entries(registry, release, Kind::Extensions, strategy, &names)?;
+
         extensions(&fetched.document, profile, registry, &mut resolved_inputs)?
     };
     let selected_overlay = match profile.overlay() {
         Some(spec) => {
             let fetched =
                 fetch_named_entries(registry, release, Kind::Overlays, strategy, &[spec.name()])?;
+
             overlay(
                 &fetched.document,
                 spec,
