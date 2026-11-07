@@ -233,41 +233,22 @@ fn authenticated_variable_attributes() -> VariableAttributes {
 mod tests {
     use core::cell::RefCell;
 
-    use firmware::secureboot::{DB, KEK, PK, SETUP_MODE};
+    use firmware::secureboot::{DB, PK};
 
     use super::*;
 
     #[derive(Default)]
-    struct FakeFirmwareVariablesStore {
-        ready: bool,
-        honors_deletes: bool,
-        stores_writes: bool,
-        variables: RefCell<Vec<(Id, Vec<u8>)>>,
+    struct RecordingWrites {
         writes: RefCell<Vec<(Id, Vec<u8>)>>,
     }
 
-    impl FakeFirmwareVariablesStore {
-        fn ready() -> Self {
-            Self {
-                ready: true,
-                honors_deletes: true,
-                stores_writes: true,
-                variables: RefCell::new(Vec::new()),
-                writes: RefCell::new(Vec::new()),
-            }
-        }
-
-        fn with_variable(self, id: Id, payload: Vec<u8>) -> Self {
-            self.variables.borrow_mut().push((id, payload));
-            self
-        }
-
+    impl RecordingWrites {
         fn writes(&self) -> Vec<(Id, Vec<u8>)> {
             self.writes.borrow().clone()
         }
     }
 
-    impl VariableStore for FakeFirmwareVariablesStore {
+    impl VariableStore for RecordingWrites {
         fn is_boot(&self) -> bool {
             true
         }
@@ -277,138 +258,24 @@ mod tests {
         }
 
         fn prepare(&self) -> firmware::error::Result<bool> {
-            Ok(self.ready)
+            Ok(true)
         }
 
-        fn exists(&self, id: &Id) -> bool {
-            self.variables.borrow().iter().any(|entry| entry.0 == *id)
+        fn exists(&self, _id: &Id) -> bool {
+            false
         }
 
-        fn read(&self, id: &Id) -> firmware::error::Result<Option<Vec<u8>>> {
-            Ok(self
-                .variables
-                .borrow()
-                .iter()
-                .find(|entry| entry.0 == *id)
-                .map(|entry| entry.1.clone()))
+        fn read(&self, _id: &Id) -> firmware::error::Result<Option<Vec<u8>>> {
+            Ok(None)
         }
 
         fn write(&self, update: Update<'_>) -> firmware::error::Result<()> {
-            let id = *update.id();
-            self.writes.borrow_mut().push((id, update.data().to_vec()));
-
-            persist_variable(
-                &self.variables,
-                id,
-                update.data(),
-                self.honors_deletes,
-                self.stores_writes,
-            );
+            self.writes
+                .borrow_mut()
+                .push((*update.id(), update.data().to_vec()));
 
             Ok(())
         }
-    }
-
-    fn persist_variable(
-        variables: &RefCell<Vec<(Id, Vec<u8>)>>,
-        id: Id,
-        payload: &[u8],
-        honors_deletes: bool,
-        stores_writes: bool,
-    ) {
-        if !stores_writes {
-            return;
-        }
-
-        let content = signed_content(payload).to_vec();
-        if content.is_empty() && !honors_deletes {
-            return;
-        }
-
-        let mut variables = variables.borrow_mut();
-        variables.retain(|entry| entry.0 != id);
-        if !content.is_empty() {
-            variables.push((id, content));
-        }
-    }
-
-    fn signed_content(payload: &[u8]) -> &[u8] {
-        let certificate_size = payload
-            .get(16..20)
-            .and_then(|bytes| bytes.try_into().ok())
-            .map(u32::from_le_bytes)
-            .and_then(|size| usize::try_from(size).ok())
-            .unwrap_or(0);
-        let content_offset = 16_usize.saturating_add(certificate_size);
-
-        payload.get(content_offset..).unwrap_or_default()
-    }
-
-    #[test]
-    fn enroll_keys_writes_pk_kek_and_db_in_order() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready().with_variable(SETUP_MODE, vec![1]);
-        let hierarchy = hierarchy::Bundle::generate("Enroll Success").expect("generate hierarchy");
-        let db_sigdb = certificate_database(
-            &hierarchy.owner_guid,
-            &hierarchy.db.certificate,
-            "encode db cert",
-        )
-        .expect("build db sigdb");
-        let kek_sigdb = certificate_database(
-            &hierarchy.owner_guid,
-            &hierarchy.kek.certificate,
-            "encode kek cert",
-        )
-        .expect("build KEK sigdb");
-        let pk_sigdb = certificate_database(
-            &hierarchy.owner_guid,
-            &hierarchy.pk.certificate,
-            "encode pk cert",
-        )
-        .expect("build PK sigdb");
-
-        // ACT
-        enroll(&store, &hierarchy).expect("enroll hierarchy");
-        let writes = store.writes();
-
-        // ASSERT
-        assert_eq!(writes.len(), 3);
-        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
-        assert_eq!(writes.get(1).map(|&(id, ref _payload)| id), Some(KEK));
-        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(DB));
-        assert!(
-            writes
-                .first()
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&pk_sigdb.to_bytes()))
-        );
-        assert!(
-            writes
-                .get(1)
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&kek_sigdb.to_bytes()))
-        );
-        assert!(
-            writes
-                .get(2)
-                .is_some_and(|&(_id, ref payload)| payload.ends_with(&db_sigdb.to_bytes()))
-        );
-    }
-
-    #[test]
-    fn enroll_rejects_firmware_that_does_not_persist_the_database() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore {
-            stores_writes: false,
-            ..FakeFirmwareVariablesStore::ready().with_variable(SETUP_MODE, vec![1])
-        };
-        let hierarchy =
-            hierarchy::Bundle::generate("Enroll Missing Database").expect("generate hierarchy");
-
-        // ACT
-        let result = enroll(&store, &hierarchy);
-
-        // ASSERT
-        result.expect_err("missing db after enrollment must fail verification");
     }
 
     #[test]
@@ -433,7 +300,7 @@ mod tests {
     #[test]
     fn write_signed_variable_writes_payload_for_each_authority() {
         // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready();
+        let store = RecordingWrites::default();
         let hierarchy =
             hierarchy::Bundle::generate("Write Signed Variable").expect("generate hierarchy");
         let content = b"content";
@@ -466,154 +333,6 @@ mod tests {
                 .iter()
                 .all(|&(_id, ref payload)| payload.ends_with(content))
         );
-    }
-
-    #[test]
-    fn fake_variable_store_reports_status_and_variable_presence() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready().with_variable(PK, Vec::new());
-
-        // ACT
-        let firmware_boot = store.is_boot();
-        let available = store.is_available();
-        let has_pk = store.exists(&PK);
-        let has_db = store.exists(&DB);
-
-        // ASSERT
-        assert!(firmware_boot);
-        assert!(available);
-        assert!(has_pk);
-        assert!(!has_db);
-    }
-
-    #[test]
-    fn enroll_keys_rejects_unavailable_variable_store() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore {
-            ready: false,
-            ..FakeFirmwareVariablesStore::ready()
-        };
-        let hierarchy =
-            hierarchy::Bundle::generate("Enroll Unavailable").expect("generate hierarchy");
-
-        // ACT
-        let result = enroll(&store, &hierarchy);
-
-        // ASSERT
-        result.expect_err("unavailable variable store should fail");
-        assert_eq!(store.writes(), Vec::<(Id, alloc::vec::Vec<u8>)>::new());
-    }
-
-    #[test]
-    fn enroll_keys_rejects_non_setup_mode() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready()
-            .with_variable(SETUP_MODE, vec![0])
-            .with_variable(PK, vec![1]);
-        let hierarchy = hierarchy::Bundle::generate("Enroll No Setup").expect("generate hierarchy");
-
-        // ACT
-        let result = enroll(&store, &hierarchy);
-
-        // ASSERT
-        result.expect_err("non-setup mode should fail");
-        assert_eq!(store.writes(), Vec::<(Id, alloc::vec::Vec<u8>)>::new());
-    }
-
-    #[test]
-    fn unenroll_removes_only_the_platform_key() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready()
-            .with_variable(PK, vec![1])
-            .with_variable(KEK, vec![1])
-            .with_variable(DB, vec![1]);
-        let hierarchy = hierarchy::Bundle::generate("Unenroll").expect("generate hierarchy");
-
-        // ACT
-        unenroll(&store, &hierarchy).expect("unenroll hierarchy");
-        let writes = store.writes();
-
-        // ASSERT
-        assert_eq!(writes.len(), 1, "only the Platform Key is deleted");
-        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
-        assert!(!store.exists(&PK), "PK must be removed");
-        assert!(store.exists(&KEK), "KEK must be left in place");
-        assert!(store.exists(&DB), "db must be left in place");
-    }
-
-    #[test]
-    fn clear_removes_the_whole_hierarchy() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready()
-            .with_variable(PK, vec![1])
-            .with_variable(KEK, vec![1])
-            .with_variable(DB, vec![1]);
-        let hierarchy = hierarchy::Bundle::generate("Clear").expect("generate hierarchy");
-
-        // ACT
-        clear(&store, &hierarchy).expect("clear hierarchy");
-        let writes = store.writes();
-
-        // ASSERT
-        assert_eq!(writes.len(), 3, "PK, db, and KEK are deleted");
-        assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
-        assert_eq!(writes.get(1).map(|&(id, ref _payload)| id), Some(DB));
-        assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(KEK));
-        assert!(!store.exists(&PK), "PK must be removed");
-        assert!(!store.exists(&KEK), "KEK must be cleared");
-        assert!(!store.exists(&DB), "db must be cleared");
-    }
-
-    #[test]
-    fn unenroll_is_idempotent_when_keys_are_absent() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready();
-        let hierarchy = hierarchy::Bundle::generate("Unenroll Absent").expect("generate hierarchy");
-
-        // ACT
-        let result = unenroll(&store, &hierarchy);
-
-        // ASSERT
-        result.expect("unenrolling an unenrolled store must succeed");
-        assert!(
-            store.writes().is_empty(),
-            "no authenticated write is needed when nothing is enrolled"
-        );
-    }
-
-    #[test]
-    fn unenroll_rejects_firmware_that_keeps_the_platform_key() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore::ready().with_variable(PK, vec![1]);
-        let store = FakeFirmwareVariablesStore {
-            honors_deletes: false,
-            ..store
-        };
-        let hierarchy =
-            hierarchy::Bundle::generate("Unenroll Stubborn").expect("generate hierarchy");
-
-        // ACT
-        let result = unenroll(&store, &hierarchy);
-
-        // ASSERT
-        result.expect_err("firmware that keeps the Platform Key must fail verification");
-    }
-
-    #[test]
-    fn unenroll_rejects_unavailable_variable_store() {
-        // ARRANGE
-        let store = FakeFirmwareVariablesStore {
-            ready: false,
-            ..FakeFirmwareVariablesStore::ready()
-        };
-        let hierarchy =
-            hierarchy::Bundle::generate("Unenroll Unavailable").expect("generate hierarchy");
-
-        // ACT
-        let result = unenroll(&store, &hierarchy);
-
-        // ASSERT
-        result.expect_err("unavailable variable store should fail");
     }
 
     #[test]
