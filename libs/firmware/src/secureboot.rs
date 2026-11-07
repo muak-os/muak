@@ -87,7 +87,7 @@ pub fn enabled<S: VariableStore>(store: &S) -> Result<bool> {
 ///
 /// # Errors
 ///
-/// Returns an error if the Setup Mode variable cannot be read.
+/// Returns an error if the Setup Mode or Platform Key variable cannot be read.
 pub fn setup_mode<S: VariableStore>(store: &S) -> Result<bool> {
     if let Some(data) = store.read(&SETUP_MODE)?
         && !data.is_empty()
@@ -95,7 +95,7 @@ pub fn setup_mode<S: VariableStore>(store: &S) -> Result<bool> {
         return Ok(data.first().copied() == Some(1));
     }
 
-    Ok(!store.exists(&PK))
+    Ok(!present(store, &PK)?)
 }
 
 /// Returns whether a Platform Key is present.
@@ -104,7 +104,16 @@ pub fn setup_mode<S: VariableStore>(store: &S) -> Result<bool> {
 ///
 /// Returns an error if the Platform Key variable cannot be read.
 pub fn pk_present<S: VariableStore>(store: &S) -> Result<bool> {
-    Ok(store.read(&PK)?.is_some_and(|data| !data.is_empty()))
+    present(store, &PK)
+}
+
+/// Returns whether the variable `id` is present with a non-empty payload.
+///
+/// # Errors
+///
+/// Returns an error if the variable cannot be read.
+pub fn present<S: VariableStore>(store: &S, id: &Id) -> Result<bool> {
+    Ok(store.read(id)?.is_some_and(|data| !data.is_empty()))
 }
 
 /// Returns whether the enrolled Platform Key contains `certificate`.
@@ -143,7 +152,7 @@ pub fn mismatch(config_enabled: bool, state: &State, ours: bool) -> Option<Misma
     }
 }
 
-/// Reads a boolean firmware variable.
+// Reads a boolean firmware variable.
 fn boolean<S: VariableStore>(store: &S, id: &Id) -> Result<bool> {
     match store.read(id)? {
         Some(data) if !data.is_empty() => Ok(data.first().copied() == Some(1)),
@@ -275,6 +284,39 @@ mod tests {
         // ASSERT
         assert!(!setup_with_pk, "a present PK means Setup Mode is off");
         assert!(setup_without_pk, "a missing PK means Setup Mode is on");
+    }
+
+    #[test]
+    fn setup_mode_prefers_an_explicit_variable_over_pk_presence() {
+        // ARRANGE
+        let store = Fake::ready().with(SETUP_MODE, vec![1]).with(PK, vec![1]);
+
+        // ACT
+        let setup_mode = setup_mode(&store).expect("read setup mode");
+
+        // ASSERT
+        assert!(
+            setup_mode,
+            "an explicit SetupMode=1 must win over a present PK"
+        );
+    }
+
+    #[test]
+    fn setup_mode_agrees_with_pk_presence_for_empty_platform_key() {
+        // ARRANGE
+        let store = Fake::ready().with(PK, Vec::new());
+
+        // ACT
+        let setup_mode = setup_mode(&store).expect("read setup mode");
+        let pk_present = pk_present(&store).expect("read PK presence");
+
+        // ASSERT
+        assert!(setup_mode, "a zero-length PK must report Setup Mode");
+        assert!(!pk_present, "a zero-length PK must not report present");
+        assert_eq!(
+            setup_mode, !pk_present,
+            "Setup Mode must be the negation of PK presence"
+        );
     }
 
     #[test]
