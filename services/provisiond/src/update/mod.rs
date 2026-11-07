@@ -17,10 +17,10 @@ use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
 use blockdev::discover;
 use config::system::{self, CONFIG_PATH};
-use koci::pull::policy::Policy;
 use rustix::fs::sync;
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
+use wizard::cache::Policy;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
@@ -404,7 +404,7 @@ pub fn signal_cli_contact() {
 #[cfg(test)]
 mod tests {
     use config::system::{self, disk, host};
-    use koci::pull::policy::Policy;
+    use wizard::cache::Policy;
 
     use super::{
         UpdateStatus, already_current, desired_config, policy, resolve_status, resolve_target,
