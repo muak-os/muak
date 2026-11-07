@@ -1,6 +1,8 @@
 //! EFI partition deployment of the Unified Kernel Image and overlay assets.
 
-use std::io::{Read, Write as _};
+mod atomic;
+
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -29,8 +31,6 @@ pub fn unmount() {
 }
 
 /// Opens a new file at `relative_path` under `esp_root` for writing.
-/// Parent directories are created as needed. The path is validated
-/// against directory traversal.
 pub fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
     validate_relative(relative_path)?;
     let dest = resolve(esp_root, relative_path);
@@ -38,22 +38,17 @@ pub fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
     fs::File::create(&dest).with_context(|| format!("Failed to create {}", dest.display()))
 }
 
-/// Copies `size` bytes from `reader` into a file at `relative_path`
-/// under `esp_root`. The path is validated against directory traversal.
+/// Atomically copies bytes from `reader` into a file at `relative_path` under `esp_root`.
 pub fn write_file(
     esp_root: &Path,
     relative_path: &str,
     size: u64,
     reader: &mut dyn Read,
 ) -> Result<()> {
-    validate_relative(relative_path)?;
-    let dest = resolve(esp_root, relative_path);
-
-    copy_reader_to_file(reader, size, relative_path, &dest)
+    atomic::write_file(esp_root, relative_path, size, reader)
 }
 
-/// Extracts a streaming tar archive onto the ESP, creating one file per
-/// archive entry under `esp_root`. Entry paths are joined as-is.
+/// Extracts a streaming tar archive onto the ESP.
 pub fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
     let mut archive = tar::Archive::new(reader);
     for entry in archive.entries().context("iterate tar entries")? {
@@ -70,13 +65,9 @@ pub fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
     Ok(())
 }
 
-/// Writes `data` to a file at `relative_path` under `esp_root`.
-/// The path is validated against directory traversal.
+/// Atomically writes `data` to a file at `relative_path` under `esp_root`.
 pub fn write_bytes(esp_root: &Path, relative_path: &str, data: &[u8]) -> Result<()> {
-    validate_relative(relative_path)?;
-    let dest = resolve(esp_root, relative_path);
-
-    fs::write(&dest, data).with_context(|| format!("Failed to write {}", dest.display()))
+    atomic::write_bytes(esp_root, relative_path, data)
 }
 
 fn create_parents(dest: &Path) -> Result<()> {
@@ -96,39 +87,9 @@ fn resolve(esp_root: &Path, relative_path: &str) -> PathBuf {
     dest
 }
 
-fn copy_reader_to_file(
-    reader: &mut dyn Read,
-    size: u64,
-    file_path: &str,
-    dest: &Path,
-) -> Result<()> {
-    let mut writer =
-        fs::File::create(dest).with_context(|| format!("Failed to create {}", dest.display()))?;
-    let mut buf = [0_u8; 8192];
-    let mut remaining = size;
-    while remaining > 0 {
-        let chunk = usize::try_from(remaining)
-            .unwrap_or(usize::MAX)
-            .min(buf.len());
-        let read = reader
-            .read(buf.get_mut(..chunk).unwrap_or(&mut []))
-            .context("Failed to read file data")?;
-        if read == 0 {
-            bail!("reader returned EOF before declared size: {file_path}");
-        }
-        writer
-            .write_all(buf.get(..read).unwrap_or(&[]))
-            .context("Failed to write file to EFI partition")?;
-        remaining = remaining.saturating_sub(u64::try_from(read).unwrap_or(0));
-    }
-    writer.flush()?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::io::{Cursor, Write as _};
 
     use super::*;
 
