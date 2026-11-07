@@ -3,7 +3,9 @@
 mod checks;
 mod removal;
 
-use checks::{verify_database, verify_platform_key_absent};
+use checks::{
+    verify_database, verify_key_exchange_key, verify_platform_key, verify_platform_key_absent,
+};
 use der::Encode as _;
 use firmware::nvram::{Id, Update, VariableStore};
 use firmware::secureboot;
@@ -23,15 +25,17 @@ pub(super) enum SigningAuthority {
 
 /// Enroll the complete key hierarchy into UEFI firmware.
 ///
-/// Variables are written in the order db, KEK, PK. Enrolling the Platform Key
-/// transitions the platform out of Setup Mode, so writing it last keeps the db
-/// and KEK writes unauthenticated and retryable. A failure before the PK write
-/// therefore leaves the platform in Setup Mode.
+/// Variables are written in the order db, KEK, PK and each one is read back
+/// before the next is written. Enrolling the Platform Key transitions the
+/// platform out of Setup Mode, so the PK is only written once the db and KEK
+/// are confirmed enrolled. A failure before the PK write therefore leaves the
+/// platform in Setup Mode and the enrollment can be retried.
 ///
 /// # Errors
 ///
 /// Returns an error if firmware variable storage is unavailable, the system is
-/// not in Setup Mode, certificate encoding fails, or any variable write fails.
+/// not in Setup Mode, certificate encoding fails, any variable write fails, or a
+/// written variable is not confirmed by reading it back.
 pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Result<()> {
     if !store.prepare()? {
         return Err(SboltError::EfiVar("efivarfs not available".into()));
@@ -67,6 +71,7 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
         SigningAuthority::KeyExchangeKey,
     )
     .map_err(|e| SboltError::EfiVar(format!("failed to enroll db: {e}")))?;
+    verify_database(store, hierarchy)?;
     write_signed_variable(
         store,
         secureboot::KEK,
@@ -75,6 +80,7 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
         SigningAuthority::PlatformKey,
     )
     .map_err(|e| SboltError::EfiVar(format!("failed to enroll KEK: {e}")))?;
+    verify_key_exchange_key(store, hierarchy)?;
     write_signed_variable(
         store,
         secureboot::PK,
@@ -84,7 +90,7 @@ pub fn enroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Res
     )
     .map_err(|e| SboltError::EfiVar(format!("failed to enroll PK: {e}")))?;
 
-    verify_database(store, hierarchy)
+    verify_platform_key(store, hierarchy)
 }
 
 /// Remove the Platform Key and leave Secure Boot enforcement.

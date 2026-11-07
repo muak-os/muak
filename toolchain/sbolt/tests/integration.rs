@@ -139,6 +139,62 @@ mod tests {
 
         // ASSERT
         result.expect_err("missing db after enrollment must fail verification");
+        assert!(
+            !store.writes().iter().any(|&(id, ref _payload)| id == PK),
+            "PK must never be written when the db write is not persisted"
+        );
+    }
+
+    #[test]
+    fn enroll_does_not_write_pk_when_kek_is_not_persisted() {
+        // ARRANGE
+        let store = Firmware::ready()
+            .with_variable(SETUP_MODE, vec![1])
+            .ignoring_writes_on(KEK);
+        let hierarchy =
+            hierarchy::Bundle::generate("Enroll Dropped Kek").expect("generate hierarchy");
+
+        // ACT
+        let result = enrollment::enroll(&store, &hierarchy);
+
+        // ASSERT
+        let error = result.expect_err("a KEK that is not persisted must abort enrollment");
+        assert!(
+            error.to_string().contains("KEK"),
+            "error must name the KEK: {error}"
+        );
+        assert!(
+            !store.writes().iter().any(|&(id, ref _payload)| id == PK),
+            "PK must never be written when the KEK write is not persisted"
+        );
+        assert!(
+            secureboot::setup_mode(&store).expect("read SetupMode"),
+            "platform must remain in Setup Mode when the KEK is not persisted"
+        );
+    }
+
+    #[test]
+    fn enroll_rejects_firmware_that_does_not_persist_the_platform_key() {
+        // ARRANGE
+        let store = Firmware::ready()
+            .with_variable(SETUP_MODE, vec![1])
+            .ignoring_writes_on(PK);
+        let hierarchy =
+            hierarchy::Bundle::generate("Enroll Dropped Pk").expect("generate hierarchy");
+
+        // ACT
+        let result = enrollment::enroll(&store, &hierarchy);
+
+        // ASSERT
+        let error = result.expect_err("a dropped PK write must not be reported as enrolled");
+        assert!(
+            error.to_string().contains("PK is absent"),
+            "error must name the missing PK: {error}"
+        );
+        assert!(
+            secureboot::setup_mode(&store).expect("read SetupMode"),
+            "platform must remain in Setup Mode when the PK is not persisted"
+        );
     }
 
     #[test]

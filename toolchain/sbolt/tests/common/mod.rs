@@ -13,6 +13,7 @@ pub struct Firmware {
     ready: bool,
     honors_deletes: bool,
     stores_writes: bool,
+    ignored_write: Option<Id>,
     failing_write: Option<Id>,
     variables: RefCell<Vec<(Id, Vec<u8>)>>,
     writes: RefCell<Vec<(Id, Vec<u8>)>>,
@@ -28,6 +29,7 @@ impl Firmware {
             ready: true,
             honors_deletes: true,
             stores_writes: true,
+            ignored_write: None,
             failing_write: None,
             variables: RefCell::new(Vec::new()),
             writes: RefCell::new(Vec::new()),
@@ -55,6 +57,15 @@ impl Firmware {
     pub fn dropping_writes(self) -> Self {
         Self {
             stores_writes: false,
+            ..self
+        }
+    }
+
+    /// Accepts writes to `id` without committing them to the variable store.
+    #[must_use]
+    pub fn ignoring_writes_on(self, id: Id) -> Self {
+        Self {
+            ignored_write: Some(id),
             ..self
         }
     }
@@ -113,6 +124,10 @@ impl VariableStore for Firmware {
     fn write(&self, update: Update<'_>) -> FwResult<()> {
         let id = *update.id();
         self.writes.borrow_mut().push((id, update.data().to_vec()));
+
+        if self.ignored_write == Some(id) {
+            return Ok(());
+        }
 
         if self.failing_write == Some(id) {
             return Err(firmware::error::FirmwareError::Variable(format!(
