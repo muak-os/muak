@@ -7,6 +7,7 @@ pub mod discover;
 pub mod error;
 pub mod holders;
 pub mod inventory;
+pub mod io;
 pub mod mounts;
 pub mod roots;
 pub mod types;
