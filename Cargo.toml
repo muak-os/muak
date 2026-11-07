@@ -121,7 +121,7 @@ der = { version = "0.8", features = ["alloc", "oid", "pem", "std"] }
 getrandom = { version = "0.4", features = ["sys_rng"] }
 p256 = "0.14.0"
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
-rsa = { version = "0.10.0-rc.22", features = ["pkcs1v15"] }
+rsa = { version = "0.10.0-rc.22", default-features = false, features = ["std", "encoding", "getrandom", "pkcs1v15"] }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 sha2 = "0.11"
 signature = "3.0"
