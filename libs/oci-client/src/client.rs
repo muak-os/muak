@@ -35,11 +35,6 @@ impl Client {
     }
 
     /// Build a non-authenticating client for cache-only operation.
-    ///
-    /// Parses `reference` and builds the transport for its registry host, but
-    /// leaves the authorization header unset. It performs no authentication
-    /// probe and no connection, so it never touches the network while being
-    /// constructed.
     #[must_use]
     pub fn local(reference: &str) -> Self {
         let image = Image::parse(reference);
@@ -53,9 +48,6 @@ impl Client {
     }
 
     /// Resolve registry auth from the environment for this client's image.
-    ///
-    /// Returns a new client carrying the authorization header. The receiver
-    /// stays unauthenticated.
     ///
     /// # Errors
     ///

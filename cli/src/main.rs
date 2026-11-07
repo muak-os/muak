@@ -117,6 +117,8 @@ pub enum Commands {
         config: Option<PathBuf>,
         #[arg(long)]
         force: bool,
+        #[arg(long)]
+        offline: bool,
     },
     Reset {
         #[arg(long)]

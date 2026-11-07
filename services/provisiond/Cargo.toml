@@ -39,6 +39,7 @@ fatfs = { workspace = true }
 firmware = { workspace = true, features = ["linux"] }
 granola = { workspace = true }
 kmsg = { workspace = true }
+koci = { workspace = true }
 luks2 = { workspace = true }
 partdev = { workspace = true }
 parttable = { workspace = true }

@@ -78,6 +78,7 @@ pub async fn handle(
     version: Option<String>,
     config_path: Option<PathBuf>,
     force: bool,
+    offline: bool,
     console: &Console,
 ) -> Result<()> {
     ensure_target(version.as_deref(), config_path.as_deref())?;
@@ -86,30 +87,7 @@ pub async fn handle(
     let mut client = ProvisionServiceClient::new(channel);
 
     let installed = fetch_installed_config(&mut client).await?;
-
-    let (version_str, config_bytes) = if let Some(ref path) = config_path {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read '{}'", path.display()))?;
-
-        let cfg = config::system::parse_from_str(&raw)
-            .with_context(|| format!("invalid format in '{}'", path.display()))?;
-
-        cfg.validate_for_update(&installed)
-            .with_context(|| format!("config rejected: '{}'", path.display()))?;
-
-        config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
-            .with_context(|| format!("version check failed for '{}'", path.display()))?;
-
-        (String::new(), raw.into_bytes())
-    } else {
-        let target = version
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("--version is required when --config is absent"))?;
-        config::version::check_no_downgrade(&target, &installed.host.version)
-            .with_context(|| format!("version check failed for '{target}'"))?;
-
-        (target, Vec::new())
-    };
+    let (version_str, config_bytes) = request_payload(version, config_path.as_deref(), &installed)?;
 
     let steps = console.steps()?;
 
@@ -118,6 +96,7 @@ pub async fn handle(
             version: version_str,
             config: config_bytes,
             force,
+            offline,
         }))
         .await
         .context("Failed to send prepare_update request")?;
@@ -203,6 +182,32 @@ pub async fn handle(
     console.success(&format!("Update {update_id} committed successfully!"));
 
     Ok(())
+}
+
+fn request_payload(
+    version: Option<String>,
+    config_path: Option<&Path>,
+    installed: &Config,
+) -> Result<(String, Vec<u8>)> {
+    let Some(path) = config_path else {
+        let target = version
+            .ok_or_else(|| anyhow::anyhow!("--version is required when --config is absent"))?;
+        config::version::check_no_downgrade(&target, &installed.host.version)
+            .with_context(|| format!("version check failed for '{target}'"))?;
+
+        return Ok((target, Vec::new()));
+    };
+
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read '{}'", path.display()))?;
+    let cfg = config::system::parse_from_str(&raw)
+        .with_context(|| format!("invalid format in '{}'", path.display()))?;
+    cfg.validate_for_update(installed)
+        .with_context(|| format!("config rejected: '{}'", path.display()))?;
+    config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
+        .with_context(|| format!("version check failed for '{}'", path.display()))?;
+
+    Ok((String::new(), raw.into_bytes()))
 }
 
 async fn wait_for_update_completion(
