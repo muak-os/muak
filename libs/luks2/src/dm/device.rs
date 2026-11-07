@@ -85,7 +85,7 @@ mod tests {
     fn detect_sector_size_returns_default_for_regular_file() {
         // ARRANGE
         let file = tempfile::NamedTempFile::new().unwrap();
-        let fd = open(file.path().to_str().unwrap(), OFlags::RDONLY).unwrap();
+        let fd = open(file.path().to_str().unwrap(), OFlags::WRONLY).unwrap();
 
         // ACT
         let sector_size = detect_sector_size(&fd);
@@ -148,6 +148,6 @@ mod tests {
         let result = open("/nonexistent/luks2-device", OFlags::RDONLY);
 
         // ASSERT
-        result.unwrap_err();
+        assert!(matches!(result, Err(Error::Io(error)) if error.kind() == ErrorKind::NotFound));
     }
 }

@@ -59,7 +59,8 @@ pub fn looks_like_partition(path: &str) -> bool {
 ///
 /// # Errors
 ///
-/// Returns an error when the descriptor lookup fails or a block device rejects the size ioctl.
+/// Returns an error when the descriptor lookup fails, the descriptor reports a negative size,
+/// or a block device rejects the size ioctl.
 pub fn size<Fd: AsFd>(fd: &Fd) -> Result<u64> {
     let stat = rustix::fs::fstat(fd).map_err(std::io::Error::from)?;
     if !FileType::from_raw_mode(stat.st_mode).is_block_device() {
