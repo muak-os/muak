@@ -28,18 +28,24 @@ pub(crate) struct CryptParams<'a> {
 
 /// Creates a new device mapper crypt target with the specified parameters.
 pub(crate) fn open(params: &CryptParams<'_>) -> Result<()> {
-    let fd = open_fd(DM_CONTROL_PATH, OFlags::RDWR, Mode::empty()).map_err(|error| {
-        Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {error}"))
-    })?;
+    let fd = open_fd(
+        DM_CONTROL_PATH,
+        OFlags::RDWR | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|error| Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {error}")))?;
 
     open_with_fd(&fd, params)
 }
 
 /// Closes the device mapper device with the specified name.
 pub(crate) fn close(name: &str) -> Result<()> {
-    let fd = open_fd(DM_CONTROL_PATH, OFlags::RDWR, Mode::empty()).map_err(|error| {
-        Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {error}"))
-    })?;
+    let fd = open_fd(
+        DM_CONTROL_PATH,
+        OFlags::RDWR | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|error| Error::DeviceMapper(format!("failed to open {DM_CONTROL_PATH}: {error}")))?;
 
     close_with_fd(&fd, name)
 }
@@ -174,7 +180,7 @@ mod tests {
     #[test]
     fn dm_crypt_open_with_invalid_fd_reports_error() {
         // ARRANGE
-        let fd = open_fd("/dev/null", OFlags::RDWR, Mode::empty()).unwrap();
+        let fd = open_fd("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty()).unwrap();
         let volume_key = [0x42_u8; 64];
         let params = test_params(512, &volume_key);
 
@@ -188,7 +194,7 @@ mod tests {
     #[test]
     fn dm_crypt_close_with_invalid_fd_reports_error() {
         // ARRANGE
-        let fd = open_fd("/dev/null", OFlags::RDWR, Mode::empty()).unwrap();
+        let fd = open_fd("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty()).unwrap();
 
         // ACT
         let result = close_with_fd(&fd, "missing-device");
