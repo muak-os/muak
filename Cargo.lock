@@ -1194,6 +1194,7 @@ dependencies = [
  "argon2",
  "base16ct",
  "base64ct",
+ "blockdev",
  "getrandom 0.4.3",
  "pbkdf2",
  "rustix",

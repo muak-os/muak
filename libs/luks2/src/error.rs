@@ -38,6 +38,10 @@ pub enum Luks2Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Wraps block device inspection failures.
+    #[error("block device error: {0}")]
+    Blockdev(#[from] blockdev::error::BlockdevError),
+
     #[error("argon2 error: {0}")]
     Argon2(#[from] argon2::Error),
 

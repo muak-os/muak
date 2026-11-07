@@ -17,6 +17,7 @@ mod xts;
 use error::{Luks2Error as Error, Result};
 use header::Header;
 use metadata::{Keyslot, Metadata};
+use rustix::fs::{Mode, OFlags};
 use zeroize::Zeroize as _;
 
 const BINARY_HEADER_SIZE: usize = 4096;
@@ -221,10 +222,10 @@ fn verify_candidate(candidate: &[u8], slot_id: &str, meta: &Metadata) -> bool {
 
 /// Returns the total size of a block device in bytes.
 fn device_size(device: &str) -> Result<u64> {
-    let mut file = std::fs::File::open(device)?;
-    let size = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
+    let fd = rustix::fs::open(device, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+        .map_err(std::io::Error::from)?;
 
-    Ok(size)
+    Ok(blockdev::device::size(&fd)?)
 }
 
 /// Reads the TPM2 token from a LUKS2 device header.
