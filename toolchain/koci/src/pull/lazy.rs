@@ -78,11 +78,10 @@ impl LazyLayer<'_> {
 
         let bytes = runtime::runtime()?.block_on(fetch::fetch_one(
             session.content(),
-            session.client().http(),
-            session.client().image(),
+            session.client(),
             digest,
-            session.client().authorization(),
             None,
+            session.policy(),
         ))?;
 
         if let Some(blob) = bytes {

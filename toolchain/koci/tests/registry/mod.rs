@@ -59,9 +59,15 @@ impl Gauge {
     }
 }
 
+struct Routes {
+    fixed: HashMap<RouteKey, HttpResponse>,
+    overrides: Mutex<HashMap<RouteKey, HttpResponse>>,
+}
+
 pub(crate) struct MockRegistry {
     address: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
+    routes: Arc<Routes>,
     shutdown: Arc<AtomicBool>,
     connections: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
     gauge: Arc<Gauge>,
@@ -74,7 +80,10 @@ impl MockRegistry {
         listener.set_nonblocking(true)?;
 
         let address = listener.local_addr()?.to_string();
-        let routes = Arc::new(routes);
+        let routes = Arc::new(Routes {
+            fixed: routes,
+            overrides: Mutex::new(HashMap::new()),
+        });
         let requests = Arc::new(Mutex::new(Vec::new()));
         let pushed = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -103,6 +112,7 @@ impl MockRegistry {
         Ok(Self {
             address,
             requests,
+            routes,
             shutdown,
             connections,
             gauge,
@@ -114,6 +124,23 @@ impl MockRegistry {
     #[must_use]
     pub(crate) fn max_concurrent(&self) -> usize {
         self.gauge.peak()
+    }
+
+    /// Replace the response served for one method and path from now on.
+    pub(crate) fn set_response(&self, method: &str, path: &str, response: HttpResponse) {
+        self.routes
+            .overrides
+            .lock()
+            .expect("lock mock registry overrides")
+            .insert((method.to_ascii_uppercase(), path.to_owned()), response);
+    }
+
+    /// Stop accepting requests while keeping the recorded request log readable.
+    pub(crate) fn stop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            drop(handle.join());
+        }
     }
 
     #[must_use]
@@ -267,6 +294,17 @@ impl HttpResponse {
     }
 
     #[must_use]
+    pub(crate) fn server_error() -> Self {
+        Self {
+            status: 500,
+            content_type: "text/plain",
+            body: b"server error".to_vec(),
+            headers: Vec::new(),
+            delay: Duration::ZERO,
+        }
+    }
+
+    #[must_use]
     pub(crate) fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
 
@@ -292,7 +330,7 @@ pub(crate) fn post<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKe
 
 fn run_registry_server(
     listener: &TcpListener,
-    routes: &Arc<HashMap<RouteKey, HttpResponse>>,
+    routes: &Arc<Routes>,
     pushed: &Arc<Mutex<HashMap<String, Vec<u8>>>>,
     requests: &Arc<Mutex<Vec<RecordedRequest>>>,
     shutdown: &AtomicBool,
@@ -339,7 +377,7 @@ fn accept_connection(listener: &TcpListener) -> Result<Option<TcpStream>, IoErro
 
 fn handle_connection(
     mut stream: TcpStream,
-    routes: &HashMap<RouteKey, HttpResponse>,
+    routes: &Routes,
     pushed: &Mutex<HashMap<String, Vec<u8>>>,
     requests: &Mutex<Vec<RecordedRequest>>,
     gauge: &Gauge,
@@ -348,8 +386,12 @@ fn handle_connection(
 
     let route_key = (request.method.clone(), request.path.clone());
     let mut response = routes
+        .overrides
+        .lock()
+        .map_err(|_error| IoError::other("override mutex poisoned"))?
         .get(&route_key)
         .cloned()
+        .or_else(|| routes.fixed.get(&route_key).cloned())
         .unwrap_or_else(|| default_response(&request));
 
     if request.method == "PUT"

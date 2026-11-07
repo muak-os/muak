@@ -8,6 +8,7 @@ use oci_client::client::Client;
 use tar::Archive;
 
 use super::content::Content;
+use super::policy::Policy;
 use super::{download, fetch, parallel, scan};
 use crate::error::Result;
 use crate::progress::{Event, Phase, Reporter, Unit};
@@ -18,6 +19,7 @@ pub(crate) async fn walk<F>(
     content: &Content,
     layers: &[Descriptor],
     reporter: &dyn Reporter,
+    policy: Policy,
     mut on_entry: F,
 ) -> Result<()>
 where
@@ -27,7 +29,7 @@ where
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
-    let bytes = parallel::download_all(client, content, layers, reporter).await?;
+    let bytes = parallel::download_all(client, content, layers, reporter, policy).await?;
     let n = layers.len();
     if n > 1 {
         let whiteouts = fetch::whiteout_map(content, layers, &bytes, reporter)?;

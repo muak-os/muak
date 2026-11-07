@@ -10,7 +10,9 @@ use oci::media::{
     OCI_LAYER_MEDIA_TYPE,
 };
 use oci::reference::Image;
+use oci_client::auth::Access;
 use oci_client::blob::build_url;
+use oci_client::client::Client;
 use oci_client::error::ClientError;
 use oci_client::http::{Range, get, get_range, is_partial, stream_body_to_sink};
 use oci_client::transport::Transport;
@@ -18,6 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tui::progress::sink::{Sink, Tracker};
 
 use super::content::{Content, Ingest};
+use super::policy::Policy;
 use crate::error::{KociError, Result};
 use crate::progress::{ByteSample, Phase};
 
@@ -152,19 +155,36 @@ pub(crate) async fn blob(
 /// the store ingest fails.
 pub(crate) async fn fetch_into_store(
     content: &Content,
-    http: &Transport,
-    image_ref: &Image,
+    client: &Client,
     digest: &str,
-    authorization: Option<&str>,
     progress: Option<ByteProgress>,
+    policy: Policy,
 ) -> Result<u64> {
     if let Some(size) = content.has_blob(digest) {
         return Ok(size);
     }
+    if policy == Policy::CacheOnly {
+        return Err(KociError::Offline {
+            missing: format!("blob {digest}"),
+        });
+    }
 
+    let client = if client.authorization().is_none() {
+        client.authenticate(Access::Pull).await?
+    } else {
+        client.clone()
+    };
     let mut ingest = content.blob_writer(digest)?;
-    let url = build_url(image_ref, digest);
-    let verifier = stream_blob(&mut ingest, http, &url, digest, authorization, progress).await?;
+    let url = build_url(client.image(), digest);
+    let verifier = stream_blob(
+        &mut ingest,
+        client.http(),
+        &url,
+        digest,
+        client.authorization(),
+        progress,
+    )
+    .await?;
 
     ingest.commit(verifier)
 }
@@ -229,6 +249,8 @@ mod tests {
 
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use oci_client::client::Client;
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -298,5 +320,29 @@ mod tests {
         let mut got = Vec::new();
         layer.read_to_end(&mut got).expect("read");
         assert_eq!(got, b"uncompressed");
+    }
+
+    #[test]
+    fn cache_only_reports_a_cold_blob_miss() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let content = Content::at(Some(tmp.path().to_path_buf()));
+        let client = Client::local("127.0.0.1:1/repo:tag");
+        let digest = "sha256:0000";
+
+        // ACT
+        let error = crate::runtime::runtime()
+            .expect("runtime")
+            .block_on(fetch_into_store(
+                &content,
+                &client,
+                digest,
+                None,
+                Policy::CacheOnly,
+            ))
+            .expect_err("a cold blob must fail offline");
+
+        // ASSERT
+        assert!(matches!(error, KociError::Offline { .. }), "{error:?}");
     }
 }

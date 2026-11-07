@@ -36,12 +36,24 @@ impl Content {
     /// cache, and garbage collect stale ingest files.
     #[must_use]
     pub(crate) fn new() -> Self {
-        let content = Self {
-            root: cache::root(),
-        };
+        let content = Self::at(cache::root());
         content.gc();
 
         content
+    }
+
+    /// Create a content store over `root`, or a disabled store when it is `None`.
+    #[must_use]
+    pub(crate) fn at(root: Option<PathBuf>) -> Self {
+        Self { root }
+    }
+
+    /// Atomically write a committed blob into the store, disabled stores ignore it.
+    pub(crate) fn store(&self, digest: &str, bytes: &[u8]) {
+        let Some(path) = cache::blob_file_path(self.root.as_deref(), digest) else {
+            return;
+        };
+        cache::atomic_write(&path, bytes);
     }
 
     /// The root directory backing the store, or `None` when disabled.
@@ -360,6 +372,31 @@ mod tests {
             .expect("read blob");
 
         // ASSERT
+        assert_eq!(bytes, data);
+    }
+
+    #[test]
+    fn store_roundtrips_a_committed_blob() {
+        // ARRANGE
+        let tmp = TempDir::new().expect("temp dir");
+        let content = Content::at(Some(tmp.path().to_path_buf()));
+        let data = b"stored directly without an ingest";
+        let digest = digest_of(data);
+
+        // ACT
+        content.store(&digest, data);
+        let mut bytes = Vec::new();
+        content
+            .open_blob(&digest)
+            .expect("open stored blob")
+            .read_to_end(&mut bytes)
+            .expect("read stored blob");
+
+        // ASSERT
+        assert_eq!(
+            content.has_blob(&digest),
+            Some(u64::try_from(data.len()).expect("size"))
+        );
         assert_eq!(bytes, data);
     }
 

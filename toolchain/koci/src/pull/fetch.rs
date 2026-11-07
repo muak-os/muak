@@ -4,11 +4,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use oci::model::Descriptor;
-use oci::reference::Image;
-use oci_client::transport::Transport;
+use oci_client::auth::Access;
+use oci_client::client::Client;
 
 use super::content::Content;
 use super::download::ByteProgress;
+use super::policy::Policy;
 use super::{download, scan};
 use crate::error::{KociError, Result};
 use crate::progress::{Event, Phase, Reporter, Unit};
@@ -84,19 +85,30 @@ pub(crate) fn whiteout_map(
 /// Returns an error when the registry does not serve the blob or the download fails to verify.
 pub(crate) async fn fetch_one(
     content: &Content,
-    http: &Transport,
-    image: &Image,
+    client: &Client,
     digest: &str,
-    authorization: Option<&str>,
     progress: Option<ByteProgress>,
+    policy: Policy,
 ) -> Result<Option<Vec<u8>>> {
     if content.disk().is_some() {
-        return download::fetch_into_store(content, http, image, digest, authorization, progress)
+        return download::fetch_into_store(content, client, digest, progress, policy)
             .await
             .map(|_size| None);
     }
+    if policy == Policy::CacheOnly {
+        return Err(KociError::Offline {
+            missing: format!("blob {digest}"),
+        });
+    }
 
-    download::blob(http, image, digest, authorization, progress)
-        .await
-        .map(Some)
+    let client = client.authenticate(Access::Pull).await?;
+    download::blob(
+        client.http(),
+        client.image(),
+        digest,
+        client.authorization(),
+        progress,
+    )
+    .await
+    .map(Some)
 }

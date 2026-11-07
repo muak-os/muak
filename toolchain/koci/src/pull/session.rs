@@ -2,18 +2,18 @@
 
 use oci::arch::Arch;
 use oci::model::Descriptor;
-use oci_client::auth::Access;
 use oci_client::client::Client;
 
 use super::cache::Store;
 use super::content::Content;
 use super::entries::FileEntry;
 use super::lazy::LazyLayers;
+use super::policy::Policy;
 use super::{layer, resolve, scan};
 use crate::error::Result;
 use crate::progress::{Event, Operation, Reporter};
+use crate::runtime;
 use crate::signature::Verification;
-use crate::{registry, runtime};
 
 /// An opened pull session over one image reference.
 pub struct Session {
@@ -23,6 +23,7 @@ pub struct Session {
     digest: String,
     reference: String,
     arch: String,
+    policy: Policy,
 }
 
 impl Session {
@@ -63,6 +64,7 @@ impl Session {
             &self.content,
             &self.layers,
             reporter,
+            self.policy,
             |_layer_idx, entry, info| scan::handle_file_entry(entry, info, &mut handler),
         ))
     }
@@ -73,7 +75,7 @@ impl Session {
         LazyLayers::new(self)
     }
 
-    /// The authenticated registry client of the session.
+    /// The registry client of the session, unauthenticated until a miss needs auth.
     pub(crate) fn client(&self) -> &Client {
         &self.client
     }
@@ -82,9 +84,14 @@ impl Session {
     pub(crate) fn content(&self) -> &Content {
         &self.content
     }
+
+    /// The cache access policy of the session.
+    pub(crate) fn policy(&self) -> Policy {
+        self.policy
+    }
 }
 
-/// Open a pull session for `reference`, resolving the platform manifest once.
+/// Open a pull session for `reference` under the network policy.
 ///
 /// # Errors
 ///
@@ -95,18 +102,36 @@ pub fn open(
     arch: &Arch,
     verification: Option<&Verification<'_>>,
 ) -> Result<Session> {
+    open_with(reference, arch, verification, Policy::Network)
+}
+
+/// Open a pull session for `reference` under an explicit cache access policy.
+///
+/// # Errors
+///
+/// Returns an error when the reference cannot be parsed, the registry
+/// handshake fails, signature verification fails, or a cache-only miss occurs.
+pub fn open_with(
+    reference: &str,
+    arch: &Arch,
+    verification: Option<&Verification<'_>>,
+    policy: Policy,
+) -> Result<Session> {
     runtime::runtime()?.block_on(async {
-        let client = registry::connect(reference, Access::Pull).await?;
+        let client = Client::local(reference);
         let cache = Store::new();
-        let (layers, digest) = resolve::layers(&client, &cache, arch, verification).await?;
+        let content = Content::new();
+        let (layers, digest) =
+            resolve::layers(&client, &cache, &content, arch, verification, policy).await?;
 
         Ok(Session {
             client,
-            content: Content::new(),
+            content,
             layers,
             digest,
             reference: reference.to_owned(),
             arch: arch.as_str().to_owned(),
+            policy,
         })
     })
 }

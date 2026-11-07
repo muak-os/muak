@@ -10,6 +10,7 @@ pub(crate) mod layer;
 pub(crate) mod lazy;
 pub mod parallel;
 pub mod paths;
+pub mod policy;
 pub(crate) mod resolve;
 pub(crate) mod scan;
 pub mod session;
@@ -18,12 +19,13 @@ pub mod toc;
 use alloc::collections::BTreeMap;
 
 use oci::arch::Arch;
-use oci_client::auth::Access;
+use oci_client::client::Client;
 
+use self::policy::Policy;
 use crate::error::Result;
 use crate::progress::Reporter;
+use crate::runtime;
 use crate::signature::Verification;
-use crate::{registry, runtime};
 
 /// Resolution of a pull to one platform manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,10 +47,28 @@ pub fn annotations(
     arch: &Arch,
     verification: Option<&Verification<'_>>,
 ) -> Result<BTreeMap<String, String>> {
+    annotations_with(reference, arch, verification, Policy::Network)
+}
+
+/// Fetch the manifest annotations of `arch` under an explicit cache access policy.
+///
+/// # Errors
+///
+/// Returns an error if the manifest cannot be fetched, a cache-only miss
+/// occurs, or signature verification fails.
+pub fn annotations_with(
+    reference: &str,
+    arch: &Arch,
+    verification: Option<&Verification<'_>>,
+    policy: Policy,
+) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
-        let client = registry::connect(reference, Access::Pull).await?;
+        let client = Client::local(reference);
         let cache = cache::Store::new();
-        let json = resolve::platform_manifest_json(&client, &cache, arch, verification).await?;
+        let content = content::Content::new();
+        let json =
+            resolve::platform_manifest_json(&client, &cache, &content, arch, verification, policy)
+                .await?;
         let parsed = oci::manifest::parse(&json)?;
 
         Ok(parsed.annotations.unwrap_or_default().into_iter().collect())
@@ -71,7 +91,35 @@ pub fn files<F>(
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    let session = session::open(reference, arch, verification)?;
+    files_with(
+        reference,
+        arch,
+        verification,
+        Policy::Network,
+        reporter,
+        handler,
+    )
+}
+
+/// Stream file data from an OCI image under an explicit cache access policy.
+///
+/// # Errors
+///
+/// Returns an error if the image cannot be fetched, a cache-only miss occurs,
+/// signature verification fails, a layer cannot be decompressed, or the
+/// handler returns an error.
+pub fn files_with<F>(
+    reference: &str,
+    arch: &Arch,
+    verification: Option<&Verification<'_>>,
+    policy: Policy,
+    reporter: &dyn Reporter,
+    handler: F,
+) -> Result<Resolution>
+where
+    F: FnMut(entries::FileEntry<'_>) -> Result<()>,
+{
+    let session = session::open_with(reference, arch, verification, policy)?;
     let resolution = Resolution {
         digest: session.digest().to_owned(),
         layers: session.layers().len(),

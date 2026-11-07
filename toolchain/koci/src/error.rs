@@ -48,6 +48,13 @@ pub enum KociError {
     #[error("Signature verification failed: {0}")]
     SignatureVerificationFailed(String),
 
+    /// A cache-only pull could not find a required artifact offline.
+    #[error("Offline cache miss: {missing}")]
+    Offline {
+        /// Description of the artifact that was missing.
+        missing: String,
+    },
+
     /// An I/O error occurred.
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
