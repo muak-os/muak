@@ -1,10 +1,12 @@
 //! Block device path helpers and size probing.
 
-use std::fs::{self, File};
-use std::os::fd::AsFd as _;
+use std::fs;
+use std::io::ErrorKind;
+use std::os::fd::AsFd;
 use std::os::unix::fs::FileTypeExt as _;
 use std::path::Path;
 
+use rustix::fs::FileType;
 use rustix::ioctl::{Getter, Opcode, ioctl, opcode};
 
 use crate::error::Result;
@@ -53,21 +55,22 @@ pub fn looks_like_partition(path: &str) -> bool {
         && (path.contains("sd") || path.contains("vd") || path.contains("hd"))
 }
 
-/// Returns the size in bytes of the block device or file behind `file`.
+/// Returns the size in bytes of the block device or file behind `fd`.
 ///
 /// # Errors
 ///
-/// Returns an error when the metadata lookup fails or a block device rejects the size ioctl.
-pub fn size(file: &File) -> Result<u64> {
-    let metadata = file.metadata()?;
-    if !metadata.file_type().is_block_device() {
-        return Ok(metadata.len());
+/// Returns an error when the descriptor lookup fails or a block device rejects the size ioctl.
+pub fn size<Fd: AsFd>(fd: &Fd) -> Result<u64> {
+    let stat = rustix::fs::fstat(fd).map_err(std::io::Error::from)?;
+    if !FileType::from_raw_mode(stat.st_mode).is_block_device() {
+        return u64::try_from(stat.st_size)
+            .map_err(|_error| std::io::Error::from(ErrorKind::InvalidData).into());
     }
 
     // SAFETY: `BLKGETSIZE64` writes a `u64` and `Getter` carries the matching type.
     let getter = unsafe { Getter::<BLKGETSIZE64, u64>::new() };
-    // SAFETY: the file descriptor is valid and the ioctl argument type matches the opcode.
-    unsafe { ioctl(file.as_fd(), getter) }.map_err(|errno| std::io::Error::from(errno).into())
+    // SAFETY: the descriptor is valid and the ioctl argument type matches the opcode.
+    unsafe { ioctl(fd.as_fd(), getter) }.map_err(|errno| std::io::Error::from(errno).into())
 }
 
 fn uses_p_separator(disk: &str) -> bool {

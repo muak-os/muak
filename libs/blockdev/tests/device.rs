@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::os::fd::AsFd as _;
     use std::path::Path;
 
     use blockdev::device;
@@ -88,6 +89,19 @@ mod tests {
 
         // ASSERT
         assert_eq!(size, 1234, "regular files report their metadata len");
+    }
+
+    #[test]
+    fn size_accepts_a_bare_descriptor() {
+        // ARRANGE
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        file.as_file().set_len(4321).expect("resize");
+
+        // ACT
+        let size = device::size(&file.as_file().as_fd()).expect("size probe");
+
+        // ASSERT
+        assert_eq!(size, 4321, "fd-only callers need no File");
     }
 
     #[test]
