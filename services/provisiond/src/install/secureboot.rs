@@ -40,8 +40,6 @@ fn enforcement(secureboot: bool, state: State) -> Check {
         );
     }
 
-    // The mismatch arm for a disabled config only inspects enforcement, so key
-    // ownership is not consulted here.
     if !matches!(
         firmware::secureboot::mismatch(false, &state, false),
         Some(Mismatch::EnforcingWhileDisabled)
@@ -54,10 +52,10 @@ fn enforcement(secureboot: bool, state: State) -> Check {
 
     Check::fail(
         ENFORCEMENT,
-        "Firmware enforces Secure Boot but the config disables it, so the boot loader would be \
-         installed unsigned and fail signature verification at boot. Either enable the \
-         `secureboot` option in the config to enroll keys, or disable Secure Boot enforcement in \
-         firmware setup."
+        "Firmware enforces Secure Boot but the config disables it, so the install would \
+         be unsigned and fail signature verification at boot. Either enable the \
+         `secureboot` option in the config to enroll keys, or disable Secure Boot \
+         enforcement in firmware setup."
             .to_owned(),
     )
 }
@@ -86,7 +84,7 @@ fn unreadable() -> Check {
     Check::fail(
         FIRMWARE,
         "Secure Boot state could not be read from firmware, so the boot path cannot be verified. \
-         Refusing to install a boot loader that may fail signature verification."
+         Refusing an install that may fail signature verification."
             .to_owned(),
     )
 }

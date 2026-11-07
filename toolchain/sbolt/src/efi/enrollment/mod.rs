@@ -26,12 +26,6 @@ pub(super) enum SigningAuthority {
 
 /// Enroll the complete key hierarchy into UEFI firmware.
 ///
-/// Variables are written in the order db, KEK, PK and each one is read back
-/// before the next is written. Enrolling the Platform Key transitions the
-/// platform out of Setup Mode, so the PK is only written once the db and KEK
-/// are confirmed enrolled. A failure before the PK write therefore leaves the
-/// platform in Setup Mode and the enrollment can be retried.
-///
 /// # Errors
 ///
 /// Returns an error if firmware variable storage is unavailable, the system is
@@ -117,12 +111,6 @@ pub fn unenroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> R
 }
 
 /// Remove the complete key hierarchy from UEFI firmware.
-///
-/// The Platform Key is removed first so the platform leaves Secure Boot
-/// enforcement immediately: a later failure can then never leave a machine
-/// enforcing with a weakened db. The db and KEK are deleted afterwards, while
-/// the platform is in Setup Mode where firmware accepts changes to them.
-/// Every removal is verified by reading the variable back.
 ///
 /// # Errors
 ///

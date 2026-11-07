@@ -12,6 +12,20 @@ mod tests {
 
     use crate::common::Firmware;
 
+    fn contains_bytes(payload: &[u8], needle: &[u8]) -> bool {
+        payload.windows(needle.len()).any(|window| window == needle)
+    }
+
+    fn signed_database(owner_guid: &uefi::Guid, certificate: &Certificate) -> Vec<u8> {
+        let cert_der = certificate.to_der().expect("encode certificate");
+        let mut database = siglist::SignatureDatabase::new();
+        database
+            .add_x509(owner_guid, &cert_der)
+            .expect("add certificate to database");
+
+        database.to_bytes()
+    }
+
     #[test]
     fn firmware_status_reads_from_fake_backend() {
         // ARRANGE
@@ -474,19 +488,5 @@ mod tests {
             "KEK key type must survive"
         );
         assert_eq!(loaded.db.key_type, KeyType::Db, "db key type must survive");
-    }
-
-    fn contains_bytes(payload: &[u8], needle: &[u8]) -> bool {
-        payload.windows(needle.len()).any(|window| window == needle)
-    }
-
-    fn signed_database(owner_guid: &uefi::Guid, certificate: &Certificate) -> Vec<u8> {
-        let cert_der = certificate.to_der().expect("encode certificate");
-        let mut database = siglist::SignatureDatabase::new();
-        database
-            .add_x509(owner_guid, &cert_der)
-            .expect("add certificate to database");
-
-        database.to_bytes()
     }
 }

@@ -85,11 +85,6 @@ pub fn enabled<S: VariableStore>(store: &S) -> Result<bool> {
 
 /// Returns whether the system is in Setup Mode.
 ///
-/// A non-empty Setup Mode variable takes precedence. When it is absent or
-/// empty the state falls back to the Platform Key, treating a missing or
-/// zero-length Platform Key as Setup Mode. The fallback applies the same
-/// non-empty rule as [`pk_present`], so the fallback agrees with it.
-///
 /// # Errors
 ///
 /// Returns an error if the Setup Mode or Platform Key variable cannot be read.
