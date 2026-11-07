@@ -68,17 +68,18 @@ pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
     let json_buf = meta.to_json_buffer(DEFAULT_JSON_SIZE)?;
 
     let primary_hdr = hdr.serialize(true)?;
-    dm::device::write_at(&fd, 0, &primary_hdr)?;
-    dm::device::write_at(&fd, BINARY_HEADER_SIZE_U64, &json_buf)?;
-    dm::device::write_at(&fd, DEFAULT_KEYSLOT_AREA_OFFSET, &keyslot_data)?;
+    blockdev::io::write_at(&fd, 0, &primary_hdr)?;
+    blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, &json_buf)?;
+    blockdev::io::write_at(&fd, DEFAULT_KEYSLOT_AREA_OFFSET, &keyslot_data)?;
 
     let secondary_hdr = hdr.serialize(false)?;
-    dm::device::write_at(&fd, DEFAULT_HEADER_SIZE, &secondary_hdr)?;
-    dm::device::write_at(
+    blockdev::io::write_at(&fd, DEFAULT_HEADER_SIZE, &secondary_hdr)?;
+    blockdev::io::write_at(
         &fd,
         DEFAULT_HEADER_SIZE.saturating_add(BINARY_HEADER_SIZE_U64),
         &json_buf,
     )?;
+    blockdev::io::sync(&fd)?;
 
     volume_key.zeroize();
     kdf_salt.zeroize();
@@ -96,11 +97,11 @@ pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
     let fd = dm::device::open(device, OFlags::RDONLY)?;
 
     let mut hdr_buf = [0_u8; BINARY_HEADER_SIZE];
-    dm::device::read_at(&fd, 0, &mut hdr_buf)?;
+    blockdev::io::read_at(&fd, 0, &mut hdr_buf)?;
     let hdr = Header::parse(&hdr_buf)?;
 
     let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-    dm::device::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
+    blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
     let meta = Metadata::from_json_buffer(&json_buf)?;
 
     let mut scratch = vec![0_u8; max_keyslot_area_size(&meta)?];
@@ -196,7 +197,7 @@ fn try_keyslots<Fd: AsFd>(
             ));
         };
 
-        dm::device::read_at(fd, area_offset, area)?;
+        blockdev::io::read_at(fd, area_offset, area)?;
 
         let decrypted = keyslot::decrypt_keyslot(passphrase, slot, &mut *area);
         area.zeroize();
@@ -238,7 +239,7 @@ pub fn read_tpm2_token(device: &str) -> Result<Tpm2Token> {
     let fd = dm::device::open(device, OFlags::RDONLY)?;
 
     let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-    dm::device::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
+    blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
     let meta = Metadata::from_json_buffer(&json_buf)?;
 
     meta.get_tpm2_token()
@@ -254,18 +255,19 @@ pub fn write_tpm2_token(device: &str, token: &Tpm2Token) -> Result<()> {
     let fd = dm::device::open(device, OFlags::RDWR)?;
 
     let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-    dm::device::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
+    blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
     let mut meta = Metadata::from_json_buffer(&json_buf)?;
     meta.set_tpm2_token(token)?;
 
     let new_json = meta.to_json_buffer(DEFAULT_JSON_SIZE)?;
 
-    dm::device::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json)?;
-    dm::device::write_at(
+    blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json)?;
+    blockdev::io::write_at(
         &fd,
         DEFAULT_HEADER_SIZE.saturating_add(BINARY_HEADER_SIZE_U64),
         &new_json,
     )?;
+    blockdev::io::sync(&fd)?;
 
     Ok(())
 }
@@ -496,11 +498,11 @@ mod tests {
 
         let fd = dm::device::open(path_str(&device), OFlags::RDWR).unwrap();
         let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-        dm::device::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf).unwrap();
+        blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf).unwrap();
         let mut metadata = Metadata::from_json_buffer(&json_buf).unwrap();
         metadata.segments.get_mut("0").unwrap().offset = String::from("invalid");
         let new_json = metadata.to_json_buffer(DEFAULT_JSON_SIZE).unwrap();
-        dm::device::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json).unwrap();
+        blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json).unwrap();
 
         // ACT
         let result = open(path_str(&device), "mapper-name", b"passphrase");
@@ -528,11 +530,11 @@ mod tests {
 
         let fd = dm::device::open(path_str(&device), OFlags::RDWR).unwrap();
         let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-        dm::device::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf).unwrap();
+        blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf).unwrap();
         let mut metadata = Metadata::from_json_buffer(&json_buf).unwrap();
         metadata.segments.remove("0");
         let new_json = metadata.to_json_buffer(DEFAULT_JSON_SIZE).unwrap();
-        dm::device::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json).unwrap();
+        blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json).unwrap();
 
         // ACT
         let result = open(path_str(&device), "mapper-name", b"passphrase");
@@ -547,7 +549,7 @@ mod tests {
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
         let fd = dm::device::open(path_str(&device), OFlags::WRONLY).unwrap();
-        dm::device::write_at(&fd, BINARY_HEADER_SIZE_U64, b"not-json").unwrap();
+        blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, b"not-json").unwrap();
         let token = Tpm2Token {
             r#type: String::from("tpm2"),
             keyslots: vec![String::from("0")],
@@ -579,7 +581,7 @@ mod tests {
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
         let fd = dm::device::open(path_str(&device), OFlags::WRONLY).unwrap();
-        dm::device::write_at(&fd, BINARY_HEADER_SIZE_U64, b"not-json").unwrap();
+        blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, b"not-json").unwrap();
 
         // ACT
         let result = read_tpm2_token(path_str(&device));
