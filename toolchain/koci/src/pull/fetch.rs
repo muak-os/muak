@@ -102,6 +102,7 @@ pub(crate) async fn fetch_one(
     }
 
     let client = client.authenticate(Access::Pull).await?;
+
     download::blob(
         client.http(),
         client.image(),

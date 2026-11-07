@@ -36,8 +36,7 @@ pub struct Resolution {
     pub layers: usize,
 }
 
-/// Fetch the manifest annotations of the platform manifest matching `arch`
-/// under `policy`.
+/// Fetch the manifest annotations of the platform manifest matching `arch` under `policy`.
 ///
 /// # Errors
 ///
@@ -66,9 +65,8 @@ pub fn annotations(
 ///
 /// # Errors
 ///
-/// Returns an error if the image cannot be fetched, a cache-only miss occurs,
-/// signature verification fails, a layer cannot be decompressed, or the
-/// handler returns an error.
+/// Returns an error if the image cannot be fetched, a cache-only miss occurs, signature
+/// verification fails, a layer cannot be decompressed, or the handler returns an error.
 pub fn files<F>(
     reference: &str,
     arch: &Arch,
