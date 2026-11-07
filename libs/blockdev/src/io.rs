@@ -7,8 +7,6 @@ use rustix::fs::fsync;
 use rustix::io::{Errno, pread, pwrite};
 
 /// Reads and writes a descriptor at a fixed offset without moving its cursor.
-///
-/// `flush` is a no-op; call `sync` explicitly when durability is required.
 pub struct Positioned<'a, Fd: AsFd> {
     fd: &'a Fd,
     offset: u64,
