@@ -11,8 +11,7 @@ use oci_client::manifest;
 
 use super::cache::Store;
 use super::content::Content;
-use super::download;
-use super::policy::Policy;
+use super::{Strategy, download};
 use crate::error::{KociError, Result};
 use crate::signature;
 use crate::signature::Verification;
@@ -24,10 +23,10 @@ pub(crate) async fn layers(
     content: &Content,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<(Vec<Descriptor>, String)> {
     let (manifest_json, digest) =
-        platform_manifest(client, cache, content, arch, verification, policy).await?;
+        platform_manifest(client, cache, content, arch, verification, strategy).await?;
     let manifest = oci::manifest::parse(&manifest_json)?;
 
     Ok((manifest.layers, digest))
@@ -40,9 +39,9 @@ pub(crate) async fn platform_manifest_json(
     content: &Content,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<String> {
-    platform_manifest(client, cache, content, arch, verification, policy)
+    platform_manifest(client, cache, content, arch, verification, strategy)
         .await
         .map(|(json, _digest)| json)
 }
@@ -54,22 +53,22 @@ pub(crate) async fn platform_manifest(
     content: &Content,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<(String, String)> {
     let manifest_json =
-        fetch_cached_manifest(client, cache, &client.image().manifest_ref, policy).await?;
+        fetch_cached_manifest(client, cache, &client.image().manifest_ref, strategy).await?;
     let manifest = oci::manifest::parse(&manifest_json)?;
     signature::check_signature(&manifest_json, verification)?;
 
     if manifest.manifests.is_empty() {
-        ensure_platform(client, content, &manifest, arch, policy).await?;
+        ensure_platform(client, content, &manifest, arch, strategy).await?;
         let digest = format!("sha256:{}", sha256_hex(manifest_json.as_bytes()));
 
         return Ok((manifest_json, digest));
     }
 
     let selected = oci::manifest::select_platform(&manifest.manifests, arch.as_str())?;
-    let platform_json = fetch_cached_manifest(client, cache, &selected.digest, policy).await?;
+    let platform_json = fetch_cached_manifest(client, cache, &selected.digest, strategy).await?;
     signature::check_signature(&platform_json, verification)?;
 
     Ok((platform_json, selected.digest.clone()))
@@ -80,7 +79,7 @@ async fn ensure_platform(
     content: &Content,
     manifest: &Manifest,
     arch: &Arch,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<()> {
     let reference = client.image().manifest_ref.as_str();
     let Some(config) = manifest.config.as_ref() else {
@@ -90,7 +89,7 @@ async fn ensure_platform(
     };
     let bytes = match read_config(content, &config.digest)? {
         Some(bytes) => bytes,
-        None => fetch_config(client, content, &config.digest, policy).await?,
+        None => fetch_config(client, content, &config.digest, strategy).await?,
     };
     let json = core::str::from_utf8(&bytes)
         .map_err(|error| KociError::Pull(format!("{reference} config is not UTF-8: {error}")))?;
@@ -103,9 +102,9 @@ async fn fetch_config(
     client: &Client,
     content: &Content,
     digest: &str,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Vec<u8>> {
-    if policy == Policy::CacheOnly {
+    if strategy == Strategy::CacheOnly {
         return Err(KociError::Offline {
             missing: format!("config blob {digest}"),
         });
@@ -156,17 +155,17 @@ async fn fetch_cached_manifest(
     client: &Client,
     cache: &Store,
     manifest_ref: &str,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<String> {
     let is_tag = !manifest_ref.starts_with("sha256:");
-    if policy == Policy::CacheOnly {
+    if strategy == Strategy::CacheOnly {
         return cache
             .get_manifest(client.image(), manifest_ref)
             .ok_or_else(|| KociError::Offline {
                 missing: format!("manifest {manifest_ref}"),
             });
     }
-    if (policy == Policy::Network || !is_tag)
+    if (strategy == Strategy::Network || !is_tag)
         && let Some(cached) = cache.get_manifest(client.image(), manifest_ref)
     {
         return Ok(cached);
@@ -246,7 +245,7 @@ mod tests {
                 &client,
                 &cache,
                 "tag",
-                Policy::CacheOnly,
+                Strategy::CacheOnly,
             ))
             .expect_err("a cold cache must fail offline");
 
@@ -270,7 +269,7 @@ mod tests {
                 &client,
                 &cache,
                 "tag",
-                Policy::CacheOnly,
+                Strategy::CacheOnly,
             ));
 
         // ASSERT

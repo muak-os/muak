@@ -9,8 +9,7 @@ use oci_client::client::Client;
 
 use super::content::Content;
 use super::download::ByteProgress;
-use super::policy::Policy;
-use super::{download, scan};
+use super::{Strategy, download, scan};
 use crate::error::{KociError, Result};
 use crate::progress::{Event, Phase, Reporter, Unit};
 
@@ -88,14 +87,14 @@ pub(crate) async fn fetch_one(
     client: &Client,
     digest: &str,
     progress: Option<ByteProgress>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Option<Vec<u8>>> {
     if content.disk().is_some() {
-        return download::fetch_into_store(content, client, digest, progress, policy)
+        return download::fetch_into_store(content, client, digest, progress, strategy)
             .await
             .map(|_size| None);
     }
-    if policy == Policy::CacheOnly {
+    if strategy == Strategy::CacheOnly {
         return Err(KociError::Offline {
             missing: format!("blob {digest}"),
         });

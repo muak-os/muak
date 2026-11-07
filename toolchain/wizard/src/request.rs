@@ -4,7 +4,7 @@ use core::fmt;
 use std::io::Write;
 
 use koci::arch::Arch;
-use koci::pull::policy::Policy;
+use koci::pull;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
@@ -28,7 +28,7 @@ pub struct Request<'a> {
     codec: Option<Codec>,
     signing: Option<&'a SigningPair<'a>>,
     progress: Option<&'a dyn Reporter>,
-    policy: Policy,
+    strategy: pull::Strategy,
     targets: Vec<(Artifact, &'a mut (dyn Write + Send))>,
 }
 
@@ -39,7 +39,7 @@ impl fmt::Debug for Request<'_> {
             .field("arch", &self.arch)
             .field("signing", &self.signing.is_some())
             .field("progress", &self.progress.is_some())
-            .field("policy", &self.policy)
+            .field("strategy", &self.strategy)
             .field(
                 "targets",
                 &self.targets.iter().map(|item| &item.0).collect::<Vec<_>>(),
@@ -59,7 +59,7 @@ impl<'a> Request<'a> {
             codec: None,
             signing: None,
             progress: None,
-            policy: Policy::Network,
+            strategy: pull::Strategy::Network,
             targets: Vec::new(),
         }
     }
@@ -133,18 +133,18 @@ impl<'a> Request<'a> {
         self
     }
 
-    /// Sets the cache access policy for every pull performed by the build.
+    /// Sets the cache access strategy for every pull performed by the build.
     #[must_use]
-    pub fn policy(mut self, policy: Policy) -> Self {
-        self.policy = policy;
+    pub fn with_strategy(mut self, strategy: pull::Strategy) -> Self {
+        self.strategy = strategy;
 
         self
     }
 
-    /// Returns the cache access policy for the build.
+    /// Returns the cache access strategy for the build.
     #[must_use]
-    pub(crate) const fn pull_policy(&self) -> Policy {
-        self.policy
+    pub(crate) const fn strategy(&self) -> pull::Strategy {
+        self.strategy
     }
 
     /// Returns the artifact kinds targeted by this request.
@@ -179,7 +179,7 @@ impl<'a> Request<'a> {
             progress.report(Event::Started {
                 label: "Discovering overlay assets",
             });
-            resolver::discover::assets(&mut resolution, self.policy)?;
+            resolver::discover::assets(&mut resolution, self.strategy)?;
             let assets = resolution
                 .build()
                 .overlay_assets()
@@ -192,7 +192,7 @@ impl<'a> Request<'a> {
         progress.report(Event::Started {
             label: "Resolving disk layout",
         });
-        resolver::discover::layout(&mut resolution, self.policy)?;
+        resolver::discover::layout(&mut resolution, self.strategy)?;
         progress.report(Event::Completed {
             label: &format!("disk layout {}", resolution.build().layout().name()),
         });
@@ -205,7 +205,7 @@ impl<'a> Request<'a> {
             signing: self.signing,
             codec: self.codec.unwrap_or_default(),
             progress,
-            policy: self.policy,
+            strategy: self.strategy,
         };
         let mut writers = TargetWriters::new(self.targets);
 

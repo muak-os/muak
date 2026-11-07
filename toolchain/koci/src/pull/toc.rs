@@ -9,8 +9,7 @@ use oci_client::client::Client;
 use tar::Archive;
 
 use crate::error::{KociError, Result};
-use crate::pull::policy::Policy;
-use crate::pull::{cache, content, fetch};
+use crate::pull::{Strategy, cache, content, fetch};
 use crate::runtime;
 use crate::signature::Verification;
 use crate::stargz::toc::{FOOTER_SIZE, Record, TOC_NAME, Toc, parse_footer};
@@ -24,7 +23,7 @@ pub struct EntryInfo {
     pub size: u64,
 }
 
-/// Measure the regular-file entries of the platform manifest matching `arch` under `policy`.
+/// Measure the regular-file entries of the platform manifest matching `arch` under `strategy`.
 ///
 /// # Errors
 ///
@@ -34,16 +33,16 @@ pub fn entries(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Vec<EntryInfo>> {
-    runtime::runtime()?.block_on(measure_all(reference, arch, verification, policy))
+    runtime::runtime()?.block_on(measure_all(reference, arch, verification, strategy))
 }
 
 async fn measure_all(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Vec<EntryInfo>> {
     let client = Client::local(reference);
     let cache = cache::Store::new();
@@ -54,14 +53,14 @@ async fn measure_all(
         &content,
         arch,
         verification,
-        policy,
+        strategy,
     )
     .await?;
     let parsed = oci::manifest::parse(&json)?;
 
     let mut measured: Vec<EntryInfo> = Vec::new();
     for layer in &parsed.layers {
-        let entries = layer_entries(&client, &content, layer, policy).await?;
+        let entries = layer_entries(&client, &content, layer, strategy).await?;
         let files = entries
             .into_iter()
             .filter(|entry| entry.kind == "reg")
@@ -82,10 +81,10 @@ async fn layer_entries(
     client: &Client,
     content: &content::Content,
     layer: &Descriptor,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Vec<Record>> {
     let size = layer.size;
-    let fetched = fetch::fetch_one(content, client, &layer.digest, None, policy).await?;
+    let fetched = fetch::fetch_one(content, client, &layer.digest, None, strategy).await?;
 
     let decoded = match fetched {
         Some(bytes) => decode_from_bytes(&bytes, size),

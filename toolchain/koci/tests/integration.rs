@@ -22,8 +22,7 @@ mod tests {
     use koci::error::KociError;
     use koci::progress::{Event, Noop, Phase, Reporter};
     use koci::pull::demux::Demux;
-    use koci::pull::policy::Policy;
-    use koci::pull::{cache, session};
+    use koci::pull::{Strategy, cache, session};
     use koci::{annotations, merge, pull, push, repack};
     use oci::arch::Arch;
     use oci::error::OciError;
@@ -114,7 +113,7 @@ mod tests {
 
     fn collect_files(reference: &str, arch: Arch) -> Vec<CollectedFile> {
         let mut files = Vec::new();
-        pull::files(reference, &arch, None, Policy::Network, &Noop, |entry| {
+        pull::files(reference, &arch, None, Strategy::Network, &Noop, |entry| {
             let path = entry.path.clone();
             let mut contents = Vec::new();
             entry.reader.read_to_end(&mut contents)?;
@@ -144,7 +143,7 @@ mod tests {
             reference,
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -239,7 +238,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &counter,
             |entry| {
                 let path = entry.path.clone();
@@ -341,7 +340,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -369,7 +368,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1333,7 +1332,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &counter,
             |entry| {
                 let path = entry.path.clone();
@@ -1566,7 +1565,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
         )
         .expect("read annotations");
 
@@ -1625,7 +1624,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Arm64,
             None,
-            Policy::Network,
+            Strategy::Network,
         )
         .expect("read annotations");
 
@@ -1650,7 +1649,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
         )
         .expect("read annotations");
 
@@ -1672,7 +1671,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1696,7 +1695,7 @@ mod tests {
             &registry.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1849,7 +1848,7 @@ mod tests {
             &server.reference("repo", "test"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
             &Noop,
             |_entry| Ok(()),
         )
@@ -1957,7 +1956,7 @@ mod tests {
             .expect("count");
         let probe_requests = registry.count("GET", "/v2/").expect("count");
         registry.stop();
-        let offline = session::open(&reference, &Arch::Amd64, None, Policy::CacheOnly)
+        let offline = session::open(&reference, &Arch::Amd64, None, Strategy::CacheOnly)
             .map(|session| collect_session_files(&session))
             .expect("a cache-only session must open from the warm cache");
         let manifest_after = registry
@@ -1993,7 +1992,7 @@ mod tests {
         let reference = "127.0.0.1:1/repo:cold";
 
         // ACT
-        let result = session::open(reference, &Arch::Amd64, None, Policy::CacheOnly);
+        let result = session::open(reference, &Arch::Amd64, None, Strategy::CacheOnly);
 
         // ASSERT
         let Err(error) = result else {
@@ -2047,7 +2046,7 @@ mod tests {
         );
 
         // ACT
-        let refreshed = session::open(&reference, &Arch::Amd64, None, Policy::Refresh)
+        let refreshed = session::open(&reference, &Arch::Amd64, None, Strategy::Refresh)
             .map(|session| collect_session_files(&session))
             .expect("a refresh session must open");
 
@@ -2102,8 +2101,8 @@ mod tests {
         );
 
         // ACT
-        let refresh = session::open(&reference, &Arch::Amd64, None, Policy::Refresh);
-        let cached = session::open(&reference, &Arch::Amd64, None, Policy::CacheOnly)
+        let refresh = session::open(&reference, &Arch::Amd64, None, Strategy::Refresh);
+        let cached = session::open(&reference, &Arch::Amd64, None, Strategy::CacheOnly)
             .map(|session| collect_session_files(&session))
             .expect("the cached tag reference must survive a failed refresh");
 
@@ -2139,7 +2138,7 @@ mod tests {
             &registry.reference("repo", "demux"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
         )
         .expect("open session");
         let counter = PassCounter::new();
@@ -2211,7 +2210,7 @@ mod tests {
             &registry.reference("repo", "lazy"),
             &Arch::Amd64,
             None,
-            Policy::Network,
+            Strategy::Network,
         )
         .expect("open session");
         let lazy = session.lazy();

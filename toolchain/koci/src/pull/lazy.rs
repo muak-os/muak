@@ -81,7 +81,7 @@ impl LazyLayer<'_> {
             session.client(),
             digest,
             None,
-            session.policy(),
+            session.strategy(),
         ))?;
 
         if let Some(blob) = bytes {

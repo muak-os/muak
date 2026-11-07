@@ -8,10 +8,10 @@ use oci_client::client::Client;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
+use super::Strategy;
 use super::content::Content;
 use super::download::ByteProgress;
 use super::fetch::fetch_one;
-use super::policy::Policy;
 use crate::error::{KociError, Result};
 use crate::progress::{ByteSample, Event, Phase, Reporter, Unit};
 
@@ -45,9 +45,9 @@ pub(crate) async fn download_all(
     content: &Content,
     layers: &[Descriptor],
     reporter: &dyn Reporter,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Vec<Option<Vec<u8>>>> {
-    let client = if policy == Policy::CacheOnly || !needs_network(content, layers) {
+    let client = if strategy == Strategy::CacheOnly || !needs_network(content, layers) {
         client.clone()
     } else {
         client.authenticate(Access::Pull).await?
@@ -85,7 +85,7 @@ pub(crate) async fn download_all(
             worker_client,
             assigned,
             sender.clone(),
-            policy,
+            strategy,
         ));
     }
     drop(sender);
@@ -144,13 +144,13 @@ async fn download_batch(
     client: Client,
     assigned: Vec<(usize, Descriptor)>,
     sender: UnboundedSender<ByteSample>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> FetchBatch {
     let mut results = Vec::with_capacity(assigned.len());
     for (layer_idx, layer) in assigned {
         let index = layer_idx.saturating_add(1);
         let progress = ByteProgress::new(sender.clone(), index, layer.size);
-        let blob = fetch_one(&content, &client, &layer.digest, Some(progress), policy).await;
+        let blob = fetch_one(&content, &client, &layer.digest, Some(progress), strategy).await;
         results.push((layer_idx, blob));
     }
 

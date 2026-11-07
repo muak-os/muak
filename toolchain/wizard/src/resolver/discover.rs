@@ -1,7 +1,7 @@
 //! Discovery of registry-backed details for a resolution.
 
 use disk::layout::Layout;
-use koci::pull::policy::Policy;
+use koci::pull;
 
 use crate::domain::overlay;
 use crate::domain::resolution::Resolution;
@@ -15,11 +15,11 @@ use crate::nodes::{disk_layout_annotation, measured_sizes};
 ///
 /// Returns an error when the overlay image cannot be measured or an entry
 /// references a malformed placement.
-pub(crate) fn assets(resolution: &mut Resolution, policy: Policy) -> Result<()> {
+pub(crate) fn assets(resolution: &mut Resolution, strategy: pull::Strategy) -> Result<()> {
     let Some(overlay) = resolution.build().overlay() else {
         return Ok(());
     };
-    let entries = measured_sizes(&overlay.source, overlay.arch, policy)?;
+    let entries = measured_sizes(&overlay.source, overlay.arch, strategy)?;
     let assets = overlay::classify(overlay, entries)?;
     resolution.set_overlay_assets(Some(assets));
 
@@ -32,9 +32,9 @@ pub(crate) fn assets(resolution: &mut Resolution, policy: Policy) -> Result<()> 
 ///
 /// Returns an error when the annotations cannot be fetched or name an unknown
 /// layout.
-pub fn layout(resolution: &mut Resolution, policy: Policy) -> Result<()> {
+pub fn layout(resolution: &mut Resolution, strategy: pull::Strategy) -> Result<()> {
     let layout = match resolution.build().overlay() {
-        Some(overlay) => match disk_layout_annotation(&overlay.source, overlay.arch, policy)? {
+        Some(overlay) => match disk_layout_annotation(&overlay.source, overlay.arch, strategy)? {
             Some(name) => Layout::by_name(&name)?,
             None => Layout::Uefi,
         },

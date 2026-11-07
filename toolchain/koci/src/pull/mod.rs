@@ -10,7 +10,6 @@ pub(crate) mod layer;
 pub(crate) mod lazy;
 pub mod parallel;
 pub mod paths;
-pub mod policy;
 pub(crate) mod resolve;
 pub(crate) mod scan;
 pub mod session;
@@ -21,11 +20,22 @@ use alloc::collections::BTreeMap;
 use oci::arch::Arch;
 use oci_client::client::Client;
 
-use self::policy::Policy;
 use crate::error::Result;
 use crate::progress::Reporter;
 use crate::runtime;
 use crate::signature::Verification;
+
+/// Where pull data may be read from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Strategy {
+    /// Cache first, registry on a miss.
+    #[default]
+    Network,
+    /// Registry for tag references, cache for everything else.
+    Refresh,
+    /// Cache only; any miss is an error.
+    CacheOnly,
+}
 
 /// Resolution of a pull to one platform manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,7 +46,7 @@ pub struct Resolution {
     pub layers: usize,
 }
 
-/// Fetch the manifest annotations of the platform manifest matching `arch` under `policy`.
+/// Fetch the manifest annotations of the platform manifest matching `arch` under `strategy`.
 ///
 /// # Errors
 ///
@@ -46,22 +56,28 @@ pub fn annotations(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<BTreeMap<String, String>> {
     runtime::runtime()?.block_on(async {
         let client = Client::local(reference);
         let cache = cache::Store::new();
         let content = content::Content::new();
-        let json =
-            resolve::platform_manifest_json(&client, &cache, &content, arch, verification, policy)
-                .await?;
+        let json = resolve::platform_manifest_json(
+            &client,
+            &cache,
+            &content,
+            arch,
+            verification,
+            strategy,
+        )
+        .await?;
         let parsed = oci::manifest::parse(&json)?;
 
         Ok(parsed.annotations.unwrap_or_default().into_iter().collect())
     })
 }
 
-/// Stream file data from an OCI image under `policy`.
+/// Stream file data from an OCI image under `strategy`.
 ///
 /// # Errors
 ///
@@ -71,14 +87,14 @@ pub fn files<F>(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
     reporter: &dyn Reporter,
     handler: F,
 ) -> Result<Resolution>
 where
     F: FnMut(entries::FileEntry<'_>) -> Result<()>,
 {
-    let session = session::open(reference, arch, verification, policy)?;
+    let session = session::open(reference, arch, verification, strategy)?;
     let resolution = Resolution {
         digest: session.digest().to_owned(),
         layers: session.layers().len(),

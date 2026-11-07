@@ -10,7 +10,7 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     use koci::arch::Arch;
-    use koci::pull::policy::Policy;
+    use koci::pull;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
     use wizard::artifact::Artifact;
@@ -119,7 +119,7 @@ mod tests {
             &reference,
             &Arch::Amd64,
             None,
-            Policy::Network,
+            pull::Strategy::Network,
             &koci::progress::Noop,
             |entry| {
                 std::io::copy(entry.reader, &mut std::io::sink())

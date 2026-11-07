@@ -20,7 +20,7 @@ use config::system::{self, CONFIG_PATH};
 use rustix::fs::sync;
 use tokio::sync::mpsc;
 use wizard::artifact::Artifact;
-use wizard::cache::Policy;
+use wizard::cache::Strategy;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
@@ -79,11 +79,11 @@ pub async fn prepare(
     extensions: &[String],
     new_config: Option<system::Config>,
     author: &str,
-    policy: Policy,
+    strategy: Strategy,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
     match prepare_inner(
-        registry, version, extensions, new_config, author, policy, progress,
+        registry, version, extensions, new_config, author, strategy, progress,
     )
     .await
     {
@@ -101,10 +101,10 @@ async fn prepare_inner(
     extensions: &[String],
     new_config: Option<system::Config>,
     author: &str,
-    policy: Policy,
+    strategy: Strategy,
     progress: mpsc::Sender<PrepareUpdateProgress>,
 ) -> Result<String> {
-    if policy != Policy::CacheOnly {
+    if strategy != Strategy::CacheOnly {
         cache::enforce();
     }
     let installed = config::system::config()?;
@@ -177,7 +177,7 @@ async fn prepare_inner(
             });
 
         let request = Request::new(request_version, &request_registry)
-            .policy(policy)
+            .with_strategy(strategy)
             .artifact(Artifact::Uki, &mut uki_file)
             .context("set UKI target")?
             .artifact(Artifact::Kernel, &mut kernel_file)
@@ -388,12 +388,12 @@ pub(crate) fn already_current(
     !force && version == installed.host.version && desired.same_as(installed)
 }
 
-/// Maps the offline flag to the pull cache access policy.
-pub(crate) const fn policy(offline: bool) -> Policy {
+/// Maps the offline flag to the pull cache access strategy.
+pub(crate) const fn strategy(offline: bool) -> Strategy {
     if offline {
-        Policy::CacheOnly
+        Strategy::CacheOnly
     } else {
-        Policy::Network
+        Strategy::Network
     }
 }
 
@@ -404,10 +404,10 @@ pub fn signal_cli_contact() {
 #[cfg(test)]
 mod tests {
     use config::system::{self, disk, host};
-    use wizard::cache::Policy;
+    use wizard::cache::Strategy;
 
     use super::{
-        UpdateStatus, already_current, desired_config, policy, resolve_status, resolve_target,
+        UpdateStatus, already_current, desired_config, resolve_status, resolve_target, strategy,
     };
     use crate::journal::{ChangeKind, Entry};
 
@@ -424,18 +424,18 @@ mod tests {
     }
 
     #[test]
-    fn offline_flag_selects_the_cache_only_policy() {
+    fn offline_flag_selects_the_cache_only_strategy() {
         // ARRANGE
         let offline = true;
         let online = false;
 
         // ACT
-        let selected = policy(offline);
-        let default = policy(online);
+        let selected = strategy(offline);
+        let default = strategy(online);
 
         // ASSERT
-        assert_eq!(selected, Policy::CacheOnly);
-        assert_eq!(default, Policy::Network);
+        assert_eq!(selected, Strategy::CacheOnly);
+        assert_eq!(default, Strategy::Network);
     }
 
     #[test]

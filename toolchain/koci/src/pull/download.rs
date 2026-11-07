@@ -19,8 +19,8 @@ use oci_client::transport::Transport;
 use tokio::sync::mpsc::UnboundedSender;
 use tui::progress::sink::{Sink, Tracker};
 
+use super::Strategy;
 use super::content::{Content, Ingest};
-use super::policy::Policy;
 use crate::error::{KociError, Result};
 use crate::progress::{ByteSample, Phase};
 
@@ -158,12 +158,12 @@ pub(crate) async fn fetch_into_store(
     client: &Client,
     digest: &str,
     progress: Option<ByteProgress>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<u64> {
     if let Some(size) = content.has_blob(digest) {
         return Ok(size);
     }
-    if policy == Policy::CacheOnly {
+    if strategy == Strategy::CacheOnly {
         return Err(KociError::Offline {
             missing: format!("blob {digest}"),
         });
@@ -338,7 +338,7 @@ mod tests {
                 &client,
                 digest,
                 None,
-                Policy::CacheOnly,
+                Strategy::CacheOnly,
             ))
             .expect_err("a cold blob must fail offline");
 

@@ -8,8 +8,7 @@ use super::cache::Store;
 use super::content::Content;
 use super::entries::FileEntry;
 use super::lazy::LazyLayers;
-use super::policy::Policy;
-use super::{layer, resolve, scan};
+use super::{Strategy, layer, resolve, scan};
 use crate::error::Result;
 use crate::progress::{Event, Operation, Reporter};
 use crate::runtime;
@@ -23,7 +22,7 @@ pub struct Session {
     digest: String,
     reference: String,
     arch: String,
-    policy: Policy,
+    strategy: Strategy,
 }
 
 impl Session {
@@ -64,7 +63,7 @@ impl Session {
             &self.content,
             &self.layers,
             reporter,
-            self.policy,
+            self.strategy,
             |_layer_idx, entry, info| scan::handle_file_entry(entry, info, &mut handler),
         ))
     }
@@ -85,13 +84,13 @@ impl Session {
         &self.content
     }
 
-    /// The cache access policy of the session.
-    pub(crate) fn policy(&self) -> Policy {
-        self.policy
+    /// The cache access strategy of the session.
+    pub(crate) fn strategy(&self) -> Strategy {
+        self.strategy
     }
 }
 
-/// Open a pull session for `reference` under `policy`.
+/// Open a pull session for `reference` under `strategy`.
 ///
 /// # Errors
 ///
@@ -101,14 +100,14 @@ pub fn open(
     reference: &str,
     arch: &Arch,
     verification: Option<&Verification<'_>>,
-    policy: Policy,
+    strategy: Strategy,
 ) -> Result<Session> {
     runtime::runtime()?.block_on(async {
         let client = Client::local(reference);
         let cache = Store::new();
         let content = Content::new();
         let (layers, digest) =
-            resolve::layers(&client, &cache, &content, arch, verification, policy).await?;
+            resolve::layers(&client, &cache, &content, arch, verification, strategy).await?;
 
         Ok(Session {
             client,
@@ -117,7 +116,7 @@ pub fn open(
             digest,
             reference: reference.to_owned(),
             arch: arch.as_str().to_owned(),
-            policy,
+            strategy,
         })
     })
 }

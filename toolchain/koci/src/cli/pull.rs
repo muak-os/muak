@@ -61,10 +61,10 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
             });
 
     let target_arch = arch.unwrap_or(arch::host());
-    let policy = if offline {
-        pull::policy::Policy::CacheOnly
+    let strategy = if offline {
+        pull::Strategy::CacheOnly
     } else {
-        pull::policy::Policy::Network
+        pull::Strategy::Network
     };
 
     if verification.is_none() {
@@ -80,7 +80,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
             &image,
             &target_arch,
             verification.as_ref(),
-            policy,
+            strategy,
             reporter,
             |entry| write_entry_to_dir(entry, &output),
         )

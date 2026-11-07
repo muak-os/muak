@@ -176,7 +176,7 @@ fn artifact_source(artifact: Artifact, ctx: &BuildContext<'_, '_>) -> Result<(No
 #[cfg(test)]
 mod tests {
     use koci::arch::Arch;
-    use koci::pull::policy::Policy;
+    use koci::pull;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 
@@ -237,7 +237,7 @@ mod tests {
             signing: None,
             codec: Codec::Zstd,
             progress: &NOOP,
-            policy: Policy::Network,
+            strategy: pull::Strategy::Network,
         }
     }
 
@@ -382,7 +382,7 @@ mod tests {
             signing: Some(&signing),
             codec: Codec::Zstd,
             progress: &NOOP,
-            policy: Policy::Network,
+            strategy: pull::Strategy::Network,
         };
 
         // ACT

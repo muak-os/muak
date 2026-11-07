@@ -32,11 +32,11 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
     let registry = request.registry();
     let arch = request.target_arch().unwrap_or_else(arch::host);
     let release = request.version();
-    let policy = request.pull_policy();
+    let strategy = request.strategy();
     valid_release(release)?;
     let profile_id = profile.profile_id()?;
 
-    let core = fetch_core_entry(registry, release, policy, profile.kernel().source())?;
+    let core = fetch_core_entry(registry, release, strategy, profile.kernel().source())?;
     let kernel_entry = core.document.kernel(profile.kernel().source())?;
     let stub_entry = core.document.stub()?;
     let installer_entry = core.document.installer()?;
@@ -68,13 +68,13 @@ pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
             .iter()
             .map(String::as_str)
             .collect();
-        let fetched = fetch_named_entries(registry, release, Kind::Extensions, policy, &names)?;
+        let fetched = fetch_named_entries(registry, release, Kind::Extensions, strategy, &names)?;
         extensions(&fetched.document, profile, registry, &mut resolved_inputs)?
     };
     let selected_overlay = match profile.overlay() {
         Some(spec) => {
             let fetched =
-                fetch_named_entries(registry, release, Kind::Overlays, policy, &[spec.name()])?;
+                fetch_named_entries(registry, release, Kind::Overlays, strategy, &[spec.name()])?;
             overlay(
                 &fetched.document,
                 spec,

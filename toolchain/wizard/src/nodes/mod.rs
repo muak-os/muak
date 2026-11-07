@@ -12,7 +12,6 @@ pub(crate) mod uki;
 
 use koci::arch::Arch;
 use koci::pull;
-use koci::pull::policy::Policy;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
@@ -110,9 +109,9 @@ pub(crate) fn produces(kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<(PortI
 pub(crate) fn measured_sizes(
     reference: &str,
     arch: Arch,
-    policy: Policy,
+    strategy: pull::Strategy,
 ) -> Result<Vec<(String, u64)>> {
-    pull::toc::entries(reference, &arch, None, policy)
+    pull::toc::entries(reference, &arch, None, strategy)
         .map(|entries| {
             entries
                 .into_iter()
@@ -131,9 +130,9 @@ pub(crate) fn measured_size(
     reference: &str,
     arch: Arch,
     path: &str,
-    policy: Policy,
+    strategy: pull::Strategy,
 ) -> Result<u64> {
-    measured_sizes(reference, arch, policy)?
+    measured_sizes(reference, arch, strategy)?
         .iter()
         .find_map(|entry| (entry.0.as_str() == path).then_some(entry.1))
         .ok_or_else(|| WizardError::BuildError(format!("missing entry {path} in {reference}")))
@@ -147,9 +146,9 @@ pub(crate) fn measured_size(
 pub(crate) fn disk_layout_annotation(
     reference: &str,
     arch: Arch,
-    policy: Policy,
+    strategy: pull::Strategy,
 ) -> Result<Option<String>> {
-    let annotations = pull::annotations(reference, &arch, None, policy)
+    let annotations = pull::annotations(reference, &arch, None, strategy)
         .map_err(|e| WizardError::BuildError(format!("fetch {reference} annotations: {e}")))?;
 
     Ok(annotations.get(DISK_ANNOTATION).cloned())
@@ -158,7 +157,7 @@ pub(crate) fn disk_layout_annotation(
 #[cfg(test)]
 mod tests {
     use koci::arch::Arch;
-    use koci::pull::policy::Policy;
+    use koci::pull;
     use sbolt::keys::SigningPair;
     use sbolt::keys::cert::generate_pk;
 
@@ -192,7 +191,7 @@ mod tests {
             signing: None,
             codec: Codec::Zstd,
             progress: &NOOP,
-            policy: Policy::Network,
+            strategy: pull::Strategy::Network,
         }
     }
 
@@ -283,7 +282,7 @@ mod tests {
             signing: Some(&signing),
             codec: Codec::Zstd,
             progress: &NOOP,
-            policy: Policy::Network,
+            strategy: pull::Strategy::Network,
         };
 
         // ACT

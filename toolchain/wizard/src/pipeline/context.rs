@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-use koci::pull::policy::Policy;
+use koci::pull;
 use sbolt::keys::SigningPair;
 
 use crate::artifact::Artifact;
@@ -19,7 +19,7 @@ pub(crate) struct BuildContext<'data, 'sign> {
     pub(crate) signing: Option<&'sign SigningPair<'sign>>,
     pub(crate) codec: Codec,
     pub(crate) progress: &'data dyn Reporter,
-    pub(crate) policy: Policy,
+    pub(crate) strategy: pull::Strategy,
 }
 
 impl BuildContext<'_, '_> {

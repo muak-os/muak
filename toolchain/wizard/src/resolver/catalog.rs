@@ -17,9 +17,9 @@ pub(super) fn fetch(
     kind: Kind,
     release: &str,
     registry: &str,
-    policy: pull::policy::Policy,
+    strategy: pull::Strategy,
 ) -> Result<Fetched> {
-    let fetched = fetch_tag(kind, release, registry, policy)?;
+    let fetched = fetch_tag(kind, release, registry, strategy)?;
     if fetched.document.release() != release {
         return Err(WizardError::SourceResolution(format!(
             "catalog release '{}' does not match '{release}'",
@@ -34,7 +34,7 @@ pub(super) fn fetch_tag(
     kind: Kind,
     tag: &str,
     registry: &str,
-    policy: pull::policy::Policy,
+    strategy: pull::Strategy,
 ) -> Result<Fetched> {
     let reference = format!("{registry}/{}:{tag}", kind.dir());
     let mut document: Option<Vec<u8>> = None;
@@ -42,7 +42,7 @@ pub(super) fn fetch_tag(
         &reference,
         &Arch::Amd64,
         None,
-        policy,
+        strategy,
         &koci::progress::Noop,
         |entry| {
             if entry.path == DOCUMENT_PATH {
@@ -73,12 +73,12 @@ pub(super) fn fetch_tag(
 pub(super) fn fetch_core_entry(
     registry: &str,
     release: &str,
-    policy: pull::policy::Policy,
+    strategy: pull::Strategy,
     source: &str,
 ) -> Result<Fetched> {
     fetch_refreshing(
-        policy,
-        |policy| fetch(Kind::Core, release, registry, policy),
+        strategy,
+        |strategy| fetch(Kind::Core, release, registry, strategy),
         |fetched| ensure_core(&fetched.document, source),
         |_fetched| offline_missing(Kind::Core, release, source),
     )
@@ -88,12 +88,12 @@ pub(super) fn fetch_named_entries(
     registry: &str,
     release: &str,
     kind: Kind,
-    policy: pull::policy::Policy,
+    strategy: pull::Strategy,
     names: &[&str],
 ) -> Result<Fetched> {
     fetch_refreshing(
-        policy,
-        |policy| fetch(kind, release, registry, policy),
+        strategy,
+        |strategy| fetch(kind, release, registry, strategy),
         |fetched| ensure_named(&fetched.document, names),
         |fetched| {
             let Some(missing) = first_missing(&fetched.document, names) else {
@@ -109,20 +109,20 @@ pub(super) fn pinned_reference(registry: &str, repository: &str, digest: &str) -
 }
 
 fn fetch_refreshing(
-    policy: pull::policy::Policy,
-    fetch: impl Fn(pull::policy::Policy) -> Result<Fetched>,
+    strategy: pull::Strategy,
+    fetch: impl Fn(pull::Strategy) -> Result<Fetched>,
     ensure: impl Fn(&Fetched) -> Result<()>,
     offline: impl Fn(&Fetched) -> WizardError,
 ) -> Result<Fetched> {
-    let fetched = fetch(policy)?;
+    let fetched = fetch(strategy)?;
     if ensure(&fetched).is_ok() {
         return Ok(fetched);
     }
-    if policy == pull::policy::Policy::CacheOnly {
+    if strategy == pull::Strategy::CacheOnly {
         return Err(offline(&fetched));
     }
 
-    let refreshed = fetch(pull::policy::Policy::Refresh)?;
+    let refreshed = fetch(pull::Strategy::Refresh)?;
     ensure(&refreshed)?;
 
     Ok(refreshed)
@@ -253,14 +253,14 @@ digest = "sha256:2222"
     fn satisfied_first_fetch_is_never_refreshed() {
         // ARRANGE
         let calls = Cell::new(0_usize);
-        let policies = RefCell::new(Vec::new());
+        let strategies = RefCell::new(Vec::new());
 
         // ACT
         let result = fetch_refreshing(
-            pull::policy::Policy::Network,
-            |policy| {
+            pull::Strategy::Network,
+            |strategy| {
                 calls.set(calls.get().saturating_add(1));
-                policies.borrow_mut().push(policy);
+                strategies.borrow_mut().push(strategy);
                 Ok(fetched())
             },
             |_fetched| Ok(()),
@@ -271,8 +271,8 @@ digest = "sha256:2222"
         result.expect("a satisfied fetch must succeed");
         assert_eq!(calls.get(), 1, "a satisfied fetch must happen exactly once");
         assert_eq!(
-            policies.borrow().as_slice(),
-            [pull::policy::Policy::Network].as_slice()
+            strategies.borrow().as_slice(),
+            [pull::Strategy::Network].as_slice()
         );
     }
 
@@ -281,14 +281,14 @@ digest = "sha256:2222"
         // ARRANGE
         let fetches = Cell::new(0_usize);
         let checks = Cell::new(0_usize);
-        let policies = RefCell::new(Vec::new());
+        let strategies = RefCell::new(Vec::new());
 
         // ACT
         let result = fetch_refreshing(
-            pull::policy::Policy::Network,
-            |policy| {
+            pull::Strategy::Network,
+            |strategy| {
                 fetches.set(fetches.get().saturating_add(1));
-                policies.borrow_mut().push(policy);
+                strategies.borrow_mut().push(strategy);
                 Ok(fetched())
             },
             |_fetched| {
@@ -305,8 +305,8 @@ digest = "sha256:2222"
         result.expect("a refreshed fetch must succeed");
         assert_eq!(fetches.get(), 2, "an unsatisfied fetch must retry once");
         assert_eq!(
-            policies.borrow().as_slice(),
-            [pull::policy::Policy::Network, pull::policy::Policy::Refresh,].as_slice()
+            strategies.borrow().as_slice(),
+            [pull::Strategy::Network, pull::Strategy::Refresh,].as_slice()
         );
     }
 
@@ -317,8 +317,8 @@ digest = "sha256:2222"
 
         // ACT
         let result = fetch_refreshing(
-            pull::policy::Policy::Network,
-            |_policy| {
+            pull::Strategy::Network,
+            |_strategy| {
                 fetches.set(fetches.get().saturating_add(1));
                 Ok(fetched())
             },
@@ -345,8 +345,8 @@ digest = "sha256:2222"
 
         // ACT
         let result = fetch_refreshing(
-            pull::policy::Policy::CacheOnly,
-            |_policy| {
+            pull::Strategy::CacheOnly,
+            |_strategy| {
                 fetches.set(fetches.get().saturating_add(1));
                 Ok(fetched())
             },

@@ -37,7 +37,7 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let build = ctx.build;
 
-    let size = measured_size(build.stub(), build.arch(), STUB_PATH, ctx.policy)?;
+    let size = measured_size(build.stub(), build.arch(), STUB_PATH, ctx.strategy)?;
 
     let binding = graph
         .node(id)?
@@ -65,7 +65,7 @@ fn run(
         build.stub(),
         &build.arch(),
         None,
-        ctx.policy,
+        ctx.strategy,
         &ctx.reporter(kind),
         |mut entry| {
             if entry.path == STUB_PATH {
