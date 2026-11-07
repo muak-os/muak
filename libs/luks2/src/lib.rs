@@ -16,7 +16,7 @@ mod xts;
 
 use error::{Luks2Error as Error, Result};
 use header::Header;
-use metadata::Metadata;
+use metadata::{Keyslot, Metadata};
 use zeroize::Zeroize as _;
 
 const BINARY_HEADER_SIZE: usize = 4096;
@@ -32,10 +32,6 @@ const VOLUME_KEY_SIZE: usize = 64;
 pub type Tpm2Token = metadata::Tpm2Token;
 
 /// Formats a block device with LUKS2 encryption.
-///
-/// Creates the LUKS2 header, generates a random volume key, protects it with
-/// the given passphrase via Argon2id, and writes everything to disk. The data
-/// segment begins at offset 16 MiB (`DEFAULT_HEADER_SIZE`).
 ///
 /// # Errors
 ///
@@ -88,22 +84,21 @@ pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
 
 /// Opens (activates) a LUKS2-encrypted device.
 ///
-/// Reads the LUKS2 header, attempts to decrypt the volume key using the
-/// passphrase against each keyslot, verifies the key against the stored
-/// digest, and sets up a dm-crypt mapping at `/dev/mapper/<name>`.
-///
 /// # Errors
 ///
 /// Returns an error when headers or metadata are invalid, the passphrase does
 /// not match, or the device-mapper setup fails.
 pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
-    let hdr_buf = dm::device::read_at(device, 0, BINARY_HEADER_SIZE)?;
+    let mut hdr_buf = [0_u8; BINARY_HEADER_SIZE];
+    dm::device::read_at(device, 0, &mut hdr_buf)?;
     let hdr = Header::parse(&hdr_buf)?;
 
-    let json_buf = dm::device::read_at(device, BINARY_HEADER_SIZE_U64, DEFAULT_JSON_SIZE_USIZE)?;
+    let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
+    dm::device::read_at(device, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
     let meta = Metadata::from_json_buffer(&json_buf)?;
 
-    let mut volume_key = try_keyslots(device, passphrase, &meta)?;
+    let mut scratch = vec![0_u8; max_keyslot_area_size(&meta)?];
+    let mut volume_key = try_keyslots(device, passphrase, &meta, &mut scratch)?;
 
     let segment = meta
         .segments
@@ -137,15 +132,11 @@ pub fn open(device: &str, name: &str, passphrase: &[u8]) -> Result<()> {
     })?;
 
     volume_key.zeroize();
+
     Ok(())
 }
 
 /// Closes (deactivates) a dm-crypt mapping.
-///
-/// Removes the device-mapper device identified by `name`, making
-/// `/dev/mapper/<name>` unavailable. The backing device is not modified.
-///
-/// The device should be unmounted before calling this function.
 ///
 /// # Errors
 ///
@@ -154,8 +145,31 @@ pub fn close(name: &str) -> Result<()> {
     dm::crypt::close(name)
 }
 
+fn parse_area_size(slot: &Keyslot) -> Result<u64> {
+    slot.area
+        .size
+        .parse()
+        .map_err(|_error| Error::InvalidField("invalid keyslot area size".into()))
+}
+
+fn max_keyslot_area_size(meta: &Metadata) -> Result<usize> {
+    meta.keyslots
+        .values()
+        .filter_map(|slot| parse_area_size(slot).ok())
+        .map(|size| {
+            usize::try_from(size)
+                .map_err(|_error| Error::InvalidField("invalid keyslot area size".into()))
+        })
+        .try_fold(0_usize, |max, size| size.map(|size| max.max(size)))
+}
+
 /// Attempts to decrypt each keyslot and verify against digests.
-fn try_keyslots(device: &str, passphrase: &[u8], meta: &Metadata) -> Result<Vec<u8>> {
+fn try_keyslots(
+    device: &str,
+    passphrase: &[u8],
+    meta: &Metadata,
+    scratch: &mut [u8],
+) -> Result<Vec<u8>> {
     let mut keyslots = meta.keyslots.iter().collect::<Vec<_>>();
     keyslots.sort_by_key(|&(slot_id, _)| slot_id);
 
@@ -165,18 +179,20 @@ fn try_keyslots(device: &str, passphrase: &[u8], meta: &Metadata) -> Result<Vec<
             .offset
             .parse()
             .map_err(|_error| Error::InvalidField("invalid keyslot area offset".into()))?;
-        let area_size: u64 = slot
-            .area
-            .size
-            .parse()
-            .map_err(|_error| Error::InvalidField("invalid keyslot area size".into()))?;
+        let area_size = parse_area_size(slot)?;
 
         let area_size = usize::try_from(area_size)
             .map_err(|_error| Error::InvalidField("invalid keyslot area size".into()))?;
 
-        let encrypted_data = dm::device::read_at(device, area_offset, area_size)?;
+        let Some(area) = scratch.get_mut(..area_size) else {
+            return Err(Error::InvalidField(
+                "keyslot area exceeds scratch buffer".into(),
+            ));
+        };
 
-        let Ok(mut candidate) = keyslot::decrypt_keyslot(passphrase, slot, &encrypted_data) else {
+        dm::device::read_at(device, area_offset, area)?;
+
+        let Ok(mut candidate) = keyslot::decrypt_keyslot(passphrase, slot, area) else {
             continue;
         };
 
@@ -207,6 +223,7 @@ fn verify_candidate(candidate: &[u8], slot_id: &str, meta: &Metadata) -> bool {
 fn device_size(device: &str) -> Result<u64> {
     let mut file = std::fs::File::open(device)?;
     let size = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
+
     Ok(size)
 }
 
@@ -217,8 +234,10 @@ fn device_size(device: &str) -> Result<u64> {
 /// Returns an error when the JSON metadata cannot be read or does not contain a
 /// TPM2 token.
 pub fn read_tpm2_token(device: &str) -> Result<Tpm2Token> {
-    let json_buf = dm::device::read_at(device, BINARY_HEADER_SIZE_U64, DEFAULT_JSON_SIZE_USIZE)?;
+    let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
+    dm::device::read_at(device, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
     let meta = Metadata::from_json_buffer(&json_buf)?;
+
     meta.get_tpm2_token()
 }
 
@@ -229,7 +248,8 @@ pub fn read_tpm2_token(device: &str) -> Result<Tpm2Token> {
 /// Returns an error when metadata cannot be read, updated, serialized, or
 /// written back to disk.
 pub fn write_tpm2_token(device: &str, token: &Tpm2Token) -> Result<()> {
-    let json_buf = dm::device::read_at(device, BINARY_HEADER_SIZE_U64, DEFAULT_JSON_SIZE_USIZE)?;
+    let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
+    dm::device::read_at(device, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
     let mut meta = Metadata::from_json_buffer(&json_buf)?;
     meta.set_tpm2_token(token)?;
 
@@ -490,12 +510,8 @@ mod tests {
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
 
-        let json_buf = dm::device::read_at(
-            path_str(&device),
-            BINARY_HEADER_SIZE_U64,
-            DEFAULT_JSON_SIZE_USIZE,
-        )
-        .unwrap();
+        let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
+        dm::device::read_at(path_str(&device), BINARY_HEADER_SIZE_U64, &mut json_buf).unwrap();
         let mut metadata = Metadata::from_json_buffer(&json_buf).unwrap();
         metadata.segments.get_mut("0").unwrap().offset = String::from("invalid");
         let new_json = metadata.to_json_buffer(DEFAULT_JSON_SIZE).unwrap();
@@ -525,12 +541,8 @@ mod tests {
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
 
-        let json_buf = dm::device::read_at(
-            path_str(&device),
-            BINARY_HEADER_SIZE_U64,
-            DEFAULT_JSON_SIZE_USIZE,
-        )
-        .unwrap();
+        let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
+        dm::device::read_at(path_str(&device), BINARY_HEADER_SIZE_U64, &mut json_buf).unwrap();
         let mut metadata = Metadata::from_json_buffer(&json_buf).unwrap();
         metadata.segments.remove("0");
         let new_json = metadata.to_json_buffer(DEFAULT_JSON_SIZE).unwrap();

@@ -1,16 +1,16 @@
 //! Device access utilities for LUKS2.
 
-use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+use std::io::{Error as IoError, ErrorKind};
 
-use rustix::fs::{Mode, OFlags, open};
-use rustix::io::Result as RustixResult;
+use rustix::fs::{Mode, OFlags, fsync, open};
+use rustix::io::{pread, pwrite};
 use rustix::ioctl::{Updater, ioctl};
 
 use super::abi::{BLKPBSZGET_OPCODE, DEFAULT_SECTOR_SIZE};
-use crate::error::Result;
+use crate::error::{Luks2Error as Error, Result};
 
 pub(crate) fn detect_sector_size(device: &str) -> u32 {
-    let Ok(fd) = open(device, OFlags::RDONLY, Mode::empty()) else {
+    let Ok(fd) = open(device, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty()) else {
         return DEFAULT_SECTOR_SIZE;
     };
 
@@ -20,32 +20,65 @@ pub(crate) fn detect_sector_size(device: &str) -> u32 {
     // SAFETY: The updater references a live `u32` buffer for the duration of the call.
     let result = unsafe { ioctl(&fd, sector_size_updater) };
 
-    normalize_sector_size(result, size)
-}
-
-pub(crate) fn read_at(device: &str, offset: u64, len: usize) -> Result<Vec<u8>> {
-    let mut file = std::fs::File::open(device)?;
-    file.seek(SeekFrom::Start(offset))?;
-    let mut buffer = vec![0_u8; len];
-    file.read_exact(&mut buffer)?;
-
-    Ok(buffer)
-}
-
-pub(crate) fn write_at(device: &str, offset: u64, data: &[u8]) -> Result<()> {
-    let mut file = std::fs::OpenOptions::new().write(true).open(device)?;
-    file.seek(SeekFrom::Start(offset))?;
-    file.write_all(data)?;
-    file.sync_all()?;
-
-    Ok(())
-}
-
-fn normalize_sector_size(result: RustixResult<()>, size: u32) -> u32 {
     match result {
         Ok(()) if size >= 512 && size.is_power_of_two() => size,
         _ => DEFAULT_SECTOR_SIZE,
     }
+}
+
+pub(crate) fn read_at(device: &str, offset: u64, buffer: &mut [u8]) -> Result<()> {
+    let fd =
+        open(device, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty()).map_err(IoError::from)?;
+
+    let mut position = offset;
+    let mut remaining = buffer;
+    while !remaining.is_empty() {
+        let count = match pread(&fd, &mut *remaining, position) {
+            Ok(count) => count,
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(Error::Io(IoError::from(error))),
+        };
+        if count == 0 {
+            return Err(Error::Io(IoError::from(ErrorKind::UnexpectedEof)));
+        }
+        position = advance(position, count)?;
+        remaining = remaining.get_mut(count..).unwrap_or_default();
+    }
+
+    Ok(())
+}
+
+pub(crate) fn write_at(device: &str, offset: u64, data: &[u8]) -> Result<()> {
+    let fd =
+        open(device, OFlags::WRONLY | OFlags::CLOEXEC, Mode::empty()).map_err(IoError::from)?;
+
+    let mut position = offset;
+    let mut remaining = data;
+    while !remaining.is_empty() {
+        let count = match pwrite(&fd, remaining, position) {
+            Ok(count) => count,
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(Error::Io(IoError::from(error))),
+        };
+        if count == 0 {
+            return Err(Error::Io(IoError::from(ErrorKind::WriteZero)));
+        }
+        position = advance(position, count)?;
+        remaining = remaining.get(count..).unwrap_or_default();
+    }
+
+    fsync(&fd).map_err(IoError::from)?;
+
+    Ok(())
+}
+
+fn advance(position: u64, count: usize) -> Result<u64> {
+    let count = u64::try_from(count)
+        .map_err(|_error| Error::InvalidField("device I/O count overflow".into()))?;
+
+    position
+        .checked_add(count)
+        .ok_or_else(|| Error::InvalidField("device offset overflow".into()))
 }
 
 #[cfg(test)]
@@ -74,10 +107,11 @@ mod tests {
 
         // ACT
         write_at(path, 8, data).unwrap();
-        let read_back = read_at(path, 8, data.len()).unwrap();
+        let mut read_back = [0_u8; 10];
+        read_at(path, 8, &mut read_back).unwrap();
 
         // ASSERT
-        assert_eq!(read_back, data);
+        assert_eq!(&read_back, data);
     }
 
     #[test]
@@ -86,12 +120,29 @@ mod tests {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.as_file_mut().set_len(8).unwrap();
         let path = file.path().to_str().unwrap();
+        let mut buffer = [0_u8; 16];
 
         // ACT
-        let result = read_at(path, 0, 16);
+        let result = read_at(path, 0, &mut buffer);
 
         // ASSERT
-        result.unwrap_err();
+        assert!(
+            matches!(result, Err(Error::Io(error)) if error.kind() == ErrorKind::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn read_device_accepts_empty_buffer() {
+        // ARRANGE
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.as_file_mut().set_len(8).unwrap();
+        let path = file.path().to_str().unwrap();
+
+        // ACT
+        let result = read_at(path, 0, &mut []);
+
+        // ASSERT
+        result.unwrap();
     }
 
     #[test]
@@ -105,28 +156,13 @@ mod tests {
 
     #[test]
     fn read_device_reports_error_for_missing_path() {
+        // ARRANGE
+        let mut buffer = [0_u8; 4];
+
         // ACT
-        let result = read_at("/nonexistent/luks2-device", 0, 4);
+        let result = read_at("/nonexistent/luks2-device", 0, &mut buffer);
 
         // ASSERT
         result.unwrap_err();
-    }
-
-    #[test]
-    fn normalize_sector_size_returns_default_for_invalid_values() {
-        // ACT
-        let result = normalize_sector_size(Ok(()), 123);
-
-        // ASSERT
-        assert_eq!(result, DEFAULT_SECTOR_SIZE);
-    }
-
-    #[test]
-    fn normalize_sector_size_returns_size_for_valid_values() {
-        // ACT
-        let result = normalize_sector_size(Ok(()), 4096);
-
-        // ASSERT
-        assert_eq!(result, 4096);
     }
 }
