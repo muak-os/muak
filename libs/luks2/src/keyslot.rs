@@ -160,6 +160,7 @@ pub fn decrypt_keyslot(passphrase: &[u8], keyslot: &Keyslot, data: &mut [u8]) ->
 
     let key_size = usize::try_from(keyslot.key_size)
         .map_err(|_error| Luks2Error::InvalidField("invalid key size".into()))?;
+
     af_merge(data, key_size, keyslot.af.stripes)
 }
 
@@ -359,12 +360,14 @@ mod tests {
         let volume_key = vec![0xAB_u8; 64];
 
         let mut encrypted = encrypt_keyslot(correct_passphrase, &volume_key, &keyslot).unwrap();
+        let ciphertext = encrypted.clone();
 
         // ACT
         let result = decrypt_keyslot(wrong_passphrase, &keyslot, &mut encrypted);
 
         // ASSERT
         assert!(!matches!(result, Ok(decrypted) if decrypted == volume_key));
+        assert_ne!(encrypted, ciphertext);
     }
 
     #[test]
