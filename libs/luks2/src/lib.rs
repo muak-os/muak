@@ -71,6 +71,7 @@ pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
     blockdev::io::write_at(&fd, 0, &primary_hdr)?;
     blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, &json_buf)?;
     blockdev::io::write_at(&fd, DEFAULT_KEYSLOT_AREA_OFFSET, &keyslot_data)?;
+    blockdev::io::sync(&fd)?;
 
     let secondary_hdr = hdr.serialize(false)?;
     blockdev::io::write_at(&fd, DEFAULT_HEADER_SIZE, &secondary_hdr)?;
@@ -79,10 +80,11 @@ pub fn format(device: &str, passphrase: &[u8], label: &str) -> Result<()> {
         DEFAULT_HEADER_SIZE.saturating_add(BINARY_HEADER_SIZE_U64),
         &json_buf,
     )?;
-    blockdev::io::sync(&fd)?;
 
     volume_key.zeroize();
     kdf_salt.zeroize();
+
+    blockdev::io::sync(&fd)?;
 
     Ok(())
 }
@@ -262,6 +264,7 @@ pub fn write_tpm2_token(device: &str, token: &Tpm2Token) -> Result<()> {
     let new_json = meta.to_json_buffer(DEFAULT_JSON_SIZE)?;
 
     blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, &new_json)?;
+    blockdev::io::sync(&fd)?;
     blockdev::io::write_at(
         &fd,
         DEFAULT_HEADER_SIZE.saturating_add(BINARY_HEADER_SIZE_U64),
