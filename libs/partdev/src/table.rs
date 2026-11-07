@@ -2,11 +2,11 @@
 
 use std::fs::File;
 
+use blockdev::io;
 use parttable::gpt;
 use parttable::gpt::table::Table;
 
 use crate::error::{PartdevError, Result};
-use crate::io::Positioned;
 
 /// Reads the primary GPT from `file` without moving its cursor.
 ///
@@ -14,7 +14,7 @@ use crate::io::Positioned;
 ///
 /// Returns an error when the stream is truncated or the header or entries are corrupt.
 pub fn read(file: &File) -> Result<Table> {
-    let mut positioned = Positioned::at(file, 0);
+    let mut positioned = io::Positioned::at(file, 0);
 
     Ok(gpt::io::read(&mut positioned)?)
 }
@@ -30,11 +30,11 @@ pub fn commit(file: &File, table: &Table, sector_count: u64) -> Result<()> {
         return Err(PartdevError::UnknownSectorCount);
     }
 
-    gpt::io::write_primary(table, sector_count, &mut Positioned::at(file, 0))?;
+    gpt::io::write_primary(table, sector_count, &mut io::Positioned::at(file, 0))?;
     gpt::io::write_backup(
         table,
         sector_count,
-        &mut Positioned::at(file, table.backup_data_offset(sector_count)),
+        &mut io::Positioned::at(file, table.backup_data_offset(sector_count)),
     )?;
     file.sync_all()?;
 

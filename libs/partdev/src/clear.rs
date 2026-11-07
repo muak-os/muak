@@ -3,8 +3,9 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 
+use blockdev::io;
+
 use crate::error::Result;
-use crate::io::Positioned;
 
 const ZERO_CHUNK: usize = 16 * 1024;
 const HEAD_BYTES: u64 = 10 * 1024 * 1024;
@@ -46,7 +47,7 @@ pub fn zero(device: &str) -> Result<()> {
 fn write_zeros(file: &File, offset: u64, mut bytes: u64) -> Result<()> {
     let zeros = [0_u8; ZERO_CHUNK];
     let chunk_limit = u64::try_from(ZERO_CHUNK).unwrap_or(0);
-    let mut writer = Positioned::at(file, offset);
+    let mut writer = io::Positioned::at(file, offset);
 
     while bytes > 0 {
         let chunk = usize::try_from(bytes.min(chunk_limit)).unwrap_or(0);

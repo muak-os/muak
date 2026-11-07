@@ -7,5 +7,3 @@ pub mod clear;
 pub mod error;
 pub mod manage;
 pub mod table;
-
-mod io;

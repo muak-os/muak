@@ -2,10 +2,10 @@
 
 use std::fs::{File, OpenOptions};
 
+use blockdev::io;
 use parttable::mbr;
 
 use crate::error::Result;
-use crate::io::Positioned;
 use crate::{blkpg, table};
 
 /// Returns `true` when `device` carries a GPT or a non-empty MBR.
@@ -19,7 +19,7 @@ pub fn is_non_empty(device: &str) -> Result<bool> {
         return Ok(true);
     }
 
-    match mbr::read(&mut Positioned::at(&file, 0)) {
+    match mbr::read(&mut io::Positioned::at(&file, 0)) {
         Ok(entries) => Ok(entries.iter().any(Option::is_some)),
         Err(_) => Ok(false),
     }
