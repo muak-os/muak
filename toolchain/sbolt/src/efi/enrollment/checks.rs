@@ -50,11 +50,23 @@ pub(super) fn verify_platform_key<S: VariableStore>(
     Ok(())
 }
 
+pub(super) fn verify_database_absent<S: VariableStore>(store: &S) -> Result<()> {
+    verify_absent(store, secureboot::DB, "db")
+}
+
+pub(super) fn verify_key_exchange_key_absent<S: VariableStore>(store: &S) -> Result<()> {
+    verify_absent(store, secureboot::KEK, "KEK")
+}
+
 pub(super) fn verify_platform_key_absent<S: VariableStore>(store: &S) -> Result<()> {
-    if secureboot::pk_present(store)? {
-        return Err(SboltError::EfiVar(
-            "firmware still reports an enrolled Platform Key after removal".into(),
-        ));
+    verify_absent(store, secureboot::PK, "Platform Key")
+}
+
+fn verify_absent<S: VariableStore>(store: &S, id: Id, label: &str) -> Result<()> {
+    if secureboot::present(store, &id)? {
+        return Err(SboltError::EfiVar(format!(
+            "firmware still reports an enrolled {label} after removal"
+        )));
     }
 
     Ok(())

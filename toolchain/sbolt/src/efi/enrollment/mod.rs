@@ -4,12 +4,13 @@ mod checks;
 mod removal;
 
 use checks::{
-    verify_database, verify_key_exchange_key, verify_platform_key, verify_platform_key_absent,
+    verify_database, verify_database_absent, verify_key_exchange_key,
+    verify_key_exchange_key_absent, verify_platform_key, verify_platform_key_absent,
 };
 use der::Encode as _;
 use firmware::nvram::{Id, Update, VariableStore};
 use firmware::secureboot;
-use removal::{clear_database, delete_signed_variable};
+use removal::delete_signed_variable;
 use uefi::runtime::VariableAttributes;
 use x509_cert::Certificate;
 
@@ -117,27 +118,37 @@ pub fn unenroll<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> R
 
 /// Remove the complete key hierarchy from UEFI firmware.
 ///
+/// The Platform Key is removed first so the platform leaves Secure Boot
+/// enforcement immediately: a later failure can then never leave a machine
+/// enforcing with a weakened db. The db and KEK are deleted afterwards, while
+/// the platform is in Setup Mode where firmware accepts changes to them.
+/// Every removal is verified by reading the variable back.
+///
 /// # Errors
 ///
-/// Returns an error if firmware variable storage is unavailable, the Platform Key cannot
-/// be deleted, or the firmware still reports an enrolled Platform Key after the removal.
+/// Returns an error if firmware variable storage is unavailable, the Platform
+/// Key, db, or KEK cannot be deleted, or the firmware still reports an enrolled
+/// Platform Key, db, or KEK after the removal.
 pub fn clear<S: VariableStore>(store: &S, hierarchy: &hierarchy::Bundle) -> Result<()> {
     unenroll(store, hierarchy)?;
 
-    clear_database(
+    delete_signed_variable(
         store,
         secureboot::DB,
         hierarchy,
         SigningAuthority::KeyExchangeKey,
-    );
-    clear_database(
+    )
+    .map_err(|e| SboltError::EfiVar(format!("failed to remove db: {e}")))?;
+    verify_database_absent(store)?;
+    delete_signed_variable(
         store,
         secureboot::KEK,
         hierarchy,
         SigningAuthority::PlatformKey,
-    );
+    )
+    .map_err(|e| SboltError::EfiVar(format!("failed to remove KEK: {e}")))?;
 
-    Ok(())
+    verify_key_exchange_key_absent(store)
 }
 
 pub(super) fn write_signed_variable<S: VariableStore>(

@@ -4,15 +4,6 @@ use super::{SigningAuthority, write_signed_variable};
 use crate::error::Result;
 use crate::keys::hierarchy;
 
-pub(super) fn clear_database<S: VariableStore>(
-    store: &S,
-    id: Id,
-    hierarchy: &hierarchy::Bundle,
-    authority: SigningAuthority,
-) {
-    let _result = delete_signed_variable(store, id, hierarchy, authority);
-}
-
 pub(super) fn delete_signed_variable<S: VariableStore>(
     store: &S,
     id: Id,

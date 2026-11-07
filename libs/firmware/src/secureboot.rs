@@ -104,7 +104,16 @@ pub fn setup_mode<S: VariableStore>(store: &S) -> Result<bool> {
 ///
 /// Returns an error if the Platform Key variable cannot be read.
 pub fn pk_present<S: VariableStore>(store: &S) -> Result<bool> {
-    Ok(store.read(&PK)?.is_some_and(|data| !data.is_empty()))
+    present(store, &PK)
+}
+
+/// Returns whether the variable `id` is present with a non-empty payload.
+///
+/// # Errors
+///
+/// Returns an error if the variable cannot be read.
+pub fn present<S: VariableStore>(store: &S, id: &Id) -> Result<bool> {
+    Ok(store.read(id)?.is_some_and(|data| !data.is_empty()))
 }
 
 /// Returns whether the enrolled Platform Key contains `certificate`.

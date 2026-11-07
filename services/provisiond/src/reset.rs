@@ -71,7 +71,10 @@ pub fn factory_reset() -> Result<()> {
 }
 
 fn clear_secureboot<S: VariableStore>(store: &S, secrets_dir: &Path) -> Result<()> {
-    if !secureboot::pk_present(store)? {
+    let keys_enrolled = [secureboot::PK, secureboot::KEK, secureboot::DB]
+        .into_iter()
+        .any(|id| store.exists(&id));
+    if !keys_enrolled {
         return Ok(());
     }
 
@@ -181,6 +184,25 @@ mod tests {
 
         // ASSERT
         assert!(!store.exists(&secureboot::PK), "PK must be removed");
+        assert!(!store.exists(&secureboot::KEK), "KEK must be removed");
+        assert!(!store.exists(&secureboot::DB), "db must be removed");
+    }
+
+    #[test]
+    fn clear_secureboot_removes_keys_left_without_a_platform_key() {
+        // ARRANGE
+        let secrets_dir = tempfile::tempdir().expect("temp dir");
+        let hierarchy = Bundle::generate("Reset Leftovers").expect("generate hierarchy");
+        save_hierarchy(&hierarchy, &secrets_dir.path().join("secureboot")).expect("save hierarchy");
+        let store = FakeStore::default()
+            .with(secureboot::KEK, vec![1])
+            .with(secureboot::DB, vec![1]);
+
+        // ACT
+        let result = clear_secureboot(&store, secrets_dir.path());
+
+        // ASSERT
+        result.expect("leftover keys without a PK must be removed");
         assert!(!store.exists(&secureboot::KEK), "KEK must be removed");
         assert!(!store.exists(&secureboot::DB), "db must be removed");
     }

@@ -257,6 +257,16 @@ mod tests {
             .with_variable(KEK, vec![1])
             .with_variable(DB, vec![1]);
         let hierarchy = hierarchy::Bundle::generate("Clear").expect("generate hierarchy");
+        let kek_der = hierarchy
+            .kek
+            .certificate
+            .to_der()
+            .expect("encode KEK certificate");
+        let pk_der = hierarchy
+            .pk
+            .certificate
+            .to_der()
+            .expect("encode PK certificate");
 
         // ACT
         enrollment::clear(&store, &hierarchy).expect("clear hierarchy");
@@ -267,9 +277,107 @@ mod tests {
         assert_eq!(writes.first().map(|&(id, ref _payload)| id), Some(PK));
         assert_eq!(writes.get(1).map(|&(id, ref _payload)| id), Some(DB));
         assert_eq!(writes.get(2).map(|&(id, ref _payload)| id), Some(KEK));
+        assert!(
+            writes
+                .get(1)
+                .is_some_and(|&(_id, ref payload)| contains_bytes(payload, &kek_der)),
+            "the db delete must be signed by the KEK"
+        );
+        assert!(
+            writes
+                .get(2)
+                .is_some_and(|&(_id, ref payload)| contains_bytes(payload, &pk_der)),
+            "the KEK delete must be signed by the PK"
+        );
         assert!(!store.exists(&PK), "PK must be removed");
         assert!(!store.exists(&KEK), "KEK must be cleared");
         assert!(!store.exists(&DB), "db must be cleared");
+    }
+
+    #[test]
+    fn clear_propagates_a_database_deletion_failure() {
+        // ARRANGE
+        let store = Firmware::ready()
+            .with_variable(PK, vec![1])
+            .with_variable(KEK, vec![1])
+            .with_variable(DB, vec![1])
+            .failing_on(DB);
+        let hierarchy =
+            hierarchy::Bundle::generate("Clear db Failure").expect("generate hierarchy");
+
+        // ACT
+        let result = enrollment::clear(&store, &hierarchy);
+
+        // ASSERT
+        let error = result.expect_err("a failed db deletion must abort clear");
+        assert!(
+            error.to_string().contains("failed to remove db"),
+            "error must name the db variable: {error}"
+        );
+        assert!(
+            !store.exists(&PK),
+            "PK must already be removed when the db deletion is attempted"
+        );
+        assert!(
+            secureboot::setup_mode(&store).expect("read SetupMode"),
+            "a failure after the PK removal must leave the platform in Setup Mode"
+        );
+    }
+
+    #[test]
+    fn clear_reports_a_database_that_survives_deletion() {
+        // ARRANGE
+        let store = Firmware::ready()
+            .with_variable(PK, vec![1])
+            .with_variable(KEK, vec![1])
+            .with_variable(DB, vec![1])
+            .ignoring_writes_on(DB);
+        let hierarchy =
+            hierarchy::Bundle::generate("Clear Stubborn db").expect("generate hierarchy");
+
+        // ACT
+        let result = enrollment::clear(&store, &hierarchy);
+
+        // ASSERT
+        let error = result.expect_err("a db that survives deletion must not be reported as clear");
+        assert!(
+            error
+                .to_string()
+                .contains("firmware still reports an enrolled db"),
+            "error must report the surviving db, not a write failure: {error}"
+        );
+        assert!(
+            store.exists(&DB),
+            "the accepted but unpersisted db deletion must leave the db enrolled"
+        );
+    }
+
+    #[test]
+    fn clear_reports_a_key_exchange_key_that_survives_deletion() {
+        // ARRANGE
+        let store = Firmware::ready()
+            .with_variable(PK, vec![1])
+            .with_variable(KEK, vec![1])
+            .with_variable(DB, vec![1])
+            .ignoring_writes_on(KEK);
+        let hierarchy =
+            hierarchy::Bundle::generate("Clear Stubborn KEK").expect("generate hierarchy");
+
+        // ACT
+        let result = enrollment::clear(&store, &hierarchy);
+
+        // ASSERT
+        let error = result.expect_err("a KEK that survives deletion must not be reported as clear");
+        assert!(
+            error
+                .to_string()
+                .contains("firmware still reports an enrolled KEK"),
+            "error must report the surviving KEK, not a write failure: {error}"
+        );
+        assert!(
+            store.exists(&KEK),
+            "the accepted but unpersisted KEK deletion must leave the KEK enrolled"
+        );
     }
 
     #[test]
@@ -366,6 +474,10 @@ mod tests {
             "KEK key type must survive"
         );
         assert_eq!(loaded.db.key_type, KeyType::Db, "db key type must survive");
+    }
+
+    fn contains_bytes(payload: &[u8], needle: &[u8]) -> bool {
+        payload.windows(needle.len()).any(|window| window == needle)
     }
 
     fn signed_database(owner_guid: &uefi::Guid, certificate: &Certificate) -> Vec<u8> {
