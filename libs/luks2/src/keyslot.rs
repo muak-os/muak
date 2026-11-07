@@ -149,26 +149,18 @@ pub fn encrypt_keyslot(passphrase: &[u8], volume_key: &[u8], keyslot: &Keyslot) 
     Ok(striped)
 }
 
-/// Decrypts keyslot binary data to recover a volume key candidate.
-pub fn decrypt_keyslot(
-    passphrase: &[u8],
-    keyslot: &Keyslot,
-    encrypted_data: &[u8],
-) -> Result<Vec<u8>> {
+/// Decrypts keyslot binary data in place to recover a volume key candidate.
+pub fn decrypt_keyslot(passphrase: &[u8], keyslot: &Keyslot, data: &mut [u8]) -> Result<Vec<u8>> {
     let mut derived_key = derive_key(passphrase, keyslot)?;
 
-    let mut data = encrypted_data.to_vec();
     let tweak = [0_u8; 16];
-    xts::decrypt(&derived_key, &tweak, &mut data)?;
+    xts::decrypt(&derived_key, &tweak, data)?;
 
     derived_key.zeroize();
 
     let key_size = usize::try_from(keyslot.key_size)
         .map_err(|_error| Luks2Error::InvalidField("invalid key size".into()))?;
-    let volume_key = af_merge(&data, key_size, keyslot.af.stripes)?;
-    data.zeroize();
-
-    Ok(volume_key)
+    af_merge(data, key_size, keyslot.af.stripes)
 }
 
 #[cfg(test)]
@@ -351,8 +343,8 @@ mod tests {
         let volume_key = vec![0xAB_u8; 64];
 
         // ACT
-        let encrypted = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
-        let decrypted = decrypt_keyslot(passphrase, &keyslot, &encrypted).unwrap();
+        let mut encrypted = encrypt_keyslot(passphrase, &volume_key, &keyslot).unwrap();
+        let decrypted = decrypt_keyslot(passphrase, &keyslot, &mut encrypted).unwrap();
 
         // ASSERT
         assert_eq!(decrypted, volume_key);
@@ -366,10 +358,10 @@ mod tests {
         let wrong_passphrase = b"wrong_password";
         let volume_key = vec![0xAB_u8; 64];
 
-        let encrypted = encrypt_keyslot(correct_passphrase, &volume_key, &keyslot).unwrap();
+        let mut encrypted = encrypt_keyslot(correct_passphrase, &volume_key, &keyslot).unwrap();
 
         // ACT
-        let result = decrypt_keyslot(wrong_passphrase, &keyslot, &encrypted);
+        let result = decrypt_keyslot(wrong_passphrase, &keyslot, &mut encrypted);
 
         // ASSERT
         assert!(!matches!(result, Ok(decrypted) if decrypted == volume_key));

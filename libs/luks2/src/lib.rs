@@ -198,7 +198,10 @@ fn try_keyslots<Fd: AsFd>(
 
         dm::device::read_at(fd, area_offset, area)?;
 
-        let Ok(mut candidate) = keyslot::decrypt_keyslot(passphrase, slot, area) else {
+        let decrypted = keyslot::decrypt_keyslot(passphrase, slot, &mut *area);
+        area.zeroize();
+
+        let Ok(mut candidate) = decrypted else {
             continue;
         };
 
