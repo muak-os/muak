@@ -1249,10 +1249,12 @@ dependencies = [
  "blockdev",
  "btrfs",
  "disk",
+ "esp",
  "kmod",
  "kmsg",
  "luks2",
  "rustix",
+ "sha2",
  "tempfile",
  "tpm2",
 ]

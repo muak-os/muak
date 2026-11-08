@@ -21,10 +21,14 @@ anyhow = { workspace = true }
 blockdev = { workspace = true, features = ["linux"] }
 btrfs = { workspace = true }
 disk = { workspace = true }
+esp = { workspace = true }
 kmod = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
 tpm2 = { workspace = true }
+
+# Cryptography
+sha2 = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }
