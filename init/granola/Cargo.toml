@@ -1,6 +1,6 @@
 [package]
 name = "granola"
-description = "Core gRPC APIs and shared service utilities"
+description = "PID 1 service manager"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -26,13 +26,12 @@ anyhow = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
-# System/platform APIs
-rustix = { workspace = true, features = ["net", "process"] }
-
 # Internal
 granola-macros = { workspace = true }
 kmsg = { workspace = true }
-config = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, features = ["net", "process"] }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

@@ -9,13 +9,13 @@ use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
 /// Switches to the new root filesystem and executes the init process.
-pub fn new_root(newroot: &str) -> Result<()> {
+pub fn new_root(newroot: &str, persistent: bool) -> Result<()> {
     move_pseudo_mounts(newroot).context("moving pseudo mounts failed")?;
     chdir(newroot).context("chdir newroot failed")?;
     chroot(".").context("chroot failed")?;
     chdir("/").context("chdir / failed")?;
     free_ramfs_at(Path::new("/")).context("free ramfs failed")?;
-    exec_init().context("exec init failed")
+    exec_init(persistent).context("exec init failed")
 }
 
 /// Moves pseudo-filesystem mounts from the initramfs into the new root.
@@ -54,11 +54,17 @@ fn free_ramfs_at(root: &Path) -> Result<()> {
 }
 
 /// Executes the init binary from the new root filesystem.
-fn exec_init() -> Result<()> {
+fn exec_init(persistent: bool) -> Result<()> {
     let root = Path::new("/");
     let init_path = find_init(root)?;
-    let err = Command::new(&init_path).exec();
+    let err = Command::new(&init_path)
+        .env("MAINTENANCE", maintenance_flag(persistent))
+        .exec();
     bail!("Failed to exec {}: {}", init_path.display(), err);
+}
+
+fn maintenance_flag(persistent: bool) -> &'static str {
+    if persistent { "false" } else { "true" }
 }
 
 /// Finds the init binary in the new root filesystem.
@@ -84,6 +90,33 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn maintenance_flag_true_when_not_persistent() {
+        // ARRANGE
+        let persistent = false;
+
+        // ACT
+        let flag = maintenance_flag(persistent);
+
+        // ASSERT
+        assert_eq!(
+            flag, "true",
+            "absent persistent state means maintenance mode"
+        );
+    }
+
+    #[test]
+    fn maintenance_flag_false_when_persistent() {
+        // ARRANGE
+        let persistent = true;
+
+        // ACT
+        let flag = maintenance_flag(persistent);
+
+        // ASSERT
+        assert_eq!(flag, "false", "mounted persistent state means normal mode");
+    }
 
     #[test]
     fn free_ramfs_preserves_pseudo_mounts() {

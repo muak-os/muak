@@ -24,16 +24,16 @@ async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    let installed = Path::new(config::system::CONFIG_PATH).exists();
+    let maintenance = maintenance_from_env();
 
-    if installed {
+    if maintenance == "false" {
         kmsg::info!("Running from INSTALLED DISK");
     } else {
         kmsg::info!("!!! CURRENTLY IN MAINTENANCE MODE !!!");
     }
 
     let mut env: HashMap<&str, &str> = HashMap::new();
-    env.insert("MAINTENANCE", if installed { "false" } else { "true" });
+    env.insert("MAINTENANCE", maintenance);
 
     let services = loader::load(&env).context("Failed to load service definitions")?;
 
@@ -77,4 +77,65 @@ async fn run_grpc_server(
         .await?;
 
     Ok(())
+}
+
+fn maintenance_from_env() -> &'static str {
+    maintenance(std::env::var("MAINTENANCE").ok().as_deref())
+}
+
+fn maintenance(raw: Option<&str>) -> &'static str {
+    if raw == Some("true") { "true" } else { "false" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maintenance_true_passthrough() {
+        // ARRANGE
+        let raw = Some("true");
+
+        // ACT
+        let flag = maintenance(raw);
+
+        // ASSERT
+        assert_eq!(flag, "true");
+    }
+
+    #[test]
+    fn maintenance_missing_is_false() {
+        // ARRANGE
+        let raw = None;
+
+        // ACT
+        let flag = maintenance(raw);
+
+        // ASSERT
+        assert_eq!(flag, "false");
+    }
+
+    #[test]
+    fn maintenance_false_passthrough() {
+        // ARRANGE
+        let raw = Some("false");
+
+        // ACT
+        let flag = maintenance(raw);
+
+        // ASSERT
+        assert_eq!(flag, "false");
+    }
+
+    #[test]
+    fn maintenance_garbage_is_false() {
+        // ARRANGE
+        let raw = Some("garbage");
+
+        // ACT
+        let flag = maintenance(raw);
+
+        // ASSERT
+        assert_eq!(flag, "false");
+    }
 }

@@ -52,7 +52,8 @@ fn run() -> Result<()> {
     };
     kmsg::info!("SELinux policy loaded ({})", mode);
 
-    if mount::persistent() {
+    let persistent = mount::persistent();
+    if persistent {
         kmsg::info!("Persistent partitions mounted");
     } else {
         kmsg::info!("No valid persistent state found (maintenance mode)");
@@ -62,7 +63,7 @@ fn run() -> Result<()> {
     kmsg::info!("Boot metadata bridged to {}", mount::BOOT_DIR);
 
     kmsg::info!("Switching to new root");
-    switchroot::new_root(NEWROOT)?;
+    switchroot::new_root(NEWROOT, persistent)?;
 
     Ok(())
 }
