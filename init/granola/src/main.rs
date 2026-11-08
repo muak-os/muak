@@ -6,7 +6,6 @@ mod ipc;
 mod loader;
 mod supervisor;
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -24,16 +23,9 @@ async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    let maintenance = maintenance_from_env();
-
-    if maintenance == "false" {
-        kmsg::info!("Running from INSTALLED DISK");
-    } else {
-        kmsg::info!("!!! CURRENTLY IN MAINTENANCE MODE !!!");
-    }
-
-    let mut env: HashMap<&str, &str> = HashMap::new();
-    env.insert("MAINTENANCE", maintenance);
+    let env = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
 
     let services = loader::load(&env).context("Failed to load service definitions")?;
 
@@ -77,65 +69,4 @@ async fn run_grpc_server(
         .await?;
 
     Ok(())
-}
-
-fn maintenance_from_env() -> &'static str {
-    maintenance(std::env::var("MAINTENANCE").ok().as_deref())
-}
-
-fn maintenance(raw: Option<&str>) -> &'static str {
-    if raw == Some("true") { "true" } else { "false" }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maintenance_true_passthrough() {
-        // ARRANGE
-        let raw = Some("true");
-
-        // ACT
-        let flag = maintenance(raw);
-
-        // ASSERT
-        assert_eq!(flag, "true");
-    }
-
-    #[test]
-    fn maintenance_missing_is_false() {
-        // ARRANGE
-        let raw = None;
-
-        // ACT
-        let flag = maintenance(raw);
-
-        // ASSERT
-        assert_eq!(flag, "false");
-    }
-
-    #[test]
-    fn maintenance_false_passthrough() {
-        // ARRANGE
-        let raw = Some("false");
-
-        // ACT
-        let flag = maintenance(raw);
-
-        // ASSERT
-        assert_eq!(flag, "false");
-    }
-
-    #[test]
-    fn maintenance_garbage_is_false() {
-        // ARRANGE
-        let raw = Some("garbage");
-
-        // ACT
-        let flag = maintenance(raw);
-
-        // ASSERT
-        assert_eq!(flag, "false");
-    }
 }

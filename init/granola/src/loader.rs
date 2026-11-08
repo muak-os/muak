@@ -44,7 +44,7 @@ fn read_service_file(path: &Path) -> Option<Service> {
 }
 
 /// Substitutes `$VAR` patterns in `text` using `env`.
-pub fn substitute_vars(text: &str, env: &HashMap<&str, &str>) -> String {
+pub fn substitute_vars(text: &str, env: &HashMap<String, String>) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
 
@@ -61,7 +61,7 @@ pub fn substitute_vars(text: &str, env: &HashMap<&str, &str>) -> String {
 /// `$NAME` reference when unknown) to `result`.
 fn append_variable(
     chars: &mut Peekable<std::str::Chars<'_>>,
-    env: &HashMap<&str, &str>,
+    env: &HashMap<String, String>,
     result: &mut String,
 ) {
     let mut name = String::new();
@@ -72,7 +72,7 @@ fn append_variable(
         chars.next();
     }
 
-    if let Some(&value) = env.get(name.as_str()) {
+    if let Some(value) = env.get(name.as_str()) {
         result.push_str(value);
         return;
     }
@@ -124,7 +124,7 @@ fn dfs_cycle<'a>(
 }
 
 /// Applies env var substitution to all services and validates the dependency graph.
-pub fn prepare(defs: Vec<Service>, env: &HashMap<&str, &str>) -> Result<Vec<Service>> {
+pub fn prepare(defs: Vec<Service>, env: &HashMap<String, String>) -> Result<Vec<Service>> {
     let index: HashMap<String, &Service> = defs.iter().map(|svc| (svc.name.clone(), svc)).collect();
 
     detect_cycles(&index)?;
@@ -141,7 +141,7 @@ pub fn prepare(defs: Vec<Service>, env: &HashMap<&str, &str>) -> Result<Vec<Serv
 }
 
 /// Convenience entry-point: scans all service files and prepares them.
-pub fn load(env: &HashMap<&str, &str>) -> Result<Vec<Service>> {
+pub fn load(env: &HashMap<String, String>) -> Result<Vec<Service>> {
     let defs = scan_services(Path::new(SERVICES_DIR)).context("Failed to scan service files")?;
     prepare(defs, env)
 }
@@ -150,10 +150,10 @@ pub fn load(env: &HashMap<&str, &str>) -> Result<Vec<Service>> {
 mod tests {
     use super::*;
 
-    fn env() -> HashMap<&'static str, &'static str> {
+    fn env() -> HashMap<String, String> {
         let mut vars = HashMap::new();
-        vars.insert("MAINTENANCE", "true");
-        vars.insert("MODE", "normal");
+        vars.insert("LOG_LEVEL".to_owned(), "debug".to_owned());
+        vars.insert("MODE".to_owned(), "normal".to_owned());
         vars
     }
 
@@ -163,10 +163,10 @@ mod tests {
         let vars = env();
 
         // ACT
-        let result = substitute_vars("--maintenance $MAINTENANCE", &vars);
+        let result = substitute_vars("--log-level $LOG_LEVEL", &vars);
 
         // ASSERT
-        assert_eq!(result, "--maintenance true");
+        assert_eq!(result, "--log-level debug");
     }
 
     #[test]
@@ -187,10 +187,10 @@ mod tests {
         let vars = env();
 
         // ACT
-        let result = substitute_vars("/sbin/apid --maintenance $MAINTENANCE --mode $MODE", &vars);
+        let result = substitute_vars("/sbin/apid --log-level $LOG_LEVEL --mode $MODE", &vars);
 
         // ASSERT
-        assert_eq!(result, "/sbin/apid --maintenance true --mode normal");
+        assert_eq!(result, "/sbin/apid --log-level debug --mode normal");
     }
 
     fn make_svc(name: &str, cmd: &str, deps: &[&str]) -> Service {
@@ -204,11 +204,7 @@ mod tests {
     #[test]
     fn prepare_applies_var_substitution() {
         // ARRANGE
-        let defs = vec![make_svc(
-            "apid",
-            "/sbin/apid --maintenance $MAINTENANCE",
-            &[],
-        )];
+        let defs = vec![make_svc("apid", "/sbin/apid --log-level $LOG_LEVEL", &[])];
         let vars = env();
 
         // ACT
@@ -217,7 +213,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             svcs.first().map(|svc| svc.command.as_str()),
-            Some("/sbin/apid --maintenance true")
+            Some("/sbin/apid --log-level debug")
         );
     }
 
@@ -309,10 +305,10 @@ depends_on = []
         let vars = env();
 
         // ACT
-        let result = substitute_vars("héllo $MAINTENANCE wörld", &vars);
+        let result = substitute_vars("héllo $LOG_LEVEL wörld", &vars);
 
         // ASSERT
-        assert_eq!(result, "héllo true wörld");
+        assert_eq!(result, "héllo debug wörld");
     }
 
     #[test]
@@ -321,9 +317,9 @@ depends_on = []
         let vars = HashMap::new();
 
         // ACT
-        let result = substitute_vars("héllo $MAINTENANCE wörld", &vars);
+        let result = substitute_vars("héllo $LOG_LEVEL wörld", &vars);
 
         // ASSERT
-        assert_eq!(result, "héllo $MAINTENANCE wörld");
+        assert_eq!(result, "héllo $LOG_LEVEL wörld");
     }
 }

@@ -63,7 +63,8 @@ fn run() -> Result<()> {
     kmsg::info!("Boot metadata bridged to {}", mount::BOOT_DIR);
 
     kmsg::info!("Switching to new root");
-    switchroot::new_root(NEWROOT, persistent)?;
+    switchroot::new_root(NEWROOT)?;
+    switchroot::exec_init(&[("MAINTENANCE", if persistent { "false" } else { "true" })])?;
 
     Ok(())
 }

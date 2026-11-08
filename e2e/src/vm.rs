@@ -290,6 +290,31 @@ impl Vm {
         if !log.contains(needle) {
             bail!("serial log does not contain '{needle}'\n\n--- serial log ---\n{log}");
         }
+
+        Ok(())
+    }
+
+    /// Asserts that the last occurrence of `first` precedes the last occurrence of `second`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the serial log cannot be read, either needle is missing, or `second`
+    /// occurs at or before the last occurrence of `first`.
+    pub fn assert_serial_order(&self, first: &str, second: &str) -> Result<()> {
+        let log = self.read_serial()?;
+        let Some(first_at) = log.rfind(first) else {
+            bail!("serial log does not contain '{first}'\n\n--- serial log ---\n{log}");
+        };
+        let Some(second_at) = log.rfind(second) else {
+            bail!("serial log does not contain '{second}'\n\n--- serial log ---\n{log}");
+        };
+        if first_at >= second_at {
+            bail!(
+                "serial log has '{second}' at byte {second_at}, not after '{first}' at byte \
+                 {first_at}\n\n--- serial log ---\n{log}"
+            );
+        }
+
         Ok(())
     }
 }

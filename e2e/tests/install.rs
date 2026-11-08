@@ -38,7 +38,7 @@ mod tests {
         );
         fixture
             .vm
-            .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+            .assert_serial_contains("[millefeuille] Persistent partitions mounted")?;
         Ok(())
     }
 
@@ -58,7 +58,7 @@ mod tests {
         );
         fixture
             .vm
-            .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+            .assert_serial_contains("[millefeuille] Persistent partitions mounted")?;
         Ok(())
     }
 
@@ -112,7 +112,7 @@ mod tests {
 
         fixture
             .vm
-            .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+            .assert_serial_contains("[millefeuille] Persistent partitions mounted")?;
         Ok(())
     }
 

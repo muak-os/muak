@@ -42,6 +42,9 @@ pub async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
     let fixture = TestFixture::boot_install(artifacts)?;
 
     fixture.vm.wait_ready(Duration::from_mins(1)).await?;
+    fixture.vm.assert_serial_contains(
+        "[millefeuille] No valid persistent state found (maintenance mode)",
+    )?;
 
     let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
 
@@ -80,7 +83,11 @@ pub async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
 
     fixture
         .vm
-        .assert_serial_contains("[granola] Running from INSTALLED DISK")?;
+        .assert_serial_contains("[millefeuille] Persistent partitions mounted")?;
+    fixture.vm.assert_serial_order(
+        "[millefeuille] Persistent partitions mounted",
+        "[granola] PID 1 supervisor started",
+    )?;
 
     Ok((fixture, cli))
 }
