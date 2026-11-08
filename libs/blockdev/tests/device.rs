@@ -58,27 +58,6 @@ mod tests {
     }
 
     #[test]
-    fn looks_like_partition_flags_numbered_disk_nodes() {
-        // ARRANGE
-        let partitions = ["/dev/sda1", "/dev/vda2", "/dev/hda12"];
-        let disks = ["/dev/sda", "/dev/nvme0n1", "/dev/mapper/data"];
-
-        // ACT
-        let partition_flags: Vec<bool> = partitions
-            .iter()
-            .map(|path| device::looks_like_partition(path))
-            .collect();
-        let disk_flags: Vec<bool> = disks
-            .iter()
-            .map(|path| device::looks_like_partition(path))
-            .collect();
-
-        // ASSERT
-        assert_eq!(partition_flags, [true, true, true], "numbered disk nodes");
-        assert_eq!(disk_flags, [false, false, false], "whole disk nodes");
-    }
-
-    #[test]
     fn size_returns_byte_length_of_regular_file() {
         // ARRANGE
         let file = tempfile::NamedTempFile::new().expect("temp file");

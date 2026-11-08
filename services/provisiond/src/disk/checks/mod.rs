@@ -6,9 +6,8 @@ pub(crate) mod partitions;
 use std::path::Path;
 
 use ::disk::role::Role;
-use blockdev::discover;
-use blockdev::mounts::{self, Mount};
-use blockdev::roots::Roots;
+use blockdev::kernel::Kernel;
+use blockdev::mounts::Mount;
 use blockdev::types::Disk;
 
 use super::roles;
@@ -48,19 +47,21 @@ pub(crate) fn system_disk_in_use(device: &str, running: Option<&str>, allow: boo
 }
 
 /// Returns the device path of the disk hosting the running system.
-pub(crate) fn running_system_disk() -> Option<String> {
+///
+/// The kernel view is supplied by the caller.
+pub(crate) fn running_system_disk<K: Kernel>(kernel: &K) -> Option<String> {
     if let Some(partition) = roles::device(Role::State)
-        && let Some(disk) = discover::parent_disk(&partition)
+        && let Some(disk) = kernel.parent_disk(&partition)
     {
         return Some(device_path(&disk));
     }
 
-    let mounts = mounts::read(&Roots::system().mounts);
-    mount_disk(mounts.iter().find(|mount| mount.mount_point == "/"))
+    let mounts = kernel.mounts();
+    mount_disk(kernel, mounts.iter().find(|mount| mount.mount_point == "/"))
 }
 
-fn mount_disk(mount: Option<&Mount>) -> Option<String> {
-    let disk = discover::parent_disk(&mount?.device)?;
+fn mount_disk<K: Kernel>(kernel: &K, mount: Option<&Mount>) -> Option<String> {
+    let disk = kernel.parent_disk(&mount?.device)?;
     let path = device_path(&disk);
 
     Path::new(&path).exists().then_some(path)

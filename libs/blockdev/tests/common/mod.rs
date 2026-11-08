@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use blockdev::roots::Roots;
+use blockdev::linux::Roots;
 use tempfile::TempDir;
 
 /// A temporary fake of the kernel trees blockdev reads.

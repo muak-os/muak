@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 
 use ::disk::role::Role;
 use anyhow::Result;
+use blockdev::kernel::Kernel;
 use partdev::{clear, kernel, manage, table};
 
 use super::guard::Target;
@@ -31,8 +32,9 @@ pub(crate) fn run(target: &Target, options: Options) -> Result<String> {
         return Ok(summary);
     }
 
-    if needs_release(target) {
-        release(target)?;
+    let kernel = blockdev::handle();
+    if needs_release(&kernel, target) {
+        release(&kernel, target)?;
     }
 
     if options.drop_partition && !target.partitions.is_empty() {
@@ -70,12 +72,12 @@ fn summary(target: &Target, options: Options) -> String {
     }
 }
 
-fn needs_release(target: &Target) -> bool {
-    !get_disk_mounts(&target.path).is_empty() || target.is_system || target.is_data
+fn needs_release<K: Kernel>(kernel: &K, target: &Target) -> bool {
+    !get_disk_mounts(kernel, &target.path).is_empty() || target.is_system || target.is_data
 }
 
-fn release(target: &Target) -> Result<()> {
-    let mounts = get_disk_mounts(&target.path);
+fn release<K: Kernel>(kernel: &K, target: &Target) -> Result<()> {
+    let mounts = get_disk_mounts(kernel, &target.path);
     unmount_all(&mounts)?;
 
     if target.is_system {

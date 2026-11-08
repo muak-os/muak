@@ -28,7 +28,7 @@ pub(crate) fn checks(
     }
     checks.push(system_disk_in_use(
         &targets.system,
-        running_system_disk().as_deref(),
+        running_system_disk(&blockdev::handle()).as_deref(),
         allow_system_disk,
     ));
     checks.extend(secureboot::system_checks(secureboot));

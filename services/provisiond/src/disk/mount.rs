@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use blockdev::device;
-use blockdev::mounts::{self, Mount};
-use blockdev::roots::Roots;
+use blockdev::kernel::Kernel;
+use blockdev::mounts::Mount;
 use rustix::fs::{Mode, mkdir, sync};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount as sys_unmount};
@@ -13,8 +13,10 @@ use rustix::mount::{MountFlags, UnmountFlags, mount, unmount as sys_unmount};
 use super::target::Targets;
 
 /// Retrieves all partitions mounted from the specified disk.
-pub fn get_disk_mounts(disk: &str) -> Vec<Mount> {
-    of_disk(mounts::read(&Roots::system().mounts), disk)
+///
+/// The kernel view is supplied by the caller.
+pub fn get_disk_mounts<K: Kernel>(kernel: &K, disk: &str) -> Vec<Mount> {
+    of_disk(kernel.mounts(), disk)
 }
 
 /// Unmounts all partitions in the provided list, deepest mount points first.
@@ -93,8 +95,10 @@ pub(crate) fn unmount(mount_point: &str) -> Result<()> {
 
 /// Unmounts every filesystem on the targets so partitioning can proceed.
 pub(crate) fn unmount_targets(targets: &Targets) -> Result<()> {
+    let kernel = blockdev::handle();
+
     for device in [targets.system.as_str(), targets.data()] {
-        let mounted = get_disk_mounts(device);
+        let mounted = get_disk_mounts(&kernel, device);
         if mounted.is_empty() {
             continue;
         }

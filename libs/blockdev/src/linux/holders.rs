@@ -3,8 +3,8 @@
 use std::fs;
 use std::io::ErrorKind;
 
+use super::Roots;
 use crate::error::{BlockdevError, Result};
-use crate::roots::Roots;
 
 /// Returns the device-mapper names of the holders of `device`.
 ///
@@ -12,7 +12,7 @@ use crate::roots::Roots;
 ///
 /// Returns an error when the holders directory exists but cannot be read. A
 /// device without a holders directory yields an empty list.
-pub fn try_names(roots: &Roots, device: &str) -> Result<Vec<String>> {
+pub(crate) fn try_names(roots: &Roots, device: &str) -> Result<Vec<String>> {
     let directory = roots.block.join(device).join("holders");
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,

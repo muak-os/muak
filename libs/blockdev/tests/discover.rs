@@ -4,7 +4,8 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use blockdev::discover;
+    use blockdev::kernel::Kernel as _;
+    use blockdev::linux::Linux;
 
     use crate::common::Fixture;
 
@@ -18,7 +19,7 @@ mod tests {
         fixture.partition("sda", "sda3", 3, "DATA", 6144, 512);
 
         // ACT
-        let devices = discover::find_by_partname_in(&fixture.roots(), "EFI");
+        let devices = Linux::rooted(&fixture.roots()).find_by_partname("EFI");
 
         // ASSERT
         assert_eq!(
@@ -46,8 +47,8 @@ mod tests {
         );
 
         // ACT
-        let first = discover::find_by_partname_in(&fixture.roots(), "FIRST");
-        let second = discover::find_by_partname_in(&fixture.roots(), "SECOND");
+        let first = Linux::rooted(&fixture.roots()).find_by_partname("FIRST");
+        let second = Linux::rooted(&fixture.roots()).find_by_partname("SECOND");
 
         // ASSERT
         assert_eq!(first.len(), 1);
@@ -62,7 +63,7 @@ mod tests {
         fixture.partition("sda", "sda1", 1, "STATE", 2048, 512);
 
         // ACT
-        let devices = discover::find_by_partname_in(&fixture.roots(), "DATA");
+        let devices = Linux::rooted(&fixture.roots()).find_by_partname("DATA");
 
         // ASSERT
         assert_eq!(devices, Vec::<String>::new());
@@ -77,7 +78,7 @@ mod tests {
         let device = fixture.roots().dev.join("nvme0n1p2");
 
         // ACT
-        let disk = discover::parent_disk_in(&fixture.roots(), &device.to_string_lossy());
+        let disk = Linux::rooted(&fixture.roots()).parent_disk(&device.to_string_lossy());
 
         // ASSERT
         assert_eq!(disk.as_deref(), Some("nvme0n1"));
@@ -89,7 +90,7 @@ mod tests {
         let fixture = Fixture::new();
 
         // ACT
-        let disk = discover::parent_disk_in(&fixture.roots(), "/dev/sdz9");
+        let disk = Linux::rooted(&fixture.roots()).parent_disk("/dev/sdz9");
 
         // ASSERT
         assert_eq!(disk, None);

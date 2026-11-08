@@ -3,10 +3,9 @@
 use std::fs;
 use std::path::Path;
 
+use super::{Roots, attrs, probe};
 use crate::mounts::{self, Mount};
-use crate::roots::Roots;
 use crate::types::Partition;
-use crate::{attrs, probe};
 
 /// Discovers the partitions of `disk_name` below the sysfs block tree.
 pub(crate) fn discover(

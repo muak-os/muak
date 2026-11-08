@@ -2,7 +2,7 @@
 
 use anyhow::{Result, bail};
 use blockdev::device;
-use blockdev::roots::Roots;
+use blockdev::kernel::Kernel;
 use blockdev::types::Disk;
 
 use super::checks::partitions;
@@ -31,23 +31,23 @@ pub(crate) struct Verdict {
 
 /// Resolves `id` to a whole disk and returns the wipe safety checks.
 pub(crate) fn validate(disks: &[Disk], id: &str, allow_system_disk: bool) -> Result<Verdict> {
-    validate_in(disks, id, allow_system_disk, &Roots::system())
+    validate_in(disks, id, allow_system_disk, &blockdev::handle())
 }
 
-/// Resolves `id` against injectable roots.
-pub(crate) fn validate_in(
+/// Resolves `id` against the supplied kernel view.
+pub(crate) fn validate_in<K: Kernel>(
     disks: &[Disk],
     id: &str,
     allow_system_disk: bool,
-    roots: &Roots,
+    kernel: &K,
 ) -> Result<Verdict> {
     let name = id.strip_prefix("/dev/").unwrap_or(id);
     let disk = find(disks, name)?;
     let checks = checks(
         disk,
-        checks::running_system_disk().as_deref(),
+        checks::running_system_disk(kernel).as_deref(),
         allow_system_disk,
-        roots,
+        kernel,
     );
 
     Ok(Verdict {
@@ -66,14 +66,14 @@ pub(crate) fn validate_in(
     })
 }
 
-fn checks(disk: &Disk, running: Option<&str>, allow: bool, roots: &Roots) -> Vec<Check> {
+fn checks<K: Kernel>(disk: &Disk, running: Option<&str>, allow: bool, kernel: &K) -> Vec<Check> {
     let mut checks = vec![
         partitions::read_only(disk),
         checks::system_disk_in_use(&disk.path, running, allow),
         partitions::mounted(disk, allow),
         partitions::muak(disk, allow),
     ];
-    checks.extend(foreign::checks(disk, roots));
+    checks.extend(foreign::checks(disk, kernel));
 
     checks
 }
@@ -95,10 +95,46 @@ fn find<'a>(disks: &'a [Disk], name: &str) -> Result<&'a Disk> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::fd::AsFd;
+
     use ::disk::role::Role;
+    use blockdev::error::{BlockdevError, Result as BlockdevResult};
+    use blockdev::mounts::{Mount, Swap};
     use blockdev::types::Partition;
 
     use super::*;
+
+    struct Fake;
+
+    impl Kernel for Fake {
+        fn disks(&self) -> BlockdevResult<Vec<Disk>> {
+            Err(BlockdevError::MissingRoot("unused".into()))
+        }
+
+        fn find_by_partname(&self, _partname: &str) -> Vec<String> {
+            panic!("guard tests do not resolve partitions by name")
+        }
+
+        fn holders(&self, _device: &str) -> BlockdevResult<Vec<String>> {
+            Ok(Vec::new())
+        }
+
+        fn mounts(&self) -> Vec<Mount> {
+            Vec::new()
+        }
+
+        fn parent_disk(&self, _partition_device: &str) -> Option<String> {
+            None
+        }
+
+        fn size<Fd: AsFd>(&self, _fd: &Fd) -> BlockdevResult<u64> {
+            Err(BlockdevError::MissingRoot("unused".into()))
+        }
+
+        fn swaps(&self) -> BlockdevResult<Vec<Swap>> {
+            Ok(Vec::new())
+        }
+    }
 
     fn disk(name: &str) -> Disk {
         Disk {
@@ -119,29 +155,8 @@ mod tests {
         }
     }
 
-    fn roots() -> (tempfile::TempDir, Roots) {
-        let dir = tempfile::tempdir().expect("test roots");
-        let roots = Roots {
-            block: dir.path().join("sys/block"),
-            class_block: dir.path().join("sys/class/block"),
-            dev: dir.path().join("dev"),
-            mounts: dir.path().join("proc/mounts"),
-            swaps: dir.path().join("proc/swaps"),
-        };
-
-        for relative in ["sys/block", "sys/class/block", "dev", "proc"] {
-            std::fs::create_dir_all(dir.path().join(relative)).expect("test root");
-        }
-        std::fs::write(&roots.mounts, "").expect("mount table");
-        std::fs::write(&roots.swaps, "").expect("swap table");
-
-        (dir, roots)
-    }
-
     fn validate(disks: &[Disk], id: &str, allow: bool) -> Result<Verdict> {
-        let (_dir, roots) = roots();
-
-        validate_in(disks, id, allow, &roots)
+        validate_in(disks, id, allow, &Fake)
     }
 
     #[test]

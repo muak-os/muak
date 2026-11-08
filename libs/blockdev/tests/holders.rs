@@ -4,7 +4,8 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use blockdev::holders;
+    use blockdev::kernel::Kernel as _;
+    use blockdev::linux::Linux;
 
     use crate::common::Fixture;
 
@@ -19,7 +20,9 @@ mod tests {
         fixture.holder("sda/sda1", "luks-1234");
 
         // ACT
-        let names = holders::try_names(&fixture.roots(), "sda/sda1").expect("holders");
+        let names = Linux::rooted(&fixture.roots())
+            .holders("sda/sda1")
+            .expect("holders");
 
         // ASSERT
         assert_eq!(names, ["luks-1234", "muak-state"]);
@@ -32,7 +35,9 @@ mod tests {
         fixture.disk("sda", 8192);
 
         // ACT
-        let names = holders::try_names(&fixture.roots(), "sda").expect("holders");
+        let names = Linux::rooted(&fixture.roots())
+            .holders("sda")
+            .expect("holders");
 
         // ASSERT
         assert_eq!(names, Vec::<String>::new());
@@ -45,7 +50,7 @@ mod tests {
         std::fs::write(fixture.roots().block.join("sda"), b"").expect("blocking file");
 
         // ACT
-        let names = holders::try_names(&fixture.roots(), "sda");
+        let names = Linux::rooted(&fixture.roots()).holders("sda");
 
         // ASSERT
         assert!(

@@ -4,6 +4,8 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
+    use blockdev::kernel::Kernel as _;
+    use blockdev::linux::Linux;
     use blockdev::mounts;
 
     use crate::common::Fixture;
@@ -16,12 +18,14 @@ mod tests {
 
         // ACT
         let table = mounts::read(&fixture.roots().mounts);
+        let kernel = Linux::rooted(&fixture.roots()).mounts();
 
         // ASSERT
         assert_eq!(table.len(), 2);
         let first = table.first().expect("first mount");
         assert_eq!(first.device, "/dev/sda1");
         assert_eq!(first.mount_point, "/run/state");
+        assert_eq!(kernel, table);
     }
 
     #[test]
@@ -73,7 +77,7 @@ mod tests {
         );
 
         // ACT
-        let swaps = mounts::try_read_swaps(&fixture.roots().swaps).expect("swaps");
+        let swaps = Linux::rooted(&fixture.roots()).swaps().expect("swaps");
 
         // ASSERT
         assert_eq!(swaps.len(), 2);
@@ -85,11 +89,13 @@ mod tests {
     fn missing_tables_are_empty() {
         // ARRANGE
         let fixture = Fixture::new();
-        let missing = fixture.roots().mounts.with_file_name("missing");
+        let mut roots = fixture.roots();
+        let missing = roots.mounts.with_file_name("missing");
+        roots.swaps = missing.clone();
 
         // ACT
         let table = mounts::read(&missing);
-        let swaps = mounts::try_read_swaps(&missing);
+        let swaps = Linux::rooted(&roots).swaps();
 
         // ASSERT
         assert_eq!(table, Vec::<mounts::Mount>::new());
@@ -105,7 +111,7 @@ mod tests {
         std::fs::create_dir_all(&path).expect("swap table directory");
 
         // ACT
-        let swaps = mounts::try_read_swaps(&path);
+        let swaps = Linux::rooted(&fixture.roots()).swaps();
 
         // ASSERT
         assert!(swaps.is_err(), "an unreadable swap table must be reported");

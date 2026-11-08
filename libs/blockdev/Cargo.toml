@@ -11,14 +11,14 @@ categories.workspace = true
 
 [features]
 default = ["linux"]
-linux = []
+linux = ["dep:parttable"]
 
 [dependencies]
 # Error handling
 thiserror = { workspace = true }
 
 # Internal
-parttable = { workspace = true }
+parttable = { workspace = true, optional = true }
 
 # System/platform APIs
 rustix = { workspace = true }

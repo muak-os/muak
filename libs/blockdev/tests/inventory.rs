@@ -7,7 +7,8 @@ mod tests {
     use std::io::{Seek as _, Write as _};
 
     use blockdev::error::BlockdevError;
-    use blockdev::inventory;
+    use blockdev::kernel::Kernel as _;
+    use blockdev::linux::Linux;
     use blockdev::types::Disk;
     use parttable::gpt;
 
@@ -25,7 +26,7 @@ mod tests {
         }
 
         // ACT
-        let disks = inventory::list_in(&fixture.roots()).expect("disks");
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
 
         // ASSERT
         let names: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
@@ -45,7 +46,7 @@ mod tests {
         fixture.attribute("sda", "wwid", "naa.5000\n");
 
         // ACT
-        let disks = inventory::list_in(&fixture.roots()).expect("disks");
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
         let disk: &Disk = disks.first().expect("disk");
 
         // ASSERT
@@ -74,7 +75,7 @@ mod tests {
         ));
 
         // ACT
-        let disks = inventory::list_in(&fixture.roots()).expect("disks");
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
         let partitions = &disks.first().expect("disk").partitions;
 
         // ASSERT
@@ -106,7 +107,7 @@ mod tests {
         node.write_all(&[0x53, 0xEF]).expect("ext4 magic");
 
         // ACT
-        let disks = inventory::list_in(&fixture.roots()).expect("disks");
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
         let fstype = &disks
             .first()
             .expect("disk")
@@ -128,7 +129,7 @@ mod tests {
         fixture.attribute("sdb", "size", "not-a-number\n");
 
         // ACT
-        let disks = inventory::list_in(&fixture.roots()).expect("disks");
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
 
         // ASSERT
         let names: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
@@ -143,7 +144,7 @@ mod tests {
         roots.block = roots.block.join("missing");
 
         // ACT
-        let error = inventory::list_in(&roots).unwrap_err();
+        let error = Linux::rooted(&roots).disks().unwrap_err();
 
         // ASSERT
         assert!(

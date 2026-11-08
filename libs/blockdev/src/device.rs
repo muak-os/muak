@@ -1,23 +1,27 @@
 //! Block device path helpers and size probing.
 
 use std::fs;
-use std::io::ErrorKind;
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileTypeExt as _;
 use std::path::Path;
 
-use rustix::fs::FileType;
-use rustix::ioctl::{Getter, Opcode, ioctl, opcode};
-
 use crate::error::Result;
-
-// The `BLKGETSIZE64` ioctl: `_IOR(0x12, 114, size_t)`.
-const BLKGETSIZE64: Opcode = opcode::read::<u64>(0x12, 114);
+use crate::kernel::Kernel as _;
 
 /// Returns true when `path` is a block device node.
 #[must_use]
 pub fn is_block(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_block_device())
+}
+
+/// Returns the size in bytes of the block device or file behind `fd`.
+///
+/// # Errors
+///
+/// Returns an error when the descriptor lookup fails, the descriptor reports a
+/// negative size, or a block device rejects the size ioctl.
+pub fn size<Fd: AsFd>(fd: &Fd) -> Result<u64> {
+    crate::handle().size(fd)
 }
 
 /// Formats the kernel device path of partition `number` on `disk`.
@@ -46,32 +50,6 @@ pub fn belongs_to(device: &str, disk: &str) -> bool {
     } else {
         is_partition_number(suffix)
     }
-}
-
-/// Returns true when `path` looks like a partition of a SATA, virtio or IDE disk.
-#[must_use]
-pub fn looks_like_partition(path: &str) -> bool {
-    path.chars().last().is_some_and(char::is_numeric)
-        && (path.contains("sd") || path.contains("vd") || path.contains("hd"))
-}
-
-/// Returns the size in bytes of the block device or file behind `fd`.
-///
-/// # Errors
-///
-/// Returns an error when the descriptor lookup fails, the descriptor reports a negative size,
-/// or a block device rejects the size ioctl.
-pub fn size<Fd: AsFd>(fd: &Fd) -> Result<u64> {
-    let stat = rustix::fs::fstat(fd).map_err(std::io::Error::from)?;
-    if !FileType::from_raw_mode(stat.st_mode).is_block_device() {
-        return u64::try_from(stat.st_size)
-            .map_err(|_error| std::io::Error::from(ErrorKind::InvalidData).into());
-    }
-
-    // SAFETY: `BLKGETSIZE64` writes a `u64` and `Getter` carries the matching type.
-    let getter = unsafe { Getter::<BLKGETSIZE64, u64>::new() };
-    // SAFETY: the descriptor is valid and the ioctl argument type matches the opcode.
-    unsafe { ioctl(fd.as_fd(), getter) }.map_err(|errno| std::io::Error::from(errno).into())
 }
 
 fn uses_p_separator(disk: &str) -> bool {
