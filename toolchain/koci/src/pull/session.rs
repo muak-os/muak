@@ -38,7 +38,7 @@ impl Session {
         &self.digest
     }
 
-    /// Stream every live file entry of the image over a single pull.
+    /// Stream every live entry of the image over a single pull.
     ///
     /// # Errors
     ///

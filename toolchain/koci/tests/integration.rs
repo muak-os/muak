@@ -22,6 +22,7 @@ mod tests {
     use koci::error::KociError;
     use koci::progress::{Event, Noop, Phase, Reporter};
     use koci::pull::demux::Demux;
+    use koci::pull::entries::{Kind, Meta};
     use koci::pull::{Strategy, cache, session};
     use koci::{annotations, merge, pull, push, repack};
     use oci::arch::Arch;
@@ -266,6 +267,80 @@ mod tests {
         assert_eq!(&files.first().unwrap().contents, b"hello from koci\n");
         assert_eq!(files[1].path, "usr/share/koci/message.txt");
         assert_eq!(&files[1].contents, b"integration test\n");
+    }
+
+    #[test]
+    fn stream_files_carries_symlinks_hard_links_and_metadata() {
+        // ARRANGE
+        let layer = linked_layer_archive().expect("build linked layer archive");
+        let layer_digest = sha256_digest(&layer);
+        let manifest = manifest_json(&layer_digest, layer.len()).expect("build manifest json");
+        let registry = MockRegistry::start(HashMap::from([
+            get("/v2/repo/manifests/test", HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{layer_digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+        let mut entries = Vec::new();
+
+        // ACT
+        pull::files(
+            &registry.reference("repo", "test"),
+            &Arch::Amd64,
+            None,
+            Strategy::Network,
+            &Noop,
+            |mut entry| {
+                entries.push((
+                    entry.path.clone(),
+                    entry.kind,
+                    entry.link.clone(),
+                    entry.meta,
+                ));
+                std::io::copy(&mut entry.reader, &mut std::io::sink())?;
+
+                Ok(())
+            },
+        )
+        .expect("stream files should succeed");
+
+        // ASSERT
+        assert_eq!(
+            entries,
+            vec![
+                (
+                    "etc/motd".to_owned(),
+                    Kind::File,
+                    None,
+                    Meta {
+                        mode: 0o640,
+                        uid: 1000,
+                        gid: 1000,
+                        mtime: 1234,
+                    },
+                ),
+                (
+                    "etc/resolv.conf".to_owned(),
+                    Kind::Symlink,
+                    Some("/run/resolv.conf".to_owned()),
+                    Meta {
+                        mode: 0o777,
+                        ..Meta::default()
+                    },
+                ),
+                (
+                    "etc/motd-link".to_owned(),
+                    Kind::HardLink,
+                    Some("etc/motd".to_owned()),
+                    Meta {
+                        mode: 0o644,
+                        ..Meta::default()
+                    },
+                ),
+            ]
+        );
     }
 
     #[test]

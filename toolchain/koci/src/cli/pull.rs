@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::Result;
+use koci::pull;
 use koci::signature::Verification;
-use koci::{error, pull};
 use oci::arch;
 use oci::arch::Arch;
 use tui::live::summary::Summary;
@@ -82,7 +82,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
             verification.as_ref(),
             strategy,
             reporter,
-            |entry| write_entry_to_dir(entry, &output),
+            |entry| pull::extract::write(entry, &output),
         )
     })?;
 
@@ -113,17 +113,6 @@ fn format_elapsed(elapsed: Duration) -> String {
     let fraction = tenths.checked_rem(10).unwrap_or(0);
 
     format!("{whole}.{fraction}s")
-}
-
-fn write_entry_to_dir(mut entry: pull::entries::FileEntry<'_>, output: &Path) -> error::Result<()> {
-    let file_path = output.join(&entry.path);
-    if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut file = std::fs::File::create(&file_path)?;
-    std::io::copy(&mut entry.reader, &mut file)?;
-
-    Ok(())
 }
 
 #[cfg(test)]

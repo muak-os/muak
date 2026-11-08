@@ -5,6 +5,7 @@ pub(crate) mod content;
 pub mod demux;
 pub mod download;
 pub mod entries;
+pub mod extract;
 pub mod fetch;
 pub(crate) mod layer;
 pub(crate) mod lazy;

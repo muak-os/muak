@@ -9,7 +9,7 @@ use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::Generate as _;
 use p256::elliptic_curve::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _, LineEnding};
 use serde_json::{Map, Value, json};
-use tar::{Builder, Header};
+use tar::{Builder, EntryType, Header};
 
 pub(crate) const SIG_ANNOTATION: &str = "dev.muak.sig";
 
@@ -240,6 +240,37 @@ pub(crate) fn layer_archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dy
     }
 
     let encoder = archive.into_inner()?;
+    Ok(encoder.finish()?)
+}
+
+/// A gzip layer holding one regular file, one symlink, and one hard link.
+pub(crate) fn linked_layer_archive() -> Result<Vec<u8>, Box<dyn Error>> {
+    let encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let mut archive = Builder::new(encoder);
+
+    let mut file = Header::new_gnu();
+    file.set_size(5);
+    file.set_mode(0o640);
+    file.set_uid(1000);
+    file.set_gid(1000);
+    file.set_mtime(1234);
+    file.set_cksum();
+    archive.append_data(&mut file, "etc/motd", &b"hello"[..])?;
+
+    let mut symlink = Header::new_gnu();
+    symlink.set_entry_type(EntryType::Symlink);
+    symlink.set_size(0);
+    symlink.set_mode(0o777);
+    archive.append_link(&mut symlink, "etc/resolv.conf", "/run/resolv.conf")?;
+
+    let mut hard_link = Header::new_gnu();
+    hard_link.set_entry_type(EntryType::Link);
+    hard_link.set_size(0);
+    hard_link.set_mode(0o644);
+    archive.append_link(&mut hard_link, "etc/motd-link", "etc/motd")?;
+
+    let encoder = archive.into_inner()?;
+
     Ok(encoder.finish()?)
 }
 

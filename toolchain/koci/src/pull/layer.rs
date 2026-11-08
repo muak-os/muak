@@ -106,7 +106,7 @@ where
 {
     let mut archive = Archive::new(reader);
     let entries = archive.entries()?;
-    let mut scratch = PathBuf::new();
+    let mut scratch = scan::Scratch::new();
     for entry_result in entries {
         let entry = entry_result?;
         let info = scan::classify_tar_entry(&entry, &mut scratch)?;
@@ -119,15 +119,15 @@ where
     Ok(())
 }
 
-/// Whether a file entry is deleted by a whiteout recorded in a later layer.
+/// Whether an entry is deleted by a whiteout recorded in a later layer.
 fn blocked_by_whiteout(
     info: &scan::EntryInfo<'_>,
     layer_idx: usize,
     whiteouts: &HashMap<PathBuf, usize>,
 ) -> bool {
-    matches!(
-        info,
-        scan::EntryInfo::File(path, ..)
-            if whiteouts.get(*path).is_some_and(|&blocking| blocking > layer_idx)
-    )
+    info.path().is_some_and(|path| {
+        whiteouts
+            .get(path)
+            .is_some_and(|&blocking| blocking > layer_idx)
+    })
 }

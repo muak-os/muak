@@ -6,7 +6,7 @@ use koci::arch::Arch;
 use koci::error::KociError;
 use koci::progress::Reporter;
 use koci::pull;
-use koci::pull::entries::FileEntry;
+use koci::pull::entries::{FileEntry, Kind};
 
 use crate::artifact::Artifact;
 use crate::domain::input::Extension;
@@ -230,12 +230,18 @@ fn add_entry(
     if !include(&entry) {
         return Ok(());
     }
+    if entry.kind != Kind::File {
+        return Err(KociError::LayerExtractionError(format!(
+            "payload layers support only regular files: {}",
+            entry.path
+        )));
+    }
     let path = entry.path.clone();
     let reader = entry.reader;
     let file = mumi::payload::FileEntry {
         path: format!("/{path}"),
         size: entry.size,
-        mode: 0o100_000 | entry.mode,
+        mode: 0o100_000 | entry.meta.mode,
     };
 
     payload.add_file(file, reader).map_err(|e| {

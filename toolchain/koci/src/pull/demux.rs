@@ -110,22 +110,32 @@ fn drain(reader: &mut dyn Read) -> Result<()> {
 mod tests {
     use std::io::Cursor;
 
+    use super::super::entries::{Kind, Meta};
     use super::*;
 
     const FIRST: &[u8] = b"first";
     const SECOND: &[u8] = b"second";
     const GONE: &[u8] = b"gone";
 
+    fn file<'a>(path: &str, size: u64, reader: &'a mut Cursor<&'static [u8]>) -> FileEntry<'a> {
+        FileEntry {
+            path: path.to_owned(),
+            kind: Kind::File,
+            size,
+            link: None,
+            meta: Meta {
+                mode: 0o644,
+                ..Meta::default()
+            },
+            reader,
+        }
+    }
+
     fn route(demux: &mut Demux<Vec<u8>>, path: &str, size: u64, bytes: &'static [u8]) {
         let mut cursor = Cursor::new(bytes);
 
         demux
-            .route(FileEntry {
-                path: path.to_owned(),
-                size,
-                mode: 0o644,
-                reader: &mut cursor,
-            })
+            .route(file(path, size, &mut cursor))
             .expect("route entry");
     }
 
@@ -136,12 +146,7 @@ mod tests {
     fn route_expect_err(demux: &mut Demux<Vec<u8>>, size: u64, needle: &str) {
         let mut cursor = Cursor::new(FIRST);
         let error = demux
-            .route(FileEntry {
-                path: "a".to_owned(),
-                size,
-                mode: 0o644,
-                reader: &mut cursor,
-            })
+            .route(file("a", size, &mut cursor))
             .expect_err("guard");
 
         assert!(

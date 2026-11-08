@@ -6,7 +6,7 @@ use std::io::Read;
 
 use koci::error::KociError;
 use koci::pull;
-use koci::pull::entries::FileEntry;
+use koci::pull::entries::{FileEntry, Kind};
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
@@ -125,7 +125,7 @@ pub(crate) fn module_layer(ctx: &BuildContext<'_, '_>) -> Result<Layer> {
 
 /// Only the kernel module files, never directory entries.
 fn module_entry(entry: &FileEntry<'_>) -> bool {
-    !entry.path.ends_with('/') && entry.path.starts_with(MODULE_PATH)
+    entry.kind == Kind::File && entry.path.starts_with(MODULE_PATH)
 }
 
 /// Parses the kernel modules `SELinux` file contexts.
