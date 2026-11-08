@@ -23,6 +23,7 @@ rustls = { workspace = true }
 
 # Encoding
 prost = { workspace = true }
+toml = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
@@ -39,6 +40,9 @@ hyper-util = { workspace = true }
 pki = { workspace = true }
 config = { workspace = true }
 tui = { workspace = true, features = ["live", "prompt", "size"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }
