@@ -1,7 +1,7 @@
 //! Async `/dev/kmsg` reader that replays the kernel ring buffer and streams new entries.
 
 use std::fs::File;
-use std::io::{self, BufRead as _, BufReader, Seek as _, SeekFrom};
+use std::io::{self, BufRead as _, BufReader};
 
 use anyhow::{Context as _, Result};
 use rustix::fs::{Mode, OFlags, open};
@@ -35,9 +35,6 @@ pub fn spawn() -> Result<mpsc::Receiver<String>> {
 }
 
 async fn run(file: File, tx: mpsc::Sender<String>) -> Result<()> {
-    let mut file = file;
-    file.seek(SeekFrom::Start(0))?;
-
     {
         let mut reader = BufReader::with_capacity(READ_BUFFER, &file);
         drain(&mut reader, &tx).await?;
