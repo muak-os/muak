@@ -6,6 +6,7 @@ use std::io::Write as _;
 use blockdev::io;
 
 use crate::error::Result;
+use crate::kernel::Kernel;
 
 const ZERO_CHUNK: usize = 16 * 1024;
 const HEAD_BYTES: u64 = 10 * 1024 * 1024;
@@ -17,8 +18,17 @@ const TAIL_BYTES: u64 = 1024 * 1024;
 ///
 /// Returns an error when the device cannot be opened, sized, written, or synced.
 pub fn fast(device: &str) -> Result<()> {
+    fast_in(&crate::handle(), device)
+}
+
+/// Zeros the first 10 MiB and the last 1 MiB of `device` through `kernel`.
+///
+/// # Errors
+///
+/// Returns an error when the device cannot be opened, sized, written, or synced.
+pub fn fast_in<K: Kernel>(kernel: &K, device: &str) -> Result<()> {
     let file = OpenOptions::new().read(true).write(true).open(device)?;
-    let size = blockdev::device::size(&file)?;
+    let size = kernel.size(&file)?;
 
     write_zeros(&file, 0, HEAD_BYTES.min(size))?;
     if size > TAIL_BYTES {
@@ -35,8 +45,17 @@ pub fn fast(device: &str) -> Result<()> {
 ///
 /// Returns an error when the device cannot be opened, sized, written, or synced.
 pub fn zero(device: &str) -> Result<()> {
+    zero_in(&crate::handle(), device)
+}
+
+/// Zeros the whole of `device` through `kernel`.
+///
+/// # Errors
+///
+/// Returns an error when the device cannot be opened, sized, written, or synced.
+pub fn zero_in<K: Kernel>(kernel: &K, device: &str) -> Result<()> {
     let file = OpenOptions::new().read(true).write(true).open(device)?;
-    let size = blockdev::device::size(&file)?;
+    let size = kernel.size(&file)?;
 
     write_zeros(&file, 0, size)?;
     io::sync(&file)?;

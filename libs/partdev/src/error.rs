@@ -21,17 +21,6 @@ pub enum PartdevError {
     #[error("block device error: {0}")]
     Device(#[from] blockdev::error::BlockdevError),
 
-    /// Reports a BLKPG ioctl failure for one partition.
-    #[error("BLKPG {operation} of partition {number} failed: {errno}")]
-    Blkpg {
-        /// Operation that failed, such as `add` or `delete`.
-        operation: &'static str,
-        /// Partition number passed to the ioctl.
-        number: u32,
-        /// Errno reported by the kernel.
-        errno: rustix::io::Errno,
-    },
-
     /// Reports a device whose sector count is unknown.
     #[error("the disk sector count is unknown")]
     UnknownSectorCount,

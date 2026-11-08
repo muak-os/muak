@@ -7,7 +7,7 @@ use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
 use anyhow::{Result, anyhow, bail};
 use blockdev::device;
-use partdev::{blkpg, clear, table};
+use partdev::{clear, kernel, table};
 use parttable::gpt::layout::{Placement, PlacementRequest, Size as PlacementSize, Start};
 use parttable::gpt::partition::Partition as GptPartition;
 use parttable::gpt::table::Table;
@@ -69,9 +69,8 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
     );
 
     if plan.wipe {
-        kmsg::info!("Removing all existing partitions from kernel for {}", disk);
-        let removed = blkpg::delete_all(disk)?;
-        super::log_removed(disk, &removed);
+        kmsg::info!("Wiping existing partition table on {}", disk);
+        kernel::rescan(disk)?;
         clear::fast(disk)?;
     }
 
@@ -83,25 +82,14 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
 
     table::commit(&file, &gpt, sector_count)?;
     drop(file);
+
+    kmsg::info!("Re-reading partition table of {}", disk);
+    kernel::rescan(disk)?;
     verify(disk);
 
     let mut applied = Vec::new();
 
     for (placement, role) in created {
-        kmsg::info!(
-            "Adding partition {} using BLKPG ioctl (LBA {} to {})",
-            placement.number,
-            placement.partition.starting_lba,
-            placement.partition.ending_lba
-        );
-        blkpg::add(
-            disk,
-            placement.number,
-            placement.partition.starting_lba,
-            placement.partition.ending_lba,
-        )?;
-        kmsg::info!("BLKPG: Successfully added partition {}", placement.number);
-
         let path = device::partition_path(disk, placement.number);
         wait_for_device(&path)?;
         applied.push(AppliedPartition {

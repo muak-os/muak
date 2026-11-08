@@ -21,7 +21,6 @@ use ::disk::document::Document;
 use anyhow::{Context as _, Result};
 use blockdev::inventory;
 use blockdev::types::Disk;
-use partdev::blkpg;
 
 /// Path of the disk document on a booted, installed system.
 pub(crate) const PLAN_BOOT_PATH: &str = "/run/boot/disk.toml";
@@ -54,26 +53,4 @@ pub(crate) fn listed<'a>(inventory: &'a [Disk], device: &str, role: &str) -> Res
 pub(crate) fn load_document() -> Result<Document> {
     Document::read(Path::new(PLAN_BOOT_PATH))
         .with_context(|| format!("failed to read the boot disk document {PLAN_BOOT_PATH}"))
-}
-
-/// Logs the kernel outcome of each partition removed from `disk`.
-pub(crate) fn log_removed(disk: &str, removed: &[(u32, blkpg::Removed)]) {
-    for &(number, outcome) in removed {
-        match outcome {
-            blkpg::Removed::Present => {
-                kmsg::info!(
-                    "BLKPG: Successfully removed partition {} from {}",
-                    number,
-                    disk
-                );
-            }
-            blkpg::Removed::Absent => {
-                kmsg::info!(
-                    "BLKPG: Partition {} not present in kernel on {} (OK)",
-                    number,
-                    disk
-                );
-            }
-        }
-    }
 }

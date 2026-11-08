@@ -18,7 +18,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 
 # Internal
-blockdev = { workspace = true }
+blockdev = { workspace = true, features = ["linux"] }
 btrfs = { workspace = true }
 disk = { workspace = true }
 kmod = { workspace = true }

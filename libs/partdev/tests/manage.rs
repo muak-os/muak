@@ -79,11 +79,15 @@ mod tests {
         fixture.write_gpt(&["EFI", "STATE"]);
 
         // ACT
-        // BLKPG needs a real block device, so the kernel step fails on a temp file;
+        // A table re-read needs a real block device, so the kernel step fails on a temp file;
         // the table is committed before that step and must survive.
-        let _cleanup = manage::delete_partitions(fixture.path_str(), &[2]);
+        let result = manage::delete_partitions(fixture.path_str(), &[2]);
 
         // ASSERT
+        assert!(
+            result.is_err(),
+            "the kernel must reject a table re-read on a temp file"
+        );
         let gpt = table::read(fixture.file()).expect("GPT must stay readable");
         assert!(!gpt.is_partition_used(2), "deleted partition must be gone");
         assert!(gpt.is_partition_used(1), "kept partition must survive");

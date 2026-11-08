@@ -30,7 +30,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 
 # Internal
-blockdev = { workspace = true }
+blockdev = { workspace = true, features = ["linux"] }
 btrfs = { workspace = true }
 config = { workspace = true }
 disk = { workspace = true }
@@ -40,7 +40,7 @@ firmware = { workspace = true, features = ["linux"] }
 granola = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
-partdev = { workspace = true }
+partdev = { workspace = true, features = ["linux"] }
 parttable = { workspace = true }
 pki = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }

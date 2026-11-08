@@ -9,6 +9,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["linux"]
+linux = ["dep:rustix", "blockdev/linux"]
+
 [dependencies]
 # Error handling
 thiserror = { workspace = true }
@@ -18,7 +22,7 @@ blockdev = { workspace = true }
 parttable = { workspace = true }
 
 # System/platform APIs
-rustix = { workspace = true }
+rustix = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

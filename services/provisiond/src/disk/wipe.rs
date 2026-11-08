@@ -2,7 +2,7 @@ use std::fs::OpenOptions;
 
 use ::disk::role::Role;
 use anyhow::Result;
-use partdev::{blkpg, clear, manage, table};
+use partdev::{clear, kernel, manage, table};
 
 use super::guard::Target;
 use super::mount::{get_disk_mounts, unmount_all};
@@ -35,18 +35,19 @@ pub(crate) fn run(target: &Target, options: Options) -> Result<String> {
         release(target)?;
     }
 
-    kmsg::info!(
-        "Removing all existing partitions from kernel for {}",
-        target.path
-    );
-    let removed = blkpg::delete_all(&target.path)?;
-    super::log_removed(&target.path, &removed);
-
     if options.drop_partition && !target.partitions.is_empty() {
         drop_entries(target)?;
     }
 
+    kmsg::info!("Preflight table re-read of {} before wiping", target.path);
+    kernel::rescan(&target.path)?;
     write(&target.path, options.method)?;
+
+    kmsg::info!(
+        "Re-reading partition table of {} after the wipe",
+        target.path
+    );
+    kernel::rescan(&target.path)?;
 
     Ok(summary)
 }
@@ -97,10 +98,7 @@ fn close_mapping(role: Role) {
 fn drop_entries(target: &Target) -> Result<()> {
     let file = OpenOptions::new().read(true).open(&target.path)?;
     if table::read(&file).is_err() {
-        kmsg::info!(
-            "No GPT on {}, kernel partitions dropped, wipe will remove any table",
-            target.path
-        );
+        kmsg::info!("No GPT on {}, the wipe will remove any table", target.path);
         return Ok(());
     }
     drop(file);
@@ -110,8 +108,7 @@ fn drop_entries(target: &Target) -> Result<()> {
         target.partitions,
         target.path
     );
-    let removed = manage::delete_partitions(&target.path, &target.partitions)?;
-    super::log_removed(&target.path, &removed);
+    manage::delete_partitions(&target.path, &target.partitions)?;
 
     Ok(())
 }

@@ -7,6 +7,7 @@ use parttable::gpt;
 use parttable::gpt::table::Table;
 
 use crate::error::{PartdevError, Result};
+use crate::kernel::Kernel;
 
 /// Reads the primary GPT from `file` without moving its cursor.
 ///
@@ -47,7 +48,16 @@ pub fn commit(file: &File, table: &Table, sector_count: u64) -> Result<()> {
 ///
 /// Returns an error when the device size cannot be read.
 pub fn sector_count(file: &File) -> Result<u64> {
-    let bytes = blockdev::device::size(file)?;
+    sector_count_in(&crate::handle(), file)
+}
+
+/// Returns the number of 512-byte sectors on the device behind `file`.
+///
+/// # Errors
+///
+/// Returns an error when the device size cannot be read.
+pub fn sector_count_in<K: Kernel>(kernel: &K, file: &File) -> Result<u64> {
+    let bytes = kernel.size(file)?;
 
     Ok(bytes.checked_div(gpt::plan::SECTOR_SIZE).unwrap_or(0))
 }

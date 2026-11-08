@@ -6,7 +6,8 @@ use blockdev::io;
 use parttable::mbr;
 
 use crate::error::Result;
-use crate::{blkpg, table};
+use crate::kernel::Kernel;
+use crate::table;
 
 /// Returns `true` when `device` carries a GPT or a non-empty MBR.
 ///
@@ -42,13 +43,23 @@ pub fn partition_number(device: &str, name: &str) -> Result<Option<u32>> {
         .map(|(number, _)| number))
 }
 
-/// Deletes `numbers` from the GPT and removes them from the kernel.
+/// Deletes `numbers` from the GPT and asks the kernel to re-read it.
 ///
 /// # Errors
 ///
 /// Returns an error when the device cannot be opened, the table cannot be read
-/// or written, or the kernel rejects a removal.
-pub fn delete_partitions(disk: &str, numbers: &[u32]) -> Result<Vec<(u32, blkpg::Removed)>> {
+/// or written, or the kernel rejects the re-read.
+pub fn delete_partitions(disk: &str, numbers: &[u32]) -> Result<()> {
+    delete_partitions_in(&crate::handle(), disk, numbers)
+}
+
+/// Deletes `numbers` from the GPT through `kernel` and re-reads the table.
+///
+/// # Errors
+///
+/// Returns an error when the device cannot be opened, the table cannot be read
+/// or written, or the kernel rejects the re-read.
+pub fn delete_partitions_in<K: Kernel>(kernel: &K, disk: &str, numbers: &[u32]) -> Result<()> {
     let file = OpenOptions::new().read(true).write(true).open(disk)?;
     let mut gpt = table::read(&file)?;
 
@@ -60,14 +71,9 @@ pub fn delete_partitions(disk: &str, numbers: &[u32]) -> Result<Vec<(u32, blkpg:
         gpt.remove_partition(number)?;
     }
 
-    let sectors = table::sector_count(&file)?;
+    let sectors = table::sector_count_in(kernel, &file)?;
     table::commit(&file, &gpt, sectors)?;
     drop(file);
 
-    let mut removed = Vec::new();
-    for &number in numbers {
-        removed.push((number, blkpg::delete(disk, number)?));
-    }
-
-    Ok(removed)
+    kernel.rescan(disk)
 }

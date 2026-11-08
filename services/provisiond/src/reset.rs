@@ -97,8 +97,8 @@ fn delete_role(disk: &str, role: Role) -> Result<()> {
     let name = role.gpt_name();
     match manage::partition_number(disk, name)? {
         Some(number) => {
-            let removed = manage::delete_partitions(disk, &[number])?;
-            disk::log_removed(disk, &removed);
+            manage::delete_partitions(disk, &[number])?;
+            kmsg::info!("Deleted the '{name}' partition from {disk}");
         }
         None => kmsg::info!("No '{name}' partition found on {disk}, nothing to delete"),
     }

@@ -29,7 +29,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 # Internal
-blockdev = { workspace = true }
+blockdev = { workspace = true, features = ["linux"] }
 
 # System
 rustix = { workspace = true }
