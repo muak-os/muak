@@ -32,23 +32,40 @@ pub fn path() -> PathBuf {
     PathBuf::from(CONFIG_PREV_PATH)
 }
 
-/// Reads and parses the kept previous config.
-pub fn read_config(prev_path: &Path) -> Result<config::system::Config> {
-    let contents = fs::read_to_string(prev_path).context("Failed to read the previous config")?;
+/// Lifts `host.version` from a config document without validating it.
+pub(crate) fn host_version(raw: &str) -> Option<String> {
+    let parsed = document(raw)?;
+    let host = parsed.get("host")?;
 
-    config::system::parse_from_str(&contents).context("Failed to parse the previous config")
+    host.get("version")?.as_str().map(str::to_owned)
 }
 
-/// Restores the system config from the kept previous config, overwriting the
-/// current, and records the rollback. Returns `false` when the journal write failed.
-pub fn restore(update_id: &str, prev_path: &Path, reason: &str) -> Result<bool> {
+/// Lifts `host.secureboot` from a TOML document, defaulting to `false` when absent.
+pub(crate) fn host_secureboot(raw: &str) -> Option<bool> {
+    let parsed = document(raw)?;
+
+    Some(
+        parsed
+            .get("host")
+            .and_then(|host| host.get("secureboot"))
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false),
+    )
+}
+
+/// Restores the previous config by rename and records the rollback, returning journal success.
+pub fn restore(
+    update_id: &str,
+    prev_path: &Path,
+    failed_version: &str,
+    reason: &str,
+) -> Result<bool> {
     let contents = fs::read_to_string(prev_path).context("Failed to read the previous config")?;
-    config::system::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
+    fs::rename(prev_path, Path::new(CONFIG_PATH))
         .context("Failed to restore config from the previous one")?;
 
-    let failed_version = config::system::host()?.version.clone();
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
-        .failed(&failed_version, reason);
+        .failed(failed_version, reason);
 
     match journal::append(&entry, &contents) {
         Ok(()) => Ok(true),
@@ -69,6 +86,10 @@ pub fn generate_id() -> String {
     format!("update-{timestamp}")
 }
 
+fn document(raw: &str) -> Option<toml::Value> {
+    toml::from_str(raw).ok()
+}
+
 fn update_id(cmdline: &str) -> String {
     cmdline
         .split_whitespace()
@@ -78,9 +99,7 @@ fn update_id(cmdline: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use super::{UNKNOWN_ID, generate_id, path, read_config, update_id};
+    use super::{UNKNOWN_ID, generate_id, host_secureboot, host_version, path, update_id};
 
     #[test]
     fn generate_id_has_expected_prefix() {
@@ -143,19 +162,57 @@ mod tests {
     }
 
     #[test]
-    fn read_config_parses_snapshot() {
+    fn lifting_ignores_unknown_keys() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("temp dir");
-        let snapshot_path = dir.path().join("config.prev");
-        let mut config = config::system::Config::default();
-        config.host.version = "v1.2.3".to_owned();
-        let contents = config::system::serialize(&config).expect("serialize config");
-        fs::write(&snapshot_path, contents).expect("write snapshot");
+        let raw = r#"
+            [host]
+            version = "v1.2.0"
+            secureboot = true
+            unknown_field = "ignored"
+
+            [future_section]
+            mode = "turbo"
+        "#;
 
         // ACT
-        let parsed = read_config(&snapshot_path).expect("read config snapshot");
+        let version = host_version(raw);
+        let secureboot = host_secureboot(raw);
 
         // ASSERT
-        assert_eq!(parsed.host.version, "v1.2.3");
+        assert_eq!(version.as_deref(), Some("v1.2.0"));
+        assert_eq!(secureboot, Some(true));
+    }
+
+    #[test]
+    fn lifting_tolerates_a_future_api_version() {
+        // ARRANGE
+        let raw = r#"
+            api_version = "muak.dev/config/v9-future"
+
+            [host]
+            version = "v2.0.0"
+        "#;
+
+        // ACT
+        let version = host_version(raw);
+        let secureboot = host_secureboot(raw);
+
+        // ASSERT
+        assert_eq!(version.as_deref(), Some("v2.0.0"));
+        assert_eq!(secureboot, Some(false));
+    }
+
+    #[test]
+    fn lifting_a_non_toml_document_yields_nothing() {
+        // ARRANGE
+        let raw = "this is not a toml document";
+
+        // ACT
+        let version = host_version(raw);
+        let secureboot = host_secureboot(raw);
+
+        // ASSERT
+        assert_eq!(version, None);
+        assert_eq!(secureboot, None);
     }
 }

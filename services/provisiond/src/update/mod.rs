@@ -19,6 +19,7 @@ use anyhow::{Result, bail};
 use wizard::cache::Strategy;
 
 use crate::journal::{self, ChangeKind, Entry};
+use crate::medium;
 
 /// Staging directory for update operations.
 pub(crate) const UPDATE_DIR: &str = "/run/state/update";
@@ -50,7 +51,13 @@ pub fn check_and_handle_pending_validation() {
     };
 
     if !has_update_marker() {
-        match snapshot::restore(&update_id, &snapshot_path, "Uncommitted update reverted") {
+        let failed_version = medium::version().unwrap_or_else(|_| "unknown".to_owned());
+        match snapshot::restore(
+            &update_id,
+            &snapshot_path,
+            &failed_version,
+            "Uncommitted update reverted",
+        ) {
             Ok(true) => cleanup_stale(),
             Ok(false) => {
                 kmsg::warn!("Revert of {update_id} untracked; snapshot kept for next-boot retry");
