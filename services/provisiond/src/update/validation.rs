@@ -193,7 +193,7 @@ mod tests {
     use super::isolating_change;
 
     #[test]
-    fn unparseable_previous_config_is_not_treated_as_isolating() {
+    fn unparsable_previous_config_is_not_treated_as_isolating() {
         // ARRANGE
         let next = config::system::Config::default();
         let previous = "this is not a toml document";
@@ -202,7 +202,7 @@ mod tests {
         let isolating = isolating_change(Some(previous), &next);
 
         // ASSERT
-        assert!(!isolating, "an unparseable document cannot be compared");
+        assert!(!isolating, "an unparsable document cannot be compared");
     }
 
     #[test]
