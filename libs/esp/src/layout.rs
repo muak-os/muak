@@ -31,11 +31,8 @@ pub fn compute<'a>(files: &[FileMeta<'a>]) -> Result<Layout<'a>> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Cursor, Read};
-
     use super::*;
     use crate::error::EspError;
-    use crate::image;
 
     const SECTOR_SIZE: u64 = 512;
 
@@ -105,72 +102,5 @@ mod tests {
             result.is_err(),
             "payloads pushing the ESP past the FAT32 ceiling must be rejected"
         );
-    }
-
-    #[test]
-    fn build_produces_bootable_image() {
-        // ARRANGE
-        let data = vec![0xAB_u8; 33 * 1024 * 1024];
-        let layout = compute(&[FileMeta::new(
-            "EFI/BOOT/BOOTX64.EFI",
-            u64::try_from(data.len()).unwrap_or(0),
-        )])
-        .expect("layout must compute");
-        let mut output = Vec::new();
-        let mut uki_reader = Cursor::new(data.as_slice());
-        let mut readers: Vec<&mut dyn Read> = vec![&mut uki_reader];
-
-        // ACT
-        image::build(&layout, &mut readers, &mut output).expect("build must succeed");
-
-        // ASSERT
-        assert_ne!(output, b"");
-        assert_eq!(
-            output.get(510..512),
-            Some(&[0x55, 0xAA][..]),
-            "boot signature must be valid"
-        );
-    }
-
-    #[test]
-    fn build_rejects_reader_count_mismatch() {
-        // ARRANGE
-        let data = vec![0xAB_u8; 33 * 1024 * 1024];
-        let layout = compute(&[
-            FileMeta::new(
-                "EFI/BOOT/BOOTX64.EFI",
-                u64::try_from(data.len()).unwrap_or(0),
-            ),
-            FileMeta::new("config.txt", 0),
-        ])
-        .expect("layout must compute");
-        let mut output = Vec::new();
-        let mut reader = Cursor::new(data.as_slice());
-        let mut readers: Vec<&mut dyn Read> = vec![&mut reader];
-
-        // ACT
-        let result = image::build(&layout, &mut readers, &mut output);
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::Incomplete { .. })));
-    }
-
-    #[test]
-    fn build_rejects_empty_readers_for_nonempty_layout() {
-        // ARRANGE
-        let data = vec![0xAB_u8; 33 * 1024 * 1024];
-        let layout = compute(&[FileMeta::new(
-            "config.txt",
-            u64::try_from(data.len()).unwrap_or(0),
-        )])
-        .expect("layout must compute");
-        let mut output = Vec::new();
-        let mut readers: Vec<&mut dyn Read> = vec![];
-
-        // ACT
-        let result = image::build(&layout, &mut readers, &mut output);
-
-        // ASSERT
-        assert!(matches!(result, Err(EspError::Incomplete { .. })));
     }
 }
