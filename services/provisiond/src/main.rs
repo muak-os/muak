@@ -43,8 +43,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             kmsg::warn!("pull cache filesystem is not btrfs; koci cache GC disabled");
         }
 
-        let _result = update::check_and_handle_pending_validation()
-            .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
+        update::check_and_handle_pending_validation();
     }
 
     Server::builder()

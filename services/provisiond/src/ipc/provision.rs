@@ -97,37 +97,45 @@ impl ProvisionService for ServiceImpl {
         let strategy = update::strategy(req.offline);
         let installed = config::system::config().map_err(|e| Status::internal(e.to_string()))?;
 
-        let (registry, version, extensions, new_config) = if req.config.is_empty() {
+        let (inputs, new_config) = if req.config.is_empty() {
             let version = update::resolve_target(&installed.host.version, &req.version)
                 .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
-            let extensions = installed.host.extensions.clone();
+            let inputs = update::document::BuildInputs {
+                registry: installed.host.registry.clone(),
+                version,
+                extensions: installed.host.extensions.clone(),
+                secureboot: installed.host.secureboot,
+            };
 
-            (installed.host.registry.clone(), version, extensions, None)
+            (inputs, None)
         } else {
             let raw = String::from_utf8(req.config)
                 .map_err(|e| Status::invalid_argument(format!("Config is not valid UTF-8: {e}")))?;
 
-            let cfg: config::system::Config = config::system::parse_from_str(&raw)
-                .map_err(|e| Status::invalid_argument(format!("Invalid config: {e}")))?;
+            let inputs = update::document::build_inputs(&raw)
+                .map_err(|e| Status::invalid_argument(format!("Invalid config: {e:#}")))?;
 
-            cfg.validate_for_update(installed)
-                .map_err(|e| Status::invalid_argument(format!("Config rejected: {e}")))?;
-
-            config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
+            config::version::check_no_downgrade(&inputs.version, &installed.host.version)
                 .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
 
-            let registry = cfg.host.registry.clone();
-            let version = cfg.host.version.clone();
-            let extensions = cfg.host.extensions.clone();
-
-            (registry, version, extensions, Some(cfg))
+            (inputs, Some(raw.into_bytes()))
         };
 
-        let desired = update::desired_config(installed, &version, new_config.as_ref());
+        let current_config = std::fs::read(config::system::CONFIG_PATH)
+            .map_err(|e| Status::internal(format!("Failed to read the current config: {e}")))?;
 
-        if update::already_current(installed, &version, &desired, force) {
+        if update::already_current(
+            &installed.host.version,
+            &inputs.version,
+            &current_config,
+            new_config.as_deref(),
+            force,
+        ) {
             return Ok(Response::new(streaming::single(PrepareUpdateProgress {
-                message: format!("System already at version {version}, nothing to do"),
+                message: format!(
+                    "System already at version {}, nothing to do",
+                    inputs.version
+                ),
                 already_current: true,
                 ..Default::default()
             })));
@@ -135,16 +143,7 @@ impl ProvisionService for ServiceImpl {
 
         let stream = streaming::run(
             move |progress_tx| async move {
-                update::prepare(
-                    &registry,
-                    &version,
-                    &extensions,
-                    new_config,
-                    &author,
-                    strategy,
-                    progress_tx,
-                )
-                .await
+                update::build::prepare(&inputs, new_config, &author, strategy, progress_tx).await
             },
             |result, out_tx| {
                 let msg = match result {
