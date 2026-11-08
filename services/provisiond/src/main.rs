@@ -22,13 +22,12 @@ use std::path::Path;
 use anyhow::Context as _;
 use granola::runtime::signal::shutdown;
 use granola::runtime::socket::socket;
-use rustix::system::RebootCommand;
 use tonic::transport::Server;
 
 #[granola::service("provisiond")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
-    restore_unreadable_config();
+    update::restore_unreadable_config();
 
     config::init().context("Failed to initialize system configuration")?;
 
@@ -58,30 +57,4 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .await?;
 
     Ok(())
-}
-
-fn restore_unreadable_config() {
-    if !Path::new(update::snapshot::CONFIG_PREV_PATH).exists() {
-        return;
-    }
-
-    let Err(error) = config::system::load_from_path(Path::new(config::system::CONFIG_PATH)) else {
-        return;
-    };
-
-    kmsg::error!("Installed config is unreadable ({error:#}); restoring the previous config");
-    if let Err(error) = std::fs::rename(
-        update::snapshot::CONFIG_PREV_PATH,
-        config::system::CONFIG_PATH,
-    ) {
-        kmsg::error!("Failed to restore the previous config: {error}");
-        return;
-    }
-
-    rustix::fs::sync();
-    kmsg::info!("Previous config restored; rebooting to retry the boot");
-
-    if let Err(error) = rustix::system::reboot(RebootCommand::Restart) {
-        kmsg::error!("Failed to reboot after restoring the previous config: {error}");
-    }
 }
