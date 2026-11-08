@@ -61,10 +61,71 @@ mod tests {
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
     use crate::layout::{self, InodeLayout};
-    use crate::testutil::{compress_config, entry_of, test_config, zero_data};
     use crate::tree::TreeEntry;
     use crate::writer::image;
     use crate::{SLOT_SIZE, compress};
+
+    fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::None,
+        }
+    }
+
+    fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::default(),
+        }
+    }
+
+    fn entry_of(inode: &crate::layout::InodeLayout) -> crate::tree::TreeEntry {
+        crate::tree::TreeEntry {
+            rel_path: inode.rel_path.clone(),
+            file_type: inode.file_type,
+            size: u64::from(inode.size),
+            mode: u32::from(inode.mode),
+            uid: u32::from(inode.uid),
+            gid: u32::from(inode.gid),
+            mtime: inode.mtime,
+            mtime_nsec: inode.mtime_nsec,
+            symlink_target: inode.symlink_target.clone(),
+            rdev: inode.rdev,
+        }
+    }
+
+    fn zero_data(entry: &crate::tree::TreeEntry) -> Vec<u8> {
+        if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
+            vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn pair_files<R: std::io::Read>(
+        entries: Vec<crate::tree::TreeEntry>,
+        readers: &mut [R],
+    ) -> Vec<crate::source::SizedFile<'_>> {
+        entries
+            .into_iter()
+            .zip(readers.iter_mut())
+            .map(|(entry, reader)| crate::source::SizedFile { entry, reader })
+            .collect()
+    }
+
+    fn cursor_set(data: &[Vec<u8>]) -> Vec<std::io::Cursor<&[u8]>> {
+        data.iter()
+            .map(|bytes| std::io::Cursor::new(bytes.as_slice()))
+            .collect()
+    }
 
     fn root_entry() -> TreeEntry {
         TreeEntry {
@@ -102,15 +163,15 @@ mod tests {
             .iter_mut()
             .map(|bytes| io::Cursor::new(bytes.as_mut_slice()))
             .collect();
-        let mut files = crate::testutil::pair_files(entries.to_vec(), &mut cursors);
+        let mut files = pair_files(entries.to_vec(), &mut cursors);
         layout::plan(&mut files, cfg).expect("plan")
     }
 
     fn write_image(planned: &layout::ImagePlan, cfg: &crate::MkfsConfig<'_>) -> Vec<u8> {
         let entries: Vec<TreeEntry> = planned.inodes.iter().map(entry_of).collect();
         let data: Vec<Vec<u8>> = entries.iter().map(zero_data).collect();
-        let mut cursors = crate::testutil::cursor_set(&data);
-        let mut files = crate::testutil::pair_files(entries, &mut cursors);
+        let mut cursors = cursor_set(&data);
+        let mut files = pair_files(entries, &mut cursors);
 
         let mut buf = Vec::new();
         image(&mut buf, planned, &mut files, cfg).expect("write");

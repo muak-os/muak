@@ -67,8 +67,18 @@ mod tests {
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
     use crate::layout::{InodeLayout, plan};
     use crate::source::SizedFile;
-    use crate::testutil::compress_config;
     use crate::tree::TreeEntry;
+
+    fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::default(),
+        }
+    }
 
     #[test]
     fn compressed_data_blkaddr_assigned() {

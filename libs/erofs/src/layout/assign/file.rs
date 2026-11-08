@@ -176,9 +176,30 @@ mod tests {
     };
     use crate::layout::{InodeLayout, plan};
     use crate::source::{self, SizedFile};
-    use crate::testutil::{compress_config, test_config};
     use crate::tree::TreeEntry;
     use crate::writer::image;
+
+    fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::None,
+        }
+    }
+
+    fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::default(),
+        }
+    }
 
     fn open_reader(dir_path: &Path, ent: &TreeEntry) -> Box<dyn Read> {
         if ent.file_type == EROFS_FT_DIR || ent.file_type == EROFS_FT_SYMLINK || ent.size == 0 {

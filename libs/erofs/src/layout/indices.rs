@@ -147,11 +147,22 @@ fn set_ino(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
     use crate::layout::collect::initial_inodes;
-    use crate::testutil::test_config;
+
+    fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::None,
+        }
+    }
 
     #[test]
     fn build_indices_mixed_types() {

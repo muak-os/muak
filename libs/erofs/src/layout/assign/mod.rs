@@ -107,11 +107,32 @@ mod tests {
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
     use crate::layout::{ImagePlan, InodeLayout, plan};
     use crate::source::SizedFile;
-    use crate::testutil::{compress_config, test_config};
     use crate::tree::TreeEntry;
     use crate::{Compression, SLOT_SIZE};
 
     const FIRST_NID: usize = super::META_START.div_euclid(SLOT_SIZE);
+
+    fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::None,
+        }
+    }
+
+    fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
+        crate::MkfsConfig {
+            source_date_epoch: epoch,
+            file_contexts: None,
+            uuid: [0; 16],
+            force_uid: None,
+            force_gid: None,
+            compression: crate::Compression::default(),
+        }
+    }
 
     fn assert_reference_nids(planned: &ImagePlan) {
         let inodes = &planned.inodes;
