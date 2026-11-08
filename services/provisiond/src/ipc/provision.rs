@@ -112,8 +112,11 @@ impl ProvisionService for ServiceImpl {
             let raw = String::from_utf8(req.config)
                 .map_err(|e| Status::invalid_argument(format!("Config is not valid UTF-8: {e}")))?;
 
-            let inputs = update::document::build_inputs(&raw)
+            let mut inputs = update::document::build_inputs(&raw)
                 .map_err(|e| Status::invalid_argument(format!("Invalid config: {e:#}")))?;
+
+            inputs.version = document_version(&inputs.version, &req.version)?;
+            check_against_installed(&raw, installed)?;
 
             config::version::check_no_downgrade(&inputs.version, &installed.host.version)
                 .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
@@ -464,6 +467,36 @@ fn wipe_response(refusal: Option<String>, disk: Disk, checks: Vec<Check>) -> Wip
     }
 }
 
+fn document_version(staged: &str, requested: &str) -> Result<String, Status> {
+    if requested.is_empty() {
+        if staged.is_empty() {
+            return Err(Status::invalid_argument(
+                "host.version must be specified in the config or with --version",
+            ));
+        }
+
+        return Ok(staged.to_owned());
+    }
+
+    if !staged.is_empty() && staged != requested {
+        return Err(Status::invalid_argument(format!(
+            "version '{requested}' does not match host.version '{staged}' in the config"
+        )));
+    }
+
+    Ok(requested.to_owned())
+}
+
+fn check_against_installed(raw: &str, installed: &config::system::Config) -> Result<(), Status> {
+    let Ok(candidate) = config::system::parse_from_str(raw) else {
+        return Ok(());
+    };
+
+    candidate
+        .validate_for_update(installed)
+        .map_err(|e| Status::invalid_argument(format!("Invalid config for update: {e}")))
+}
+
 fn parse_install_config(config_bytes: Vec<u8>) -> Result<config::system::Config, Status> {
     let raw = String::from_utf8(config_bytes)
         .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {e}")))?;
@@ -506,6 +539,85 @@ mod tests {
             size_bytes: 1024,
             ..Disk::default()
         }
+    }
+
+    #[test]
+    fn requested_version_fills_a_document_without_one() {
+        // ARRANGE
+        let staged = "";
+        let requested = "v2.0.0";
+
+        // ACT
+        let version = document_version(staged, requested).expect("the request version wins");
+
+        // ASSERT
+        assert_eq!(version, "v2.0.0");
+    }
+
+    #[test]
+    fn disagreeing_requested_version_is_rejected() {
+        // ARRANGE
+        let staged = "v2.0.0";
+        let requested = "v2.1.0";
+
+        // ACT
+        let status = document_version(staged, requested)
+            .expect_err("a disagreeing version must be rejected");
+
+        // ASSERT
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert!(status.message().contains("v2.0.0"), "{}", status.message());
+        assert!(status.message().contains("v2.1.0"), "{}", status.message());
+    }
+
+    #[test]
+    fn absent_version_in_both_sources_is_rejected() {
+        // ARRANGE
+        let staged = "";
+        let requested = "";
+
+        // ACT
+        let status =
+            document_version(staged, requested).expect_err("a missing version must be rejected");
+
+        // ASSERT
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert!(
+            status.message().contains("host.version"),
+            "{}",
+            status.message()
+        );
+    }
+
+    #[test]
+    fn immutable_disk_changes_are_rejected_before_staging() {
+        // ARRANGE
+        let installed = config::system::Config::default();
+        let raw = format!(
+            "api_version = \"{}\"\n\n[host]\nname = \"muak\"\nversion = \"v2.0.0\"\nport = 50051\n\
+             ntp = \"pool.ntp.org\"\n\n[[disks]]\nrole = \"system\"\nwwid = \"eui.0025385b71a1c7d4\"\n",
+            config::system::API_VERSION
+        );
+
+        // ACT
+        let status = check_against_installed(&raw, &installed)
+            .expect_err("a new system disk must be rejected");
+
+        // ASSERT
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn undecodable_documents_skip_the_installed_check() {
+        // ARRANGE
+        let installed = config::system::Config::default();
+        let raw = "api_version = \"muak.dev/config/v9-future\"\n\n[host]\nname = \"muak\"\n";
+
+        // ACT
+        let result = check_against_installed(raw, &installed);
+
+        // ASSERT
+        result.expect("a future schema must be stored as is");
     }
 
     #[test]

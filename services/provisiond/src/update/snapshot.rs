@@ -1,8 +1,8 @@
 //! Previous config life cycle: keep, locate, read, and restore the swap copy.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fs, io};
 
 use anyhow::{Context as _, Result};
 use config::system::CONFIG_PATH;
@@ -12,8 +12,14 @@ use crate::journal::{self, Entry};
 /// Path of the config kept from before the staged update.
 pub(crate) const CONFIG_PREV_PATH: &str = "/run/state/config.prev";
 
+/// Path of the update id recorded by the last prepare.
+pub(crate) const PENDING_ID_PATH: &str = "/run/state/update/id";
+
 /// Synthetic update ID used when the boot cmdline carries no update marker.
 pub(crate) const UNKNOWN_ID: &str = "update-unknown";
+
+const CMDLINE: &str = "/proc/cmdline";
+const UPDATE_ID_PREFIX: &str = "muak.update_id=";
 
 /// Returns the pending `(update_id, path)` of a kept previous config.
 pub fn find_pending() -> Option<(String, PathBuf)> {
@@ -22,9 +28,10 @@ pub fn find_pending() -> Option<(String, PathBuf)> {
         return None;
     }
 
-    let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    let cmdline = fs::read_to_string(CMDLINE).unwrap_or_default();
+    let recorded = fs::read_to_string(PENDING_ID_PATH).ok();
 
-    Some((update_id(&cmdline), path))
+    Some((pending_id(&cmdline, recorded.as_deref()), path))
 }
 
 /// Returns the path to the previous config kept by a prepare.
@@ -60,20 +67,34 @@ pub fn restore(
     failed_version: &str,
     reason: &str,
 ) -> Result<bool> {
-    let contents = fs::read_to_string(prev_path).context("Failed to read the previous config")?;
-    fs::rename(prev_path, Path::new(CONFIG_PATH))
-        .context("Failed to restore config from the previous one")?;
+    let contents = match fs::read_to_string(prev_path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            kmsg::warn!("No previous config to restore for {update_id}");
+            return Ok(true);
+        }
+        Err(e) => return Err(e).context("Failed to read the previous config"),
+    };
 
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
         .failed(failed_version, reason);
-
-    match journal::append(&entry, &contents) {
-        Ok(()) => Ok(true),
+    let tracked = match journal::append(&entry, &contents) {
+        Ok(()) => true,
         Err(e) => {
             kmsg::warn!("Rollback of {update_id} is untracked (journal write failed: {e})");
-            Ok(false)
+            false
         }
+    };
+
+    match fs::rename(prev_path, Path::new(CONFIG_PATH)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            kmsg::warn!("No previous config to restore for {update_id}");
+        }
+        Err(e) => return Err(e).context("Failed to restore config from the previous one"),
     }
+
+    Ok(tracked)
 }
 
 /// Generates a unique update ID from the current wall clock.
@@ -90,16 +111,29 @@ fn document(raw: &str) -> Option<toml::Value> {
     toml::from_str(raw).ok()
 }
 
+fn pending_id(cmdline: &str, recorded: Option<&str>) -> String {
+    if cmdline.contains(UPDATE_ID_PREFIX) {
+        return update_id(cmdline);
+    }
+
+    recorded
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map_or_else(|| update_id(cmdline), str::to_owned)
+}
+
 fn update_id(cmdline: &str) -> String {
     cmdline
         .split_whitespace()
-        .find_map(|arg| arg.strip_prefix("muak.update_id="))
+        .find_map(|arg| arg.strip_prefix(UPDATE_ID_PREFIX))
         .map_or_else(|| UNKNOWN_ID.to_owned(), str::to_owned)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{UNKNOWN_ID, generate_id, host_secureboot, host_version, path, update_id};
+    use super::{
+        UNKNOWN_ID, generate_id, host_secureboot, host_version, path, pending_id, update_id,
+    };
 
     #[test]
     fn generate_id_has_expected_prefix() {
@@ -156,6 +190,45 @@ mod tests {
 
         // ACT
         let id = update_id(cmdline);
+
+        // ASSERT
+        assert_eq!(id, UNKNOWN_ID);
+    }
+
+    #[test]
+    fn recorded_id_is_used_without_an_update_marker() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 quiet ro";
+        let recorded = Some("update-1700000002\n");
+
+        // ACT
+        let id = pending_id(cmdline, recorded);
+
+        // ASSERT
+        assert_eq!(id, "update-1700000002");
+    }
+
+    #[test]
+    fn update_marker_wins_over_the_recorded_id() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 muak.update_id=update-1700000003 ro";
+        let recorded = Some("update-1700000002\n");
+
+        // ACT
+        let id = pending_id(cmdline, recorded);
+
+        // ASSERT
+        assert_eq!(id, "update-1700000003");
+    }
+
+    #[test]
+    fn missing_recorded_id_falls_back_to_the_synthetic_id() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 quiet ro";
+        let recorded = None;
+
+        // ACT
+        let id = pending_id(cmdline, recorded);
 
         // ASSERT
         assert_eq!(id, UNKNOWN_ID);

@@ -1,6 +1,6 @@
 //! Lenient extraction of build inputs from an operator-supplied config document.
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 
 /// Scalar inputs an update build needs from the operator-supplied document.
 #[derive(Debug)]
@@ -24,26 +24,25 @@ pub(crate) fn build_inputs(raw: &str) -> Result<BuildInputs> {
     let document: toml::Value = toml::from_str(raw).context("Invalid config document")?;
     let host = document.get("host");
 
+    let registry = scalar(host, "registry")?.with_context(|| "host.registry must be specified")?;
+
     Ok(BuildInputs {
-        registry: scalar(host, "registry")?,
-        version: scalar(host, "version")?,
+        registry,
+        version: scalar(host, "version")?.unwrap_or_default(),
         extensions: extensions(host),
         secureboot: boolean(host, "secureboot")?,
     })
 }
 
-fn scalar(host: Option<&toml::Value>, field: &str) -> Result<String> {
-    let text = host
-        .and_then(|host| host.get(field))
-        .with_context(|| format!("host.{field} must be specified"))?
+fn scalar(host: Option<&toml::Value>, field: &str) -> Result<Option<String>> {
+    let Some(value) = host.and_then(|host| host.get(field)) else {
+        return Ok(None);
+    };
+    let text = value
         .as_str()
         .with_context(|| format!("host.{field} must be a string"))?;
 
-    if text.is_empty() {
-        bail!("host.{field} must be specified");
-    }
-
-    Ok(text.to_owned())
+    Ok((!text.is_empty()).then(|| text.to_owned()))
 }
 
 fn boolean(host: Option<&toml::Value>, field: &str) -> Result<bool> {
@@ -131,6 +130,22 @@ mod tests {
     }
 
     #[test]
+    fn empty_version_yields_an_empty_one() {
+        // ARRANGE
+        let raw = r#"
+            [host]
+            registry = "ghcr.io/muak-os"
+            version = ""
+        "#;
+
+        // ACT
+        let inputs = build_inputs(raw).expect("an empty version is not fatal here");
+
+        // ASSERT
+        assert_eq!(inputs.version, "");
+    }
+
+    #[test]
     fn empty_registry_is_rejected() {
         // ARRANGE
         let raw = r#"
@@ -147,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_version_is_rejected() {
+    fn missing_version_yields_an_empty_one() {
         // ARRANGE
         let raw = r#"
             [host]
@@ -155,10 +170,10 @@ mod tests {
         "#;
 
         // ACT
-        let error = build_inputs(raw).expect_err("missing version must fail");
+        let inputs = build_inputs(raw).expect("a missing version is not fatal here");
 
         // ASSERT
-        assert!(error.to_string().contains("host.version"), "got {error}");
+        assert_eq!(inputs.version, "");
     }
 
     #[test]

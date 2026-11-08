@@ -119,20 +119,39 @@ fn is_old_kernel(update_id: &str) -> bool {
 }
 
 fn isolating_change(previous: Option<&str>, next: &config::system::Config) -> bool {
-    let Some(raw) = previous else {
+    let Some(previous) = previous else {
         kmsg::warn!("Previous config is unreadable; treating the update as isolating");
         return true;
     };
 
-    match config::system::parse_from_str(raw) {
-        Ok(previous) => config::system::isolates(&previous, next),
+    let next = match config::system::serialize(next) {
+        Ok(serialized) => serialized,
         Err(error) => {
-            kmsg::warn!(
-                "Previous config could not be parsed ({error:#}); treating the update as isolating"
-            );
-            true
+            kmsg::warn!("Next config could not be serialized ({error:#}); skipping isolation");
+            return false;
         }
+    };
+
+    let (Some(previous), Some(next)) = (reachability(previous), reachability(&next)) else {
+        kmsg::warn!("A config document is not valid TOML; skipping isolation detection");
+        return false;
+    };
+
+    previous != next
+}
+
+fn reachability(raw: &str) -> Option<toml::Value> {
+    let document: toml::Value = toml::from_str(raw).ok()?;
+    let mut lifted = toml::value::Table::new();
+
+    if let Some(network) = document.get("network") {
+        lifted.insert("network".to_owned(), network.clone());
     }
+    if let Some(port) = document.get("host").and_then(|host| host.get("port")) {
+        lifted.insert("port".to_owned(), port.clone());
+    }
+
+    Some(toml::Value::Table(lifted))
 }
 
 /// Runs all health checks required to declare the update valid.
@@ -174,7 +193,7 @@ mod tests {
     use super::isolating_change;
 
     #[test]
-    fn unparseable_previous_config_is_treated_as_isolating() {
+    fn unparseable_previous_config_is_not_treated_as_isolating() {
         // ARRANGE
         let next = config::system::Config::default();
         let previous = "this is not a toml document";
@@ -183,7 +202,7 @@ mod tests {
         let isolating = isolating_change(Some(previous), &next);
 
         // ASSERT
-        assert!(isolating);
+        assert!(!isolating, "an unparseable document cannot be compared");
     }
 
     #[test]
@@ -196,5 +215,54 @@ mod tests {
 
         // ASSERT
         assert!(isolating);
+    }
+
+    #[test]
+    fn unchanged_reachability_is_not_isolating() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = config::system::serialize(&next).expect("default config serializes");
+
+        // ACT
+        let isolating = isolating_change(Some(&previous), &next);
+
+        // ASSERT
+        assert!(
+            !isolating,
+            "an identical reachability config must not isolate"
+        );
+    }
+
+    #[test]
+    fn api_port_change_of_a_future_schema_isolates() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = format!(
+            "api_version = \"muak.dev/config/v9-future\"\n\n[host]\nport = {}\n",
+            next.host.port + 1
+        );
+
+        // ACT
+        let isolating = isolating_change(Some(&previous), &next);
+
+        // ASSERT
+        assert!(isolating, "a port change must require confirmation");
+    }
+
+    #[test]
+    fn network_change_of_a_future_schema_isolates() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = format!(
+            "api_version = \"muak.dev/config/v9-future\"\n\n[host]\nport = {}\n\n\
+             [network]\nipv6 = {}\n",
+            next.host.port, !next.network.ipv6
+        );
+
+        // ACT
+        let isolating = isolating_change(Some(&previous), &next);
+
+        // ASSERT
+        assert!(isolating, "a network change must require confirmation");
     }
 }

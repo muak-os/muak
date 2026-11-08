@@ -14,7 +14,7 @@ use sha2::{Digest as _, Sha256};
 
 const STATE_CONFIG: &str = "/run/state/config.toml";
 const STATE_PREV: &str = "/run/state/config.prev";
-const UPDATE_HASH: &str = "/run/state/update/uki.sha256";
+const ESP_HASH: &str = "/run/state/update/esp.sha256";
 const ESP_MOUNT: &str = "/run/esp";
 const CMDLINE: &str = "/proc/cmdline";
 const UPDATE_ID_PREFIX: &str = "muak.update_id=";
@@ -35,20 +35,21 @@ pub(crate) fn handle(persistent: bool) {
 
     let prev_exists = Path::new(STATE_PREV).exists();
     let marker = marker_present();
-    let esp_matches = prev_exists && !marker && staged_matches_esp();
+    let esp_swapped = prev_exists && !marker && esp_swapped();
 
-    match decide(prev_exists, marker, esp_matches) {
+    match decide(prev_exists, marker, esp_swapped) {
         Decision::Skip => {}
         Decision::Restore => restore(),
         Decision::Commit => commit(),
     }
 }
 
-fn decide(prev_exists: bool, marker: bool, esp_matches: bool) -> Decision {
+// The recorded ESP hash proves nothing: only a changed boot file means the commit ran.
+fn decide(prev_exists: bool, marker: bool, esp_swapped: bool) -> Decision {
     if !prev_exists || marker {
         return Decision::Skip;
     }
-    if esp_matches {
+    if esp_swapped {
         Decision::Commit
     } else {
         Decision::Restore
@@ -81,15 +82,9 @@ fn marker_present() -> bool {
     }
 }
 
-fn staged_matches_esp() -> bool {
-    let expected = match fs::read_to_string(UPDATE_HASH) {
-        Ok(text) => text.trim().to_owned(),
-        Err(error) => {
-            if error.kind() != io::ErrorKind::NotFound {
-                kmsg::warn!("Failed to read {UPDATE_HASH}: {error}");
-            }
-            return false;
-        }
+fn esp_swapped() -> bool {
+    let Some(expected) = recorded_hash() else {
+        return false;
     };
 
     let Some(device) = discover::find_by_partname(Role::Esp.gpt_name())
@@ -101,10 +96,25 @@ fn staged_matches_esp() -> bool {
     };
 
     match read_esp_hash(&device) {
-        Ok(actual) => actual.eq_ignore_ascii_case(&expected),
+        Ok(actual) => !actual.eq_ignore_ascii_case(&expected),
         Err(error) => {
             kmsg::warn!("Failed to verify ESP boot file: {error:#}");
             false
+        }
+    }
+}
+
+fn recorded_hash() -> Option<String> {
+    match fs::read_to_string(ESP_HASH) {
+        Ok(text) => {
+            let recorded = text.trim();
+            (!recorded.is_empty()).then(|| recorded.to_owned())
+        }
+        Err(error) => {
+            if error.kind() != io::ErrorKind::NotFound {
+                kmsg::warn!("Failed to read {ESP_HASH}: {error}");
+            }
+            None
         }
     }
 }
@@ -171,10 +181,10 @@ mod tests {
         // ARRANGE
         let prev_exists = false;
         let marker = false;
-        let esp_matches = true;
+        let esp_swapped = true;
 
         // ACT
-        let decision = decide(prev_exists, marker, esp_matches);
+        let decision = decide(prev_exists, marker, esp_swapped);
 
         // ASSERT
         assert_eq!(decision, Decision::Skip);
@@ -185,10 +195,10 @@ mod tests {
         // ARRANGE
         let prev_exists = true;
         let marker = true;
-        let esp_matches = false;
+        let esp_swapped = true;
 
         // ACT
-        let decision = decide(prev_exists, marker, esp_matches);
+        let decision = decide(prev_exists, marker, esp_swapped);
 
         // ASSERT
         assert_eq!(decision, Decision::Skip);
@@ -199,38 +209,38 @@ mod tests {
         // ARRANGE
         let prev_exists = false;
         let marker = true;
-        let esp_matches = false;
+        let esp_swapped = false;
 
         // ACT
-        let decision = decide(prev_exists, marker, esp_matches);
+        let decision = decide(prev_exists, marker, esp_swapped);
 
         // ASSERT
         assert_eq!(decision, Decision::Skip);
     }
 
     #[test]
-    fn decide_restores_when_esp_still_holds_the_old_boot_file() {
+    fn decide_restores_when_the_esp_boot_file_is_unchanged() {
         // ARRANGE
         let prev_exists = true;
         let marker = false;
-        let esp_matches = false;
+        let esp_swapped = false;
 
         // ACT
-        let decision = decide(prev_exists, marker, esp_matches);
+        let decision = decide(prev_exists, marker, esp_swapped);
 
         // ASSERT
         assert_eq!(decision, Decision::Restore);
     }
 
     #[test]
-    fn decide_commits_when_esp_already_holds_the_staged_boot_file() {
+    fn decide_commits_when_the_esp_boot_file_changed() {
         // ARRANGE
         let prev_exists = true;
         let marker = false;
-        let esp_matches = true;
+        let esp_swapped = true;
 
         // ACT
-        let decision = decide(prev_exists, marker, esp_matches);
+        let decision = decide(prev_exists, marker, esp_swapped);
 
         // ASSERT
         assert_eq!(decision, Decision::Commit);

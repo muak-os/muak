@@ -41,7 +41,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
     resolve_status(
         update_id,
         journal::find(update_id).as_ref(),
-        snapshot::path().exists(),
+        snapshot::find_pending().is_some_and(|(pending, _)| pending == update_id),
     )
 }
 
@@ -139,9 +139,13 @@ fn resolve_status(update_id: &str, entry: Option<&Entry>, pending: bool) -> Upda
 }
 
 fn has_update_marker() -> bool {
-    std::fs::read_to_string("/proc/cmdline")
-        .unwrap_or_default()
-        .contains("muak.update_id=")
+    match std::fs::read_to_string("/proc/cmdline") {
+        Ok(cmdline) => cmdline.contains("muak.update_id="),
+        Err(error) => {
+            kmsg::warn!("Failed to read /proc/cmdline: {error}; assuming an update trial");
+            true
+        }
+    }
 }
 
 fn cleanup_stale() {

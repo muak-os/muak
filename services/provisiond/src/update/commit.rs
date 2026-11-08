@@ -68,6 +68,7 @@ pub async fn apply() -> Result<()> {
         uki_len,
         &mut uki_file,
     )?;
+    remove_previous_config();
     if let Some(ref key) = luks_key {
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", key)?;
     }
@@ -80,8 +81,6 @@ pub async fn apply() -> Result<()> {
     if !secureboot_enabled {
         secureboot::remove_hierarchy();
     }
-
-    remove_previous_config();
 
     if let Err(e) = std::fs::remove_dir_all(update_dir) {
         eprintln!("Failed to cleanup update work dir: {e}");

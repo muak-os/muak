@@ -217,16 +217,28 @@ fn request_payload(
     let doc_version = desired_version(&raw)
         .with_context(|| format!("no update target in '{}'", path.display()))?;
 
-    if let Some(explicit) = version
-        && explicit != doc_version
-    {
-        bail!(
-            "--version '{explicit}' does not match host.version '{doc_version}' in '{}'",
-            path.display()
-        );
-    }
+    let target = match doc_version {
+        Some(doc_version) => {
+            if let Some(explicit) = version
+                && explicit != doc_version
+            {
+                bail!(
+                    "--version '{explicit}' does not match host.version '{doc_version}' in '{}'",
+                    path.display()
+                );
+            }
 
-    config::version::check_no_downgrade(&doc_version, &installed.host.version)
+            doc_version
+        }
+        None => version.ok_or_else(|| {
+            anyhow::anyhow!(
+                "no update target in '{}': set host.version in the config or pass --version",
+                path.display()
+            )
+        })?,
+    };
+
+    config::version::check_no_downgrade(&target, &installed.host.version)
         .with_context(|| format!("version check failed for '{}'", path.display()))?;
 
     let warning = match config::system::parse_from_str(&raw) {
@@ -242,27 +254,21 @@ fn request_payload(
     };
 
     Ok(Payload {
-        version: doc_version,
+        version: target,
         config: raw.into_bytes(),
         warning,
     })
 }
 
-fn desired_version(raw: &str) -> Result<String> {
+fn desired_version(raw: &str) -> Result<Option<String>> {
     let document: toml::Value = toml::from_str(raw).context("config document is not valid TOML")?;
     let version = document
         .get("host")
         .and_then(|host| host.get("version"))
         .and_then(toml::Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "config document has no non-empty string 'host.version': set host.version in \
-                 the config or pass --version"
-            )
-        })?;
+        .filter(|value| !value.is_empty());
 
-    Ok(version.to_owned())
+    Ok(version.map(str::to_owned))
 }
 
 async fn wait_for_update_completion(
@@ -425,7 +431,7 @@ mod tests {
         let version = desired_version(raw).expect("unknown keys must not matter");
 
         // ASSERT
-        assert_eq!(version, "v1.2.0");
+        assert_eq!(version.as_deref(), Some("v1.2.0"));
     }
 
     #[test]
@@ -438,29 +444,60 @@ mod tests {
         let version = desired_version(raw).expect("the api_version must not matter");
 
         // ASSERT
-        assert_eq!(version, "v2.0.0");
+        assert_eq!(version.as_deref(), Some("v2.0.0"));
     }
 
     #[test]
-    fn desired_version_requires_a_usable_version() {
+    fn desired_version_ignores_an_unusable_version() {
         // ARRANGE
         let missing = "[host]\nname = \"muak\"\n";
         let empty = "[host]\nversion = \"\"\n";
         let not_a_string = "[host]\nversion = 3\n";
 
         // ACT
-        let errors = [
-            desired_version(missing).expect_err("missing host.version"),
-            desired_version(empty).expect_err("empty host.version"),
-            desired_version(not_a_string).expect_err("non-string host.version"),
+        let versions = [
+            desired_version(missing).expect("a missing version is tolerated"),
+            desired_version(empty).expect("an empty version is tolerated"),
+            desired_version(not_a_string).expect("a mistyped version is tolerated"),
         ];
 
         // ASSERT
-        for error in errors {
-            let message = error.to_string();
-            assert!(message.contains("host.version"), "{message}");
-            assert!(message.contains("--version"), "{message}");
-        }
+        assert_eq!(versions, [None, None, None]);
+    }
+
+    #[test]
+    fn request_payload_falls_back_to_the_explicit_version() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let raw = "api_version = \"muak.dev/config/v9-experimental\"\n\n\
+                   [host]\nname = \"muak\"\nregistry = \"ghcr.io/muak-os\"\n";
+        std::fs::write(&path, raw).unwrap();
+
+        // ACT
+        let payload = request_payload(Some("v1.2.0".to_owned()), Some(&path), &installed("v1.0.0"))
+            .expect("the explicit version must be used");
+
+        // ASSERT
+        assert_eq!(payload.version, "v1.2.0");
+        assert_eq!(payload.config, raw.as_bytes());
+    }
+
+    #[test]
+    fn request_payload_without_any_version_is_rejected() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, document("")).unwrap();
+
+        // ACT
+        let error = request_payload(None, Some(&path), &installed("v1.0.0"))
+            .expect_err("neither source provides a version");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("host.version"), "{message}");
+        assert!(message.contains("--version"), "{message}");
     }
 
     #[test]
