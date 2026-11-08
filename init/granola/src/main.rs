@@ -24,8 +24,6 @@ async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
 
-    config::init().context("Failed to initialize system configuration")?;
-
     let installed = Path::new(config::system::CONFIG_PATH).exists();
 
     if installed {
@@ -34,12 +32,7 @@ async fn main() -> Result<()> {
         kmsg::info!("!!! CURRENTLY IN MAINTENANCE MODE !!!");
     }
 
-    let port_str = config::system::host()
-        .context("Failed to load host configuration")?
-        .port
-        .to_string();
     let mut env: HashMap<&str, &str> = HashMap::new();
-    env.insert("PORT", &port_str);
     env.insert("MAINTENANCE", if installed { "false" } else { "true" });
 
     let services = loader::load(&env).context("Failed to load service definitions")?;

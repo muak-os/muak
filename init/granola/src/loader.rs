@@ -152,7 +152,7 @@ mod tests {
 
     fn env() -> HashMap<&'static str, &'static str> {
         let mut vars = HashMap::new();
-        vars.insert("PORT", "50051");
+        vars.insert("MAINTENANCE", "true");
         vars.insert("MODE", "normal");
         vars
     }
@@ -163,10 +163,10 @@ mod tests {
         let vars = env();
 
         // ACT
-        let result = substitute_vars("--port $PORT", &vars);
+        let result = substitute_vars("--maintenance $MAINTENANCE", &vars);
 
         // ASSERT
-        assert_eq!(result, "--port 50051");
+        assert_eq!(result, "--maintenance true");
     }
 
     #[test]
@@ -187,10 +187,10 @@ mod tests {
         let vars = env();
 
         // ACT
-        let result = substitute_vars("/sbin/apid --port $PORT --mode $MODE", &vars);
+        let result = substitute_vars("/sbin/apid --maintenance $MAINTENANCE --mode $MODE", &vars);
 
         // ASSERT
-        assert_eq!(result, "/sbin/apid --port 50051 --mode normal");
+        assert_eq!(result, "/sbin/apid --maintenance true --mode normal");
     }
 
     fn make_svc(name: &str, cmd: &str, deps: &[&str]) -> Service {
@@ -204,7 +204,11 @@ mod tests {
     #[test]
     fn prepare_applies_var_substitution() {
         // ARRANGE
-        let defs = vec![make_svc("apid", "/sbin/apid --port $PORT", &[])];
+        let defs = vec![make_svc(
+            "apid",
+            "/sbin/apid --maintenance $MAINTENANCE",
+            &[],
+        )];
         let vars = env();
 
         // ACT
@@ -213,7 +217,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             svcs.first().map(|svc| svc.command.as_str()),
-            Some("/sbin/apid --port 50051")
+            Some("/sbin/apid --maintenance true")
         );
     }
 
@@ -305,10 +309,10 @@ depends_on = []
         let vars = env();
 
         // ACT
-        let result = substitute_vars("héllo $PORT wörld", &vars);
+        let result = substitute_vars("héllo $MAINTENANCE wörld", &vars);
 
         // ASSERT
-        assert_eq!(result, "héllo 50051 wörld");
+        assert_eq!(result, "héllo true wörld");
     }
 
     #[test]
@@ -317,9 +321,9 @@ depends_on = []
         let vars = HashMap::new();
 
         // ACT
-        let result = substitute_vars("héllo $PORT wörld", &vars);
+        let result = substitute_vars("héllo $MAINTENANCE wörld", &vars);
 
         // ASSERT
-        assert_eq!(result, "héllo $PORT wörld");
+        assert_eq!(result, "héllo $MAINTENANCE wörld");
     }
 }

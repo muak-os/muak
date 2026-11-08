@@ -25,6 +25,9 @@ use crate::proxy::BackendPool;
 /// How often the accept loop re-checks for a shutdown request while idle.
 const ACCEPT_POLL: Duration = Duration::from_millis(100);
 
+/// Default listen port used when the system config is unavailable.
+pub const DEFAULT_PORT: u16 = 50051;
+
 /// Arguments parsed from command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
@@ -46,10 +49,8 @@ impl Args {
 /// Parses command line arguments into an Args struct.
 #[must_use]
 pub fn parse_args(args: &[String]) -> Args {
-    let default_listen = format!(
-        "0.0.0.0:{}",
-        config::system::config().map_or(0, |cfg| cfg.host.port)
-    );
+    let default_listen =
+        resolve_listen_addr(config::system::config().ok().map(|cfg| cfg.host.port));
 
     let listen_addr = args
         .iter()
@@ -68,6 +69,13 @@ pub fn parse_args(args: &[String]) -> Args {
         listen_addr,
         maintenance_mode,
     }
+}
+
+fn resolve_listen_addr(configured_port: Option<u16>) -> String {
+    let port = configured_port
+        .filter(|port| *port != 0)
+        .unwrap_or(DEFAULT_PORT);
+    format!("0.0.0.0:{port}")
 }
 
 /// Sets up TLS configuration based on the mode.
@@ -196,6 +204,54 @@ mod tests {
 
         assert_eq!(args2.listen_addr, "0.0.0.0:443");
         assert!(!args2.maintenance_mode);
+    }
+
+    #[test]
+    fn listen_addr_uses_configured_port() {
+        // ARRANGE
+        let configured = Some(8443_u16);
+
+        // ACT
+        let addr = resolve_listen_addr(configured);
+
+        // ASSERT
+        assert_eq!(addr, "0.0.0.0:8443");
+    }
+
+    #[test]
+    fn listen_addr_falls_back_to_default_port() {
+        // ARRANGE
+        let configured = None;
+
+        // ACT
+        let addr = resolve_listen_addr(configured);
+
+        // ASSERT
+        assert_eq!(addr, format!("0.0.0.0:{DEFAULT_PORT}"));
+    }
+
+    #[test]
+    fn listen_addr_never_uses_port_zero() {
+        // ARRANGE
+        let configured = Some(0_u16);
+
+        // ACT
+        let addr = resolve_listen_addr(configured);
+
+        // ASSERT
+        assert_eq!(addr, format!("0.0.0.0:{DEFAULT_PORT}"));
+        assert_ne!(DEFAULT_PORT, 0);
+    }
+
+    #[test]
+    fn default_port_matches_default_config() {
+        // ARRANGE
+
+        // ACT
+        let configured_port = config::system::Config::default().host.port;
+
+        // ASSERT
+        assert_eq!(configured_port, DEFAULT_PORT);
     }
 
     #[test]
