@@ -21,7 +21,7 @@ pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> 
     let previous = fs::read_to_string(snapshot_path).ok();
     let secureboot_enabled = previous
         .as_deref()
-        .and_then(snapshot::host_secureboot)
+        .and_then(|raw| config::document::secureboot(raw).ok().flatten())
         .or_else(|| config::system::host().ok().map(|host| host.secureboot))
         .unwrap_or(false);
 

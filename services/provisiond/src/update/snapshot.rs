@@ -39,27 +39,6 @@ pub fn path() -> PathBuf {
     PathBuf::from(CONFIG_PREV_PATH)
 }
 
-/// Lifts `host.version` from a config document without validating it.
-pub(crate) fn host_version(raw: &str) -> Option<String> {
-    let parsed = document(raw)?;
-    let host = parsed.get("host")?;
-
-    host.get("version")?.as_str().map(str::to_owned)
-}
-
-/// Lifts `host.secureboot` from a TOML document, defaulting to `false` when absent.
-pub(crate) fn host_secureboot(raw: &str) -> Option<bool> {
-    let parsed = document(raw)?;
-
-    Some(
-        parsed
-            .get("host")
-            .and_then(|host| host.get("secureboot"))
-            .and_then(toml::Value::as_bool)
-            .unwrap_or(false),
-    )
-}
-
 /// Restores the previous config by rename and records the rollback, returning journal success.
 pub fn restore(
     update_id: &str,
@@ -107,10 +86,6 @@ pub fn generate_id() -> String {
     format!("update-{timestamp}")
 }
 
-fn document(raw: &str) -> Option<toml::Value> {
-    toml::from_str(raw).ok()
-}
-
 fn pending_id(cmdline: &str, recorded: Option<&str>) -> String {
     if cmdline.contains(UPDATE_ID_PREFIX) {
         return update_id(cmdline);
@@ -131,9 +106,7 @@ fn update_id(cmdline: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        UNKNOWN_ID, generate_id, host_secureboot, host_version, path, pending_id, update_id,
-    };
+    use super::{UNKNOWN_ID, generate_id, path, pending_id, update_id};
 
     #[test]
     fn generate_id_has_expected_prefix() {
@@ -232,60 +205,5 @@ mod tests {
 
         // ASSERT
         assert_eq!(id, UNKNOWN_ID);
-    }
-
-    #[test]
-    fn lifting_ignores_unknown_keys() {
-        // ARRANGE
-        let raw = r#"
-            [host]
-            version = "v1.2.0"
-            secureboot = true
-            unknown_field = "ignored"
-
-            [future_section]
-            mode = "turbo"
-        "#;
-
-        // ACT
-        let version = host_version(raw);
-        let secureboot = host_secureboot(raw);
-
-        // ASSERT
-        assert_eq!(version.as_deref(), Some("v1.2.0"));
-        assert_eq!(secureboot, Some(true));
-    }
-
-    #[test]
-    fn lifting_tolerates_a_future_api_version() {
-        // ARRANGE
-        let raw = r#"
-            api_version = "muak.dev/config/v9-future"
-
-            [host]
-            version = "v2.0.0"
-        "#;
-
-        // ACT
-        let version = host_version(raw);
-        let secureboot = host_secureboot(raw);
-
-        // ASSERT
-        assert_eq!(version.as_deref(), Some("v2.0.0"));
-        assert_eq!(secureboot, Some(false));
-    }
-
-    #[test]
-    fn lifting_a_non_toml_document_yields_nothing() {
-        // ARRANGE
-        let raw = "this is not a toml document";
-
-        // ACT
-        let version = host_version(raw);
-        let secureboot = host_secureboot(raw);
-
-        // ASSERT
-        assert_eq!(version, None);
-        assert_eq!(secureboot, None);
     }
 }

@@ -104,7 +104,7 @@ fn warn_on_version_mismatch() {
     let Ok(raw) = std::fs::read_to_string(config::system::CONFIG_PATH) else {
         return;
     };
-    let Some(staged) = snapshot::host_version(&raw) else {
+    let Ok(Some(staged)) = config::document::version(&raw) else {
         return;
     };
 

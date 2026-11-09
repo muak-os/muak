@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use tokio::sync::Notify;
 
-use super::{UPDATE_DIR, commit, readiness, rollback, snapshot};
+use super::{UPDATE_DIR, commit, readiness, rollback};
 use crate::medium;
 
 static CLI_CONTACT: Notify = Notify::const_new();
@@ -16,7 +16,7 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let previous = std::fs::read_to_string(snapshot_path).ok();
     let old_version = previous
         .as_deref()
-        .and_then(snapshot::host_version)
+        .and_then(|raw| config::document::version(raw).ok().flatten())
         .unwrap_or_else(|| "unknown".to_owned());
     let target_version = medium::version().unwrap_or_else(|error| {
         kmsg::warn!("Failed to read the booted artifact version: {error:#}");
@@ -132,26 +132,15 @@ fn isolating_change(previous: Option<&str>, next: &config::system::Config) -> bo
         }
     };
 
-    let (Some(previous), Some(next)) = (reachability(previous), reachability(&next)) else {
+    let (Ok(previous), Ok(next)) = (
+        config::document::reachability(previous),
+        config::document::reachability(&next),
+    ) else {
         kmsg::warn!("A config document is not valid TOML; skipping isolation detection");
         return false;
     };
 
     previous != next
-}
-
-fn reachability(raw: &str) -> Option<toml::Value> {
-    let document: toml::Value = toml::from_str(raw).ok()?;
-    let mut lifted = toml::value::Table::new();
-
-    if let Some(network) = document.get("network") {
-        lifted.insert("network".to_owned(), network.clone());
-    }
-    if let Some(port) = document.get("host").and_then(|host| host.get("port")) {
-        lifted.insert("port".to_owned(), port.clone());
-    }
-
-    Some(toml::Value::Table(lifted))
 }
 
 /// Runs all health checks required to declare the update valid.

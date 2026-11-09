@@ -261,14 +261,7 @@ fn request_payload(
 }
 
 fn desired_version(raw: &str) -> Result<Option<String>> {
-    let document: toml::Value = toml::from_str(raw).context("config document is not valid TOML")?;
-    let version = document
-        .get("host")
-        .and_then(|host| host.get("version"))
-        .and_then(toml::Value::as_str)
-        .filter(|value| !value.is_empty());
-
-    Ok(version.map(str::to_owned))
+    config::document::version(raw).map_err(Into::into)
 }
 
 async fn wait_for_update_completion(
@@ -448,21 +441,45 @@ mod tests {
     }
 
     #[test]
-    fn desired_version_ignores_an_unusable_version() {
+    fn desired_version_ignores_a_missing_or_empty_version() {
         // ARRANGE
         let missing = "[host]\nname = \"muak\"\n";
         let empty = "[host]\nversion = \"\"\n";
-        let not_a_string = "[host]\nversion = 3\n";
 
         // ACT
         let versions = [
             desired_version(missing).expect("a missing version is tolerated"),
             desired_version(empty).expect("an empty version is tolerated"),
-            desired_version(not_a_string).expect("a mistyped version is tolerated"),
         ];
 
         // ASSERT
-        assert_eq!(versions, [None, None, None]);
+        assert_eq!(versions, [None, None]);
+    }
+
+    #[test]
+    fn desired_version_rejects_a_mistyped_version() {
+        // ARRANGE
+        let raw = "[host]\nversion = 3\n";
+
+        // ACT
+        let error = desired_version(raw).expect_err("a mistyped version must fail");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("host.version"), "{message}");
+        assert!(message.contains("integer"), "{message}");
+    }
+
+    #[test]
+    fn desired_version_rejects_an_invalid_document() {
+        // ARRANGE
+        let raw = "this is not a toml document";
+
+        // ACT
+        let error = desired_version(raw).expect_err("invalid TOML must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains("parse"), "{error}");
     }
 
     #[test]

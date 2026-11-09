@@ -21,48 +21,12 @@ pub(crate) struct BuildInputs {
 ///
 /// Returns an error when the document is not TOML or a lifted field is mistyped.
 pub(crate) fn build_inputs(raw: &str) -> Result<BuildInputs> {
-    let document: toml::Value = toml::from_str(raw).context("Invalid config document")?;
-    let host = document.get("host");
-
-    let registry = scalar(host, "registry")?.with_context(|| "host.registry must be specified")?;
-
     Ok(BuildInputs {
-        registry,
-        version: scalar(host, "version")?.unwrap_or_default(),
-        extensions: extensions(host),
-        secureboot: boolean(host, "secureboot")?,
+        registry: config::document::registry(raw)?.context("host.registry must be specified")?,
+        version: config::document::version(raw)?.unwrap_or_default(),
+        extensions: config::document::extensions(raw)?,
+        secureboot: config::document::secureboot(raw)?.unwrap_or(false),
     })
-}
-
-fn scalar(host: Option<&toml::Value>, field: &str) -> Result<Option<String>> {
-    let Some(value) = host.and_then(|host| host.get(field)) else {
-        return Ok(None);
-    };
-    let text = value
-        .as_str()
-        .with_context(|| format!("host.{field} must be a string"))?;
-
-    Ok((!text.is_empty()).then(|| text.to_owned()))
-}
-
-fn boolean(host: Option<&toml::Value>, field: &str) -> Result<bool> {
-    match host.and_then(|host| host.get(field)) {
-        None => Ok(false),
-        Some(value) => value
-            .as_bool()
-            .with_context(|| format!("host.{field} must be a boolean")),
-    }
-}
-
-fn extensions(host: Option<&toml::Value>) -> Vec<String> {
-    host.and_then(|host| host.get("extensions"))
-        .and_then(|value| value.as_array())
-        .map_or_default(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect()
-        })
 }
 
 #[cfg(test)]

@@ -1322,7 +1322,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-stream",
- "toml",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
