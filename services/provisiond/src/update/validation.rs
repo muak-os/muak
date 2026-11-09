@@ -132,15 +132,13 @@ fn isolating_change(previous: Option<&str>, next: &config::system::Config) -> bo
         }
     };
 
-    let (Ok(previous), Ok(next)) = (
-        config::document::reachability(previous),
-        config::document::reachability(&next),
-    ) else {
-        kmsg::warn!("A config document is not valid TOML; skipping isolation detection");
-        return false;
-    };
-
-    previous != next
+    match config::document::isolates(previous, &next) {
+        Ok(isolating) => isolating,
+        Err(error) => {
+            kmsg::warn!("A config document is not valid TOML ({error:#}); skipping isolation");
+            false
+        }
+    }
 }
 
 /// Runs all health checks required to declare the update valid.

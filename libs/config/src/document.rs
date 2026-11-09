@@ -1,8 +1,4 @@
 //! Schema-tolerant lifting of individual fields from a config document.
-//!
-//! These helpers read a few top-level fields without deserializing into
-//! [`crate::system::Config`], so a document written for another `api_version`
-//! still answers them.
 
 use crate::error::{ConfigError, Result};
 
@@ -102,6 +98,15 @@ pub fn reachability(raw: &str) -> Result<Reachability> {
     })
 }
 
+/// Reports whether two documents differ in reachability-relevant fields.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::ParseError`] when either document is not TOML.
+pub fn isolates(previous: &str, next: &str) -> Result<bool> {
+    Ok(reachability(previous)? != reachability(next)?)
+}
+
 fn parse(raw: &str) -> Result<toml::Value> {
     Ok(toml::from_str(raw)?)
 }
@@ -126,7 +131,7 @@ fn text(value: Option<&toml::Value>, field: &str) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extensions, reachability, registry, secureboot, version};
+    use super::{extensions, isolates, reachability, registry, secureboot, version};
     use crate::error::ConfigError;
 
     const MINIMAL: &str = r#"
@@ -313,5 +318,83 @@ mod tests {
 
         // ASSERT
         assert_ne!(previous, next);
+    }
+
+    #[test]
+    fn a_network_change_isolates() {
+        // ARRANGE
+        let previous = "[host]\nport = 50051\n\n[network]\ndns = [\"1.1.1.1\"]\n";
+        let next = "[host]\nport = 50051\n\n[network]\ndns = [\"9.9.9.9\"]\n";
+
+        // ACT
+        let isolating = isolates(previous, next).expect("both documents must parse");
+
+        // ASSERT
+        assert!(isolating, "a network change must isolate");
+    }
+
+    #[test]
+    fn a_port_change_isolates() {
+        // ARRANGE
+        let previous = "[host]\nport = 50051\n\n[network]\ndns = [\"1.1.1.1\"]\n";
+        let next = "[host]\nport = 50052\n\n[network]\ndns = [\"1.1.1.1\"]\n";
+
+        // ACT
+        let isolating = isolates(previous, next).expect("both documents must parse");
+
+        // ASSERT
+        assert!(isolating, "a port change must isolate");
+    }
+
+    #[test]
+    fn unrelated_field_changes_do_not_isolate() {
+        // ARRANGE
+        let previous = "[host]\nport = 50051\nname = \"old\"\nversion = \"v1.0.0\"\n\n\
+                        [network]\ndns = [\"1.1.1.1\"]\ninterfaces = [\"eth0\"]\n\n\
+                        [vm]\ncpus = 2\n\n\
+                        [[disks]]\ndevice = \"/dev/vda\"\n";
+        let next = "[host]\nport = 50051\nname = \"new\"\nversion = \"v2.0.0\"\n\n\
+                    [network]\ninterfaces = [\"eth0\"]\ndns = [\"1.1.1.1\"]\n\n\
+                    [vm]\ncpus = 4\n\n\
+                    [[disks]]\ndevice = \"/dev/vdb\"\n";
+
+        // ACT
+        let isolating = isolates(previous, next).expect("both documents must parse");
+
+        // ASSERT
+        assert!(!isolating, "unrelated fields must not isolate");
+    }
+
+    #[test]
+    fn identical_documents_do_not_isolate() {
+        // ARRANGE
+        let raw = "[host]\nport = 50051\n\n[network]\ndns = [\"1.1.1.1\"]\n";
+
+        // ACT
+        let isolating = isolates(raw, raw).expect("both documents must parse");
+
+        // ASSERT
+        assert!(!isolating, "an identical document must not isolate");
+    }
+
+    #[test]
+    fn an_invalid_document_fails_to_compare() {
+        // ARRANGE
+        let raw = "this is not a toml document";
+        let valid = "[host]\nport = 50051\n";
+
+        // ACT
+        let previous_error = isolates(raw, valid).expect_err("invalid TOML must fail");
+        let next_error = isolates(valid, raw).expect_err("invalid TOML must fail");
+
+        // ASSERT
+        assert!(
+            matches!(previous_error, ConfigError::ParseError(_)),
+            "got {previous_error}"
+        );
+        assert!(
+            matches!(next_error, ConfigError::ParseError(_)),
+            "got {next_error}"
+        );
     }
 }
