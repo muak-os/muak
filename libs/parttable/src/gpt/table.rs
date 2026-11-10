@@ -26,9 +26,7 @@ impl Table {
     ///
     /// Returns an error when the disk is too small for a GPT.
     pub fn create(sector_count: u64, sector_size: u64, disk_guid: [u8; 16]) -> Result<Self> {
-        let entries_sectors = u64::from(ENTRY_SIZE)
-            .saturating_mul(u64::try_from(ENTRIES_COUNT).unwrap_or(0))
-            .div_ceil(sector_size);
+        let entries_sectors = entries_sector_count(sector_size);
         let first_usable = 2_u64.saturating_add(entries_sectors);
         let last_usable = sector_count
             .checked_sub(entries_sectors)
@@ -110,9 +108,7 @@ impl Table {
     /// (partition entries + header) should be placed.
     #[must_use]
     pub fn backup_data_offset(&self, sector_count: u64) -> u64 {
-        let entries_size =
-            u64::from(ENTRY_SIZE).saturating_mul(u64::try_from(ENTRIES_COUNT).unwrap_or(0));
-        let entries_sectors = entries_size.div_ceil(self.sector_size);
+        let entries_sectors = entries_sector_count(self.sector_size);
         sector_count
             .saturating_sub(1)
             .saturating_sub(entries_sectors)
@@ -225,6 +221,13 @@ impl Table {
 
         Ok(())
     }
+}
+
+/// Returns the number of sectors occupied by the GPT partition entry array.
+pub(crate) fn entries_sector_count(sector_size: u64) -> u64 {
+    u64::from(ENTRY_SIZE)
+        .saturating_mul(u64::try_from(ENTRIES_COUNT).unwrap_or(0))
+        .div_ceil(sector_size)
 }
 
 fn slot_number(index: usize) -> u32 {

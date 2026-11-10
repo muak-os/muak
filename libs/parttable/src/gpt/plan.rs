@@ -1,7 +1,7 @@
 //! Shared GPT planning.
 
 use super::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest};
-use super::table::{ENTRIES_COUNT, Table};
+use super::table::{Table, entries_sector_count};
 use crate::error::{ParttableError, Result};
 
 /// The standard 512-byte sector size used across Muak disk images.
@@ -45,12 +45,6 @@ pub fn smallest_disk(
             Err(err) => return Err(err),
         }
     }
-}
-
-fn entries_sector_count(sector_size: u64) -> u64 {
-    u64::from(super::table::ENTRY_SIZE)
-        .saturating_mul(u64::try_from(ENTRIES_COUNT).unwrap_or(0))
-        .div_ceil(sector_size)
 }
 
 fn growth_overflow_error() -> ParttableError {
