@@ -14,9 +14,6 @@ categories.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 tokio-stream = { workspace = true }
 
-# Cryptography
-sha2 = { workspace = true }
-
 # Encoding
 serde = { workspace = true }
 toml = { workspace = true }

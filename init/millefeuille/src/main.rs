@@ -6,7 +6,6 @@
 
 extern crate alloc;
 
-mod config;
 mod modules;
 mod mount;
 mod selinux;
@@ -59,8 +58,6 @@ fn run() -> Result<()> {
     } else {
         kmsg::info!("No valid persistent state found (maintenance mode)");
     }
-
-    config::handle(persistent);
 
     mount::bridge();
     kmsg::info!("Boot metadata bridged to {}", mount::BOOT_DIR);

@@ -27,7 +27,7 @@ use tonic::transport::Server;
 #[granola::service("provisiond")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
-    update::restore_unreadable_config();
+    update::resolve_pending_config();
 
     config::init().context("Failed to initialize system configuration")?;
 

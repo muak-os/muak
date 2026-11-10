@@ -7,6 +7,7 @@ mod failure;
 pub mod kexec;
 mod progress;
 mod readiness;
+mod recovery;
 pub(crate) mod rollback;
 mod secureboot;
 pub(super) mod snapshot;
@@ -16,7 +17,7 @@ mod validation;
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use rustix::system::RebootCommand;
+pub(crate) use recovery::resolve_pending_config;
 use wizard::cache::Strategy;
 
 use crate::journal::{self, ChangeKind, Entry};
@@ -75,30 +76,6 @@ pub fn check_and_handle_pending_validation() {
             kmsg::warn!("Pending validation failed: {:#}", e);
         }
     });
-}
-
-/// Restores the previous config when the installed one is unreadable.
-pub(crate) fn restore_unreadable_config() {
-    if !Path::new(snapshot::CONFIG_PREV_PATH).exists() {
-        return;
-    }
-
-    let Err(error) = config::system::load_from_path(Path::new(config::system::CONFIG_PATH)) else {
-        return;
-    };
-
-    kmsg::error!("Installed config is unreadable ({error:#}); restoring the previous config");
-    if let Err(error) = std::fs::rename(snapshot::CONFIG_PREV_PATH, config::system::CONFIG_PATH) {
-        kmsg::error!("Failed to restore the previous config: {error}");
-        return;
-    }
-
-    rustix::fs::sync();
-    kmsg::info!("Previous config restored; rebooting to retry the boot");
-
-    if let Err(error) = rustix::system::reboot(RebootCommand::Restart) {
-        kmsg::error!("Failed to reboot after restoring the previous config: {error}");
-    }
 }
 
 /// Validates and returns the requested update target release.

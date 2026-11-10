@@ -144,7 +144,6 @@ async fn prepare_inner(
     .await;
 
     let update_id = snapshot::generate_id();
-    stage::esp_hash(&staging_dir);
     stage::config(&update_id, &inputs.version, new_config, author)?;
 
     sync();
