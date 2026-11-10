@@ -5,12 +5,11 @@ use std::path::Path;
 
 use crate::error::{Result, Tpm2Error};
 use crate::response::ResponseReader;
+use crate::tags::{TPM2_ST_NO_SESSIONS, TPM2_ST_SESSIONS};
 
 const TPM_DEVICE: &str = "/dev/tpmrm0";
 const MAX_RESPONSE_SIZE: usize = 4096;
 const RESPONSE_HEADER_SIZE: usize = 10;
-const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
-const TPM2_ST_SESSIONS: u16 = 0x8002;
 
 /// An open handle to the TPM resource manager.
 pub(crate) type Device = std::fs::File;

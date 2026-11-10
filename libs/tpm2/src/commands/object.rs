@@ -9,8 +9,8 @@ use crate::buffer::CommandBuffer;
 use crate::error::Result;
 use crate::handles::{HierarchyHandle, PersistentHandle, SessionHandle, TransientHandle};
 use crate::response::ResponseBody;
+use crate::tags::TPM2_ST_SESSIONS;
 
-const TPM2_ST_SESSIONS: u16 = 0x8002;
 const TPM2_CC_CREATE_PRIMARY: u32 = 0x0000_0131;
 const TPM2_CC_CREATE: u32 = 0x0000_0153;
 const TPM2_CC_LOAD: u32 = 0x0000_0157;

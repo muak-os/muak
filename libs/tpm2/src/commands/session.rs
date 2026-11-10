@@ -6,8 +6,8 @@ use crate::error::{Result, Tpm2Error};
 use crate::handles::{HierarchyHandle, SessionHandle};
 use crate::pcr::pcr11_selection_bytes;
 use crate::response::ResponseBody;
+use crate::tags::TPM2_ST_NO_SESSIONS;
 
-const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
 const TPM2_CC_FLUSH_CONTEXT: u32 = 0x0000_0165;
 const TPM2_CC_START_AUTH_SESSION: u32 = 0x0000_0176;
 const TPM2_CC_POLICY_PCR: u32 = 0x0000_017F;

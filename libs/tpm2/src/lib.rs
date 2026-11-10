@@ -12,3 +12,4 @@ mod handles;
 pub mod operations;
 pub mod pcr;
 mod response;
+mod tags;

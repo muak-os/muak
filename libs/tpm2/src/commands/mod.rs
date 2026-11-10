@@ -45,6 +45,7 @@ mod tests {
 
     use super::*;
     use crate::error::Tpm2Error;
+    use crate::tags::TPM2_ST_NO_SESSIONS;
 
     #[derive(Default)]
     struct MockDevice {
@@ -86,7 +87,7 @@ mod tests {
     impl TpmCommand for MockCommand {
         type Output = u32;
 
-        const TAG: u16 = 0x8001;
+        const TAG: u16 = TPM2_ST_NO_SESSIONS;
         const COMMAND_CODE: u32 = 0x0000_00FF;
 
         fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
@@ -104,7 +105,7 @@ mod tests {
     impl TpmCommand for FailingCommand {
         type Output = ();
 
-        const TAG: u16 = 0x8001;
+        const TAG: u16 = TPM2_ST_NO_SESSIONS;
         const COMMAND_CODE: u32 = 0x0000_00EE;
 
         fn encode(&self, _command: &mut CommandBuffer) -> Result<()> {
@@ -121,7 +122,7 @@ mod tests {
             .checked_add(body.len())
             .expect("response size should fit usize");
         let mut out = Vec::with_capacity(size);
-        out.extend_from_slice(&0x8001_u16.to_be_bytes());
+        out.extend_from_slice(&TPM2_ST_NO_SESSIONS.to_be_bytes());
         out.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
         out.extend_from_slice(&0_u32.to_be_bytes());
         out.extend_from_slice(body);
@@ -143,7 +144,7 @@ mod tests {
         assert_eq!(result.ok(), Some(0xDEAD_BEEF), "decoded value should match");
         assert_eq!(
             dev.written.get(0..2),
-            Some(0x8001_u16.to_be_bytes().as_slice()),
+            Some(TPM2_ST_NO_SESSIONS.to_be_bytes().as_slice()),
             "command tag should be written"
         );
         assert_eq!(

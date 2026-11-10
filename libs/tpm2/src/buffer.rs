@@ -72,11 +72,12 @@ pub(crate) fn u32_len(len: usize) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tags::TPM2_ST_NO_SESSIONS;
 
     #[test]
     fn command_buffer_finalizes_header_size() {
         // ARRANGE
-        let mut command = CommandBuffer::new(0x8001, 0x0000_0165);
+        let mut command = CommandBuffer::new(TPM2_ST_NO_SESSIONS, 0x0000_0165);
         command.write_u8(0xAA);
         command.write_u16(0xBBCC);
         command.write_u32(0xDDEE_FF00);
@@ -97,7 +98,7 @@ mod tests {
         );
         assert_eq!(
             finalized.get(0..2),
-            Some(0x8001_u16.to_be_bytes().as_slice()),
+            Some(TPM2_ST_NO_SESSIONS.to_be_bytes().as_slice()),
             "tag should match"
         );
         assert_eq!(
@@ -116,7 +117,7 @@ mod tests {
     fn write_sized_rejects_oversized_payload() {
         // ARRANGE
         let oversized = vec![0_u8; usize::from(u16::MAX) + 1];
-        let mut command = CommandBuffer::new(0x8001, 0x0000_0165);
+        let mut command = CommandBuffer::new(TPM2_ST_NO_SESSIONS, 0x0000_0165);
 
         // ACT
         let result = command.write_sized(&oversized);

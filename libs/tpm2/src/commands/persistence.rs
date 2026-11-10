@@ -6,9 +6,8 @@ use crate::buffer::CommandBuffer;
 use crate::error::Result;
 use crate::handles::{HierarchyHandle, PersistentHandle, TransientHandle};
 use crate::response::ResponseBody;
+use crate::tags::{TPM2_ST_NO_SESSIONS, TPM2_ST_SESSIONS};
 
-const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
-const TPM2_ST_SESSIONS: u16 = 0x8002;
 const TPM2_CC_EVICT_CONTROL: u32 = 0x0000_0120;
 const TPM2_CC_GET_CAPABILITY: u32 = 0x0000_017A;
 const TPM2_CAP_HANDLES: u32 = 0x0000_0001;

@@ -142,7 +142,8 @@ mod tests {
 
     use super::*;
     use crate::commands::TpmCommand as _;
-    const TPM2_ST_NO_SESSIONS: u16 = 0x8001;
+    use crate::tags::{TPM2_ST_NO_SESSIONS, TPM2_ST_SESSIONS};
+
     const TPM2_CAP_HANDLES: u32 = 0x0000_0001;
 
     #[derive(Default)]
@@ -374,7 +375,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             CreatePrimaryCommand::TAG,
-            0x8002,
+            TPM2_ST_SESSIONS,
             "create primary tag should match"
         );
         assert_eq!(
