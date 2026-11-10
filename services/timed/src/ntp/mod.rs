@@ -6,9 +6,11 @@ use core::time::Duration;
 use std::net::ToSocketAddrs as _;
 
 use anyhow::{Result, bail};
-use rustix::time::{ClockId, Timespec, clock_gettime, clock_settime};
+use rustix::time::Timespec;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
+
+use crate::clock;
 
 /// NTP packet size in bytes (fixed 48-byte structure).
 const NTP_PACKET_SIZE: usize = 48;
@@ -98,12 +100,7 @@ pub async fn sync(server: &str) -> Result<Duration> {
 
     let server_time = parse_response(&buf)?;
 
-    let before = clock_gettime(ClockId::Realtime);
-
-    clock_settime(ClockId::Realtime, server_time)?;
-
-    let offset_secs = server_time.tv_sec.abs_diff(before.tv_sec);
-    let offset = Duration::from_secs(offset_secs);
+    let offset = clock::step(server_time)?;
 
     Ok(offset)
 }

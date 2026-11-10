@@ -6,6 +6,7 @@
 
 extern crate alloc;
 
+mod clock;
 mod hypervisor;
 mod ntp;
 mod source;
