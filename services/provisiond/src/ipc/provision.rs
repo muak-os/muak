@@ -100,7 +100,7 @@ impl ProvisionService for ServiceImpl {
         let (inputs, new_config) = if req.config.is_empty() {
             let version = update::resolve_target(&installed.host.version, &req.version)
                 .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
-            let inputs = update::document::BuildInputs {
+            let inputs = config::document::HostSpec {
                 registry: installed.host.registry.clone(),
                 version,
                 extensions: installed.host.extensions.clone(),
@@ -111,11 +111,11 @@ impl ProvisionService for ServiceImpl {
         } else {
             let raw = String::from_utf8(req.config)
                 .map_err(|e| Status::invalid_argument(format!("Config is not valid UTF-8: {e}")))?;
+            let requested = (!req.version.is_empty()).then_some(req.version.as_str());
 
-            let mut inputs = update::document::build_inputs(&raw)
+            let inputs = config::document::host_spec(&raw, requested)
                 .map_err(|e| Status::invalid_argument(format!("Invalid config: {e:#}")))?;
 
-            inputs.version = document_version(&inputs.version, &req.version)?;
             check_against_installed(&raw, installed)?;
 
             config::version::check_no_downgrade(&inputs.version, &installed.host.version)
@@ -467,26 +467,6 @@ fn wipe_response(refusal: Option<String>, disk: Disk, checks: Vec<Check>) -> Wip
     }
 }
 
-fn document_version(staged: &str, requested: &str) -> Result<String, Status> {
-    if requested.is_empty() {
-        if staged.is_empty() {
-            return Err(Status::invalid_argument(
-                "host.version must be specified in the config or with --version",
-            ));
-        }
-
-        return Ok(staged.to_owned());
-    }
-
-    if !staged.is_empty() && staged != requested {
-        return Err(Status::invalid_argument(format!(
-            "version '{requested}' does not match host.version '{staged}' in the config"
-        )));
-    }
-
-    Ok(requested.to_owned())
-}
-
 fn check_against_installed(raw: &str, installed: &config::system::Config) -> Result<(), Status> {
     let Ok(candidate) = config::system::parse_from_str(raw) else {
         return Ok(());
@@ -539,54 +519,6 @@ mod tests {
             size_bytes: 1024,
             ..Disk::default()
         }
-    }
-
-    #[test]
-    fn requested_version_fills_a_document_without_one() {
-        // ARRANGE
-        let staged = "";
-        let requested = "v2.0.0";
-
-        // ACT
-        let version = document_version(staged, requested).expect("the request version wins");
-
-        // ASSERT
-        assert_eq!(version, "v2.0.0");
-    }
-
-    #[test]
-    fn disagreeing_requested_version_is_rejected() {
-        // ARRANGE
-        let staged = "v2.0.0";
-        let requested = "v2.1.0";
-
-        // ACT
-        let status = document_version(staged, requested)
-            .expect_err("a disagreeing version must be rejected");
-
-        // ASSERT
-        assert_eq!(status.code(), tonic::Code::InvalidArgument);
-        assert!(status.message().contains("v2.0.0"), "{}", status.message());
-        assert!(status.message().contains("v2.1.0"), "{}", status.message());
-    }
-
-    #[test]
-    fn absent_version_in_both_sources_is_rejected() {
-        // ARRANGE
-        let staged = "";
-        let requested = "";
-
-        // ACT
-        let status =
-            document_version(staged, requested).expect_err("a missing version must be rejected");
-
-        // ASSERT
-        assert_eq!(status.code(), tonic::Code::InvalidArgument);
-        assert!(
-            status.message().contains("host.version"),
-            "{}",
-            status.message()
-        );
     }
 
     #[test]

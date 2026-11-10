@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
 use blockdev::discover;
+use config::document::HostSpec;
 use config::system;
 use rustix::fs::sync;
 use tokio::sync::mpsc;
@@ -14,7 +15,6 @@ use wizard::cache::Strategy;
 use wizard::domain::profile::{CustomizationSpec, Profile};
 use wizard::request::Request;
 
-use super::document::BuildInputs;
 use super::{UPDATE_DIR, failure, progress, secureboot, snapshot, stage};
 use crate::disk::roles;
 use crate::ipc::proto::provision::PrepareUpdateProgress;
@@ -22,7 +22,7 @@ use crate::{cache, disk, medium, streaming};
 
 /// Prepares an update by staging the UKI components via the wizard.
 pub(crate) async fn prepare(
-    inputs: &BuildInputs,
+    inputs: &HostSpec,
     new_config: Option<Vec<u8>>,
     author: &str,
     strategy: Strategy,
@@ -38,7 +38,7 @@ pub(crate) async fn prepare(
 }
 
 async fn prepare_inner(
-    inputs: &BuildInputs,
+    inputs: &HostSpec,
     new_config: Option<Vec<u8>>,
     author: &str,
     strategy: Strategy,

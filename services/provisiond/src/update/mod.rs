@@ -2,7 +2,6 @@
 
 pub(crate) mod build;
 mod commit;
-pub(crate) mod document;
 mod failure;
 pub mod kexec;
 mod progress;

@@ -9,6 +9,39 @@ pub struct Reachability {
     port: Option<String>,
 }
 
+/// Subset of host fields an update build needs from a config document.
+#[derive(Debug, PartialEq, Eq)]
+pub struct HostSpec {
+    /// Registry serving the catalog.
+    pub registry: String,
+    /// Resolved target catalog release.
+    pub version: String,
+    /// Requested system extension images.
+    pub extensions: Vec<String>,
+    /// Whether the build must ship a Secure Boot signed UKI.
+    pub secureboot: bool,
+}
+
+/// Projects the update build inputs from `raw`, resolving the target version.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::ParseError`] when the document is not TOML,
+/// [`ConfigError::ValidationError`] when `host.registry` is absent or empty or a
+/// lifted field is mistyped, and when no single target version can be resolved.
+pub fn host_spec(raw: &str, requested_version: Option<&str>) -> Result<HostSpec> {
+    let declared = version(raw)?;
+
+    Ok(HostSpec {
+        registry: registry(raw)?.ok_or_else(|| {
+            ConfigError::ValidationError("host.registry must be specified".to_owned())
+        })?,
+        version: target_version(declared.as_deref(), requested_version)?,
+        extensions: extensions(raw)?,
+        secureboot: secureboot(raw)?.unwrap_or(false),
+    })
+}
+
 /// Returns `host.version`, or `None` when it is absent or empty.
 ///
 /// # Errors
@@ -107,6 +140,21 @@ pub fn isolates(previous: &str, next: &str) -> Result<bool> {
     Ok(reachability(previous)? != reachability(next)?)
 }
 
+fn target_version(document: Option<&str>, requested: Option<&str>) -> Result<String> {
+    match (document, requested) {
+        (Some(document), Some(requested)) if document != requested => {
+            Err(ConfigError::ValidationError(format!(
+                "version '{requested}' does not match host.version '{document}' in the config"
+            )))
+        }
+        (_, Some(requested)) => Ok(requested.to_owned()),
+        (Some(document), None) => Ok(document.to_owned()),
+        (None, None) => Err(ConfigError::ValidationError(
+            "host.version must be specified in the config or with --version".to_owned(),
+        )),
+    }
+}
+
 fn parse(raw: &str) -> Result<toml::Value> {
     Ok(toml::from_str(raw)?)
 }
@@ -131,7 +179,9 @@ fn text(value: Option<&toml::Value>, field: &str) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extensions, isolates, reachability, registry, secureboot, version};
+    use super::{
+        HostSpec, extensions, host_spec, isolates, reachability, registry, secureboot, version,
+    };
     use crate::error::ConfigError;
 
     const MINIMAL: &str = r#"
@@ -161,6 +211,150 @@ mod tests {
         assert_eq!(lifted_registry.as_deref(), Some("ghcr.io/muak-os"));
         assert_eq!(lifted_extensions, ["gpu"]);
         assert_eq!(lifted_secureboot, Some(true));
+    }
+
+    #[test]
+    fn a_minimal_document_projects_the_host_spec() {
+        // ARRANGE
+        let raw = MINIMAL;
+
+        // ACT
+        let spec = host_spec(raw, None).expect("a minimal document must project");
+
+        // ASSERT
+        assert_eq!(
+            spec,
+            HostSpec {
+                registry: "ghcr.io/muak-os".to_owned(),
+                version: "v1.2.0".to_owned(),
+                extensions: vec!["gpu".to_owned()],
+                secureboot: true,
+            }
+        );
+    }
+
+    #[test]
+    fn a_requested_version_fills_a_document_without_one() {
+        // ARRANGE
+        let raw = "[host]\nregistry = \"ghcr.io/muak-os\"\nversion = \"\"\n";
+
+        // ACT
+        let spec = host_spec(raw, Some("v2.0.0")).expect("the request version must fill in");
+
+        // ASSERT
+        assert_eq!(spec.version, "v2.0.0");
+    }
+
+    #[test]
+    fn a_requested_version_matching_the_document_is_accepted() {
+        // ARRANGE
+        let raw = "[host]\nregistry = \"ghcr.io/muak-os\"\nversion = \"v2.0.0\"\n";
+
+        // ACT
+        let spec = host_spec(raw, Some("v2.0.0")).expect("a matching version must be accepted");
+
+        // ASSERT
+        assert_eq!(spec.version, "v2.0.0");
+    }
+
+    #[test]
+    fn disagreeing_versions_are_rejected_naming_both() {
+        // ARRANGE
+        let raw = "[host]\nregistry = \"ghcr.io/muak-os\"\nversion = \"v2.0.0\"\n";
+
+        // ACT
+        let error =
+            host_spec(raw, Some("v2.1.0")).expect_err("a disagreeing version must be rejected");
+
+        // ASSERT
+        assert!(error.to_string().contains("v2.0.0"), "{error}");
+        assert!(error.to_string().contains("v2.1.0"), "{error}");
+    }
+
+    #[test]
+    fn a_version_from_neither_source_is_rejected() {
+        // ARRANGE
+        let raw = "[host]\nregistry = \"ghcr.io/muak-os\"\n";
+
+        // ACT
+        let error = host_spec(raw, None).expect_err("a missing version must be rejected");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("host.version"), "{message}");
+        assert!(message.contains("--version"), "{message}");
+    }
+
+    #[test]
+    fn missing_or_empty_registry_is_rejected() {
+        // ARRANGE
+        let missing = "[host]\nversion = \"v1.2.0\"\n";
+        let empty = "[host]\nregistry = \"\"\nversion = \"v1.2.0\"\n";
+
+        // ACT
+        let missing_error = host_spec(missing, None).expect_err("missing registry must fail");
+        let empty_error = host_spec(empty, None).expect_err("empty registry must fail");
+
+        // ASSERT
+        assert!(
+            missing_error.to_string().contains("host.registry"),
+            "{missing_error}"
+        );
+        assert!(
+            empty_error.to_string().contains("host.registry"),
+            "{empty_error}"
+        );
+    }
+
+    #[test]
+    fn a_future_document_projects_the_host_spec() {
+        // ARRANGE
+        let raw = r#"
+            api_version = "muak.dev/config/v9-future"
+
+            [host]
+            registry = "ghcr.io/muak-os"
+            version = "v1.2.0"
+            extensions = ["gpu", "debug"]
+            secureboot = true
+            unknown_field = "ignored"
+
+            [future_section]
+            mode = "turbo"
+        "#;
+
+        // ACT
+        let spec = host_spec(raw, None).expect("a future document must still project");
+
+        // ASSERT
+        assert_eq!(spec.version, "v1.2.0");
+        assert_eq!(spec.extensions, ["gpu", "debug"]);
+        assert!(spec.secureboot);
+    }
+
+    #[test]
+    fn a_non_bool_secureboot_is_rejected() {
+        // ARRANGE
+        let raw =
+            "[host]\nregistry = \"ghcr.io/muak-os\"\nversion = \"v1.2.0\"\nsecureboot = \"yes\"\n";
+
+        // ACT
+        let error = host_spec(raw, None).expect_err("non bool secureboot must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains("host.secureboot"), "{error}");
+    }
+
+    #[test]
+    fn an_absent_secureboot_defaults_to_false() {
+        // ARRANGE
+        let raw = "[host]\nregistry = \"ghcr.io/muak-os\"\nversion = \"v1.2.0\"\n";
+
+        // ACT
+        let spec = host_spec(raw, None).expect("an absent flag is not fatal");
+
+        // ASSERT
+        assert!(!spec.secureboot);
     }
 
     #[test]
