@@ -6,9 +6,9 @@ use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
 use uki::measure::{self, MeasuredSection};
 
-use super::{UPDATE_DIR, secureboot};
+use super::{UPDATE_DIR, secureboot, snapshot};
 use crate::disk::roles;
-use crate::{cache, efi, secrets};
+use crate::{cache, efi, medium, secrets};
 
 /// Applies a staged update by deploying the UKI and resealing the LUKS key.
 pub async fn apply() -> Result<()> {
@@ -68,10 +68,13 @@ pub async fn apply() -> Result<()> {
         uki_len,
         &mut uki_file,
     )?;
+    remove_previous_config();
     if let Some(ref key) = luks_key {
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", key)?;
     }
     efi::unmount();
+
+    warn_on_version_mismatch();
 
     cache::enforce();
 
@@ -84,6 +87,32 @@ pub async fn apply() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn remove_previous_config() {
+    if let Err(e) = std::fs::remove_file(snapshot::CONFIG_PREV_PATH)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        kmsg::error!("Failed to remove {}: {e}", snapshot::CONFIG_PREV_PATH);
+    }
+}
+
+fn warn_on_version_mismatch() {
+    let Ok(artifact) = medium::version() else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(config::system::CONFIG_PATH) else {
+        return;
+    };
+    let Ok(Some(staged)) = config::document::version(&raw) else {
+        return;
+    };
+
+    if artifact != staged {
+        kmsg::warn!(
+            "Booted artifact version {artifact} differs from staged config host.version {staged}"
+        );
+    }
 }
 
 fn reseal_luks_key(

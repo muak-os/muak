@@ -40,6 +40,9 @@ pki = { workspace = true }
 config = { workspace = true }
 tui = { workspace = true, features = ["live", "prompt", "size"] }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [build-dependencies]
 tonic-prost-build = { workspace = true }
 protox = { workspace = true }

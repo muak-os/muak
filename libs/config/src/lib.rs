@@ -6,6 +6,7 @@ extern crate alloc;
 
 pub mod auth;
 mod codec;
+pub mod document;
 pub mod error;
 pub mod permission;
 pub mod system;

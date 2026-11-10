@@ -1,91 +1,83 @@
-//! Config snapshot life cycle: create, locate, read, and restore.
+//! Previous config life cycle: keep, locate, read, and restore the swap copy.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fs, io};
 
 use anyhow::{Context as _, Result};
-use config::system::{CONFIG_EXTENSION, CONFIG_PATH};
+use config::system::CONFIG_PATH;
 
-use super::UPDATE_DIR;
 use crate::journal::{self, Entry};
 
-/// Generates a unique update ID and saves a copy of the current config to `UPDATE_DIR`.
-pub fn create(staging_dir: &Path) -> Result<String> {
-    let update_id = generate_id();
-    let contents =
-        fs::read_to_string(CONFIG_PATH).context("Failed to read current config for snapshot")?;
-    fs::write(
-        staging_dir.join(format!("{update_id}.{CONFIG_EXTENSION}")),
-        contents,
-    )
-    .context("Failed to write config snapshot")?;
+/// Path of the config kept from before the staged update.
+pub(crate) const CONFIG_PREV_PATH: &str = "/run/state/config.prev";
 
-    Ok(update_id)
-}
+/// Path of the update id recorded by the last prepare.
+pub(crate) const PENDING_ID_PATH: &str = "/run/state/update/id";
 
-/// Scans `UPDATE_DIR` for a pending snapshot and returns `(update_id, path)` if found.
-pub fn find_pending() -> Result<Option<(String, PathBuf)>> {
-    let dir = Path::new(UPDATE_DIR);
-    if !dir.exists() {
-        return Ok(None);
+/// Synthetic update ID used when the boot cmdline carries no update marker.
+pub(crate) const UNKNOWN_ID: &str = "update-unknown";
+
+const CMDLINE: &str = "/proc/cmdline";
+const UPDATE_ID_PREFIX: &str = "muak.update_id=";
+
+/// Returns the pending `(update_id, path)` of a kept previous config.
+pub fn find_pending() -> Option<(String, PathBuf)> {
+    let path = PathBuf::from(CONFIG_PREV_PATH);
+    if !path.exists() {
+        return None;
     }
 
-    let entry = fs::read_dir(dir)
-        .context("Failed to read update dir")?
-        .filter_map(core::result::Result::ok)
-        .find(|entry| {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            name_str.starts_with("update-") && name_str.ends_with(&format!(".{CONFIG_EXTENSION}"))
-        });
+    let cmdline = fs::read_to_string(CMDLINE).unwrap_or_default();
+    let recorded = fs::read_to_string(PENDING_ID_PATH).ok();
 
-    let Some(entry) = entry else {
-        return Ok(None);
+    Some((pending_id(&cmdline, recorded.as_deref()), path))
+}
+
+/// Returns the path to the previous config kept by a prepare.
+pub fn path() -> PathBuf {
+    PathBuf::from(CONFIG_PREV_PATH)
+}
+
+/// Restores the previous config by rename and records the rollback, returning journal success.
+pub fn restore(
+    update_id: &str,
+    prev_path: &Path,
+    failed_version: &str,
+    reason: &str,
+) -> Result<bool> {
+    let contents = match fs::read_to_string(prev_path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            kmsg::warn!("No previous config to restore for {update_id}");
+            return Ok(true);
+        }
+        Err(e) => return Err(e).context("Failed to read the previous config"),
     };
 
-    let path = entry.path();
-    let stem = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .context("Snapshot path has no file stem")?;
-
-    Ok(Some((stem, path)))
-}
-
-/// Returns the path to the snapshot file for a given update ID.
-pub fn path(update_id: &str) -> PathBuf {
-    Path::new(UPDATE_DIR).join(format!("{update_id}.{CONFIG_EXTENSION}"))
-}
-
-/// Reads and parses the config snapshot file.
-pub fn read_config(snapshot_path: &Path) -> Result<config::system::Config> {
-    let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-
-    config::system::parse_from_str(&contents).context("Failed to parse config snapshot")
-}
-
-/// Restores the system config from a snapshot file, overwriting the current,
-/// and records the rollback. Returns `false` when the journal write failed.
-pub fn restore(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<bool> {
-    let contents = fs::read_to_string(snapshot_path).context("Failed to read config snapshot")?;
-    config::system::write_atomic(Path::new(CONFIG_PATH), contents.as_bytes())
-        .context("Failed to restore config from snapshot")?;
-
-    let failed_version = config::system::host()?.version.clone();
     let entry = Entry::new(update_id, "system", journal::ChangeKind::Rollback)
-        .failed(&failed_version, reason);
-
-    match journal::append(&entry, &contents) {
-        Ok(()) => Ok(true),
+        .failed(failed_version, reason);
+    let tracked = match journal::append(&entry, &contents) {
+        Ok(()) => true,
         Err(e) => {
             kmsg::warn!("Rollback of {update_id} is untracked (journal write failed: {e})");
-            Ok(false)
+            false
         }
+    };
+
+    match fs::rename(prev_path, Path::new(CONFIG_PATH)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            kmsg::warn!("No previous config to restore for {update_id}");
+        }
+        Err(e) => return Err(e).context("Failed to restore config from the previous one"),
     }
+
+    Ok(tracked)
 }
 
-fn generate_id() -> String {
+/// Generates a unique update ID from the current wall clock.
+pub fn generate_id() -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -94,9 +86,27 @@ fn generate_id() -> String {
     format!("update-{timestamp}")
 }
 
+fn pending_id(cmdline: &str, recorded: Option<&str>) -> String {
+    if cmdline.contains(UPDATE_ID_PREFIX) {
+        return update_id(cmdline);
+    }
+
+    recorded
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map_or_else(|| update_id(cmdline), str::to_owned)
+}
+
+fn update_id(cmdline: &str) -> String {
+    cmdline
+        .split_whitespace()
+        .find_map(|arg| arg.strip_prefix(UPDATE_ID_PREFIX))
+        .map_or_else(|| UNKNOWN_ID.to_owned(), str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{UNKNOWN_ID, generate_id, path, pending_id, update_id};
 
     #[test]
     fn generate_id_has_expected_prefix() {
@@ -123,32 +133,77 @@ mod tests {
     }
 
     #[test]
-    fn path_returns_correct_path_for_update_id() {
-        // ARRANGE
-        let update_id = "update-1700000000";
-
+    fn path_points_at_the_kept_previous_config() {
         // ACT
-        let snapshot_path = path(update_id);
+        let snapshot_path = path();
 
         // ASSERT
-        let expected = format!("{UPDATE_DIR}/{update_id}.{CONFIG_EXTENSION}");
-        assert_eq!(snapshot_path, std::path::Path::new(&expected));
+        assert_eq!(
+            snapshot_path,
+            std::path::Path::new("/run/state/config.prev")
+        );
     }
 
     #[test]
-    fn read_config_parses_snapshot() {
+    fn update_id_is_read_from_the_boot_cmdline() {
         // ARRANGE
-        let dir = tempfile::tempdir().expect("temp dir");
-        let snapshot_path = dir.path().join("update-1.toml");
-        let mut config = config::system::Config::default();
-        config.host.version = "v1.2.3".to_owned();
-        let contents = config::system::serialize(&config).expect("serialize config");
-        fs::write(&snapshot_path, contents).expect("write snapshot");
+        let cmdline = "root=/dev/sda1 quiet muak.update_id=update-1700000001 ro";
 
         // ACT
-        let parsed = read_config(&snapshot_path).expect("read config snapshot");
+        let id = update_id(cmdline);
 
         // ASSERT
-        assert_eq!(parsed.host.version, "v1.2.3");
+        assert_eq!(id, "update-1700000001");
+    }
+
+    #[test]
+    fn missing_update_marker_yields_the_synthetic_id() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 quiet ro";
+
+        // ACT
+        let id = update_id(cmdline);
+
+        // ASSERT
+        assert_eq!(id, UNKNOWN_ID);
+    }
+
+    #[test]
+    fn recorded_id_is_used_without_an_update_marker() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 quiet ro";
+        let recorded = Some("update-1700000002\n");
+
+        // ACT
+        let id = pending_id(cmdline, recorded);
+
+        // ASSERT
+        assert_eq!(id, "update-1700000002");
+    }
+
+    #[test]
+    fn update_marker_wins_over_the_recorded_id() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 muak.update_id=update-1700000003 ro";
+        let recorded = Some("update-1700000002\n");
+
+        // ACT
+        let id = pending_id(cmdline, recorded);
+
+        // ASSERT
+        assert_eq!(id, "update-1700000003");
+    }
+
+    #[test]
+    fn missing_recorded_id_falls_back_to_the_synthetic_id() {
+        // ARRANGE
+        let cmdline = "root=/dev/sda1 quiet ro";
+        let recorded = None;
+
+        // ACT
+        let id = pending_id(cmdline, recorded);
+
+        // ASSERT
+        assert_eq!(id, UNKNOWN_ID);
     }
 }

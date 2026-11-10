@@ -97,37 +97,48 @@ impl ProvisionService for ServiceImpl {
         let strategy = update::strategy(req.offline);
         let installed = config::system::config().map_err(|e| Status::internal(e.to_string()))?;
 
-        let (registry, version, extensions, new_config) = if req.config.is_empty() {
+        let (inputs, new_config) = if req.config.is_empty() {
             let version = update::resolve_target(&installed.host.version, &req.version)
                 .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
-            let extensions = installed.host.extensions.clone();
+            let inputs = config::document::HostSpec {
+                registry: installed.host.registry.clone(),
+                version,
+                extensions: installed.host.extensions.clone(),
+                secureboot: installed.host.secureboot,
+            };
 
-            (installed.host.registry.clone(), version, extensions, None)
+            (inputs, None)
         } else {
             let raw = String::from_utf8(req.config)
                 .map_err(|e| Status::invalid_argument(format!("Config is not valid UTF-8: {e}")))?;
+            let requested = (!req.version.is_empty()).then_some(req.version.as_str());
 
-            let cfg: config::system::Config = config::system::parse_from_str(&raw)
-                .map_err(|e| Status::invalid_argument(format!("Invalid config: {e}")))?;
+            let inputs = config::document::host_spec(&raw, requested)
+                .map_err(|e| Status::invalid_argument(format!("Invalid config: {e:#}")))?;
 
-            cfg.validate_for_update(installed)
-                .map_err(|e| Status::invalid_argument(format!("Config rejected: {e}")))?;
+            check_against_installed(&raw, installed)?;
 
-            config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
+            config::version::check_no_downgrade(&inputs.version, &installed.host.version)
                 .map_err(|e| Status::invalid_argument(format!("{e:#}")))?;
 
-            let registry = cfg.host.registry.clone();
-            let version = cfg.host.version.clone();
-            let extensions = cfg.host.extensions.clone();
-
-            (registry, version, extensions, Some(cfg))
+            (inputs, Some(raw.into_bytes()))
         };
 
-        let desired = update::desired_config(installed, &version, new_config.as_ref());
+        let current_config = std::fs::read(config::system::CONFIG_PATH)
+            .map_err(|e| Status::internal(format!("Failed to read the current config: {e}")))?;
 
-        if update::already_current(installed, &version, &desired, force) {
+        if update::already_current(
+            &installed.host.version,
+            &inputs.version,
+            &current_config,
+            new_config.as_deref(),
+            force,
+        ) {
             return Ok(Response::new(streaming::single(PrepareUpdateProgress {
-                message: format!("System already at version {version}, nothing to do"),
+                message: format!(
+                    "System already at version {}, nothing to do",
+                    inputs.version
+                ),
                 already_current: true,
                 ..Default::default()
             })));
@@ -135,16 +146,7 @@ impl ProvisionService for ServiceImpl {
 
         let stream = streaming::run(
             move |progress_tx| async move {
-                update::prepare(
-                    &registry,
-                    &version,
-                    &extensions,
-                    new_config,
-                    &author,
-                    strategy,
-                    progress_tx,
-                )
-                .await
+                update::build::prepare(&inputs, new_config, &author, strategy, progress_tx).await
             },
             |result, out_tx| {
                 let msg = match result {
@@ -465,6 +467,16 @@ fn wipe_response(refusal: Option<String>, disk: Disk, checks: Vec<Check>) -> Wip
     }
 }
 
+fn check_against_installed(raw: &str, installed: &config::system::Config) -> Result<(), Status> {
+    let Ok(candidate) = config::system::parse_from_str(raw) else {
+        return Ok(());
+    };
+
+    candidate
+        .validate_for_update(installed)
+        .map_err(|e| Status::invalid_argument(format!("Invalid config for update: {e}")))
+}
+
 fn parse_install_config(config_bytes: Vec<u8>) -> Result<config::system::Config, Status> {
     let raw = String::from_utf8(config_bytes)
         .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8 in config: {e}")))?;
@@ -507,6 +519,37 @@ mod tests {
             size_bytes: 1024,
             ..Disk::default()
         }
+    }
+
+    #[test]
+    fn immutable_disk_changes_are_rejected_before_staging() {
+        // ARRANGE
+        let installed = config::system::Config::default();
+        let raw = format!(
+            "api_version = \"{}\"\n\n[host]\nname = \"muak\"\nversion = \"v2.0.0\"\nport = 50051\n\
+             ntp = \"pool.ntp.org\"\n\n[[disks]]\nrole = \"system\"\nwwid = \"eui.0025385b71a1c7d4\"\n",
+            config::system::API_VERSION
+        );
+
+        // ACT
+        let status = check_against_installed(&raw, &installed)
+            .expect_err("a new system disk must be rejected");
+
+        // ASSERT
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn undecodable_documents_skip_the_installed_check() {
+        // ARRANGE
+        let installed = config::system::Config::default();
+        let raw = "api_version = \"muak.dev/config/v9-future\"\n\n[host]\nname = \"muak\"\n";
+
+        // ACT
+        let result = check_against_installed(raw, &installed);
+
+        // ASSERT
+        result.expect("a future schema must be stored as is");
     }
 
     #[test]

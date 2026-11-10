@@ -27,6 +27,8 @@ use tonic::transport::Server;
 #[granola::service("provisiond")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
+    update::resolve_pending_config();
+
     config::init().context("Failed to initialize system configuration")?;
 
     let is_installed = Path::new(config::system::CONFIG_PATH).exists();
@@ -43,8 +45,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             kmsg::warn!("pull cache filesystem is not btrfs; koci cache GC disabled");
         }
 
-        let _result = update::check_and_handle_pending_validation()
-            .map_err(|e| kmsg::warn!("Update validation handling failed: {}", e));
+        update::check_and_handle_pending_validation();
     }
 
     Server::builder()

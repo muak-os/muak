@@ -6,15 +6,22 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use tokio::sync::Notify;
 
-use super::{UPDATE_DIR, commit, readiness, rollback, snapshot};
+use super::{UPDATE_DIR, commit, readiness, rollback};
+use crate::medium;
 
 static CLI_CONTACT: Notify = Notify::const_new();
 const CONFIRMATION_WINDOW: Duration = Duration::from_mins(5);
 
 pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
-    let previous = snapshot::read_config(snapshot_path)?;
-    let old_version = previous.host.version.clone();
-    let target_version = config::system::host()?.version.clone();
+    let previous = std::fs::read_to_string(snapshot_path).ok();
+    let old_version = previous
+        .as_deref()
+        .and_then(|raw| config::document::version(raw).ok().flatten())
+        .unwrap_or_else(|| "unknown".to_owned());
+    let target_version = medium::version().unwrap_or_else(|error| {
+        kmsg::warn!("Failed to read the booted artifact version: {error:#}");
+        "unknown".to_owned()
+    });
 
     kmsg::info!(
         "Validating update {}: {} -> {}",
@@ -44,7 +51,7 @@ pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     }
     kmsg::info!("All supervised services ready for {}", update_id);
 
-    if config::system::isolates(&previous, config::system::config()?) {
+    if isolating_change(previous.as_deref(), config::system::config()?) {
         kmsg::info!(
             "Update {} changed reachability config, waiting for CLI confirmation",
             update_id
@@ -111,6 +118,29 @@ fn is_old_kernel(update_id: &str) -> bool {
     !cmdline.contains(&format!("muak.update_id={update_id}"))
 }
 
+fn isolating_change(previous: Option<&str>, next: &config::system::Config) -> bool {
+    let Some(previous) = previous else {
+        kmsg::warn!("Previous config is unreadable; treating the update as isolating");
+        return true;
+    };
+
+    let next = match config::system::serialize(next) {
+        Ok(serialized) => serialized,
+        Err(error) => {
+            kmsg::warn!("Next config could not be serialized ({error:#}); skipping isolation");
+            return false;
+        }
+    };
+
+    match config::document::isolates(previous, &next) {
+        Ok(isolating) => isolating,
+        Err(error) => {
+            kmsg::warn!("A config document is not valid TOML ({error:#}); skipping isolation");
+            false
+        }
+    }
+}
+
 /// Runs all health checks required to declare the update valid.
 fn health_checks() -> Result<()> {
     check_state_partition_writable()?;
@@ -143,4 +173,83 @@ fn check_network_interfaces() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::isolating_change;
+
+    #[test]
+    fn unparsable_previous_config_is_not_treated_as_isolating() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = "this is not a toml document";
+
+        // ACT
+        let isolating = isolating_change(Some(previous), &next);
+
+        // ASSERT
+        assert!(!isolating, "an unparsable document cannot be compared");
+    }
+
+    #[test]
+    fn unreadable_previous_config_is_treated_as_isolating() {
+        // ARRANGE
+        let next = config::system::Config::default();
+
+        // ACT
+        let isolating = isolating_change(None, &next);
+
+        // ASSERT
+        assert!(isolating);
+    }
+
+    #[test]
+    fn unchanged_reachability_is_not_isolating() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = config::system::serialize(&next).expect("default config serializes");
+
+        // ACT
+        let isolating = isolating_change(Some(&previous), &next);
+
+        // ASSERT
+        assert!(
+            !isolating,
+            "an identical reachability config must not isolate"
+        );
+    }
+
+    #[test]
+    fn api_port_change_of_a_future_schema_isolates() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = format!(
+            "api_version = \"muak.dev/config/v9-future\"\n\n[host]\nport = {}\n",
+            next.host.port + 1
+        );
+
+        // ACT
+        let isolating = isolating_change(Some(&previous), &next);
+
+        // ASSERT
+        assert!(isolating, "a port change must require confirmation");
+    }
+
+    #[test]
+    fn network_change_of_a_future_schema_isolates() {
+        // ARRANGE
+        let next = config::system::Config::default();
+        let previous = format!(
+            "api_version = \"muak.dev/config/v9-future\"\n\n[host]\nport = {}\n\n\
+             [network]\nipv6 = {}\n",
+            next.host.port, !next.network.ipv6
+        );
+
+        // ACT
+        let isolating = isolating_change(Some(&previous), &next);
+
+        // ASSERT
+        assert!(isolating, "a network change must require confirmation");
+    }
 }

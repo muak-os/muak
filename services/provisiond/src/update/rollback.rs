@@ -8,6 +8,7 @@ use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
 use super::{UPDATE_DIR, secureboot, snapshot};
+use crate::medium;
 
 /// Restores the committed config and reboots into the old kernel.
 ///
@@ -17,8 +18,15 @@ use super::{UPDATE_DIR, secureboot, snapshot};
 pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     kmsg::info!("Rolling back update {update_id}: {reason}");
 
-    let previous = snapshot::read_config(snapshot_path)?;
-    let tracked = snapshot::restore(update_id, snapshot_path, reason)?;
+    let previous = fs::read_to_string(snapshot_path).ok();
+    let secureboot_enabled = previous
+        .as_deref()
+        .and_then(|raw| config::document::secureboot(raw).ok().flatten())
+        .or_else(|| config::system::host().ok().map(|host| host.secureboot))
+        .unwrap_or(false);
+
+    let failed_version = medium::version().unwrap_or_else(|_| "unknown".to_owned());
+    let tracked = snapshot::restore(update_id, snapshot_path, &failed_version, reason)?;
     if tracked {
         if let Err(e) = fs::remove_dir_all(Path::new(UPDATE_DIR)) {
             eprintln!("Failed to cleanup update work dir: {e}");
@@ -27,7 +35,7 @@ pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> 
         kmsg::warn!("Rollback of {update_id} untracked. Snapshot kept for next-boot retry");
     }
 
-    if previous.host.secureboot {
+    if secureboot_enabled {
         secureboot::re_enroll_if_missing()?;
     }
 

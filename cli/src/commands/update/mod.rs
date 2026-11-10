@@ -36,6 +36,13 @@ struct PollFeedback {
     unknown_warned: bool,
 }
 
+#[derive(Debug)]
+struct Payload {
+    version: String,
+    config: Vec<u8>,
+    warning: Option<String>,
+}
+
 impl PollFeedback {
     fn on_pending(&mut self, steps: &Steps) {
         if self.unreachable > 0 {
@@ -87,14 +94,17 @@ pub async fn handle(
     let mut client = ProvisionServiceClient::new(channel);
 
     let installed = fetch_installed_config(&mut client).await?;
-    let (version_str, config_bytes) = request_payload(version, config_path.as_deref(), &installed)?;
+    let payload = request_payload(version, config_path.as_deref(), &installed)?;
+    if let Some(warning) = payload.warning.as_deref() {
+        console.warn(warning);
+    }
 
     let steps = console.steps()?;
 
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
-            version: version_str,
-            config: config_bytes,
+            version: payload.version,
+            config: payload.config,
             force,
             offline,
         }))
@@ -188,26 +198,70 @@ fn request_payload(
     version: Option<String>,
     config_path: Option<&Path>,
     installed: &Config,
-) -> Result<(String, Vec<u8>)> {
+) -> Result<Payload> {
     let Some(path) = config_path else {
         let target = version
             .ok_or_else(|| anyhow::anyhow!("--version is required when --config is absent"))?;
         config::version::check_no_downgrade(&target, &installed.host.version)
             .with_context(|| format!("version check failed for '{target}'"))?;
 
-        return Ok((target, Vec::new()));
+        return Ok(Payload {
+            version: target,
+            config: Vec::new(),
+            warning: None,
+        });
     };
 
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read '{}'", path.display()))?;
-    let cfg = config::system::parse_from_str(&raw)
-        .with_context(|| format!("invalid format in '{}'", path.display()))?;
-    cfg.validate_for_update(installed)
-        .with_context(|| format!("config rejected: '{}'", path.display()))?;
-    config::version::check_no_downgrade(&cfg.host.version, &installed.host.version)
+    let doc_version = desired_version(&raw)
+        .with_context(|| format!("no update target in '{}'", path.display()))?;
+
+    let target = match doc_version {
+        Some(doc_version) => {
+            if let Some(explicit) = version
+                && explicit != doc_version
+            {
+                bail!(
+                    "--version '{explicit}' does not match host.version '{doc_version}' in '{}'",
+                    path.display()
+                );
+            }
+
+            doc_version
+        }
+        None => version.ok_or_else(|| {
+            anyhow::anyhow!(
+                "no update target in '{}': set host.version in the config or pass --version",
+                path.display()
+            )
+        })?,
+    };
+
+    config::version::check_no_downgrade(&target, &installed.host.version)
         .with_context(|| format!("version check failed for '{}'", path.display()))?;
 
-    Ok((String::new(), raw.into_bytes()))
+    let warning = match config::system::parse_from_str(&raw) {
+        Ok(cfg) => {
+            cfg.validate_for_update(installed)
+                .with_context(|| format!("config rejected: '{}'", path.display()))?;
+            None
+        }
+        Err(error) => Some(format!(
+            "config '{}' will be validated on the node after boot: {error}",
+            path.display()
+        )),
+    };
+
+    Ok(Payload {
+        version: target,
+        config: raw.into_bytes(),
+        warning,
+    })
+}
+
+fn desired_version(raw: &str) -> Result<Option<String>> {
+    config::document::version(raw).map_err(Into::into)
 }
 
 async fn wait_for_update_completion(
@@ -286,10 +340,9 @@ async fn poll_update_status(ctx: &ServerContext, update_id: &str, steps: &Steps)
     }
 }
 
-/// Requires the update target to be given as exactly one of `version` or `config`.
+/// Requires the update target to be given as `--version`, `--config`, or both.
 pub(crate) fn ensure_target(version: Option<&str>, config: Option<&Path>) -> Result<()> {
     match (version, config) {
-        (Some(_), Some(_)) => bail!("--version and --config are mutually exclusive!"),
         (None, None) => bail!("one of --version or --config must be specified!"),
         _ => Ok(()),
     }
@@ -315,7 +368,24 @@ async fn fetch_installed_config(client: &mut ProvisionServiceClient<Channel>) ->
 mod tests {
     use std::path::Path;
 
-    use super::ensure_target;
+    use config::system::Config;
+
+    use super::{desired_version, ensure_target, request_payload};
+
+    fn document(version: &str) -> String {
+        format!(
+            "api_version = \"{}\"\n\n[host]\nname = \"muak\"\nversion = \"{version}\"\n\
+             port = 50051\nntp = \"pool.ntp.org\"\n",
+            config::system::API_VERSION
+        )
+    }
+
+    fn installed(version: &str) -> Config {
+        let mut config = Config::default();
+        config.host.version = version.to_owned();
+
+        config
+    }
 
     #[test]
     fn target_requires_version_or_config() {
@@ -334,14 +404,173 @@ mod tests {
     }
 
     #[test]
-    fn target_rejects_version_and_config_together() {
+    fn target_accepts_version_and_config_together() {
         // ARRANGE
         let config = Path::new("config.toml");
 
         // ACT
-        let error = ensure_target(Some("v1.2.0"), Some(config)).expect_err("both targets");
+        let both = ensure_target(Some("v1.2.0"), Some(config));
 
         // ASSERT
-        assert!(error.to_string().contains("mutually exclusive"));
+        both.expect("a version may accompany a config");
+    }
+
+    #[test]
+    fn desired_version_tolerates_unknown_keys() {
+        // ARRANGE
+        let raw = "[host]\nversion = \"v1.2.0\"\n\nfuture = { nested = true }\n";
+
+        // ACT
+        let version = desired_version(raw).expect("unknown keys must not matter");
+
+        // ASSERT
+        assert_eq!(version.as_deref(), Some("v1.2.0"));
+    }
+
+    #[test]
+    fn desired_version_tolerates_future_api_version() {
+        // ARRANGE
+        let raw = "api_version = \"muak.dev/config/v9-experimental\"\n\
+                   [host]\nversion = \"v2.0.0\"\n";
+
+        // ACT
+        let version = desired_version(raw).expect("the api_version must not matter");
+
+        // ASSERT
+        assert_eq!(version.as_deref(), Some("v2.0.0"));
+    }
+
+    #[test]
+    fn desired_version_ignores_a_missing_or_empty_version() {
+        // ARRANGE
+        let missing = "[host]\nname = \"muak\"\n";
+        let empty = "[host]\nversion = \"\"\n";
+
+        // ACT
+        let versions = [
+            desired_version(missing).expect("a missing version is tolerated"),
+            desired_version(empty).expect("an empty version is tolerated"),
+        ];
+
+        // ASSERT
+        assert_eq!(versions, [None, None]);
+    }
+
+    #[test]
+    fn desired_version_rejects_a_mistyped_version() {
+        // ARRANGE
+        let raw = "[host]\nversion = 3\n";
+
+        // ACT
+        let error = desired_version(raw).expect_err("a mistyped version must fail");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("host.version"), "{message}");
+        assert!(message.contains("integer"), "{message}");
+    }
+
+    #[test]
+    fn desired_version_rejects_an_invalid_document() {
+        // ARRANGE
+        let raw = "this is not a toml document";
+
+        // ACT
+        let error = desired_version(raw).expect_err("invalid TOML must fail");
+
+        // ASSERT
+        assert!(error.to_string().contains("parse"), "{error}");
+    }
+
+    #[test]
+    fn request_payload_falls_back_to_the_explicit_version() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let raw = "api_version = \"muak.dev/config/v9-experimental\"\n\n\
+                   [host]\nname = \"muak\"\nregistry = \"ghcr.io/muak-os\"\n";
+        std::fs::write(&path, raw).unwrap();
+
+        // ACT
+        let payload = request_payload(Some("v1.2.0".to_owned()), Some(&path), &installed("v1.0.0"))
+            .expect("the explicit version must be used");
+
+        // ASSERT
+        assert_eq!(payload.version, "v1.2.0");
+        assert_eq!(payload.config, raw.as_bytes());
+    }
+
+    #[test]
+    fn request_payload_without_any_version_is_rejected() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, document("")).unwrap();
+
+        // ACT
+        let error = request_payload(None, Some(&path), &installed("v1.0.0"))
+            .expect_err("neither source provides a version");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("host.version"), "{message}");
+        assert!(message.contains("--version"), "{message}");
+    }
+
+    #[test]
+    fn request_payload_rejects_version_outside_the_document() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, document("v1.2.0")).unwrap();
+
+        // ACT
+        let error = request_payload(Some("v1.3.0".to_owned()), Some(&path), &installed("v1.0.0"))
+            .expect_err("a disagreeing version must be rejected");
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("v1.3.0"), "{message}");
+        assert!(message.contains("v1.2.0"), "{message}");
+    }
+
+    #[test]
+    fn request_payload_uses_the_document_version() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let raw = document("v1.2.0");
+        std::fs::write(&path, &raw).unwrap();
+
+        // ACT
+        let payload = request_payload(None, Some(&path), &installed("v1.0.0")).unwrap();
+
+        // ASSERT
+        assert_eq!(payload.version, "v1.2.0");
+        assert_eq!(payload.config, raw.into_bytes());
+        assert!(
+            payload.warning.is_none(),
+            "a known document needs no warning"
+        );
+    }
+
+    #[test]
+    fn request_payload_warns_on_an_unknown_document() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let raw = document("v2.0.0").replace(
+            config::system::API_VERSION,
+            "muak.dev/config/v9-experimental",
+        );
+        std::fs::write(&path, &raw).unwrap();
+
+        // ACT
+        let payload = request_payload(None, Some(&path), &installed("v1.0.0")).unwrap();
+
+        // ASSERT
+        assert_eq!(payload.version, "v2.0.0");
+        let warning = payload.warning.expect("an unknown document must warn");
+        assert!(warning.contains("validated on the node"), "{warning}");
     }
 }
