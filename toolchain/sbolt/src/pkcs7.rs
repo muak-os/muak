@@ -24,9 +24,9 @@ const RSA_ENCRYPTION: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.1
 const ID_DATA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.1");
 const ID_SIGNED_DATA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.2");
 
-pub(crate) const DER_SHORT_FORM_LENGTH_LIMIT: usize = 0x80;
-pub(crate) const DER_ONE_BYTE_LENGTH_LIMIT: usize = 0x100;
-pub(crate) const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
+const DER_SHORT_FORM_LENGTH_LIMIT: usize = 0x80;
+const DER_ONE_BYTE_LENGTH_LIMIT: usize = 0x100;
+const DER_TWO_BYTE_LENGTH_LIMIT: usize = 0x1_0000;
 
 /// Build PKCS#7 `SignedData` for Authenticode PE signing.
 pub(crate) fn build_authenticode_signed_data(
