@@ -88,7 +88,7 @@ pub fn compute_fingerprint_der(cert_der: &[u8]) -> String {
     encode_string(digest.as_ref())
 }
 
-fn certificate_validity() -> Result<Validity> {
+pub(crate) fn certificate_validity() -> Result<Validity> {
     Validity::from_now(Duration::from_secs(CERT_VALIDITY_SECS)).map_err(PkiError::from)
 }
 

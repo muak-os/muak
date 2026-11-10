@@ -1,7 +1,6 @@
 //! Certificate Signing Request (CSR) handling.
 
 use core::str::FromStr as _;
-use core::time::Duration;
 
 use base16ct::lower::encode_string;
 use der::pem::LineEnding;
@@ -16,7 +15,7 @@ use x509_cert::request::{CertReq, RequestBuilder};
 use x509_cert::serial_number::SerialNumber;
 use x509_cert::time::Validity;
 
-use crate::cert::{self, CERT_VALIDITY_SECS};
+use crate::cert;
 use crate::error::{PkiError, Result};
 use crate::key::{Signature, Signer};
 use crate::pem::{encode_pkcs8, load_signer};
@@ -59,7 +58,7 @@ pub fn sign(
     let issuer = ca_cert.tbs_certificate().subject().clone();
     let ca_signer = load_signer(ca_key_pem)?;
     let serial = generate_serial()?;
-    let validity = certificate_validity()?;
+    let validity = cert::certificate_validity()?;
     let cert = client_certificate(issuer, subject, serial, validity, spki, &ca_signer)?;
     let fingerprint = cert::compute_fingerprint(&cert)?;
 
@@ -106,10 +105,6 @@ fn build_csr(subject: Name, signer: &Signer) -> Result<CertReq> {
     RequestBuilder::new(subject)
         .and_then(|builder| builder.build::<_, Signature>(signer))
         .map_err(PkiError::from)
-}
-
-fn certificate_validity() -> Result<Validity> {
-    Validity::from_now(Duration::from_secs(CERT_VALIDITY_SECS)).map_err(PkiError::from)
 }
 
 fn client_certificate(
