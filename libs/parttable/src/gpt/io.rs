@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 
 use super::header::GptHeader;
 use super::partition::Partition;
-use super::table::{ENTRIES_COUNT, ENTRY_SIZE, Table};
+use super::table::{ENTRIES_COUNT, ENTRY_SIZE, Table, entries_sector_count};
 use crate::error::{ParttableError, Result};
 use crate::mbr::protective_bytes;
 
@@ -37,7 +37,7 @@ pub fn read<R: Read>(reader: &mut R) -> Result<Table> {
     }
 
     let header = GptHeader::parse(&buffer)?;
-    validate_geometry(&header)?;
+    validate_geometry(&header, sector_size)?;
 
     let entries_offset = header
         .entries_lba
@@ -141,7 +141,7 @@ fn decode_table(
     )
 }
 
-fn validate_geometry(header: &GptHeader) -> Result<()> {
+fn validate_geometry(header: &GptHeader, sector_size: u64) -> Result<()> {
     if header.entries_count != u32::try_from(ENTRIES_COUNT).unwrap_or(0) {
         return Err(ParttableError::Gpt(
             "unsupported partition entries count".to_owned(),
@@ -150,6 +150,13 @@ fn validate_geometry(header: &GptHeader) -> Result<()> {
     if header.entries_size != ENTRY_SIZE {
         return Err(ParttableError::Gpt(
             "unsupported partition entry size".to_owned(),
+        ));
+    }
+
+    let minimum_first_usable = 2_u64.saturating_add(entries_sector_count(sector_size));
+    if header.first_usable_lba < minimum_first_usable {
+        return Err(ParttableError::Gpt(
+            "first usable LBA overlaps the partition entries".to_owned(),
         ));
     }
 
@@ -327,6 +334,32 @@ mod tests {
     }
 
     #[test]
+    fn read_rejects_first_usable_lba_inside_entries_array() {
+        // ARRANGE
+        let sector_count = 16 * 2048;
+        let entries_crc = crc32fast::hash(&[0_u8; ENTRIES_BYTES]);
+        let mut header = Table::create(sector_count, 512, [0xCD; 16])
+            .expect("table must be created")
+            .to_header();
+        header.first_usable_lba = 3;
+        let header_sector = header.encode(false, sector_count, 512, entries_crc);
+
+        let mut disk = Vec::new();
+        disk.extend_from_slice(&[0_u8; 512]);
+        disk.extend_from_slice(&header_sector);
+
+        // ACT
+        let mut reader: &[u8] = disk.as_slice();
+        let result = read(&mut reader);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "first usable LBA overlaps the partition entries"
+        ));
+    }
+
+    #[test]
     fn write_primary_rejects_disk_size_overflow() {
         // ARRANGE
         let table = sample_table();
@@ -423,12 +456,12 @@ mod tests {
         let wrong_count = {
             let mut other = header;
             other.entries_count = 64;
-            validate_geometry(&other)
+            validate_geometry(&other, 512)
         };
         let wrong_size = {
             let mut other = header;
             other.entries_size = 256;
-            validate_geometry(&other)
+            validate_geometry(&other, 512)
         };
 
         // ASSERT

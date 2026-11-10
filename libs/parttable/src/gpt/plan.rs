@@ -1,7 +1,7 @@
 //! Shared GPT planning.
 
 use super::layout::{ALIGN_1_MIB_SECTORS, PlacementRequest};
-use super::table::{Table, entries_sector_count};
+use super::table::{Table, primary_gpt_region_size};
 use crate::error::{ParttableError, Result};
 
 /// The standard 512-byte sector size used across Muak disk images.
@@ -11,11 +11,11 @@ pub const SECTOR_SIZE: u64 = 512;
 pub const ALIGN_1_MIB_BYTES: u64 = ALIGN_1_MIB_SECTORS.saturating_mul(SECTOR_SIZE);
 
 /// Returns the size in bytes of the primary GPT region for the given sector size.
+///
+/// Returns zero when `sector_size` is zero.
 #[must_use]
 pub fn primary_gpt_size(sector_size: u64) -> u64 {
-    let entries_sectors = entries_sector_count(sector_size);
-
-    (2_u64.saturating_add(entries_sectors)).saturating_mul(sector_size)
+    primary_gpt_region_size(sector_size)
 }
 
 /// Finds the smallest sector count, growing in `step_sectors` steps from
@@ -74,6 +74,15 @@ mod tests {
         // ASSERT
         assert_eq!(from_table, from_plan);
         assert_eq!(from_plan, 34 * SECTOR_SIZE);
+    }
+
+    #[test]
+    fn primary_gpt_size_returns_zero_for_zero_sector_size() {
+        // ARRANGE / ACT
+        let size = primary_gpt_size(0);
+
+        // ASSERT
+        assert_eq!(size, 0);
     }
 
     #[test]

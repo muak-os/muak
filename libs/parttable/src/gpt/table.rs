@@ -26,6 +26,8 @@ impl Table {
     ///
     /// Returns an error when the disk is too small for a GPT.
     pub fn create(sector_count: u64, sector_size: u64, disk_guid: [u8; 16]) -> Result<Self> {
+        validate_sector_size(sector_size)?;
+
         let entries_sectors = entries_sector_count(sector_size);
         let first_usable = 2_u64.saturating_add(entries_sectors);
         let last_usable = sector_count
@@ -50,6 +52,8 @@ impl Table {
         sector_size: u64,
         entries: Vec<Option<Partition>>,
     ) -> Result<Self> {
+        validate_sector_size(sector_size)?;
+
         if entries.len() != ENTRIES_COUNT {
             return Err(ParttableError::Gpt(
                 "invalid partition entries length".to_owned(),
@@ -101,7 +105,7 @@ impl Table {
     /// (protective MBR + GPT header + partition entries).
     #[must_use]
     pub fn primary_gpt_size(&self) -> u64 {
-        self.first_usable_lba.saturating_mul(self.sector_size)
+        primary_gpt_region_size(self.sector_size)
     }
 
     /// Returns the byte offset on disk where the backup GPT
@@ -225,9 +229,30 @@ impl Table {
 
 /// Returns the number of sectors occupied by the GPT partition entry array.
 pub(crate) fn entries_sector_count(sector_size: u64) -> u64 {
+    // A zero sector size is rejected by `Table::create` and `Table::from_parts`, but this
+    // helper is also reachable from `plan::primary_gpt_size`, so treat zero as one sector
+    // instead of panicking in `div_ceil`.
+    let divisor = sector_size.max(1);
+
     u64::from(ENTRY_SIZE)
         .saturating_mul(u64::try_from(ENTRIES_COUNT).unwrap_or(0))
-        .div_ceil(sector_size)
+        .div_ceil(divisor)
+}
+
+/// Returns the size in bytes of the primary GPT region for the given sector size:
+/// the protective MBR, the GPT header, and the partition entry array.
+pub(crate) fn primary_gpt_region_size(sector_size: u64) -> u64 {
+    (2_u64.saturating_add(entries_sector_count(sector_size))).saturating_mul(sector_size)
+}
+
+fn validate_sector_size(sector_size: u64) -> Result<()> {
+    if sector_size == 0 {
+        return Err(ParttableError::Gpt(
+            "sector size must be non-zero".to_owned(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn slot_number(index: usize) -> u32 {
@@ -239,6 +264,7 @@ mod tests {
     use esp::EFI_GUID;
 
     use super::super::partition::LINUX_FS_GUID;
+    use super::super::plan;
     use super::*;
 
     fn efi_partition(starting_lba: u64, ending_lba: u64) -> Partition {
@@ -269,6 +295,32 @@ mod tests {
 
         // ASSERT
         assert_eq!(table.sector_size(), 512);
+    }
+
+    #[test]
+    fn create_rejects_zero_sector_size() {
+        // ARRANGE / ACT
+        let result = Table::create(8 * 2048, 0, [0xCD; 16]);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "sector size must be non-zero"
+        ));
+    }
+
+    #[test]
+    fn primary_gpt_size_uses_geometry_for_parsed_tables() {
+        // ARRANGE: a header that claims an aligned first usable LBA far past the entries array.
+        let table = Table::from_parts(2048, 16_318, [0xCD; 16], 512, vec![None; ENTRIES_COUNT])
+            .expect("table must be built");
+
+        // ACT
+        let size = table.primary_gpt_size();
+
+        // ASSERT
+        assert_eq!(size, 34 * 512);
+        assert_eq!(size, plan::primary_gpt_size(512));
     }
 
     #[test]
