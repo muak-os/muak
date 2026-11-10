@@ -20,6 +20,10 @@ pub(crate) fn resolve_pending_config() {
         return;
     }
 
+    if super::has_update_marker() {
+        return;
+    }
+
     let declared = installed_version();
     let artifact = medium::version().ok();
 

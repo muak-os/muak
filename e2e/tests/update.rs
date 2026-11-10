@@ -45,6 +45,9 @@ mod tests {
             "expected 'committed successfully' in update output, got: {stdout}"
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
+        fixture
+            .vm
+            .assert_serial_contains("Update committed to the boot partition")?;
         Ok(())
     }
 
@@ -136,6 +139,9 @@ mod tests {
             install_version()
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
+        fixture
+            .vm
+            .assert_serial_contains("Update committed to the boot partition")?;
         Ok(())
     }
 
@@ -194,6 +200,9 @@ mod tests {
             install_version()
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
+        fixture
+            .vm
+            .assert_serial_contains("Update committed to the boot partition")?;
 
         let security = assert_success!(cli, ["security", "state"]).await?;
         ensure!(
@@ -254,6 +263,9 @@ mod tests {
             "expected secureboot to be disabled, got: {config_out}"
         );
         fixture.vm.assert_serial_contains("muak.update_id=")?;
+        fixture
+            .vm
+            .assert_serial_contains("Update committed to the boot partition")?;
         Ok(())
     }
 }

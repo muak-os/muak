@@ -74,6 +74,8 @@ pub async fn apply() -> Result<()> {
     }
     efi::unmount();
 
+    kmsg::info!("Update committed to the boot partition");
+
     warn_on_version_mismatch();
 
     cache::enforce();
