@@ -6,7 +6,7 @@ use crate::dir::{self, EROFS_FT_DIR};
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_PLAIN;
 use crate::layout::types::InodeLayout;
-use crate::tree::TreeEntry;
+use crate::source::TreeEntry;
 use crate::{MkfsConfig, xattr};
 
 /// Build initial `InodeLayout` entries from tree entries.
@@ -108,7 +108,7 @@ mod tests {
     use crate::MkfsConfig;
     use crate::dir::{self, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::error::ErofsError;
-    use crate::tree::TreeEntry;
+    use crate::source::TreeEntry;
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {

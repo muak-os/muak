@@ -121,12 +121,11 @@ mod tests {
     use std::io;
 
     use super::{layout, parent_nid};
-    use crate::Compression;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::{InodeLayout, plan};
-    use crate::source::SizedFile;
-    use crate::tree::TreeEntry;
+    use crate::layout::plan;
+    use crate::source::{SizedFile, TreeEntry};
+    use crate::{Compression, InodeLayout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {

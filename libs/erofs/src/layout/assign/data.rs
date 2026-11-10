@@ -62,12 +62,11 @@ mod tests {
     use std::io;
 
     use super::{data_block_addrs, total_image_size};
-    use crate::BLOCK_SIZE;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::{InodeLayout, plan};
-    use crate::source::SizedFile;
-    use crate::tree::TreeEntry;
+    use crate::layout::plan;
+    use crate::source::{SizedFile, TreeEntry};
+    use crate::{BLOCK_SIZE, InodeLayout};
 
     fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {

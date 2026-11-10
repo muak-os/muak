@@ -3,8 +3,7 @@
 use super::{ImagePlan, assign, collect, indices};
 use crate::MkfsConfig;
 use crate::error::Result;
-use crate::source::SizedFile;
-use crate::tree::TreeEntry;
+use crate::source::{SizedFile, TreeEntry};
 
 /// Plan the full image layout from sized file entries.
 pub fn plan(files: &mut [SizedFile<'_>], config: &MkfsConfig<'_>) -> Result<ImagePlan> {
@@ -34,8 +33,7 @@ mod tests {
 
     use super::plan;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
-    use crate::source::SizedFile;
-    use crate::tree::TreeEntry;
+    use crate::source::{SizedFile, TreeEntry};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {

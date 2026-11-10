@@ -70,9 +70,9 @@ mod tests {
     use alloc::collections::BTreeMap;
 
     use super::bfs_order;
+    use crate::InodeLayout;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::InodeLayout;
 
     #[test]
     fn bfs_order_empty_path_to_idx_returns_empty() {

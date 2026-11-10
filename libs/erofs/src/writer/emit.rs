@@ -8,11 +8,12 @@ use std::io::{Read, Write};
 use super::inode::write_header;
 use super::sizes::{block_size_usize, slot_offset};
 use super::{compressed, data};
+use crate::InodeLayout;
 use crate::checked::{add, align_up, u32_from_usize};
 use crate::dir::EROFS_FT_REG_FILE;
 use crate::error::{ErofsError, Result};
 use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE};
-use crate::layout::{self, ImagePlan, InodeLayout};
+use crate::layout::{self, ImagePlan};
 use crate::source::SizedFile;
 use crate::superblock::{self, SuperblockParams};
 
@@ -149,8 +150,8 @@ fn is_inline_regular(inode: &InodeLayout) -> bool {
 mod tests {
     use std::io;
 
+    use crate::source::TreeEntry;
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
-    use crate::tree::TreeEntry;
     use crate::{MkfsConfig, SLOT_SIZE, layout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
@@ -175,8 +176,8 @@ mod tests {
         }
     }
 
-    fn entry_of(inode: &crate::layout::InodeLayout) -> crate::tree::TreeEntry {
-        crate::tree::TreeEntry {
+    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+        crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
             size: u64::from(inode.size),
@@ -190,7 +191,7 @@ mod tests {
         }
     }
 
-    fn zero_data(entry: &crate::tree::TreeEntry) -> Vec<u8> {
+    fn zero_data(entry: &crate::source::TreeEntry) -> Vec<u8> {
         if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
             vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
         } else {
@@ -199,7 +200,7 @@ mod tests {
     }
 
     fn pair_files<R: std::io::Read>(
-        entries: Vec<crate::tree::TreeEntry>,
+        entries: Vec<crate::source::TreeEntry>,
         readers: &mut [R],
     ) -> Vec<crate::source::SizedFile<'_>> {
         entries

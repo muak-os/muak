@@ -14,18 +14,14 @@ use crate::MkfsConfig;
 use crate::error::Result;
 use crate::source::SizedFile;
 
-/// Public inode layout type produced by layout planning.
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "the repetition is necessary for a distinct public type alias"
-)]
-pub type InodeLayout = types::InodeLayout;
+/// Planned layout for a single inode.
+pub type Inode = types::InodeLayout;
 
 /// A fully-planned EROFS image, ready for emission.
 #[derive(Debug)]
 pub struct ImagePlan {
     /// Planned inodes with complete layout metadata.
-    pub inodes: Vec<InodeLayout>,
+    pub inodes: Vec<Inode>,
     /// Total image size in bytes (block-aligned).
     pub total_size: usize,
     /// Whether compression is enabled for this image.
@@ -58,7 +54,7 @@ pub(super) fn parent_rel(rel: &str) -> String {
     }
 }
 
-pub(crate) fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
+pub(crate) fn compute_meta_end(inodes: &[Inode], do_compress: bool) -> usize {
     inodes
         .iter()
         .map(|inode| {

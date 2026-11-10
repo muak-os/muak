@@ -1,10 +1,10 @@
 //! Compact inode header writing and xattr payload placement.
 
+use crate::InodeLayout;
 use crate::checked::{add, write_bytes};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::{self, COMPACT_INODE_SIZE, CompactInodeParams};
-use crate::layout::InodeLayout;
 
 pub(super) fn write_header(buf: &mut [u8], inode: &InodeLayout, slot_offset: usize) -> Result<()> {
     let i_u = if inode.compressed.is_some() {
@@ -60,10 +60,9 @@ mod tests {
     use super::write_header;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::{self, InodeLayout};
-    use crate::tree::TreeEntry;
+    use crate::source::TreeEntry;
     use crate::writer::image;
-    use crate::{SLOT_SIZE, compress};
+    use crate::{InodeLayout, SLOT_SIZE, compress, layout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -87,8 +86,8 @@ mod tests {
         }
     }
 
-    fn entry_of(inode: &crate::layout::InodeLayout) -> crate::tree::TreeEntry {
-        crate::tree::TreeEntry {
+    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+        crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
             size: u64::from(inode.size),
@@ -102,7 +101,7 @@ mod tests {
         }
     }
 
-    fn zero_data(entry: &crate::tree::TreeEntry) -> Vec<u8> {
+    fn zero_data(entry: &crate::source::TreeEntry) -> Vec<u8> {
         if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
             vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
         } else {
@@ -111,7 +110,7 @@ mod tests {
     }
 
     fn pair_files<R: std::io::Read>(
-        entries: Vec<crate::tree::TreeEntry>,
+        entries: Vec<crate::source::TreeEntry>,
         readers: &mut [R],
     ) -> Vec<crate::source::SizedFile<'_>> {
         entries

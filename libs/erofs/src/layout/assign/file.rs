@@ -1,6 +1,7 @@
 //! Regular-file, symlink, special-file, and compressed layout decisions.
 
 use super::super::types::InodeLayout;
+use super::Slot;
 use super::compact::index_bytes;
 use super::sizes::{align8, header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
 use crate::checked::align_up;
@@ -40,17 +41,10 @@ pub(super) fn symlink(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "all parameters are required for layout decision"
-)]
 pub(super) fn regular(
     inodes: &mut [InodeLayout],
     i: usize,
-    nid: u64,
-    slot_offset: usize,
-    inode_header: usize,
-    bs: usize,
+    slot: Slot,
     compression: Compression,
     files: &mut [SizedFile<'_>],
 ) -> Result<usize> {
@@ -63,7 +57,7 @@ pub(super) fn regular(
 
     let compressed_advance = match (file_size > 0, compression.level()) {
         (true, Some(level)) => {
-            compressed_regular(inodes, i, nid, inode_header, files, file_size, level)?
+            compressed_regular(inodes, i, slot.nid, slot.header, files, file_size, level)?
         }
         _ => None,
     };
@@ -71,27 +65,28 @@ pub(super) fn regular(
         return Ok(advance);
     }
 
-    let full_blocks = file_size.checked_div(bs).unwrap_or_default();
-    let can_inline = full_blocks == 0 && inline_fits(slot_offset, inode_header, file_size, bs);
+    let full_blocks = file_size.checked_div(slot.block_size).unwrap_or_default();
+    let can_inline =
+        full_blocks == 0 && inline_fits(slot.offset, slot.header, file_size, slot.block_size);
 
     let Some(inode) = inodes.get_mut(i) else {
         return Ok(0);
     };
-    inode.nid = nid;
+    inode.nid = slot.nid;
 
     if file_size == 0 {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
-        return Ok(header_only_padded(inode_header));
+        return Ok(header_only_padded(slot.header));
     }
 
     if can_inline {
         inode.datalayout = EROFS_INODE_FLAT_INLINE;
-        Ok(padded_slots(inode_header, file_size))
+        Ok(padded_slots(slot.header, file_size))
     } else {
         inode.datalayout = EROFS_INODE_FLAT_PLAIN;
-        inode.data_blocks = truncate_usize_to_u32(file_size.div_ceil(bs));
+        inode.data_blocks = truncate_usize_to_u32(file_size.div_ceil(slot.block_size));
 
-        Ok(header_only_padded(inode_header))
+        Ok(header_only_padded(slot.header))
     }
 }
 
@@ -166,18 +161,18 @@ mod tests {
     use std::io::Read;
     use std::path::Path;
 
+    use super::super::Slot;
     use super::{regular, special, symlink};
-    use crate::Compression;
     use crate::compress::pcluster_blocks;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE,
         EROFS_INODE_FLAT_PLAIN,
     };
-    use crate::layout::{InodeLayout, plan};
-    use crate::source::{self, SizedFile};
-    use crate::tree::TreeEntry;
+    use crate::layout::plan;
+    use crate::source::{self, SizedFile, TreeEntry};
     use crate::writer::image;
+    use crate::{Compression, InodeLayout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -1000,10 +995,12 @@ mod tests {
         let regular_advance = regular(
             &mut inodes,
             9,
-            1,
-            0,
-            COMPACT_INODE_SIZE,
-            4096,
+            Slot {
+                offset: 0,
+                nid: 1,
+                header: COMPACT_INODE_SIZE,
+                block_size: 4096,
+            },
             Compression::None,
             &mut files,
         )

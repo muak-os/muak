@@ -7,7 +7,7 @@ mod tests {
     use std::path::Path;
 
     use erofs::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
-    use erofs::tree::TreeEntry;
+    use erofs::source::TreeEntry;
     use erofs::{
         BLOCK_SIZE, Compression, DEFAULT_ZSTD_COMPRESSION_LEVEL, FileContexts, MkfsConfig,
         SLOT_SIZE, SizedFile, error, layout, mkfs, source, writer,

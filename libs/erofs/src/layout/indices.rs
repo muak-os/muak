@@ -5,7 +5,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use super::parent_rel;
 use super::types::InodeLayout;
 use crate::dir::EROFS_FT_DIR;
-use crate::tree::TreeEntry;
+use crate::source::TreeEntry;
 
 /// Lookup maps populated from a directory tree walk.
 pub struct LayoutIndices {

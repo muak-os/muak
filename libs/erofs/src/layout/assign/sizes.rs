@@ -97,9 +97,9 @@ pub(crate) fn meta_size_bytes(inode: &InodeLayout) -> usize {
 #[cfg(test)]
 mod tests {
     use super::inline_data_size;
+    use crate::InodeLayout;
     use crate::dir::{EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::InodeLayout;
 
     fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
         InodeLayout {

@@ -6,11 +6,10 @@ use std::io::{Read, Write};
 use super::dir::{find_parent_nid, sorted_entries};
 use super::sizes::{full_block_bytes, usize_from_u32};
 use crate::checked::write_bytes;
-use crate::dir;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_INLINE;
-use crate::layout::InodeLayout;
+use crate::{InodeLayout, dir};
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 
@@ -171,7 +170,7 @@ mod tests {
 
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::tree::TreeEntry;
+    use crate::source::TreeEntry;
     use crate::{layout, writer};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
@@ -185,8 +184,8 @@ mod tests {
         }
     }
 
-    fn entry_of(inode: &crate::layout::InodeLayout) -> crate::tree::TreeEntry {
-        crate::tree::TreeEntry {
+    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+        crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
             size: u64::from(inode.size),
@@ -200,7 +199,7 @@ mod tests {
         }
     }
 
-    fn zero_data(entry: &crate::tree::TreeEntry) -> Vec<u8> {
+    fn zero_data(entry: &crate::source::TreeEntry) -> Vec<u8> {
         if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
             vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
         } else {
@@ -209,7 +208,7 @@ mod tests {
     }
 
     fn pair_files<R: std::io::Read>(
-        entries: Vec<crate::tree::TreeEntry>,
+        entries: Vec<crate::source::TreeEntry>,
         readers: &mut [R],
     ) -> Vec<crate::source::SizedFile<'_>> {
         entries

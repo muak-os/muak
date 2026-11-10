@@ -13,7 +13,6 @@ mod inode;
 pub mod layout;
 pub mod source;
 mod superblock;
-pub mod tree;
 pub mod writer;
 mod xattr;
 
@@ -29,7 +28,7 @@ pub type Compression = compress::Compression;
 /// `SELinux` file context rules for labeling EROFS inodes.
 pub type FileContexts = filecontexts::FileContexts;
 /// Planned inode layout for the EROFS image.
-pub type InodeLayout = layout::InodeLayout;
+pub type InodeLayout = layout::Inode;
 /// A fully-planned EROFS image.
 pub type ImagePlan = layout::ImagePlan;
 /// A sized file entry with metadata and a reader.

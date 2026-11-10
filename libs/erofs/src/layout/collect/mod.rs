@@ -5,7 +5,7 @@ mod inode_builder;
 use crate::MkfsConfig;
 use crate::error::Result;
 use crate::layout::types::InodeLayout;
-use crate::tree::TreeEntry;
+use crate::source::TreeEntry;
 
 /// Build initial `InodeLayout` entries from tree entries.
 ///

@@ -6,9 +6,9 @@ use alloc::string::{String, ToString as _};
 use alloc::vec::Vec;
 use std::path::Path;
 
+use crate::InodeLayout;
 use crate::checked::align_up;
 use crate::dir::{EROFS_FT_DIR, Entry};
-use crate::layout::InodeLayout;
 
 pub(super) fn find_parent_nid(
     inode: &InodeLayout,
@@ -86,9 +86,8 @@ mod tests {
     use super::{find_parent_nid, sorted_entries};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::{self, InodeLayout};
-    use crate::source::SizedFile;
-    use crate::tree::TreeEntry;
+    use crate::source::{SizedFile, TreeEntry};
+    use crate::{InodeLayout, layout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {

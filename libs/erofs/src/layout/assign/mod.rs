@@ -24,6 +24,19 @@ pub(super) const META_START: usize = EROFS_SUPER_OFFSET + 128;
 /// Number of 16-byte ext slots reserved for compression config.
 pub(super) const COMPR_CFG_EXTSLOTS: usize = 1;
 
+/// Per-inode geometry used when deciding a layout.
+#[derive(Clone, Copy)]
+pub(super) struct Slot {
+    /// Byte offset of the inode's first metadata slot.
+    pub offset: usize,
+    /// NID (slot index) of the inode.
+    pub nid: u64,
+    /// Inode header size including xattr payload.
+    pub header: usize,
+    /// Filesystem block size.
+    pub block_size: usize,
+}
+
 /// Byte offset at which the inode metadata region begins.
 pub(super) fn meta_start(has_compression: bool) -> usize {
     let base = if has_compression {
@@ -67,10 +80,12 @@ pub fn nids_and_layouts(
             EROFS_FT_REG_FILE => file::regular(
                 inodes,
                 i,
-                nid,
-                slot_offset,
-                inode_header,
-                bs,
+                Slot {
+                    offset: slot_offset,
+                    nid,
+                    header: inode_header,
+                    block_size: bs,
+                },
                 compression,
                 files,
             )?,
@@ -105,10 +120,9 @@ mod tests {
     use super::nids_and_layouts;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::{ImagePlan, InodeLayout, plan};
-    use crate::source::SizedFile;
-    use crate::tree::TreeEntry;
-    use crate::{Compression, SLOT_SIZE};
+    use crate::layout::{ImagePlan, plan};
+    use crate::source::{SizedFile, TreeEntry};
+    use crate::{Compression, InodeLayout, SLOT_SIZE};
 
     const FIRST_NID: usize = super::META_START.div_euclid(SLOT_SIZE);
 

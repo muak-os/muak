@@ -2,10 +2,8 @@
 
 use std::io::Read;
 
-use erofs::layout::InodeLayout;
-use erofs::source::SizedFile;
-use erofs::tree::TreeEntry;
-use erofs::{Compression, MkfsConfig};
+use erofs::source::{SizedFile, TreeEntry};
+use erofs::{Compression, InodeLayout, MkfsConfig};
 
 /// Cursor set over shared content (test support).
 pub type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;

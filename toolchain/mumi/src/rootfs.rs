@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use std::path::Path;
 
 use erofs::dir::EROFS_FT_REG_FILE;
-use erofs::tree::TreeEntry;
+use erofs::source::TreeEntry;
 
 use crate::error::{MumiError, Result};
 

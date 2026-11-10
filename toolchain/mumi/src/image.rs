@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 
 use erofs::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
-use erofs::tree::TreeEntry;
+use erofs::source::TreeEntry;
 use erofs::{Compression, MkfsConfig};
 
 use crate::error::{MumiError, Result};
