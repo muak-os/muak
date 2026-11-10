@@ -108,6 +108,28 @@ impl Table {
         primary_gpt_region_size(self.sector_size)
     }
 
+    /// Validates that this table's usable LBA range fits a disk of `sector_count` sectors.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the disk is too small for a GPT or when the table's last
+    /// usable LBA would overlap the backup partition entries.
+    pub fn validate_disk_size(&self, sector_count: u64) -> Result<()> {
+        let entries_sectors = entries_sector_count(self.sector_size);
+        let max_last_usable = sector_count
+            .checked_sub(entries_sectors)
+            .and_then(|count| count.checked_sub(2))
+            .ok_or_else(|| ParttableError::Gpt("disk too small for GPT".to_owned()))?;
+
+        if self.last_usable_lba > max_last_usable {
+            return Err(ParttableError::Gpt(
+                "last usable LBA exceeds disk size".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Returns the byte offset on disk where the backup GPT
     /// (partition entries + header) should be placed.
     #[must_use]
@@ -229,9 +251,6 @@ impl Table {
 
 /// Returns the number of sectors occupied by the GPT partition entry array.
 pub(crate) fn entries_sector_count(sector_size: u64) -> u64 {
-    // A zero sector size is rejected by `Table::create` and `Table::from_parts`, but this
-    // helper is also reachable from `plan::primary_gpt_size`, so treat zero as one sector
-    // instead of panicking in `div_ceil`.
     let divisor = sector_size.max(1);
 
     u64::from(ENTRY_SIZE)
@@ -239,8 +258,7 @@ pub(crate) fn entries_sector_count(sector_size: u64) -> u64 {
         .div_ceil(divisor)
 }
 
-/// Returns the size in bytes of the primary GPT region for the given sector size:
-/// the protective MBR, the GPT header, and the partition entry array.
+/// Returns the size in bytes of the primary GPT region for the given sector size.
 pub(crate) fn primary_gpt_region_size(sector_size: u64) -> u64 {
     (2_u64.saturating_add(entries_sector_count(sector_size))).saturating_mul(sector_size)
 }
@@ -310,8 +328,25 @@ mod tests {
     }
 
     #[test]
+    fn validate_disk_size_rejects_table_larger_than_disk() {
+        // ARRANGE
+        let table = Table::create(8 * 2048, 512, [0xCD; 16]).expect("table must be created");
+
+        // ACT
+        let fits = table.validate_disk_size(8 * 2048);
+        let too_small = table.validate_disk_size(4096);
+
+        // ASSERT
+        fits.expect("matching disk must validate");
+        assert!(matches!(
+            too_small,
+            Err(ParttableError::Gpt(message)) if message == "last usable LBA exceeds disk size"
+        ));
+    }
+
+    #[test]
     fn primary_gpt_size_uses_geometry_for_parsed_tables() {
-        // ARRANGE: a header that claims an aligned first usable LBA far past the entries array.
+        // ARRANGE
         let table = Table::from_parts(2048, 16_318, [0xCD; 16], 512, vec![None; ENTRIES_COUNT])
             .expect("table must be built");
 

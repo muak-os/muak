@@ -88,6 +88,8 @@ fn write_region<W: Write>(
     backup: bool,
     writer: &mut W,
 ) -> Result<()> {
+    table.validate_disk_size(sector_count)?;
+
     let entries = partition_entries_bytes(table);
     let entries_crc = crc32fast::hash(&entries);
     let header = table
@@ -150,6 +152,17 @@ fn validate_geometry(header: &GptHeader, sector_size: u64) -> Result<()> {
     if header.entries_size != ENTRY_SIZE {
         return Err(ParttableError::Gpt(
             "unsupported partition entry size".to_owned(),
+        ));
+    }
+
+    if header.entries_lba != 2 {
+        return Err(ParttableError::Gpt(
+            "primary GPT entries must start at LBA 2".to_owned(),
+        ));
+    }
+    if header.first_usable_lba > header.last_usable_lba {
+        return Err(ParttableError::Gpt(
+            "GPT usable LBA range is inverted".to_owned(),
         ));
     }
 
@@ -301,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn read_rejects_entries_lba_overflow() {
+    fn read_rejects_entries_lba_away_from_lba_2() {
         // ARRANGE
         let sector_count = 16 * 2048;
         let mut header = Table::create(sector_count, 512, [0xCD; 16])
@@ -324,13 +337,52 @@ mod tests {
         let result = read(&mut reader);
 
         // ASSERT
-        let message = match result {
-            Err(ParttableError::Gpt(message)) if message == "partition entries LBA overflowed" => {
-                message
-            }
-            other => panic!("unexpected result: {other:?}"),
-        };
-        assert_eq!(message, "partition entries LBA overflowed");
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "primary GPT entries must start at LBA 2"
+        ));
+    }
+
+    #[test]
+    fn read_rejects_inverted_usable_lba_range() {
+        // ARRANGE
+        let sector_count = 16 * 2048;
+        let entries_crc = crc32fast::hash(&[0_u8; ENTRIES_BYTES]);
+        let mut header = Table::create(sector_count, 512, [0xCD; 16])
+            .expect("table must be created")
+            .to_header();
+        header.first_usable_lba = header.last_usable_lba.saturating_add(1);
+        let header_sector = header.encode(false, sector_count, 512, entries_crc);
+
+        let mut disk = Vec::new();
+        disk.extend_from_slice(&[0_u8; 512]);
+        disk.extend_from_slice(&header_sector);
+
+        // ACT
+        let mut reader: &[u8] = disk.as_slice();
+        let result = read(&mut reader);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "GPT usable LBA range is inverted"
+        ));
+    }
+
+    #[test]
+    fn write_rejects_table_whose_last_usable_exceeds_disk() {
+        // ARRANGE
+        let table = sample_table();
+        let mut buf = Vec::new();
+
+        // ACT
+        let result = write_primary(&table, 4096, &mut buf);
+
+        // ASSERT
+        assert!(matches!(
+            result,
+            Err(ParttableError::Gpt(message)) if message == "last usable LBA exceeds disk size"
+        ));
     }
 
     #[test]
