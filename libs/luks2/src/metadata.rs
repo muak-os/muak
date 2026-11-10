@@ -6,15 +6,16 @@ use base64ct::{Base64, Encoding as _};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Luks2Error, Result};
+use crate::header::DEFAULT_HEADER_SIZE;
+use crate::key::VOLUME_KEY_SIZE_U32;
 
 const AF_STRIPES: u32 = 4000;
-const CIPHER_SPEC: &str = "aes-xts-plain64";
-const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
-const DEFAULT_JSON_SIZE: u64 = 12288;
-const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 0x8000;
+pub(crate) const CIPHER_SPEC: &str = "aes-xts-plain64";
+pub(crate) const DEFAULT_JSON_SIZE: u64 = 12288;
+pub(crate) const DEFAULT_JSON_SIZE_USIZE: usize = 12288;
+pub(crate) const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 0x8000;
 const DEFAULT_KEYSLOT_AREA_SIZE: u64 = 64 * 4000;
 const DEFAULT_KEYSLOTS_SIZE: u64 = 16_744_448;
-const VOLUME_KEY_SIZE_U32: u32 = 64;
 
 /// Top-level LUKS2 JSON metadata.
 #[derive(Debug, Serialize, Deserialize)]

@@ -8,10 +8,11 @@ use crate::error::{Luks2Error as Error, Result};
 
 const LUKS_MAGIC: [u8; 6] = [0x4c, 0x55, 0x4b, 0x53, 0xba, 0xbe];
 const LUKS2_VERSION: u16 = 0x0002;
-const BINARY_HEADER_SIZE: usize = 4096;
-const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
+pub(crate) const BINARY_HEADER_SIZE: usize = 4096;
+pub(crate) const BINARY_HEADER_SIZE_U64: u64 = 4096;
+pub(crate) const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
 const CHECKSUM_ALG: &str = "sha256";
-const SHA256_LEN: usize = 32;
+pub(crate) const SHA256_LEN: usize = 32;
 const CHECKSUM_OFFSET: usize = 376;
 
 const MAGIC_OFFSET: usize = 0;

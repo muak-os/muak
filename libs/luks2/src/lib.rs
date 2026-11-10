@@ -17,19 +17,14 @@ mod xts;
 use std::os::fd::AsFd;
 
 use error::{Luks2Error as Error, Result};
-use header::Header;
-use metadata::{Keyslot, Metadata};
+use header::{BINARY_HEADER_SIZE, BINARY_HEADER_SIZE_U64, DEFAULT_HEADER_SIZE, Header};
+use key::VOLUME_KEY_SIZE;
+use metadata::{
+    CIPHER_SPEC, DEFAULT_JSON_SIZE, DEFAULT_JSON_SIZE_USIZE, DEFAULT_KEYSLOT_AREA_OFFSET, Keyslot,
+    Metadata,
+};
 use rustix::fs::OFlags;
 use zeroize::Zeroize as _;
-
-const BINARY_HEADER_SIZE: usize = 4096;
-const BINARY_HEADER_SIZE_U64: u64 = 4096;
-const CIPHER_SPEC: &str = "aes-xts-plain64";
-const DEFAULT_HEADER_SIZE: u64 = 16 * 1024 * 1024;
-const DEFAULT_JSON_SIZE: u64 = 12288;
-const DEFAULT_JSON_SIZE_USIZE: usize = 12288;
-const DEFAULT_KEYSLOT_AREA_OFFSET: u64 = 0x8000;
-const VOLUME_KEY_SIZE: usize = 64;
 
 /// Represents a TPM2 token stored in the LUKS2 JSON metadata.
 pub type Tpm2Token = metadata::Tpm2Token;
