@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 
 /// Mock backend server that listens on a UNIX socket.
-pub struct MockBackend {
+pub(crate) struct MockBackend {
     socket_path: PathBuf,
     _temp_dir: TempDir,
     shutdown: Arc<AtomicBool>,
@@ -28,7 +28,7 @@ pub struct MockBackend {
 
 impl MockBackend {
     /// Creates a new mock backend with the given response handler.
-    pub async fn start<F>(handler: F) -> anyhow::Result<Self>
+    pub(crate) async fn start<F>(handler: F) -> anyhow::Result<Self>
     where
         F: Fn(Request<Incoming>) -> Response<Full<Bytes>> + Send + Sync + 'static,
     {
@@ -57,17 +57,17 @@ impl MockBackend {
 
     /// Returns the UNIX socket path the backend listens on.
     #[must_use]
-    pub fn socket_path(&self) -> &Path {
+    pub(crate) fn socket_path(&self) -> &Path {
         &self.socket_path
     }
 
     /// Creates a mock backend that always returns a gRPC success response.
-    pub async fn success() -> anyhow::Result<Self> {
+    pub(crate) async fn success() -> anyhow::Result<Self> {
         Self::start(|_req| grpc_ok_response()).await
     }
 
     /// Shuts down the mock backend.
-    pub async fn shutdown(mut self) {
+    pub(crate) async fn shutdown(mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {
             let _join_result = handle.await;

@@ -9,7 +9,7 @@ use crate::client::log_service::{
 };
 
 /// Parses a log level name into its proto integer value.
-pub fn parse_level(level: &str) -> Result<i32, String> {
+pub(crate) fn parse_level(level: &str) -> Result<i32, String> {
     match level.to_lowercase().as_str() {
         "error" => Ok(level_value(Level::Error)),
         "warn" => Ok(level_value(Level::Warn)),
@@ -34,7 +34,7 @@ fn level_value(level: Level) -> i32 {
 }
 
 /// Fetches and displays service logs.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut LogServiceClient<Channel>,
     service: Option<String>,
     tail: Option<u32>,

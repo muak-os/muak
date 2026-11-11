@@ -5,7 +5,11 @@ use crate::client::vm_service::GetVmSerialLogRequest;
 use crate::client::vm_service::vm_service_client::VmServiceClient;
 
 /// Gets VM serial logs.
-pub async fn handle(client: &mut VmServiceClient<Channel>, vm_id: String, tail: i64) -> Result<()> {
+pub(super) async fn handle(
+    client: &mut VmServiceClient<Channel>,
+    vm_id: String,
+    tail: i64,
+) -> Result<()> {
     let request = tonic::Request::new(GetVmSerialLogRequest {
         vm_id: vm_id.clone(),
         tail_lines: tail,

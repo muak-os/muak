@@ -6,17 +6,17 @@ use super::service::{ServiceState, ServiceStatus};
 
 /// Live report of a single supervised service.
 #[derive(Clone, Debug, PartialEq)]
-pub struct View {
+pub(crate) struct View {
     pub name: String,
     pub status: ServiceStatus,
     pub restarts: u32,
 }
 
 /// Ordered report of every supervised service.
-pub type Snapshot = Vec<View>;
+pub(crate) type Snapshot = Vec<View>;
 
 /// Creates the watch channel that carries the live snapshot.
-pub fn channel() -> (watch::Sender<Snapshot>, watch::Receiver<Snapshot>) {
+pub(crate) fn channel() -> (watch::Sender<Snapshot>, watch::Receiver<Snapshot>) {
     watch::channel(Snapshot::new())
 }
 

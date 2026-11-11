@@ -13,7 +13,11 @@ const DIGEST_LEN: usize = 32;
 const SALT_LEN: usize = 32;
 
 /// Creates a new PBKDF2-SHA256 digest of the volume key.
-pub fn create(volume_key: &[u8], keyslot_ids: &[&str], segment_ids: &[&str]) -> Result<Digest> {
+pub(crate) fn create(
+    volume_key: &[u8],
+    keyslot_ids: &[&str],
+    segment_ids: &[&str],
+) -> Result<Digest> {
     let mut salt = [0_u8; SALT_LEN];
     getrandom::fill(&mut salt)
         .map_err(|_error| Error::InvalidField("random generation failed".into()))?;
@@ -39,7 +43,7 @@ pub fn create(volume_key: &[u8], keyslot_ids: &[&str], segment_ids: &[&str]) -> 
 }
 
 /// Verifies a volume key candidate against a stored digest.
-pub fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
+pub(crate) fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
     if digest.r#type != "pbkdf2" {
         return Err(Error::InvalidField(format!(
             "unsupported digest type: {}",

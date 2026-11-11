@@ -6,7 +6,7 @@ use std::path::Path;
 use super::IMAGE_EXTENSION;
 
 /// Discovers every image file in the ramfs root excluding the base rootfs image and live mountpoints.
-pub fn discover_layers() -> Vec<String> {
+pub(super) fn discover_layers() -> Vec<String> {
     discover_layers_in(Path::new("/"), &default_skip_set())
 }
 

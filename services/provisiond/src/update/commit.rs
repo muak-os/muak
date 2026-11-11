@@ -11,7 +11,7 @@ use crate::disk::roles;
 use crate::{cache, efi, medium, secrets};
 
 /// Applies a staged update by deploying the UKI and resealing the LUKS key.
-pub async fn apply() -> Result<()> {
+pub(super) async fn apply() -> Result<()> {
     kmsg::info!("Validation succeeded, committing update");
 
     let (efi_device, state_device, ephemeral_device) = tokio::task::spawn_blocking(move || {

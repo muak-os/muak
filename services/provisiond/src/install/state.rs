@@ -20,7 +20,7 @@ use crate::journal::{self, ChangeKind, Entry};
 const MOUNT_POINT: &str = "/run/mnt/state";
 
 /// Mounts the STATE partition and writes all initial configuration and secrets to it.
-pub fn init(
+pub(super) fn init(
     device: &str,
     config: &config::system::Config,
     auth_config: &config::auth::State,

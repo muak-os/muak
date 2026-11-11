@@ -50,7 +50,7 @@ pub(crate) struct Table {
 }
 
 impl Table {
-    pub fn new(metadata: &Metadata) -> Self {
+    pub(crate) fn new(metadata: &Metadata) -> Self {
         Self {
             sections: Vec::new(),
             headers: Vec::new(),
@@ -65,7 +65,7 @@ impl Table {
         }
     }
 
-    pub fn finalize_section(&mut self, name: &'static str, size: usize) -> Result<()> {
+    pub(crate) fn finalize_section(&mut self, name: &'static str, size: usize) -> Result<()> {
         let virtual_size = u32::try_from(size).map_err(|_conversion_error| {
             YukiError::InvalidPeStructure(format!("section '{name}' too large"))
         })?;
@@ -112,7 +112,7 @@ impl Table {
         Ok(())
     }
 
-    pub fn max_virtual_end(&self) -> u32 {
+    pub(crate) fn max_virtual_end(&self) -> u32 {
         self.max_virtual_end
     }
 }

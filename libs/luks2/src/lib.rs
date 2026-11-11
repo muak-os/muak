@@ -7,11 +7,11 @@
 
 mod digest;
 mod dm;
-mod error;
+pub mod error;
 mod header;
 pub mod key;
 mod keyslot;
-mod metadata;
+pub mod metadata;
 mod xts;
 
 use std::os::fd::AsFd;
@@ -25,9 +25,6 @@ use metadata::{
 };
 use rustix::fs::OFlags;
 use zeroize::Zeroize as _;
-
-/// Represents a TPM2 token stored in the LUKS2 JSON metadata.
-pub type Tpm2Token = metadata::Tpm2Token;
 
 /// Formats a block device with LUKS2 encryption.
 ///
@@ -232,7 +229,7 @@ fn verify_candidate(candidate: &[u8], slot_id: &str, meta: &Metadata) -> bool {
 ///
 /// Returns an error when the JSON metadata cannot be read or does not contain a
 /// TPM2 token.
-pub fn read_tpm2_token(device: &str) -> Result<Tpm2Token> {
+pub fn read_tpm2_token(device: &str) -> Result<metadata::Tpm2Token> {
     let fd = dm::device::open(device, OFlags::RDONLY)?;
 
     let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
@@ -248,7 +245,7 @@ pub fn read_tpm2_token(device: &str) -> Result<Tpm2Token> {
 ///
 /// Returns an error when metadata cannot be read, updated, serialized, or
 /// written back to disk.
-pub fn write_tpm2_token(device: &str, token: &Tpm2Token) -> Result<()> {
+pub fn write_tpm2_token(device: &str, token: &metadata::Tpm2Token) -> Result<()> {
     let fd = dm::device::open(device, OFlags::RDWR)?;
 
     let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];

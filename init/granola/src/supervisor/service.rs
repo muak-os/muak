@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 /// Blueprint for a supervised service.
 #[derive(Clone, Debug, Deserialize)]
-pub struct Service {
+pub(crate) struct Service {
     pub name: String,
     pub command: String,
     #[serde(default)]
@@ -16,7 +16,7 @@ pub struct Service {
 
 impl Service {
     /// Splits `command` into an argv vector, respecting single and double quotes.
-    pub fn argv(&self) -> Vec<String> {
+    pub(crate) fn argv(&self) -> Vec<String> {
         let mut builder = ArgvBuilder::default();
         for ch in self.command.chars() {
             builder.accept(ch);
@@ -66,7 +66,7 @@ impl ArgvBuilder {
 
 /// Lifecycle state of a supervised service.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ServiceStatus {
+pub(crate) enum ServiceStatus {
     Pending,
     Starting,
     Ready,
@@ -90,7 +90,7 @@ impl fmt::Display for ServiceStatus {
 }
 
 /// Runtime state for a single supervised service.
-pub struct ServiceState {
+pub(crate) struct ServiceState {
     pub service: Service,
     pub pid: Option<i32>,
     pub status: ServiceStatus,
@@ -101,7 +101,7 @@ pub struct ServiceState {
 }
 
 impl ServiceState {
-    pub fn new(service: Service) -> Self {
+    pub(crate) fn new(service: Service) -> Self {
         Self {
             service,
             pid: None,

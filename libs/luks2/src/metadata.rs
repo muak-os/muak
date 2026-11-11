@@ -19,7 +19,7 @@ const DEFAULT_KEYSLOTS_SIZE: u64 = 16_744_448;
 
 /// Top-level LUKS2 JSON metadata.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Metadata {
+pub(crate) struct Metadata {
     pub keyslots: HashMap<String, Keyslot>,
     pub tokens: HashMap<String, serde_json::Value>,
     pub segments: HashMap<String, Segment>,
@@ -30,14 +30,20 @@ pub struct Metadata {
 /// TPM2 token stored in LUKS2 metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tpm2Token {
+    /// Token type discriminator.
     pub r#type: String,
+    /// Keyslot identifiers bound to this token.
     pub keyslots: Vec<String>,
+    /// PCR indices bound to the sealed blob.
     #[serde(rename = "tpm2-pcrs")]
     pub tpm2_pcrs: Vec<u32>,
+    /// PCR bank hash algorithm name.
     #[serde(rename = "tpm2-hash-alg")]
     pub tpm2_hash_alg: String,
+    /// Base64-encoded sealed key blob.
     #[serde(rename = "tpm2-blob")]
     pub tpm2_blob: String,
+    /// Base64-encoded TPM2 policy digest.
     #[serde(rename = "tpm2-policy-hash")]
     pub tpm2_policy_hash: String,
 }
@@ -68,7 +74,7 @@ impl Tpm2Token {
 
 /// A LUKS2 keyslot entry.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Keyslot {
+pub(crate) struct Keyslot {
     pub r#type: String,
     pub key_size: u32,
     pub kdf: Kdf,
@@ -78,7 +84,7 @@ pub struct Keyslot {
 
 /// Key derivation function parameters.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Kdf {
+pub(crate) struct Kdf {
     pub r#type: String,
     pub salt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,7 +97,7 @@ pub struct Kdf {
 
 /// Antiforensic splitter parameters.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AntiForensic {
+pub(crate) struct AntiForensic {
     pub r#type: String,
     pub stripes: u32,
     pub hash: String,
@@ -99,7 +105,7 @@ pub struct AntiForensic {
 
 /// Keyslot binary area location and encryption.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct KeyslotArea {
+pub(crate) struct KeyslotArea {
     pub r#type: String,
     pub offset: String,
     pub size: String,
@@ -109,7 +115,7 @@ pub struct KeyslotArea {
 
 /// An encrypted data segment.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Segment {
+pub(crate) struct Segment {
     pub r#type: String,
     pub offset: String,
     pub iv_tweak: String,
@@ -120,7 +126,7 @@ pub struct Segment {
 
 /// A volume key digest for verification.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Digest {
+pub(crate) struct Digest {
     pub r#type: String,
     pub keyslots: Vec<String>,
     pub segments: Vec<String>,
@@ -133,14 +139,14 @@ pub struct Digest {
 
 /// Header configuration section.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     pub json_size: String,
     pub keyslots_size: String,
 }
 
 impl Metadata {
     /// Creates default metadata for a new LUKS2 volume.
-    pub fn new(sector_size: u32) -> Self {
+    pub(crate) fn new(sector_size: u32) -> Self {
         let mut segments = HashMap::new();
         segments.insert(
             String::from("0"),
@@ -167,7 +173,7 @@ impl Metadata {
     }
 
     /// Adds a keyslot entry with the given Argon2id parameters and salt.
-    pub fn add_keyslot(&mut self, id: &str, kdf_salt: &[u8]) {
+    pub(crate) fn add_keyslot(&mut self, id: &str, kdf_salt: &[u8]) {
         let keyslot = Keyslot {
             r#type: String::from("luks2"),
             key_size: VOLUME_KEY_SIZE_U32,
@@ -198,7 +204,7 @@ impl Metadata {
     }
 
     /// Serializes the metadata to a JSON byte buffer padded to `json_size`.
-    pub fn to_json_buffer(&self, json_size: u64) -> Result<Vec<u8>> {
+    pub(crate) fn to_json_buffer(&self, json_size: u64) -> Result<Vec<u8>> {
         let json = serde_json::to_vec_pretty(self)?;
         let json_size = usize::try_from(json_size)
             .map_err(|_error| Luks2Error::InvalidField("json size exceeds usize".into()))?;
@@ -218,7 +224,7 @@ impl Metadata {
     }
 
     /// Deserializes metadata from a raw JSON area buffer.
-    pub fn from_json_buffer(data: &[u8]) -> Result<Self> {
+    pub(crate) fn from_json_buffer(data: &[u8]) -> Result<Self> {
         let end = data
             .iter()
             .position(|&byte| byte == 0)
@@ -230,7 +236,7 @@ impl Metadata {
     }
 
     /// Sets a TPM2 token in the metadata, replacing any existing one.
-    pub fn set_tpm2_token(&mut self, token: &Tpm2Token) -> Result<()> {
+    pub(crate) fn set_tpm2_token(&mut self, token: &Tpm2Token) -> Result<()> {
         let value = serde_json::to_value(token)?;
         let id = self.find_or_alloc_tpm2_token_id();
         self.tokens.insert(id, value);
@@ -238,7 +244,7 @@ impl Metadata {
     }
 
     /// Reads the first TPM2 token from metadata.
-    pub fn get_tpm2_token(&self) -> Result<Tpm2Token> {
+    pub(crate) fn get_tpm2_token(&self) -> Result<Tpm2Token> {
         let value = self
             .tokens
             .values()

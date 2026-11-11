@@ -24,7 +24,7 @@ const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
 const SYS_KEXEC_FILE_LOAD: libc::c_long = 294;
 
 /// Loads the staged kernel via kexec and reboots into it.
-pub fn run(update_id: &str) -> Result<()> {
+pub(crate) fn run(update_id: &str) -> Result<()> {
     let update_dir = Path::new(UPDATE_DIR);
     let kernel_path = update_dir.join("assets").join("kernel");
     let initrd_path = update_dir.join("assets").join("initramfs");

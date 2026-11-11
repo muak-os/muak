@@ -10,8 +10,9 @@ mod tests {
     use std::sync::mpsc::Receiver;
 
     use tui::glyphs::Glyphs;
+    use tui::live::Options;
     use tui::live::session::Session;
-    use tui::live::{Options, Steps};
+    use tui::live::steps::Steps;
     use tui::output::{Mode, Output};
     use tui::size::Size;
     use tui::style::Theme;

@@ -7,7 +7,7 @@ use firmware::nvram::{Id, Update, VariableStore};
 use firmware::secureboot::{PK, SETUP_MODE};
 
 /// Fake firmware variable store with configurable persistence behaviour.
-pub struct Firmware {
+pub(crate) struct Firmware {
     booted: bool,
     available: bool,
     ready: bool,
@@ -22,7 +22,7 @@ pub struct Firmware {
 impl Firmware {
     /// Builds a booted, available, ready store that persists every write.
     #[must_use]
-    pub fn ready() -> Self {
+    pub(crate) fn ready() -> Self {
         Self {
             booted: true,
             available: true,
@@ -38,14 +38,14 @@ impl Firmware {
 
     /// Seeds a variable as if firmware had already committed it.
     #[must_use]
-    pub fn with_variable(self, id: Id, payload: Vec<u8>) -> Self {
+    pub(crate) fn with_variable(self, id: Id, payload: Vec<u8>) -> Self {
         self.variables.borrow_mut().push((id, payload));
         self
     }
 
     /// Reports that preparing variable storage is not ready.
     #[must_use]
-    pub fn not_ready(self) -> Self {
+    pub(crate) fn not_ready(self) -> Self {
         Self {
             ready: false,
             ..self
@@ -54,7 +54,7 @@ impl Firmware {
 
     /// Accepts writes without committing them to the variable store.
     #[must_use]
-    pub fn dropping_writes(self) -> Self {
+    pub(crate) fn dropping_writes(self) -> Self {
         Self {
             stores_writes: false,
             ..self
@@ -63,7 +63,7 @@ impl Firmware {
 
     /// Accepts writes to `id` without committing them to the variable store.
     #[must_use]
-    pub fn ignoring_writes_on(self, id: Id) -> Self {
+    pub(crate) fn ignoring_writes_on(self, id: Id) -> Self {
         Self {
             ignored_write: Some(id),
             ..self
@@ -72,7 +72,7 @@ impl Firmware {
 
     /// Rejects writes to `id` without persisting them.
     #[must_use]
-    pub fn failing_on(self, id: Id) -> Self {
+    pub(crate) fn failing_on(self, id: Id) -> Self {
         Self {
             failing_write: Some(id),
             ..self
@@ -81,7 +81,7 @@ impl Firmware {
 
     /// Reports deleted variables as still present.
     #[must_use]
-    pub fn keeping_deletes(self) -> Self {
+    pub(crate) fn keeping_deletes(self) -> Self {
         Self {
             honors_deletes: false,
             ..self
@@ -90,7 +90,7 @@ impl Firmware {
 
     /// Every write attempted through the store, in order.
     #[must_use]
-    pub fn writes(&self) -> Vec<(Id, Vec<u8>)> {
+    pub(crate) fn writes(&self) -> Vec<(Id, Vec<u8>)> {
         self.writes.borrow().clone()
     }
 }

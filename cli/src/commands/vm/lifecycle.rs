@@ -6,7 +6,7 @@ use crate::client::vm_service::vm_service_client::VmServiceClient;
 use crate::client::vm_service::{DeleteVmRequest, StartVmRequest, StopVmRequest};
 
 /// Starts a VM.
-pub async fn handle_start(
+pub(super) async fn handle_start(
     client: &mut VmServiceClient<Channel>,
     vm_id: String,
     console: &Console,
@@ -27,7 +27,7 @@ pub async fn handle_start(
 }
 
 /// Stops a VM.
-pub async fn handle_stop(
+pub(super) async fn handle_stop(
     client: &mut VmServiceClient<Channel>,
     vm_id: String,
     force: bool,
@@ -50,7 +50,7 @@ pub async fn handle_stop(
 }
 
 /// Deletes a VM.
-pub async fn handle_delete(
+pub(super) async fn handle_delete(
     client: &mut VmServiceClient<Channel>,
     vm_id: String,
     console: &Console,

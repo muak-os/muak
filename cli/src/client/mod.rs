@@ -4,7 +4,7 @@
 )]
 
 mod connector;
-pub mod upload;
+pub(crate) mod upload;
 
 // The modules below contain machine-generated protobuf/tonic code, so the
 // strict workspace lints are allowed here rather than in the generated output.
@@ -23,9 +23,11 @@ pub mod upload;
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod process_service {
+pub(crate) mod process_service {
     tonic::include_proto!("muak.process.v1");
 }
 
@@ -44,9 +46,11 @@ pub mod process_service {
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod vm_service {
+pub(crate) mod vm_service {
     tonic::include_proto!("muak.vm.v1");
 }
 
@@ -65,9 +69,11 @@ pub mod vm_service {
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod provision_service {
+pub(crate) mod provision_service {
     tonic::include_proto!("muak.provision.v1");
 }
 
@@ -86,9 +92,11 @@ pub mod provision_service {
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod auth_service {
+pub(crate) mod auth_service {
     tonic::include_proto!("muak.auth.v1");
 }
 
@@ -107,9 +115,11 @@ pub mod auth_service {
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod security_service {
+pub(crate) mod security_service {
     tonic::include_proto!("muak.security.v1");
 }
 
@@ -128,9 +138,11 @@ pub mod security_service {
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod log_service {
+pub(crate) mod log_service {
     tonic::include_proto!("muak.log.v1");
 }
 
@@ -149,9 +161,11 @@ pub mod log_service {
     clippy::std_instead_of_core,
     clippy::trivially_copy_pass_by_ref,
     clippy::arbitrary_source_item_ordering,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod version_service {
+pub(crate) mod version_service {
     tonic::include_proto!("muak.version.v1");
 }
 
@@ -161,7 +175,7 @@ use connector::{PinnedTlsConnector, TofuState, TofuTlsConnector};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
 /// Connects using a server context with mTLS.
-pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {
+pub(crate) async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> {
     let connect_timeout = core::time::Duration::from_secs(5);
     let request_timeout = core::time::Duration::from_secs(timeout_secs);
 
@@ -198,7 +212,10 @@ pub async fn connect(ctx: &ServerContext, timeout_secs: u64) -> Result<Channel> 
 }
 
 /// Connects via TLS without verifying the server certificate (TOFU model).
-pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<(Channel, String)> {
+pub(crate) async fn connect_tls_insecure(
+    server: &str,
+    timeout_secs: u64,
+) -> Result<(Channel, String)> {
     let connect_timeout = core::time::Duration::from_secs(5);
     let request_timeout = core::time::Duration::from_secs(timeout_secs);
 
@@ -226,7 +243,7 @@ pub async fn connect_tls_insecure(server: &str, timeout_secs: u64) -> Result<(Ch
 
 /// Connects via TLS with certificate pinning: only accepts a server whose
 /// certificate fingerprint matches the provided value.
-pub async fn connect_tls_pinned(
+pub(crate) async fn connect_tls_pinned(
     server: &str,
     timeout_secs: u64,
     expected_fingerprint: &str,

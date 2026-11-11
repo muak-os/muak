@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::source::{SizedFile, TreeEntry};
 
 /// Plan the full image layout from sized file entries.
-pub fn plan(files: &mut [SizedFile<'_>], config: &MkfsConfig<'_>) -> Result<ImagePlan> {
+pub(super) fn plan(files: &mut [SizedFile<'_>], config: &MkfsConfig<'_>) -> Result<ImagePlan> {
     let entries: Vec<TreeEntry> = files.iter().map(|sized| sized.entry.clone()).collect();
     let mut inodes = collect::initial_inodes(&entries, config)?;
     let idx = indices::build_from_entries(&entries, &inodes);
@@ -42,7 +42,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 

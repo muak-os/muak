@@ -32,7 +32,7 @@ pub enum Action {
 }
 
 /// Handle context commands.
-pub fn handle(action: Action, console: &Console) -> Result<()> {
+pub(crate) fn handle(action: Action, console: &Console) -> Result<()> {
     match action {
         Action::List => list(console),
         Action::Use { name } => use_context(&name, console),

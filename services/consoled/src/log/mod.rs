@@ -1,5 +1,5 @@
 //! Kernel log ingestion, buffering, and rendering.
 
-pub mod buffer;
-pub mod reader;
-pub mod view;
+pub(crate) mod buffer;
+pub(crate) mod reader;
+pub(crate) mod view;

@@ -2,9 +2,10 @@
 
 use std::io::{Read, Write};
 
+use erofs::MkfsConfig;
+use erofs::compress::Compression;
 use erofs::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use erofs::source::TreeEntry;
-use erofs::{Compression, MkfsConfig};
 
 use crate::error::{MumiError, Result};
 
@@ -15,7 +16,7 @@ const S_IFLNK: u32 = 0o120_000;
 /// `SELinux` file context rules for labeling EROFS inodes.
 #[derive(Debug, Clone)]
 pub struct FileContexts {
-    rules: erofs::FileContexts,
+    rules: erofs::filecontexts::FileContexts,
 }
 
 impl FileContexts {
@@ -25,13 +26,13 @@ impl FileContexts {
     ///
     /// Returns an error when the rules text cannot be parsed.
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        erofs::FileContexts::from_reader(bytes)
+        erofs::filecontexts::FileContexts::from_reader(bytes)
             .map(|rules| Self { rules })
             .map_err(|e| MumiError::Erofs(e.to_string()))
     }
 
     /// Borrows the underlying EROFS file contexts.
-    fn as_erofs(&self) -> &erofs::FileContexts {
+    fn as_erofs(&self) -> &erofs::filecontexts::FileContexts {
         &self.rules
     }
 }
@@ -59,7 +60,7 @@ pub struct BuildConfig {
 /// A fully-planned image. Carries layout only.
 pub struct Image {
     len: u64,
-    plan: erofs::ImagePlan,
+    plan: erofs::layout::ImagePlan,
     file_contexts: Option<FileContexts>,
     compression: Compression,
 }
@@ -96,9 +97,9 @@ impl Image {
         }
 
         let mkfs_config = mkfs_config(config.file_contexts.as_ref(), compression);
-        let mut sized: Vec<erofs::SizedFile<'_>> = Vec::with_capacity(entries.len());
+        let mut sized: Vec<erofs::source::SizedFile<'_>> = Vec::with_capacity(entries.len());
         for (entry, reader) in entries.iter().zip(readers.iter_mut()) {
-            sized.push(erofs::SizedFile {
+            sized.push(erofs::source::SizedFile {
                 entry: tree_entry(entry),
                 reader: &mut **reader,
             });
@@ -133,12 +134,12 @@ impl Image {
             )));
         }
 
-        let mut sized: Vec<erofs::SizedFile<'_>> = self
+        let mut sized: Vec<erofs::source::SizedFile<'_>> = self
             .plan
             .inodes
             .iter()
             .zip(readers.iter_mut())
-            .map(|(inode, reader)| erofs::SizedFile {
+            .map(|(inode, reader)| erofs::source::SizedFile {
                 entry: inode_entry(inode),
                 reader: &mut **reader,
             })
@@ -174,7 +175,7 @@ fn mkfs_config(file_contexts: Option<&FileContexts>, compression: Compression) -
 }
 
 /// Reconstructs the source entry metadata from a planned inode.
-fn inode_entry(inode: &erofs::InodeLayout) -> TreeEntry {
+fn inode_entry(inode: &erofs::layout::Inode) -> TreeEntry {
     TreeEntry {
         rel_path: inode.rel_path.clone(),
         file_type: inode.file_type,
@@ -219,7 +220,7 @@ mod tests {
 
     fn config() -> BuildConfig {
         BuildConfig {
-            compression_level: erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL,
+            compression_level: erofs::compress::DEFAULT_ZSTD_COMPRESSION_LEVEL,
             file_contexts: None,
         }
     }

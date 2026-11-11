@@ -9,7 +9,10 @@ use crate::client::provision_service::{RebootRequest, ShutdownRequest};
 use crate::commands::consent;
 
 /// Requests a reboot of the target system.
-pub async fn reboot(client: &mut ProvisionServiceClient<Channel>, console: &Console) -> Result<()> {
+pub(crate) async fn reboot(
+    client: &mut ProvisionServiceClient<Channel>,
+    console: &Console,
+) -> Result<()> {
     let steps = console.steps()?;
 
     steps.start("Requesting reboot...");
@@ -31,7 +34,7 @@ pub async fn reboot(client: &mut ProvisionServiceClient<Channel>, console: &Cons
 }
 
 /// Requests a shutdown of the target system.
-pub async fn shutdown(
+pub(crate) async fn shutdown(
     client: &mut ProvisionServiceClient<Channel>,
     console: &Console,
     yes: bool,

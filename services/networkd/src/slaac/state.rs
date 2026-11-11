@@ -7,27 +7,27 @@ use tokio::time::Instant;
 
 /// An `AddressState` tracking whether an IPv6 address is preferred or deprecated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AddressState {
+pub(super) enum AddressState {
     Preferred,
     Deprecated,
 }
 
 /// A value of type `T` paired with a monotonic expiry deadline.
 #[derive(Debug, Clone)]
-pub struct Expiring<T> {
+pub(super) struct Expiring<T> {
     pub value: T,
     pub expires_at: Instant,
 }
 
 /// A router learned via Router Advertisement, tracked until its lifetime expires.
-pub type ManagedRouter = Expiring<Ipv6Addr>;
+pub(super) type ManagedRouter = Expiring<Ipv6Addr>;
 
 /// A DNS server learned via RDNSS, tracked until its lifetime expires.
-pub type ManagedDns = Expiring<Ipv6Addr>;
+pub(super) type ManagedDns = Expiring<Ipv6Addr>;
 
 /// An IPv6 address acquired via SLAAC, with separate preferred and valid lifetimes.
 #[derive(Debug, Clone)]
-pub struct ManagedAddress {
+pub(super) struct ManagedAddress {
     pub address: Ipv6Addr,
     pub prefix_len: u8,
     pub state: AddressState,
@@ -38,7 +38,7 @@ pub struct ManagedAddress {
 
 impl<T> Expiring<T> {
     /// Creates a new `Expiring<T>` that expires `lifetime_secs` seconds from now.
-    pub fn new(value: T, lifetime_secs: u64) -> Self {
+    pub(super) fn new(value: T, lifetime_secs: u64) -> Self {
         Self {
             value,
             expires_at: Instant::now()
@@ -48,20 +48,20 @@ impl<T> Expiring<T> {
     }
 
     /// Resets the expiry to `lifetime_secs` seconds from now.
-    pub fn refresh_lifetime(&mut self, lifetime_secs: u64) {
+    pub(super) fn refresh_lifetime(&mut self, lifetime_secs: u64) {
         self.expires_at = Instant::now()
             .checked_add(Duration::from_secs(lifetime_secs))
             .unwrap_or_else(Instant::now);
     }
 
     /// Returns `true` if the deadline has not yet passed.
-    pub fn is_valid(&self) -> bool {
+    pub(super) fn is_valid(&self) -> bool {
         Instant::now() < self.expires_at
     }
 }
 impl ManagedAddress {
     /// Creates a new `ManagedAddress` with RFC 4861 preferred and valid lifetime deadlines.
-    pub fn new(
+    pub(super) fn new(
         address: Ipv6Addr,
         prefix_len: u8,
         router: Ipv6Addr,
@@ -84,7 +84,11 @@ impl ManagedAddress {
     }
 
     /// Updates lifetimes per RFC 8981: extends only when new value exceeds two-hour clamp.
-    pub fn refresh_lifetimes(&mut self, valid_lifetime_secs: u32, preferred_lifetime_secs: u32) {
+    pub(super) fn refresh_lifetimes(
+        &mut self,
+        valid_lifetime_secs: u32,
+        preferred_lifetime_secs: u32,
+    ) {
         let now = Instant::now();
         let new_valid = now
             .checked_add(Duration::from_secs(u64::from(valid_lifetime_secs)))
@@ -109,12 +113,12 @@ impl ManagedAddress {
     }
 
     /// Returns `true` if the valid lifetime has not expired.
-    pub fn is_valid(&self) -> bool {
+    pub(super) fn is_valid(&self) -> bool {
         Instant::now() < self.valid_until
     }
 
     /// Returns `true` if the address is still in the preferred state.
-    pub fn is_preferred(&self) -> bool {
+    pub(super) fn is_preferred(&self) -> bool {
         self.state == AddressState::Preferred && Instant::now() < self.preferred_until
     }
 }

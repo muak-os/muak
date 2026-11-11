@@ -3,13 +3,13 @@
 use crate::error::{Result, Tpm2Error};
 
 /// Marshalling buffer for building TPM2 commands.
-pub struct CommandBuffer {
+pub(crate) struct CommandBuffer {
     buf: Vec<u8>,
 }
 
 impl CommandBuffer {
     #[must_use]
-    pub fn new(tag: u16, command_code: u32) -> Self {
+    pub(crate) fn new(tag: u16, command_code: u32) -> Self {
         let mut buf = Vec::with_capacity(256);
         buf.extend_from_slice(&tag.to_be_bytes());
         buf.extend_from_slice(&0_u32.to_be_bytes());
@@ -17,36 +17,36 @@ impl CommandBuffer {
         Self { buf }
     }
 
-    pub fn write_u8(&mut self, value: u8) {
+    pub(crate) fn write_u8(&mut self, value: u8) {
         self.buf.push(value);
     }
 
-    pub fn write_u16(&mut self, value: u16) {
+    pub(crate) fn write_u16(&mut self, value: u16) {
         self.buf.extend_from_slice(&value.to_be_bytes());
     }
 
-    pub fn write_u32(&mut self, value: u32) {
+    pub(crate) fn write_u32(&mut self, value: u32) {
         self.buf.extend_from_slice(&value.to_be_bytes());
     }
 
-    pub fn write_handle<H>(&mut self, value: H)
+    pub(crate) fn write_handle<H>(&mut self, value: H)
     where
         H: Into<u32>,
     {
         self.write_u32(value.into());
     }
 
-    pub fn write_bytes(&mut self, data: &[u8]) {
+    pub(crate) fn write_bytes(&mut self, data: &[u8]) {
         self.buf.extend_from_slice(data);
     }
 
-    pub fn write_sized(&mut self, data: &[u8]) -> Result<()> {
+    pub(crate) fn write_sized(&mut self, data: &[u8]) -> Result<()> {
         self.write_u16(u16_len(data.len())?);
         self.buf.extend_from_slice(data);
         Ok(())
     }
 
-    pub fn finalize(mut self) -> Result<Vec<u8>> {
+    pub(crate) fn finalize(mut self) -> Result<Vec<u8>> {
         let len = u32_len(self.buf.len())?;
         if let Some(size_bytes) = self.buf.get_mut(2..6) {
             size_bytes.copy_from_slice(&len.to_be_bytes());

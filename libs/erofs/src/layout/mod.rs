@@ -4,18 +4,60 @@ mod assign;
 pub(crate) mod collect;
 mod indices;
 mod planner;
-mod types;
 
 use std::path::Path;
 
 pub(crate) use assign::index_layout;
 
 use crate::MkfsConfig;
+use crate::compress::CompressedLayout;
 use crate::error::Result;
 use crate::source::SizedFile;
 
 /// Planned layout for a single inode.
-pub type Inode = types::InodeLayout;
+#[derive(Debug, Clone)]
+pub struct Inode {
+    /// Path of the inode relative to the image root.
+    pub rel_path: String,
+    /// EROFS inode number (nid) assigned to this inode.
+    pub nid: u64,
+    /// POSIX inode number exposed through stat.
+    pub ino: u32,
+    /// POSIX mode bits (file type and permissions).
+    pub mode: u16,
+    /// Owning user ID.
+    pub uid: u16,
+    /// Owning group ID.
+    pub gid: u16,
+    /// Modification time in seconds since the epoch.
+    pub mtime: u64,
+    /// Nanosecond part of the modification time.
+    pub mtime_nsec: u32,
+    /// Number of hard links referencing this inode.
+    pub nlink: u16,
+    /// EROFS directory entry file type.
+    pub file_type: u8,
+    /// Logical file size in bytes.
+    pub size: u32,
+    /// EROFS data layout selector for the inode.
+    pub datalayout: u16,
+    /// Encoded extended-attribute payload.
+    pub xattr_payload: Vec<u8>,
+    /// Packed `i_xattr_icount`: 4-byte units occupied by the inline xattr area.
+    pub xattr_icount: u16,
+    /// Absolute block address of the inode's data.
+    pub data_blkaddr: u32,
+    /// Number of physical blocks backing the inode's data.
+    pub data_blocks: u32,
+    /// Relative paths of a directory's children.
+    pub children: Vec<String>,
+    /// Target path bytes for a symbolic link.
+    pub symlink_target: Vec<u8>,
+    /// Device number for special files.
+    pub rdev: u32,
+    /// Compressed layout metadata when the file is compressed.
+    pub compressed: Option<CompressedLayout>,
+}
 
 /// A fully-planned EROFS image, ready for emission.
 #[derive(Debug)]

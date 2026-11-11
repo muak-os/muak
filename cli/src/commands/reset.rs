@@ -42,7 +42,7 @@ impl Plan<'_> {
 }
 
 /// Handles the reset command.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     dry_run: bool,
     yes: bool,
@@ -159,6 +159,8 @@ fn print_plan(plan: &Plan<'_>, console: &Console) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use tui::screen::ansi::Ansi;
+
     use super::*;
 
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -199,7 +201,7 @@ mod tests {
     }
 
     fn render(table: &Table) -> String {
-        let mut screen = tui::screen::Ansi::new(Vec::new(), tui::size::Size::default());
+        let mut screen = Ansi::new(Vec::new(), tui::size::Size::default());
         table
             .render(&mut screen, tui::style::Theme::plain())
             .unwrap();

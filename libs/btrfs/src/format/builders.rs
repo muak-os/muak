@@ -20,7 +20,7 @@ const S_IFDIR: u32 = 0o040_000;
 
 /// Builder for `BtrfsRootItem` to simplify complex initialization.
 #[derive(Debug)]
-pub struct RootItemBuilder {
+pub(super) struct RootItemBuilder {
     generation: u64,
     bytenr: u64,
     bytes_used: u64,
@@ -35,7 +35,7 @@ pub struct RootItemBuilder {
 impl RootItemBuilder {
     /// Create a new root item builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             generation: 1,
             bytenr: 0,
@@ -51,35 +51,35 @@ impl RootItemBuilder {
 
     /// Set the generation.
     #[must_use]
-    pub fn generation(mut self, value: u64) -> Self {
+    pub(super) fn generation(mut self, value: u64) -> Self {
         self.generation = value;
         self
     }
 
     /// Set the bytenr (block number).
     #[must_use]
-    pub fn bytenr(mut self, bytenr: u64) -> Self {
+    pub(super) fn bytenr(mut self, bytenr: u64) -> Self {
         self.bytenr = bytenr;
         self
     }
 
     /// Set the root directory ID.
     #[must_use]
-    pub fn root_dirid(mut self, dirid: u64) -> Self {
+    pub(super) fn root_dirid(mut self, dirid: u64) -> Self {
         self.root_dirid = dirid;
         self
     }
 
     /// Set the flags.
     #[must_use]
-    pub fn flags(mut self, flags: u64) -> Self {
+    pub(super) fn flags(mut self, flags: u64) -> Self {
         self.flags = flags;
         self
     }
 
     /// Set the UUID.
     #[must_use]
-    pub fn uuid(mut self, uuid: &Uuid) -> Self {
+    pub(super) fn uuid(mut self, uuid: &Uuid) -> Self {
         let mut bytes = [0_u8; BTRFS_UUID_SIZE];
         bytes.copy_from_slice(uuid.as_bytes());
         self.uuid = Some(bytes);
@@ -88,21 +88,21 @@ impl RootItemBuilder {
 
     /// Set creation time.
     #[must_use]
-    pub fn ctime(mut self, ctime: u64) -> Self {
+    pub(super) fn ctime(mut self, ctime: u64) -> Self {
         self.ctime = Some(ctime);
         self
     }
 
     /// Set origin time.
     #[must_use]
-    pub fn otime(mut self, otime: u64) -> Self {
+    pub(super) fn otime(mut self, otime: u64) -> Self {
         self.otime = Some(otime);
         self
     }
 
     /// Build the `BtrfsRootItem`.
     #[must_use]
-    pub fn build(self) -> BtrfsRootItem {
+    pub(super) fn build(self) -> BtrfsRootItem {
         let mut ri = BtrfsRootItem {
             inode: BtrfsInodeItem {
                 generation: [0; 8],
@@ -217,7 +217,7 @@ impl Default for RootItemBuilder {
 
 /// Builder for `BtrfsInodeItem`.
 #[derive(Debug)]
-pub struct InodeItemBuilder {
+pub(super) struct InodeItemBuilder {
     generation: u64,
     nlink: u32,
     mode: u32,
@@ -231,7 +231,7 @@ pub struct InodeItemBuilder {
 impl InodeItemBuilder {
     /// Create a new inode item builder with default directory settings.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             generation: 1,
             nlink: 1,
@@ -246,14 +246,14 @@ impl InodeItemBuilder {
 
     /// Set the generation.
     #[must_use]
-    pub fn generation(mut self, value: u64) -> Self {
+    pub(super) fn generation(mut self, value: u64) -> Self {
         self.generation = value;
         self
     }
 
     /// Set timestamps (all four at once).
     #[must_use]
-    pub fn timestamps(mut self, time: u64) -> Self {
+    pub(super) fn timestamps(mut self, time: u64) -> Self {
         self.atime = time;
         self.ctime = time;
         self.mtime = time;
@@ -263,7 +263,7 @@ impl InodeItemBuilder {
 
     /// Build the `BtrfsInodeItem`.
     #[must_use]
-    pub fn build(self) -> BtrfsInodeItem {
+    pub(super) fn build(self) -> BtrfsInodeItem {
         let mut inode = BtrfsInodeItem {
             generation: [0; 8],
             transid: [0; 8],
@@ -316,7 +316,7 @@ impl Default for InodeItemBuilder {
 }
 
 /// Build a `BtrfsInodeRef` structure.
-pub fn build_inode_ref(name: &[u8]) -> Result<Vec<u8>> {
+pub(super) fn build_inode_ref(name: &[u8]) -> Result<Vec<u8>> {
     let mut iref = BtrfsInodeRef {
         index: [0; 8],
         name_len: [0; 2],
@@ -330,7 +330,7 @@ pub fn build_inode_ref(name: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Build a `BtrfsDirItem` structure.
-pub fn build_dir_item(
+pub(super) fn build_dir_item(
     objectid: u64,
     type_key: u8,
     name: &[u8],
@@ -358,7 +358,11 @@ pub fn build_dir_item(
 }
 
 /// Build a `BtrfsDevExtent` structure.
-pub fn build_dev_extent(chunk_offset: u64, length: u64, chunk_tree_uuid: &uuid::Uuid) -> Vec<u8> {
+pub(super) fn build_dev_extent(
+    chunk_offset: u64,
+    length: u64,
+    chunk_tree_uuid: &uuid::Uuid,
+) -> Vec<u8> {
     let mut de = BtrfsDevExtent {
         chunk_tree: [0; 8],
         chunk_objectid: [0; 8],

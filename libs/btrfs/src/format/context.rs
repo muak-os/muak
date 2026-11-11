@@ -98,7 +98,7 @@ const BTRFS_SUPER_FLAG_WRITTEN: u64 = 1 << 0;
 ///
 /// This struct orchestrates the creation of all btrfs structures
 /// but delegates the actual tree building to specialized builders.
-pub struct MkfsContext {
+pub(super) struct MkfsContext {
     device: File,
     device_size: u64,
     label: String,
@@ -118,7 +118,7 @@ impl MkfsContext {
     /// * `device_size` - Size of the device in bytes
     /// * `label` - Filesystem label
     #[must_use]
-    pub fn new(device: File, device_size: u64, label: String) -> Self {
+    pub(super) fn new(device: File, device_size: u64, label: String) -> Self {
         let device_size = device_size
             .checked_div(BTRFS_DEFAULT_SECTORSIZE_U64)
             .unwrap_or(0)
@@ -391,7 +391,7 @@ impl MkfsContext {
     ///
     /// # Errors
     /// Returns an error if the device is too small or any filesystem write fails.
-    pub fn make_btrfs(&mut self) -> Result<()> {
+    pub(super) fn make_btrfs(&mut self) -> Result<()> {
         let min_size = self.layout.min_device_size();
         if self.device_size < min_size {
             return Err(BtrfsError::DeviceTooSmall {
@@ -420,7 +420,7 @@ impl MkfsContext {
     ///
     /// # Errors
     /// Returns an error if the device cannot be synced.
-    pub fn sync_device(&self) -> Result<()> {
+    pub(super) fn sync_device(&self) -> Result<()> {
         blockdev::io::sync(&self.device)?;
 
         Ok(())

@@ -1,8 +1,8 @@
 //! Shared harness for wizard end-to-end tests.
 
-pub mod fixtures;
-pub mod pe;
-pub mod server;
+pub(crate) mod fixtures;
+pub(crate) mod pe;
+pub(crate) mod server;
 
 use std::io::Error as IoError;
 use std::sync::OnceLock;
@@ -12,13 +12,13 @@ use tempfile::TempDir;
 use wizard::config::init_cache;
 
 /// The per-process harness: one registry and one cache.
-pub struct Harness {
-    pub registry: MockRegistry,
-    pub _cache: TempDir,
+pub(crate) struct Harness {
+    pub(crate) registry: MockRegistry,
+    pub(crate) _cache: TempDir,
 }
 
 impl Harness {
-    pub fn start(routes: Routes) -> Result<Self, IoError> {
+    pub(crate) fn start(routes: Routes) -> Result<Self, IoError> {
         static CACHE_INITIALIZED: OnceLock<()> = OnceLock::new();
 
         let registry = MockRegistry::start(routes)?;

@@ -90,7 +90,7 @@ const BTRFS_INODE_ROOT_ITEM_INIT: u64 = 1 << 31;
 
 /// Context for building trees.
 #[derive(Debug)]
-pub struct TreeContext<'a> {
+pub(super) struct TreeContext<'a> {
     pub layout: &'a DiskLayout,
     pub fsid: &'a Uuid,
     pub chunk_uuid: &'a Uuid,
@@ -103,7 +103,7 @@ pub struct TreeContext<'a> {
 impl<'a> TreeContext<'a> {
     /// Create a new tree context.
     #[must_use]
-    pub fn new(
+    pub(super) fn new(
         layout: &'a DiskLayout,
         fsid: &'a Uuid,
         chunk_uuid: &'a Uuid,
@@ -126,7 +126,7 @@ impl<'a> TreeContext<'a> {
 
 /// Result of building a tree.
 #[derive(Debug)]
-pub struct TreeResult {
+pub(super) struct TreeResult {
     pub logical_offset: u64,
     pub owner: u64,
     pub items: Vec<BtrfsItem>,
@@ -136,7 +136,12 @@ pub struct TreeResult {
 impl TreeResult {
     /// Create a new tree result.
     #[must_use]
-    pub fn new(logical_offset: u64, owner: u64, items: Vec<BtrfsItem>, data: Vec<u8>) -> Self {
+    pub(super) fn new(
+        logical_offset: u64,
+        owner: u64,
+        items: Vec<BtrfsItem>,
+        data: Vec<u8>,
+    ) -> Self {
         Self {
             logical_offset,
             owner,
@@ -147,7 +152,7 @@ impl TreeResult {
 
     /// Create an empty tree result.
     #[must_use]
-    pub fn empty(logical_offset: u64, owner: u64) -> Self {
+    pub(super) fn empty(logical_offset: u64, owner: u64) -> Self {
         Self {
             logical_offset,
             owner,
@@ -158,18 +163,18 @@ impl TreeResult {
 }
 
 /// Trait for tree builders.
-pub trait TreeBuilder {
+pub(super) trait TreeBuilder {
     /// Build the tree and return the result.
     fn build(&self, ctx: &TreeContext) -> Result<TreeResult>;
 }
 
 // Chunk tree builder
-pub struct ChunkTreeBuilder;
+pub(super) struct ChunkTreeBuilder;
 
 impl ChunkTreeBuilder {
     /// Create a new chunk tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -248,12 +253,12 @@ impl TreeBuilder for ChunkTreeBuilder {
 }
 
 // Dev tree builder
-pub struct DevTreeBuilder;
+pub(super) struct DevTreeBuilder;
 
 impl DevTreeBuilder {
     /// Create a new dev tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -324,12 +329,12 @@ impl TreeBuilder for DevTreeBuilder {
 }
 
 // Extent tree builder
-pub struct ExtentTreeBuilder;
+pub(super) struct ExtentTreeBuilder;
 
 impl ExtentTreeBuilder {
     /// Create a new extent tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -360,12 +365,12 @@ impl TreeBuilder for ExtentTreeBuilder {
 }
 
 // Block group tree builder
-pub struct BlockGroupTreeBuilder;
+pub(super) struct BlockGroupTreeBuilder;
 
 impl BlockGroupTreeBuilder {
     /// Create a new block group tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -418,12 +423,12 @@ impl TreeBuilder for BlockGroupTreeBuilder {
 }
 
 // Free space tree builder
-pub struct FreeSpaceTreeBuilder;
+pub(super) struct FreeSpaceTreeBuilder;
 
 impl FreeSpaceTreeBuilder {
     /// Create a new free space tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -528,14 +533,14 @@ impl TreeBuilder for FreeSpaceTreeBuilder {
 }
 
 // FS tree builder
-pub struct FsTreeBuilder {
+pub(super) struct FsTreeBuilder {
     now: u64,
 }
 
 impl FsTreeBuilder {
     /// Create a new FS tree builder.
     #[must_use]
-    pub fn new(now: u64) -> Self {
+    pub(super) fn new(now: u64) -> Self {
         Self { now }
     }
 }
@@ -572,14 +577,14 @@ impl TreeBuilder for FsTreeBuilder {
 }
 
 // Data reloc tree builder
-pub struct DataRelocTreeBuilder {
+pub(super) struct DataRelocTreeBuilder {
     now: u64,
 }
 
 impl DataRelocTreeBuilder {
     /// Create a new data reloc tree builder.
     #[must_use]
-    pub fn new(now: u64) -> Self {
+    pub(super) fn new(now: u64) -> Self {
         Self { now }
     }
 }
@@ -616,12 +621,12 @@ impl TreeBuilder for DataRelocTreeBuilder {
 }
 
 // UUID tree builder
-pub struct UuidTreeBuilder;
+pub(super) struct UuidTreeBuilder;
 
 impl UuidTreeBuilder {
     /// Create a new UUID tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -666,12 +671,12 @@ impl TreeBuilder for UuidTreeBuilder {
 }
 
 // CSUM tree builder
-pub struct CsumTreeBuilder;
+pub(super) struct CsumTreeBuilder;
 
 impl CsumTreeBuilder {
     /// Create a new CSUM tree builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self
     }
 }
@@ -692,14 +697,14 @@ impl TreeBuilder for CsumTreeBuilder {
 }
 
 // Root tree builder
-pub struct RootTreeBuilder {
+pub(super) struct RootTreeBuilder {
     now: u64,
 }
 
 impl RootTreeBuilder {
     /// Create a new root tree builder.
     #[must_use]
-    pub fn new(now: u64) -> Self {
+    pub(super) fn new(now: u64) -> Self {
         Self { now }
     }
 

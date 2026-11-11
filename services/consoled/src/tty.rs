@@ -8,13 +8,14 @@ use anyhow::{Context as _, Result};
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
 use tui::raw::{self, Original};
-use tui::screen::{Ansi, Screen as _};
+use tui::screen::Screen as _;
+use tui::screen::ansi::Ansi;
 use tui::size::{self, Size};
 
 const TTY_PATH: &str = "/dev/tty0";
 
 /// A raw TTY handle with terminal mode management.
-pub struct Tty {
+pub(crate) struct Tty {
     file: File,
     out: BufWriter<File>,
     original: Original,
@@ -22,7 +23,7 @@ pub struct Tty {
 
 impl Tty {
     /// Opens the virtual console in raw mode if possible.
-    pub fn open() -> Result<Option<Self>> {
+    pub(crate) fn open() -> Result<Option<Self>> {
         let fd = match open(
             TTY_PATH,
             OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY,
@@ -52,7 +53,7 @@ impl Tty {
     }
 
     /// Returns the terminal dimensions.
-    pub fn size(&self) -> Size {
+    pub(crate) fn size(&self) -> Size {
         size::of(self.file.as_fd())
     }
 
@@ -61,7 +62,7 @@ impl Tty {
     /// # Errors
     ///
     /// Returns an error when the descriptor cannot be duplicated.
-    pub fn file_clone(&self) -> io::Result<File> {
+    pub(crate) fn file_clone(&self) -> io::Result<File> {
         self.file.try_clone()
     }
 }

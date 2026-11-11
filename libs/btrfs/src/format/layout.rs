@@ -84,15 +84,15 @@ const META_TREE_BYTES_USED: u64 =
     BTRFS_MKFS_METADATA_TREE_BLOCK_COUNT.saturating_mul(BTRFS_DEFAULT_NODESIZE_U64);
 
 /// Metadata tree block indices within `meta_blocks`.
-pub const BLK_BLOCK_GROUP: usize = 0;
-pub const BLK_DEV: usize = 1;
-pub const BLK_FS: usize = 2;
-pub const BLK_UUID: usize = 3;
-pub const BLK_CSUM: usize = 4;
-pub const BLK_DATA_RELOC: usize = 5;
-pub const BLK_FREE_SPACE: usize = 6;
-pub const BLK_EXTENT: usize = 7;
-pub const BLK_ROOT: usize = 8;
+pub(super) const BLK_BLOCK_GROUP: usize = 0;
+pub(super) const BLK_DEV: usize = 1;
+pub(super) const BLK_FS: usize = 2;
+pub(super) const BLK_UUID: usize = 3;
+pub(super) const BLK_CSUM: usize = 4;
+pub(super) const BLK_DATA_RELOC: usize = 5;
+pub(super) const BLK_FREE_SPACE: usize = 6;
+pub(super) const BLK_EXTENT: usize = 7;
+pub(super) const BLK_ROOT: usize = 8;
 
 // Temporary chunk sizes used for layout calculation
 const BTRFS_MKFS_TEMP_SYSTEM_SIZE: u64 = 4 * 1024 * 1024;
@@ -111,7 +111,7 @@ const BTRFS_MKFS_TEMP_META_SIZE: u64 = 8 * 1024 * 1024;
 /// [293MiB, 549MiB)  Metadata DUP stripe 1 (256MiB)
 /// ```
 #[derive(Debug, Clone)]
-pub struct DiskLayout {
+pub(super) struct DiskLayout {
     data_logical: u64,
     data_phys: u64,
 
@@ -133,7 +133,7 @@ pub struct DiskLayout {
 
 impl DiskLayout {
     /// Create a new disk layout for the given device size.
-    pub fn new(device_size: u64) -> Self {
+    pub(super) fn new(device_size: u64) -> Self {
         let meta_stripe_size = compute_dup_meta_stripe_size(device_size);
 
         let data_logical = compute_data_logical_offset();
@@ -174,7 +174,7 @@ impl DiskLayout {
 
     /// Sum of all physical device extents.
     #[must_use]
-    pub fn dev_bytes_used(&self) -> u64 {
+    pub(super) fn dev_bytes_used(&self) -> u64 {
         BTRFS_MKFS_DATA_GROUP_SIZE
             .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE.saturating_mul(2))
             .saturating_add(self.meta_stripe_size.saturating_mul(2))
@@ -182,19 +182,19 @@ impl DiskLayout {
 
     /// Total logical bytes used (tree blocks only).
     #[must_use]
-    pub const fn total_bytes_used() -> u64 {
+    pub(super) const fn total_bytes_used() -> u64 {
         TOTAL_TREE_BYTES_USED
     }
 
     /// Metadata logical bytes used (9 tree blocks in metadata chunk).
     #[must_use]
-    pub const fn meta_bytes_used() -> u64 {
+    pub(super) const fn meta_bytes_used() -> u64 {
         META_TREE_BYTES_USED
     }
 
     /// Minimum device size required for this layout.
     #[must_use]
-    pub fn min_device_size(&self) -> u64 {
+    pub(super) fn min_device_size(&self) -> u64 {
         BTRFS_MKFS_RESERVED_SIZE
             .saturating_add(BTRFS_MKFS_DATA_GROUP_SIZE)
             .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE.saturating_mul(2))
@@ -203,88 +203,88 @@ impl DiskLayout {
 
     /// Convert a logical address in the system DUP chunk to physical (stripe 0).
     #[must_use]
-    pub fn sys_logical_to_phys(&self, logical: u64) -> u64 {
+    pub(super) fn sys_logical_to_phys(&self, logical: u64) -> u64 {
         self.sys_phys_0
             .saturating_add(logical.saturating_sub(self.sys_logical))
     }
 
     /// Convert a logical address in the metadata DUP chunk to physical (stripe 0).
     #[must_use]
-    pub fn meta_logical_to_phys(&self, logical: u64) -> u64 {
+    pub(super) fn meta_logical_to_phys(&self, logical: u64) -> u64 {
         self.meta_phys_0
             .saturating_add(logical.saturating_sub(self.meta_logical))
     }
 
     /// Get the data chunk logical offset.
     #[must_use]
-    pub fn data_logical(&self) -> u64 {
+    pub(super) fn data_logical(&self) -> u64 {
         self.data_logical
     }
 
     /// Get the data chunk physical offset.
     #[must_use]
-    pub fn data_phys(&self) -> u64 {
+    pub(super) fn data_phys(&self) -> u64 {
         self.data_phys
     }
 
     /// Get the system chunk logical offset.
     #[must_use]
-    pub fn sys_logical(&self) -> u64 {
+    pub(super) fn sys_logical(&self) -> u64 {
         self.sys_logical
     }
 
     /// Get the system chunk physical stripe 0 offset.
     #[must_use]
-    pub fn sys_phys_0(&self) -> u64 {
+    pub(super) fn sys_phys_0(&self) -> u64 {
         self.sys_phys_0
     }
 
     /// Get the system chunk physical stripe 1 offset.
     #[must_use]
-    pub fn sys_phys_1(&self) -> u64 {
+    pub(super) fn sys_phys_1(&self) -> u64 {
         self.sys_phys_1
     }
 
     /// Get the metadata chunk logical offset.
     #[must_use]
-    pub fn meta_logical(&self) -> u64 {
+    pub(super) fn meta_logical(&self) -> u64 {
         self.meta_logical
     }
 
     /// Get the metadata stripe size.
     #[must_use]
-    pub fn meta_stripe_size(&self) -> u64 {
+    pub(super) fn meta_stripe_size(&self) -> u64 {
         self.meta_stripe_size
     }
 
     /// Get the metadata chunk physical stripe 0 offset.
     #[must_use]
-    pub fn meta_phys_0(&self) -> u64 {
+    pub(super) fn meta_phys_0(&self) -> u64 {
         self.meta_phys_0
     }
 
     /// Get the metadata chunk physical stripe 1 offset.
     #[must_use]
-    pub fn meta_phys_1(&self) -> u64 {
+    pub(super) fn meta_phys_1(&self) -> u64 {
         self.meta_phys_1
     }
 
     /// Get the chunk tree logical offset.
     #[must_use]
-    pub fn chunk_tree_logical(&self) -> u64 {
+    pub(super) fn chunk_tree_logical(&self) -> u64 {
         self.chunk_tree_logical
     }
 
     /// Get a specific metadata block offset by index.
     #[must_use]
-    pub fn meta_block(&self, index: usize) -> u64 {
+    pub(super) fn meta_block(&self, index: usize) -> u64 {
         self.meta_blocks.get(index).copied().unwrap_or(0)
     }
 }
 
 /// Tree block logical offsets with their owner tree IDs (all 10 blocks including chunk tree).
 #[must_use]
-pub fn all_tree_blocks(layout: &DiskLayout) -> [(u64, u64); 10] {
+pub(super) fn all_tree_blocks(layout: &DiskLayout) -> [(u64, u64); 10] {
     [
         (layout.chunk_tree_logical(), BTRFS_CHUNK_TREE_OBJECTID),
         (
@@ -310,19 +310,19 @@ pub fn all_tree_blocks(layout: &DiskLayout) -> [(u64, u64); 10] {
 
 /// Compute final chunk layout offsets matching btrfs-progs sequential allocation.
 #[must_use]
-pub fn compute_data_logical_offset() -> u64 {
+pub(super) fn compute_data_logical_offset() -> u64 {
     DATA_LOGICAL_OFFSET
 }
 
 /// Compute system logical offset.
 #[must_use]
-pub fn compute_system_logical_offset() -> u64 {
+pub(super) fn compute_system_logical_offset() -> u64 {
     SYSTEM_LOGICAL_OFFSET
 }
 
 /// Compute metadata logical offset.
 #[must_use]
-pub fn compute_meta_logical_offset() -> u64 {
+pub(super) fn compute_meta_logical_offset() -> u64 {
     META_LOGICAL_OFFSET
 }
 
@@ -331,7 +331,7 @@ pub fn compute_meta_logical_offset() -> u64 {
 /// Matches btrfs-progs `init_alloc_chunk_ctl_policy_regular` +
 /// `decide_stripe_size_regular` for METADATA|DUP.
 #[must_use]
-pub fn compute_dup_meta_stripe_size(device_size: u64) -> u64 {
+pub(super) fn compute_dup_meta_stripe_size(device_size: u64) -> u64 {
     let initial = if device_size > 50_u64.saturating_mul(1024 * 1024 * 1024) {
         1024 * 1024 * 1024
     } else {

@@ -11,7 +11,7 @@ use crate::format::display::{hypervisor_to_string, vm_state_to_string};
 use crate::format::time::format_timestamp;
 
 /// Lists all VMs.
-pub async fn handle(client: &mut VmServiceClient<Channel>, console: &Console) -> Result<()> {
+pub(super) async fn handle(client: &mut VmServiceClient<Channel>, console: &Console) -> Result<()> {
     let request = tonic::Request::new(ListVmsRequest {});
 
     let response = client.list_vms(request).await?;

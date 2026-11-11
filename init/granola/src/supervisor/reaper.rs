@@ -5,14 +5,14 @@ use rustix::process::{Pid, WaitOptions, WaitStatus, waitpid};
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
 /// Exit information for a reaped child process.
-pub struct ChildExit {
+pub(crate) struct ChildExit {
     pub pid: i32,
     pub exit_code: Option<i32>,
     pub signal: Option<i32>,
 }
 
 /// Abstraction over child-process reaping.
-pub trait Reap {
+pub(crate) trait Reap {
     /// Non-blocking drain of all already-terminated children.
     fn reap_all(&mut self) -> Vec<(String, ChildExit)>;
 
@@ -24,13 +24,13 @@ pub trait Reap {
 }
 
 /// PID 1 child reaper using SIGCHLD and `waitpid(-1, WNOHANG)`.
-pub struct Reaper {
+pub(crate) struct Reaper {
     sigchld: Signal,
     known_pids: HashMap<i32, String>,
 }
 
 impl Reaper {
-    pub fn new() -> anyhow::Result<Self> {
+    pub(crate) fn new() -> anyhow::Result<Self> {
         let sigchld = signal(SignalKind::child())?;
         Ok(Self {
             sigchld,

@@ -22,7 +22,7 @@ enum Mode {
 ///
 /// `key` must be 64 bytes (two 256-bit AES keys).
 /// `tweak` is the 16-byte sector/unit number in little-endian.
-pub fn encrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
+pub(crate) fn encrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
     xts_process(key, tweak, data, Mode::Encrypt)
 }
 
@@ -30,7 +30,7 @@ pub fn encrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
 ///
 /// `key` must be 64 bytes (two 256-bit AES keys).
 /// `tweak` is the 16-byte sector/unit number in little-endian.
-pub fn decrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
+pub(crate) fn decrypt(key: &[u8], tweak: &[u8; 16], data: &mut [u8]) -> Result<()> {
     xts_process(key, tweak, data, Mode::Decrypt)
 }
 

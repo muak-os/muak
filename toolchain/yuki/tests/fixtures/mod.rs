@@ -1,2 +1,2 @@
-pub mod components;
-pub mod pe;
+pub(crate) mod components;
+pub(crate) mod pe;

@@ -1,7 +1,7 @@
 use crate::client::vm_service::{Hypervisor, VmState};
 
 /// Converts a VM state integer to a display string.
-pub fn vm_state_to_string(state: i32) -> &'static str {
+pub(crate) fn vm_state_to_string(state: i32) -> &'static str {
     match VmState::try_from(state).unwrap_or(VmState::Unspecified) {
         VmState::Unspecified => "unknown",
         VmState::Created => "created",
@@ -14,7 +14,7 @@ pub fn vm_state_to_string(state: i32) -> &'static str {
 }
 
 /// Converts a hypervisor integer to a display string.
-pub fn hypervisor_to_string(hypervisor: i32) -> &'static str {
+pub(crate) fn hypervisor_to_string(hypervisor: i32) -> &'static str {
     match Hypervisor::try_from(hypervisor).unwrap_or(Hypervisor::Unspecified) {
         Hypervisor::Unspecified => "unknown",
         Hypervisor::Firecracker => "firecracker",

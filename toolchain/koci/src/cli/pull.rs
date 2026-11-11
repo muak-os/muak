@@ -15,7 +15,7 @@ use super::{Console, parse_arch, progress, read_key_file};
 
 /// Arguments of the `pull` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     #[arg(short, long)]
     image: String,
 

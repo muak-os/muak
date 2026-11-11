@@ -4,7 +4,7 @@ const FILE_ALIGN: usize = 0x200;
 const NT_OFFSET: usize = 0x40;
 
 /// Builds a minimal valid PE32+ image with no sections.
-pub fn build_test_pe() -> Vec<u8> {
+pub(crate) fn build_test_pe() -> Vec<u8> {
     let nt_off = NT_OFFSET;
     let file_hdr = nt_off.checked_add(4).expect("file header");
     let opt_off = file_hdr.checked_add(20).expect("opt header");
@@ -70,7 +70,7 @@ pub fn build_test_pe() -> Vec<u8> {
 }
 
 /// Appends a section with `name` and `content` to a fixture image.
-pub fn add_section(data: &mut Vec<u8>, name: [u8; 8], content: &[u8]) {
+pub(crate) fn add_section(data: &mut Vec<u8>, name: [u8; 8], content: &[u8]) {
     let nt_off = NT_OFFSET;
     let file_hdr = nt_off.checked_add(4).expect("file header");
     let opt_off = file_hdr.checked_add(20).expect("opt header");

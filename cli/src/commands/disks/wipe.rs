@@ -45,7 +45,7 @@ pub struct Args {
 }
 
 /// Validates the target on the server, confirms it and starts the wipe.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     args: Args,
     console: &Console,

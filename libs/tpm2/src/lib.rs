@@ -7,7 +7,7 @@ pub mod blob;
 mod buffer;
 mod commands;
 pub mod device;
-mod error;
+pub mod error;
 mod handles;
 pub mod operations;
 pub mod pcr;

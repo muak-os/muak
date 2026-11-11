@@ -13,7 +13,7 @@ use anyhow::{Result, bail};
 ///
 /// Returns an error when the document cannot be converted to a plan or is
 /// missing a required role.
-pub fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
+pub(super) fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
     let plan = convert::to_plan(doc)?;
 
     for role in [Role::Esp, Role::State, Role::Ephemeral, Role::Data] {

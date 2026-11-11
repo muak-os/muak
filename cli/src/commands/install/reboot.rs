@@ -6,7 +6,7 @@ use std::time::Instant;
 use anyhow::Result;
 use config::user::ServerContext;
 use tokio::time::sleep;
-use tui::live::Steps;
+use tui::live::steps::Steps;
 
 use crate::client::connect;
 use crate::client::provision_service::GetConfigRequest;

@@ -1,13 +1,13 @@
 //! Inode layout slot sizing and alignment helpers.
 
-use super::super::types::InodeLayout;
 use super::compact::index_bytes;
 use crate::checked::{align_up, u32_from_usize};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::inode::{self, COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, Z_EROFS_MAP_HEADER_SIZE};
+use crate::layout::Inode;
 use crate::{BLOCK_SIZE, SLOT_SIZE, compress};
 
-pub(super) fn meta_slots(inode: &InodeLayout) -> usize {
+pub(super) fn meta_slots(inode: &Inode) -> usize {
     if let Some(cf) = inode.compressed.as_ref() {
         let totalidx = usize::try_from(compress::lcluster_count(cf)).unwrap_or_default();
         let inode_header = COMPACT_INODE_SIZE.saturating_add(inode.xattr_payload.len());
@@ -51,7 +51,7 @@ pub(super) fn inline_fits(
         <= bs
 }
 
-pub(super) fn inline_data_size(inode: &InodeLayout) -> usize {
+pub(super) fn inline_data_size(inode: &Inode) -> usize {
     if inode.datalayout != EROFS_INODE_FLAT_INLINE {
         return 0;
     }
@@ -90,19 +90,19 @@ pub(crate) fn nid_slot_offset(nid: u64) -> usize {
         .saturating_mul(SLOT_SIZE)
 }
 
-pub(crate) fn meta_size_bytes(inode: &InodeLayout) -> usize {
+pub(crate) fn meta_size_bytes(inode: &Inode) -> usize {
     meta_slots(inode).saturating_mul(SLOT_SIZE)
 }
 
 #[cfg(test)]
 mod tests {
     use super::inline_data_size;
-    use crate::InodeLayout;
     use crate::dir::{EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+    use crate::layout::Inode;
 
-    fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
-        InodeLayout {
+    fn flat_plain_inode(rel_path: &str, file_type: u8) -> Inode {
+        Inode {
             rel_path: rel_path.to_owned(),
             nid: 0,
             ino: 0,

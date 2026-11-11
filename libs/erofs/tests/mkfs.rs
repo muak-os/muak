@@ -6,12 +6,11 @@ mod tests {
     use std::io::{Cursor, Read};
     use std::path::Path;
 
+    use erofs::compress::{Compression, DEFAULT_ZSTD_COMPRESSION_LEVEL};
     use erofs::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
-    use erofs::source::TreeEntry;
-    use erofs::{
-        BLOCK_SIZE, Compression, DEFAULT_ZSTD_COMPRESSION_LEVEL, FileContexts, MkfsConfig,
-        SLOT_SIZE, SizedFile, error, layout, mkfs, source, writer,
-    };
+    use erofs::filecontexts::FileContexts;
+    use erofs::source::{self, SizedFile, TreeEntry};
+    use erofs::{BLOCK_SIZE, MkfsConfig, SLOT_SIZE, error, layout, mkfs, writer};
 
     use super::common;
     use super::common::{compress_config, test_config};

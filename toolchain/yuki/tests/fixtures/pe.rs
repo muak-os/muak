@@ -20,7 +20,7 @@ fn write_u16(buf: &mut [u8], offset: usize, value: u16) {
     write_bytes(buf, offset, &value.to_le_bytes());
 }
 
-pub fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
+pub(crate) fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
     write_bytes(buf, offset, &value.to_le_bytes());
 }
 
@@ -174,13 +174,13 @@ fn write_pe_headers(buf: &mut [u8], coff_offset: usize, num_sections: u16) {
 
 /// Generates a minimal valid PE64 EFI stub.
 #[must_use]
-pub fn generate_minimal_stub() -> Vec<u8> {
+pub(crate) fn generate_minimal_stub() -> Vec<u8> {
     generate_stub_with_section_count(1)
 }
 
 /// Generates a minimal valid PE64 EFI stub with `n` sections declared in the COFF header.
 #[must_use]
-pub fn generate_stub_with_section_count(n: u16) -> Vec<u8> {
+pub(crate) fn generate_stub_with_section_count(n: u16) -> Vec<u8> {
     let section_table_size = SECTION_HEADER_SIZE
         .saturating_mul(usize::from(n).saturating_add(EXTRA_SECTION_HEADER_SLOTS));
     let headers_raw = DOS_HEADER_SIZE

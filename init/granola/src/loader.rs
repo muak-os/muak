@@ -11,7 +11,7 @@ use crate::supervisor::service::Service;
 const SERVICES_DIR: &str = "/etc/services";
 
 /// Reads all service files in `dir` and returns their parsed contents.
-pub fn scan_services(dir: &Path) -> Result<Vec<Service>> {
+pub(crate) fn scan_services(dir: &Path) -> Result<Vec<Service>> {
     let mut files = Vec::new();
     let read_dir =
         std::fs::read_dir(dir).with_context(|| format!("Failed to read dir: {}", dir.display()))?;
@@ -44,7 +44,7 @@ fn read_service_file(path: &Path) -> Option<Service> {
 }
 
 /// Substitutes `$VAR` patterns in `text` using `env`.
-pub fn substitute_vars(text: &str, env: &HashMap<String, String>) -> String {
+pub(crate) fn substitute_vars(text: &str, env: &HashMap<String, String>) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
 
@@ -124,7 +124,7 @@ fn dfs_cycle<'a>(
 }
 
 /// Applies env var substitution to all services and validates the dependency graph.
-pub fn prepare(defs: Vec<Service>, env: &HashMap<String, String>) -> Result<Vec<Service>> {
+pub(crate) fn prepare(defs: Vec<Service>, env: &HashMap<String, String>) -> Result<Vec<Service>> {
     let index: HashMap<String, &Service> = defs.iter().map(|svc| (svc.name.clone(), svc)).collect();
 
     detect_cycles(&index)?;
@@ -141,7 +141,7 @@ pub fn prepare(defs: Vec<Service>, env: &HashMap<String, String>) -> Result<Vec<
 }
 
 /// Convenience entry-point: scans all service files and prepares them.
-pub fn load(env: &HashMap<String, String>) -> Result<Vec<Service>> {
+pub(crate) fn load(env: &HashMap<String, String>) -> Result<Vec<Service>> {
     let defs = scan_services(Path::new(SERVICES_DIR)).context("Failed to scan service files")?;
     prepare(defs, env)
 }

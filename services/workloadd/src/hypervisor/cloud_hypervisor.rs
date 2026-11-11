@@ -4,18 +4,18 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
-pub struct Driver {
+pub(crate) struct Driver {
     binary_path: String,
 }
 
 impl Driver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             binary_path: "/usr/bin/cloud-hypervisor".to_owned(),
         }
     }
 
-    pub fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
+    pub(crate) fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
         // Check all required files exist before spawning
         if !std::path::Path::new(&self.binary_path).exists() {
             anyhow::bail!("cloud-hypervisor binary not found at {}", self.binary_path);
@@ -96,7 +96,7 @@ impl Driver {
         Ok(VmProcess { pid })
     }
 
-    pub fn stop(pid: u32, force: bool) -> Result<()> {
+    pub(crate) fn stop(pid: u32, force: bool) -> Result<()> {
         let signal = if force { Signal::KILL } else { Signal::TERM };
         kill_process(
             Pid::from_raw(i32::try_from(pid).unwrap_or(0_i32))

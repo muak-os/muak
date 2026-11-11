@@ -4,7 +4,7 @@ use core::time::Duration;
 use std::time::UNIX_EPOCH;
 
 /// Formats a Unix timestamp into a human-readable "2024-01-15 14:30:00" string.
-pub fn format_timestamp(timestamp: i64) -> String {
+pub(crate) fn format_timestamp(timestamp: i64) -> String {
     let duration = Duration::from_secs(u64::try_from(timestamp).unwrap_or(0));
     let system_time = UNIX_EPOCH.checked_add(duration).unwrap_or(UNIX_EPOCH);
 

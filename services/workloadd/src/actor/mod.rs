@@ -9,24 +9,24 @@ use tokio::sync::{mpsc, oneshot};
 use crate::proto::vm::{VmConfig, VmInfo};
 
 #[derive(Clone)]
-pub struct VmActorHandle {
+pub(crate) struct VmActorHandle {
     tx: mpsc::Sender<VmCommand>,
 }
 
 impl VmActorHandle {
-    pub async fn create(&self, config: VmConfig) -> Result<String> {
+    pub(crate) async fn create(&self, config: VmConfig) -> Result<String> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Create { config, reply }).await?;
         rx.await?
     }
 
-    pub async fn start(&self, vm_id: String) -> Result<()> {
+    pub(crate) async fn start(&self, vm_id: String) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Start { vm_id, reply }).await?;
         rx.await?
     }
 
-    pub async fn stop(&self, vm_id: String, force: bool) -> Result<()> {
+    pub(crate) async fn stop(&self, vm_id: String, force: bool) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(VmCommand::Stop {
@@ -38,25 +38,25 @@ impl VmActorHandle {
         rx.await?
     }
 
-    pub async fn delete(&self, vm_id: String) -> Result<()> {
+    pub(crate) async fn delete(&self, vm_id: String) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Delete { vm_id, reply }).await?;
         rx.await?
     }
 
-    pub async fn get(&self, vm_id: String) -> Result<VmInfo> {
+    pub(crate) async fn get(&self, vm_id: String) -> Result<VmInfo> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Get { vm_id, reply }).await?;
         rx.await?
     }
 
-    pub async fn list(&self) -> Result<Vec<VmInfo>> {
+    pub(crate) async fn list(&self) -> Result<Vec<VmInfo>> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::List { reply }).await?;
         rx.await?
     }
 
-    pub async fn upload_file(
+    pub(crate) async fn upload_file(
         &self,
         filename: String,
         data: Vec<u8>,
@@ -74,7 +74,7 @@ impl VmActorHandle {
         rx.await?
     }
 
-    pub async fn get_serial_log(&self, vm_id: String, tail_lines: i64) -> Result<String> {
+    pub(crate) async fn get_serial_log(&self, vm_id: String, tail_lines: i64) -> Result<String> {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(VmCommand::GetSerialLog {
@@ -87,7 +87,7 @@ impl VmActorHandle {
     }
 }
 
-pub async fn start_vm_actor(
+pub(crate) async fn start_vm_actor(
     netlink_handle: rtnetlink::Handle,
     bridge_name: String,
     kvm_available: bool,

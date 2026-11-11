@@ -13,10 +13,10 @@ use rustix::fs::sync;
 use crate::disk;
 
 /// Mount point for the EFI partition during deployment.
-pub const MOUNT_POINT: &str = "/run/mnt/efi";
+pub(crate) const MOUNT_POINT: &str = "/run/mnt/efi";
 
 /// Mounts the EFI partition at [`MOUNT_POINT`].
-pub fn mount(efi_device: &str) -> Result<()> {
+pub(crate) fn mount(efi_device: &str) -> Result<()> {
     if !Path::new(efi_device).exists() {
         bail!("EFI device {efi_device} does not exist");
     }
@@ -25,13 +25,13 @@ pub fn mount(efi_device: &str) -> Result<()> {
 }
 
 /// Syncs filesystem buffers and unmounts the EFI partition.
-pub fn unmount() {
+pub(crate) fn unmount() {
     sync();
     disk::mount::try_unmount(MOUNT_POINT);
 }
 
 /// Opens a new file at `relative_path` under `esp_root` for writing.
-pub fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
+pub(crate) fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
     validate_relative(relative_path)?;
     let dest = resolve(esp_root, relative_path);
 
@@ -39,7 +39,7 @@ pub fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
 }
 
 /// Atomically copies bytes from `reader` into a file at `relative_path` under `esp_root`.
-pub fn write_file(
+pub(crate) fn write_file(
     esp_root: &Path,
     relative_path: &str,
     size: u64,
@@ -49,7 +49,7 @@ pub fn write_file(
 }
 
 /// Extracts a streaming tar archive onto the ESP.
-pub fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
+pub(crate) fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
     let mut archive = tar::Archive::new(reader);
     for entry in archive.entries().context("iterate tar entries")? {
         let mut entry = entry.context("read tar entry")?;
@@ -66,7 +66,7 @@ pub fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
 }
 
 /// Atomically writes `data` to a file at `relative_path` under `esp_root`.
-pub fn write_bytes(esp_root: &Path, relative_path: &str, data: &[u8]) -> Result<()> {
+pub(crate) fn write_bytes(esp_root: &Path, relative_path: &str, data: &[u8]) -> Result<()> {
     atomic::write_bytes(esp_root, relative_path, data)
 }
 

@@ -1,6 +1,6 @@
-pub mod log;
-pub mod process;
-pub mod services;
+pub(crate) mod log;
+pub(crate) mod process;
+pub(crate) mod services;
 
 // The module below contains machine-generated protobuf/tonic code, so the
 // strict workspace lints are expected here rather than in the generated output.
@@ -17,21 +17,22 @@ pub mod services;
     clippy::empty_structs_with_brackets,
     clippy::excessive_nesting,
     clippy::inline_modules,
-    clippy::module_name_repetitions,
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::too_many_lines,
     clippy::trivially_copy_pass_by_ref,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod proto {
-    pub mod process {
+pub(crate) mod proto {
+    pub(crate) mod process {
         tonic::include_proto!("muak.process.v1");
     }
-    pub mod log {
+    pub(crate) mod log {
         tonic::include_proto!("muak.log.v1");
     }
-    pub mod service {
+    pub(crate) mod service {
         tonic::include_proto!("muak.service.v1");
     }
 }

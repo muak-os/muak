@@ -12,7 +12,7 @@ use super::proto::security::{
 use crate::secrets::SECRETS_DIR;
 
 /// Implementation of the `SecurityService` gRPC interface.
-pub struct ServiceImpl;
+pub(crate) struct ServiceImpl;
 
 #[tonic::async_trait]
 impl SecurityService for ServiceImpl {
@@ -33,7 +33,7 @@ impl SecurityService for ServiceImpl {
 }
 
 /// Creates the `SecurityService` gRPC server.
-pub fn service() -> SecurityServiceServer<ServiceImpl> {
+pub(crate) fn service() -> SecurityServiceServer<ServiceImpl> {
     SecurityServiceServer::new(ServiceImpl)
 }
 

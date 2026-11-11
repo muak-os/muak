@@ -7,7 +7,7 @@ use oci_client::client::Client;
 use super::cache::Store;
 use super::content::Content;
 use super::entries::FileEntry;
-use super::lazy::LazyLayers;
+use super::lazy::Layers;
 use super::{Strategy, layer, resolve, scan};
 use crate::error::Result;
 use crate::progress::{Event, Operation, Reporter};
@@ -70,8 +70,8 @@ impl Session {
 
     /// Lazy layer handles that download each blob on first read.
     #[must_use]
-    pub fn lazy(&self) -> LazyLayers<'_> {
-        LazyLayers::new(self)
+    pub fn lazy(&self) -> Layers<'_> {
+        Layers::new(self)
     }
 
     /// The registry client of the session, unauthenticated until a miss needs auth.

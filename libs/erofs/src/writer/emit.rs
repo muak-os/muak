@@ -8,18 +8,17 @@ use std::io::{Read, Write};
 use super::inode::write_header;
 use super::sizes::{block_size_usize, slot_offset};
 use super::{compressed, data};
-use crate::InodeLayout;
 use crate::checked::{add, align_up, u32_from_usize};
 use crate::dir::EROFS_FT_REG_FILE;
 use crate::error::{ErofsError, Result};
 use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE};
-use crate::layout::{self, ImagePlan};
+use crate::layout::{self, ImagePlan, Inode};
 use crate::source::SizedFile;
 use crate::superblock::{self, SuperblockParams};
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 
-pub fn image<W: Write>(
+pub(super) fn image<W: Write>(
     writer: &mut W,
     plan: &ImagePlan,
     files: &mut [SizedFile<'_>],
@@ -138,11 +137,11 @@ fn regular_reader<'a>(files: &'a mut [SizedFile<'_>], index: usize) -> Result<&'
         .ok_or(ErofsError::Internal("file index out of bounds"))
 }
 
-fn is_streamed_plain(inode: &InodeLayout) -> bool {
+fn is_streamed_plain(inode: &Inode) -> bool {
     inode.compressed.is_none() && inode.file_type == EROFS_FT_REG_FILE && inode.size > 0
 }
 
-fn is_inline_regular(inode: &InodeLayout) -> bool {
+fn is_inline_regular(inode: &Inode) -> bool {
     is_streamed_plain(inode) && inode.datalayout == EROFS_INODE_FLAT_INLINE
 }
 
@@ -161,7 +160,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -172,11 +171,11 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::default(),
+            compression: crate::compress::Compression::default(),
         }
     }
 
-    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+    fn entry_of(inode: &crate::layout::Inode) -> crate::source::TreeEntry {
         crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
@@ -444,9 +443,10 @@ mod tests {
                 rdev: 0,
             },
         ];
-        let fc =
-            crate::FileContexts::from_reader("/.*    system_u:object_r:file_t:s0\n".as_bytes())
-                .expect("fc");
+        let fc = crate::filecontexts::FileContexts::from_reader(
+            "/.*    system_u:object_r:file_t:s0\n".as_bytes(),
+        )
+        .expect("fc");
         let cfg = MkfsConfig {
             file_contexts: Some(&fc),
             ..test_config(0)

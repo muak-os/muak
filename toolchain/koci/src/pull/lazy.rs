@@ -9,18 +9,18 @@ use crate::error::{KociError, Result};
 use crate::runtime;
 
 /// Lazy access to an opened session's layers.
-pub struct LazyLayers<'session> {
+pub struct Layers<'session> {
     session: &'session Session,
 }
 
 /// One layer of a session, downloaded only when its blob is read.
-pub struct LazyLayer<'session> {
+pub struct Layer<'session> {
     session: &'session Session,
     index: usize,
     descriptor: &'session Descriptor,
 }
 
-impl<'session> LazyLayers<'session> {
+impl<'session> Layers<'session> {
     pub(crate) fn new(session: &'session Session) -> Self {
         Self { session }
     }
@@ -36,7 +36,7 @@ impl<'session> LazyLayers<'session> {
     /// # Errors
     ///
     /// Returns an error when `index` is out of bounds.
-    pub fn layer(&self, index: usize) -> Result<LazyLayer<'_>> {
+    pub fn layer(&self, index: usize) -> Result<Layer<'_>> {
         let descriptor = self.session.layers().get(index).ok_or_else(|| {
             KociError::Pull(format!(
                 "layer index {index} out of bounds ({} layer(s))",
@@ -44,7 +44,7 @@ impl<'session> LazyLayers<'session> {
             ))
         })?;
 
-        Ok(LazyLayer {
+        Ok(Layer {
             session: self.session,
             index,
             descriptor,
@@ -52,7 +52,7 @@ impl<'session> LazyLayers<'session> {
     }
 }
 
-impl LazyLayer<'_> {
+impl Layer<'_> {
     /// The position of the layer in the manifest, for progress reporting.
     #[must_use]
     pub fn index(&self) -> usize {

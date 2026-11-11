@@ -1,14 +1,11 @@
 //! Terminal output port and ANSI backend.
 
-mod ansi;
+pub mod ansi;
 
 use std::io;
 
 use crate::size::Size;
 use crate::text::{Line, Span};
-
-/// ANSI terminal output surface.
-pub type Ansi<W> = ansi::Ansi<W>;
 
 /// Terminal output surface.
 pub trait Screen {

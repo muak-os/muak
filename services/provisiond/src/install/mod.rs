@@ -2,7 +2,7 @@
 
 mod deploy;
 mod layout;
-pub mod pki;
+pub(crate) mod pki;
 pub(crate) mod plan;
 mod preflight;
 mod secureboot;
@@ -30,7 +30,7 @@ struct PkiResult {
 }
 
 /// Installs Muak to the disks assigned in `config`, with the given configuration.
-pub async fn run(
+pub(crate) async fn run(
     force: bool,
     allow_system_disk: bool,
     config: &system::Config,

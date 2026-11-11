@@ -18,7 +18,7 @@ pub enum Action {
 }
 
 /// Handles rollback subcommands.
-pub async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
+pub(crate) async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
     match action {
         Action::History { limit } => history(channel, limit, console).await,
     }

@@ -8,4 +8,4 @@ pub mod payload;
 pub mod rootfs;
 
 /// Default zstd compression level for EROFS images.
-pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = erofs::compress::DEFAULT_ZSTD_COMPRESSION_LEVEL;

@@ -3,11 +3,14 @@
 use std::io;
 
 #[cfg(feature = "live")]
-use crate::live::summary::{self, Summary};
 #[cfg(feature = "live")]
-use crate::live::{Spinner, Steps};
+use crate::live::spinner::Spinner;
+#[cfg(feature = "live")]
+use crate::live::steps::Steps;
+#[cfg(feature = "live")]
+use crate::live::summary::{self, Summary};
 use crate::output::{Flags, Output};
-use crate::screen::Ansi;
+use crate::screen::ansi::Ansi;
 use crate::style::{Role, Stream, Style, Styled};
 use crate::table::Table;
 

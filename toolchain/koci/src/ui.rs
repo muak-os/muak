@@ -1,6 +1,6 @@
 //! Terminal progress reporter rendered with `tui` steps.
 
-use tui::live::StepsHandle;
+use tui::live::steps::Handle;
 use tui::live::tracker::Tracked;
 use tui::units;
 
@@ -14,7 +14,7 @@ pub struct Terminal {
 impl Terminal {
     /// Creates a terminal reporter over `steps`.
     #[must_use]
-    pub fn new(steps: StepsHandle, verbose: bool) -> Self {
+    pub fn new(steps: Handle, verbose: bool) -> Self {
         Self {
             tracked: Tracked::new(steps, verbose),
         }
@@ -111,7 +111,8 @@ mod tests {
     use std::io;
     use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
-    use tui::live::{Options, Steps};
+    use tui::live::Options;
+    use tui::live::steps::Steps;
     use tui::screen::Screen;
     use tui::size::Size;
     use tui::style::Theme;

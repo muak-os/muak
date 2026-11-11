@@ -7,7 +7,7 @@ use kata::ops::verify;
 
 /// Arguments of the `verify` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Release line (default: every line with documents).
     #[arg(long)]
     release: Option<String>,

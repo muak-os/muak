@@ -8,7 +8,7 @@ use super::{Console, progress};
 
 /// Arguments of the `repack` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Image reference with a tag, such as `ghcr.io/org/image:tag`.
     #[arg(short, long)]
     image: String,

@@ -15,7 +15,7 @@ const KMSG_CHANNEL_LINES: usize = 256;
 const READ_BUFFER: usize = 16 * 1024;
 
 /// Spawns a task that reads all historical and future kernel log entries.
-pub fn spawn() -> Result<mpsc::Receiver<String>> {
+pub(crate) fn spawn() -> Result<mpsc::Receiver<String>> {
     let (tx, rx) = mpsc::channel(KMSG_CHANNEL_LINES);
 
     let fd = open(

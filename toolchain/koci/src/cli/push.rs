@@ -10,7 +10,7 @@ use super::{Console, parse_arch, progress};
 
 /// Arguments of the `push` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Image reference to push (e.g. `ghcr.io/org/catalog-core:v1`).
     #[arg(short, long)]
     image: String,

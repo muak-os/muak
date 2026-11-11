@@ -7,7 +7,7 @@ use kata::ops::compose::{self, Policy};
 
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Release line to compose.
     #[arg(long)]
     release: String,

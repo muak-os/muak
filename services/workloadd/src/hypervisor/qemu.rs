@@ -4,18 +4,18 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
-pub struct Driver {
+pub(crate) struct Driver {
     binary_path: String,
 }
 
 impl Driver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             binary_path: qemu_binary_path().to_owned(),
         }
     }
 
-    pub fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
+    pub(crate) fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
         let mut cmd = Command::new(&self.binary_path);
 
         cmd.arg("-enable-kvm");
@@ -78,7 +78,7 @@ impl Driver {
         Ok(VmProcess { pid })
     }
 
-    pub fn stop(pid: u32, force: bool) -> Result<()> {
+    pub(crate) fn stop(pid: u32, force: bool) -> Result<()> {
         let signal = if force { Signal::KILL } else { Signal::TERM };
         kill_process(
             Pid::from_raw(i32::try_from(pid).unwrap_or(0_i32))

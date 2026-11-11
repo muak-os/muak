@@ -15,12 +15,12 @@ use super::target::Targets;
 /// Retrieves all partitions mounted from the specified disk.
 ///
 /// The kernel view is supplied by the caller.
-pub fn get_disk_mounts<K: Kernel>(kernel: &K, disk: &str) -> Vec<Mount> {
+pub(crate) fn get_disk_mounts<K: Kernel>(kernel: &K, disk: &str) -> Vec<Mount> {
     of_disk(kernel.mounts(), disk)
 }
 
 /// Unmounts all partitions in the provided list, deepest mount points first.
-pub fn unmount_all(partitions: &[Mount]) -> Result<()> {
+pub(crate) fn unmount_all(partitions: &[Mount]) -> Result<()> {
     let mut sorted: Vec<_> = partitions.iter().collect();
     sorted.sort_by_key(|mount| core::cmp::Reverse(mount.mount_point.len()));
 

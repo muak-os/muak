@@ -3,7 +3,8 @@
 use alloc::borrow::Cow;
 use std::io;
 
-use crate::screen::{Ansi, Screen};
+use crate::screen::Screen;
+use crate::screen::ansi::Ansi;
 use crate::size::Size;
 use crate::style::{Role, Style, Theme};
 use crate::text::{self, Span};

@@ -10,7 +10,7 @@ use super::{Console, read_key_file};
 
 /// Arguments of the `sign` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     #[arg(short, long)]
     image: String,
 

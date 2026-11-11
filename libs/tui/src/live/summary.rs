@@ -4,7 +4,8 @@ use std::io;
 
 use crate::live::renderer::write_plain;
 use crate::output::{Mode, Output};
-use crate::screen::{Ansi, Screen};
+use crate::screen::Screen;
+use crate::screen::ansi::Ansi;
 use crate::style::Role;
 use crate::text::{self, Line, Span};
 

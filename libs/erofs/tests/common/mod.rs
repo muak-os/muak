@@ -2,15 +2,17 @@
 
 use std::io::Read;
 
+use erofs::MkfsConfig;
+use erofs::compress::Compression;
+use erofs::layout::Inode;
 use erofs::source::{SizedFile, TreeEntry};
-use erofs::{Compression, InodeLayout, MkfsConfig};
 
 /// Cursor set over shared content (test support).
 pub type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
 
 /// Returns a minimal uncompressed [`MkfsConfig`] for use in tests.
 #[must_use]
-pub fn test_config(epoch: u64) -> MkfsConfig<'static> {
+pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
     MkfsConfig {
         source_date_epoch: epoch,
         file_contexts: None,
@@ -23,7 +25,7 @@ pub fn test_config(epoch: u64) -> MkfsConfig<'static> {
 
 /// Returns a minimal compressed [`MkfsConfig`] for use in tests.
 #[must_use]
-pub fn compress_config(epoch: u64) -> MkfsConfig<'static> {
+pub(crate) fn compress_config(epoch: u64) -> MkfsConfig<'static> {
     MkfsConfig {
         source_date_epoch: epoch,
         file_contexts: None,
@@ -36,7 +38,7 @@ pub fn compress_config(epoch: u64) -> MkfsConfig<'static> {
 
 /// Reconstructs a [`TreeEntry`] from a planned inode (test support).
 #[must_use]
-pub fn entry_of(inode: &InodeLayout) -> TreeEntry {
+pub fn entry_of(inode: &Inode) -> TreeEntry {
     TreeEntry {
         rel_path: inode.rel_path.clone(),
         file_type: inode.file_type,

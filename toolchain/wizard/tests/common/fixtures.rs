@@ -9,19 +9,19 @@ use crate::common::server::{HttpResponse, Routes, get};
 const FIXTURE_ARCH: &str = "amd64";
 
 /// An OCI image whose layers are eStargz blobs.
-pub struct FixtureImage {
-    pub manifest: Vec<u8>,
-    pub layers: Vec<(String, Vec<u8>)>,
+pub(crate) struct FixtureImage {
+    pub(crate) manifest: Vec<u8>,
+    pub(crate) layers: Vec<(String, Vec<u8>)>,
 }
 
 /// Builds a single-platform image from `(path, bytes)` entries in order,
 /// rewritten as ONE sorted eStargz layer carrying its TOC and footer.
-pub fn build_image(entries: &[(&str, &[u8])]) -> FixtureImage {
+pub(crate) fn build_image(entries: &[(&str, &[u8])]) -> FixtureImage {
     build_layer_image(entries, "application/vnd.oci.image.layer.v1.tar+gzip")
 }
 
 /// Builds a single-platform image with one sorted eStargz layer per entry slice.
-pub fn build_layers_image(layers: &[&[(&str, &[u8])]]) -> FixtureImage {
+pub(crate) fn build_layers_image(layers: &[&[(&str, &[u8])]]) -> FixtureImage {
     let packed: Vec<Vec<u8>> = layers.iter().map(|entries| stargz_layer(entries)).collect();
     let slices: Vec<&[u8]> = packed.iter().map(Vec::as_slice).collect();
 
@@ -35,7 +35,7 @@ fn build_layer_image(entries: &[(&str, &[u8])], media_type: &str) -> FixtureImag
 }
 
 /// Image config blob served for single-arch wizard fixtures.
-pub fn config_blob() -> Vec<u8> {
+pub(crate) fn config_blob() -> Vec<u8> {
     serde_json::to_vec(&json!({
         "architecture": FIXTURE_ARCH,
         "os": "linux",
@@ -44,7 +44,7 @@ pub fn config_blob() -> Vec<u8> {
 }
 
 /// Digest of [`config_blob`], matching the bytes the mock registry serves.
-pub fn config_digest() -> String {
+pub(crate) fn config_digest() -> String {
     sha256_digest(&config_blob())
 }
 
@@ -101,7 +101,7 @@ fn stargz_layer(entries: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 /// Serves an image under `GET /v2/{repo}/manifests/{tag}` and its blobs.
-pub fn install_image(routes: &mut Routes, repo: &str, tag: &str, image: &FixtureImage) {
+pub(crate) fn install_image(routes: &mut Routes, repo: &str, tag: &str, image: &FixtureImage) {
     let (key, response) = get(
         format!("/v2/{repo}/manifests/{tag}"),
         HttpResponse::json(image.manifest.clone()),
@@ -116,13 +116,13 @@ pub fn install_image(routes: &mut Routes, repo: &str, tag: &str, image: &Fixture
     }
 }
 
-pub fn sha256_digest(bytes: &[u8]) -> String {
+pub(crate) fn sha256_digest(bytes: &[u8]) -> String {
     format!("sha256:{}", hex_encode(Sha256::digest(bytes).as_ref()))
 }
 
 /// Deterministic pseudo-random bytes (xorshift) so fixture images stay
 /// reproducible while differing from each other.
-pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
+pub(crate) fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
     let mut state = seed;
     let mut bytes = Vec::with_capacity(len);
     for _ in 0..len {
@@ -136,7 +136,7 @@ pub fn random_bytes(seed: u64, len: usize) -> Vec<u8> {
 }
 
 /// Lowercase hex encoding of `bytes`.
-pub fn hex_encode(bytes: &[u8]) -> String {
+pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
         out.push(char::from_digit(u32::from(byte >> 4_u8), 16).unwrap_or('0'));

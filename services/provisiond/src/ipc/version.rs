@@ -7,7 +7,7 @@ use super::proto::version::{GetVersionRequest, GetVersionResponse};
 use crate::medium;
 
 /// Implementation of the `VersionService` gRPC interface.
-pub struct ServiceImpl;
+pub(crate) struct ServiceImpl;
 
 #[tonic::async_trait]
 impl VersionService for ServiceImpl {
@@ -24,6 +24,6 @@ impl VersionService for ServiceImpl {
 }
 
 /// Creates the `VersionService` gRPC server.
-pub fn service() -> VersionServiceServer<ServiceImpl> {
+pub(crate) fn service() -> VersionServiceServer<ServiceImpl> {
     VersionServiceServer::new(ServiceImpl)
 }

@@ -1,12 +1,12 @@
 //! Compact inode header writing and xattr payload placement.
 
-use crate::InodeLayout;
 use crate::checked::{add, write_bytes};
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::{self, COMPACT_INODE_SIZE, CompactInodeParams};
+use crate::layout::Inode;
 
-pub(super) fn write_header(buf: &mut [u8], inode: &InodeLayout, slot_offset: usize) -> Result<()> {
+pub(super) fn write_header(buf: &mut [u8], inode: &Inode, slot_offset: usize) -> Result<()> {
     let i_u = if inode.compressed.is_some() {
         inode.data_blocks
     } else if inode.file_type != EROFS_FT_DIR
@@ -60,9 +60,10 @@ mod tests {
     use super::write_header;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_PLAIN};
+    use crate::layout::{self, Inode};
     use crate::source::TreeEntry;
     use crate::writer::image;
-    use crate::{InodeLayout, SLOT_SIZE, compress, layout};
+    use crate::{SLOT_SIZE, compress};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -71,7 +72,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -82,11 +83,11 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::default(),
+            compression: crate::compress::Compression::default(),
         }
     }
 
-    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+    fn entry_of(inode: &crate::layout::Inode) -> crate::source::TreeEntry {
         crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
@@ -256,7 +257,7 @@ mod tests {
     #[test]
     fn write_inode_header_rdev_for_special_file() {
         // ARRANGE
-        let inode = InodeLayout {
+        let inode = Inode {
             rel_path: "/dev/null".to_owned(),
             nid: 36,
             ino: 0,

@@ -1,6 +1,6 @@
 //! Live progress adapters for pipeline events.
 
-use tui::live::StepsHandle;
+use tui::live::steps::Handle;
 use tui::live::tracker::Tracked as Progress;
 use tui::progress::sink::Tracker;
 use wizard::artifact::Artifact;
@@ -12,7 +12,7 @@ pub(super) struct Tracked {
 }
 
 impl Tracked {
-    pub(super) fn new(steps: StepsHandle, verbose: bool) -> Self {
+    pub(super) fn new(steps: Handle, verbose: bool) -> Self {
         Self {
             progress: Progress::new(steps, verbose),
         }
@@ -82,7 +82,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
-    use tui::live::{Options, Steps};
+    use tui::live::Options;
+    use tui::live::steps::Steps;
     use tui::progress::sink::Sink;
     use tui::screen::Screen;
     use tui::size::Size;

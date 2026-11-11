@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::DATA_DIR;
 
-pub fn create_raw(vm_id: &str, size_bytes: u64) -> Result<PathBuf> {
+pub(crate) fn create_raw(vm_id: &str, size_bytes: u64) -> Result<PathBuf> {
     let path = get_path(vm_id);
 
     let file = OpenOptions::new()
@@ -26,7 +26,7 @@ pub fn create_raw(vm_id: &str, size_bytes: u64) -> Result<PathBuf> {
     Ok(path)
 }
 
-pub fn get_path(vm_id: &str) -> PathBuf {
+pub(crate) fn get_path(vm_id: &str) -> PathBuf {
     PathBuf::from(DATA_DIR).join(vm_id).join("disk.raw")
 }
 

@@ -11,7 +11,7 @@ use crate::supervisor::state::NetworkState;
 
 /// Point-in-time view of the entire network subsystem.
 #[derive(Debug, Clone)]
-pub struct NetworkSnapshot {
+pub(super) struct NetworkSnapshot {
     pub state: NetworkState,
     pub primary: Option<Name>,
     pub backups: Vec<Name>,
@@ -20,7 +20,7 @@ pub struct NetworkSnapshot {
 
 impl NetworkSnapshot {
     /// Returns an empty snapshot in the uninitialized state.
-    pub fn empty() -> Self {
+    pub(super) fn empty() -> Self {
         Self {
             state: NetworkState::Uninitialized,
             primary: None,
@@ -30,7 +30,7 @@ impl NetworkSnapshot {
     }
 
     /// Advances the network state, logging and validating the transition.
-    pub fn transition(&mut self, to: NetworkState) -> Result<()> {
+    pub(super) fn transition(&mut self, to: NetworkState) -> Result<()> {
         let from = self.state.clone();
         self.state
             .transition(to)

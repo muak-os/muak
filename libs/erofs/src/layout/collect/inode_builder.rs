@@ -5,12 +5,12 @@ use std::path::Path;
 use crate::dir::{self, EROFS_FT_DIR};
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_PLAIN;
-use crate::layout::types::InodeLayout;
+use crate::layout::Inode;
 use crate::source::TreeEntry;
 use crate::{MkfsConfig, xattr};
 
-/// Build initial `InodeLayout` entries from tree entries.
-pub fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<Vec<InodeLayout>> {
+/// Build initial `Inode` entries from tree entries.
+pub(super) fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<Vec<Inode>> {
     let mut inodes = Vec::with_capacity(entries.len());
 
     for (idx, entry) in entries.iter().enumerate() {
@@ -44,7 +44,7 @@ pub fn initial_inodes(entries: &[TreeEntry], config: &MkfsConfig<'_>) -> Result<
             .force_gid
             .unwrap_or_else(|| truncate_u32_to_u16(entry.gid));
 
-        inodes.push(InodeLayout {
+        inodes.push(Inode {
             rel_path: rel.clone(),
             nid: 0,
             ino: truncate_usize_to_u32(idx),
@@ -117,7 +117,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 

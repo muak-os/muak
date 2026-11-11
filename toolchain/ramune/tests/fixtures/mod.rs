@@ -8,7 +8,7 @@ const HEADER_LEN: usize = 110;
 const MAGIC: &[u8; 6] = b"070701";
 const TRAILER: &str = "TRAILER!!!";
 
-pub struct TestEnv {
+pub(crate) struct TestEnv {
     temp: TempDir,
 }
 
@@ -19,17 +19,17 @@ impl Default for TestEnv {
 }
 
 impl TestEnv {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             temp: TempDir::new().expect("failed to create temp dir"),
         }
     }
 
-    pub fn path(&self, name: &str) -> PathBuf {
+    pub(crate) fn path(&self, name: &str) -> PathBuf {
         self.temp.path().join(name)
     }
 
-    pub fn write(&self, name: &str, data: &[u8]) -> PathBuf {
+    pub(crate) fn write(&self, name: &str, data: &[u8]) -> PathBuf {
         let path = self.path(name);
         fs::write(&path, data).expect("failed to write fixture file");
         path
@@ -41,7 +41,7 @@ fn parse_hex(field: &[u8]) -> u32 {
     u32::from_str_radix(field, 16).expect("cpio header field should be hex")
 }
 
-pub fn parse_newc_archive(bytes: &[u8]) -> Vec<(String, u32, Vec<u8>)> {
+pub(crate) fn parse_newc_archive(bytes: &[u8]) -> Vec<(String, u32, Vec<u8>)> {
     let mut offset = 0_usize;
     let mut entries = Vec::new();
 

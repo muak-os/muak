@@ -5,18 +5,18 @@ use tokio::process::Command;
 
 use super::{VmProcess, VmStartConfig};
 
-pub struct Driver {
+pub(crate) struct Driver {
     binary_path: String,
 }
 
 impl Driver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             binary_path: "/usr/bin/firecracker".to_owned(),
         }
     }
 
-    pub async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
+    pub(crate) async fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
         let config_path = format!("/run/workloadd/{}/config.json", config.vm_id);
 
         let mut drives: Vec<_> = config
@@ -80,7 +80,7 @@ impl Driver {
         Ok(VmProcess { pid })
     }
 
-    pub fn stop(pid: u32, force: bool) -> Result<()> {
+    pub(crate) fn stop(pid: u32, force: bool) -> Result<()> {
         let signal = if force { Signal::KILL } else { Signal::TERM };
         kill_process(
             Pid::from_raw(i32::try_from(pid).unwrap_or(0_i32))

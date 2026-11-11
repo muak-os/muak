@@ -6,44 +6,44 @@ use alloc::collections::VecDeque;
 
 const RING_CAP: usize = 10_000;
 
-pub struct Buffer {
+pub(crate) struct Buffer {
     ring: VecDeque<String>,
     scroll_offset: usize,
 }
 
 impl Buffer {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             ring: VecDeque::with_capacity(RING_CAP),
             scroll_offset: 0,
         }
     }
 
-    pub fn push(&mut self, line: String) {
+    pub(crate) fn push(&mut self, line: String) {
         if self.ring.len() == RING_CAP {
             self.ring.pop_front();
         }
         self.ring.push_back(line);
     }
 
-    pub fn is_live(&self) -> bool {
+    pub(crate) fn is_live(&self) -> bool {
         self.scroll_offset == 0
     }
 
-    pub fn scroll_up(&mut self, n: usize, log_rows: usize) {
+    pub(crate) fn scroll_up(&mut self, n: usize, log_rows: usize) {
         let max = self.ring.len().saturating_sub(log_rows);
         self.scroll_offset = self.scroll_offset.saturating_add(n).min(max);
     }
 
-    pub fn scroll_down(&mut self, n: usize) {
+    pub(crate) fn scroll_down(&mut self, n: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
     }
 
-    pub fn snap_to_live(&mut self) {
+    pub(crate) fn snap_to_live(&mut self) {
         self.scroll_offset = 0;
     }
 
-    pub fn visible_window(&self, log_rows: usize) -> (&[String], &[String]) {
+    pub(crate) fn visible_window(&self, log_rows: usize) -> (&[String], &[String]) {
         let total = self.ring.len();
         let end = total.saturating_sub(self.scroll_offset);
         let start = end.saturating_sub(log_rows);

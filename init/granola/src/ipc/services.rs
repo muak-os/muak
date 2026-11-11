@@ -9,7 +9,7 @@ use super::proto::service::{
 };
 use crate::supervisor::status::{Snapshot, View};
 
-pub struct ServiceImpl {
+pub(crate) struct ServiceImpl {
     rx: watch::Receiver<Snapshot>,
 }
 
@@ -26,7 +26,7 @@ impl ServiceStateService for ServiceImpl {
     }
 }
 
-pub fn service(rx: watch::Receiver<Snapshot>) -> ServiceStateServiceServer<ServiceImpl> {
+pub(crate) fn service(rx: watch::Receiver<Snapshot>) -> ServiceStateServiceServer<ServiceImpl> {
     ServiceStateServiceServer::new(ServiceImpl { rx })
 }
 

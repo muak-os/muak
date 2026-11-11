@@ -10,19 +10,19 @@ const BTRFS_LEAF_DATA_OFFSET: usize = 101;
 
 /// Builds Btrfs leaf nodes with properly sorted items.
 #[derive(Debug)]
-pub struct LeafBuilder {
+pub(super) struct LeafBuilder {
     items: Vec<(u64, u8, u64, Vec<u8>)>,
 }
 
 impl LeafBuilder {
     /// Create a new empty leaf builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { items: Vec::new() }
     }
 
     /// Add an item to the leaf.
-    pub fn add_item(&mut self, objectid: u64, type_: u8, offset: u64, data: Vec<u8>) {
+    pub(super) fn add_item(&mut self, objectid: u64, type_: u8, offset: u64, data: Vec<u8>) {
         self.items.push((objectid, type_, offset, data));
     }
 
@@ -33,7 +33,7 @@ impl LeafBuilder {
     ///
     /// # Errors
     /// Returns an error if item data does not fit in a leaf or offsets exceed `u32`.
-    pub fn build(mut self) -> Result<(Vec<BtrfsItem>, Vec<u8>)> {
+    pub(super) fn build(mut self) -> Result<(Vec<BtrfsItem>, Vec<u8>)> {
         self.items.sort_by(|left, right| {
             left.0
                 .cmp(&right.0)

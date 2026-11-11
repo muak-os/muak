@@ -35,13 +35,13 @@ pub(crate) struct MockLink {
 
 /// Implements `netlib::netlink::Ops` for deterministic tests.
 #[derive(Clone, Debug)]
-pub struct MockNetlinkOps {
+pub(crate) struct MockNetlinkOps {
     pub(crate) state: Arc<Mutex<MockInner>>,
 }
 
 impl MockNetlinkOps {
     /// Returns an empty mock backend.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(MockInner {
                 next_index: 1,
@@ -59,12 +59,12 @@ impl MockNetlinkOps {
 
     /// Returns how many times `ensure_bridge` has been invoked.
     #[must_use]
-    pub fn ensure_bridge_calls(&self) -> u32 {
+    pub(crate) fn ensure_bridge_calls(&self) -> u32 {
         self.lock().ensure_bridge_calls
     }
 
     /// Adds a link with a deterministic index.
-    pub fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
+    pub(crate) fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
         let mut state = self.lock();
         let index = state.next_index;
         state.next_index = state.next_index.saturating_add(1);

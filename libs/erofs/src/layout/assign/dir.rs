@@ -4,13 +4,13 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 
 use super::super::parent_rel;
-use super::super::types::InodeLayout;
 use super::sizes::{header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
 use crate::dir::{self, EROFS_FT_DIR, Entry};
 use crate::inode::{EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
+use crate::layout::Inode;
 
 pub(super) fn layout(
-    inodes: &mut [InodeLayout],
+    inodes: &mut [Inode],
     i: usize,
     nid: u64,
     slot_offset: usize,
@@ -50,7 +50,7 @@ pub(super) fn layout(
 }
 
 pub(super) fn parent_nid(
-    all_inodes: &[InodeLayout],
+    all_inodes: &[Inode],
     path_to_idx: &BTreeMap<String, usize>,
     self_nid: u64,
 ) -> u64 {
@@ -74,7 +74,7 @@ pub(super) fn parent_nid(
 }
 
 fn build_entries(
-    all_inodes: &[InodeLayout],
+    all_inodes: &[Inode],
     children: &[String],
     path_to_idx: &BTreeMap<String, usize>,
     self_nid: u64,
@@ -121,11 +121,11 @@ mod tests {
     use std::io;
 
     use super::{layout, parent_nid};
+    use crate::compress::Compression;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::{COMPACT_INODE_SIZE, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN};
-    use crate::layout::plan;
+    use crate::layout::{Inode, plan};
     use crate::source::{SizedFile, TreeEntry};
-    use crate::{Compression, InodeLayout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -134,7 +134,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn find_parent_nid_from_children_missing_indices_returns_self() {
         // ARRANGE
-        let inodes = vec![InodeLayout {
+        let inodes = vec![Inode {
             rel_path: "/child".to_owned(),
             nid: 0,
             ino: 0,
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn layout_dir_returns_zero_for_missing_inode_index() {
         // ARRANGE
-        let mut inodes = vec![InodeLayout {
+        let mut inodes = vec![Inode {
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,

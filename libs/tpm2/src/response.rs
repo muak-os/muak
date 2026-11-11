@@ -5,33 +5,33 @@ use crate::error::{Result, Tpm2Error};
 pub(crate) const RESPONSE_HEADER_SIZE: usize = 10;
 
 /// Reader for parsing TPM2 response buffers.
-pub struct ResponseReader<'a> {
+pub(crate) struct ResponseReader<'a> {
     data: &'a [u8],
     pos: usize,
 }
 
 impl<'a> ResponseReader<'a> {
     #[must_use]
-    pub fn new(data: &'a [u8]) -> Self {
+    pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
-    pub fn read_u8(&mut self) -> Result<u8> {
+    pub(crate) fn read_u8(&mut self) -> Result<u8> {
         let bytes = self.read_array::<1>()?;
         Ok(bytes[0])
     }
 
-    pub fn read_u16(&mut self) -> Result<u16> {
+    pub(crate) fn read_u16(&mut self) -> Result<u16> {
         let bytes = self.read_array::<2>()?;
         Ok(u16::from_be_bytes(bytes))
     }
 
-    pub fn read_u32(&mut self) -> Result<u32> {
+    pub(crate) fn read_u32(&mut self) -> Result<u32> {
         let bytes = self.read_array::<4>()?;
         Ok(u32::from_be_bytes(bytes))
     }
 
-    pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8]> {
+    pub(crate) fn read_bytes(&mut self, len: usize) -> Result<&'a [u8]> {
         let end = self.checked_end(len)?;
         let slice = self
             .data
@@ -44,7 +44,7 @@ impl<'a> ResponseReader<'a> {
         Ok(slice)
     }
 
-    pub fn read_sized(&mut self) -> Result<&'a [u8]> {
+    pub(crate) fn read_sized(&mut self) -> Result<&'a [u8]> {
         let len = usize::from(self.read_u16()?);
         self.read_bytes(len)
     }

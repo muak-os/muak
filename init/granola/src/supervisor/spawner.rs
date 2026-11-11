@@ -10,19 +10,19 @@ use rustix::fd::{AsFd as _, AsRawFd as _, BorrowedFd, FromRawFd as _};
 use super::service::{ServiceState, ServiceStatus};
 
 /// Output file descriptors produced by spawning a service.
-pub struct SpawnResult {
+pub(crate) struct SpawnResult {
     pub pid: i32,
     pub stdout: OwnedFd,
     pub stderr: OwnedFd,
 }
 
 /// Abstraction over spawning a supervised child process.
-pub trait Spawn {
+pub(crate) trait Spawn {
     fn spawn(&mut self, state: &mut ServiceState) -> Result<SpawnResult>;
 }
 
 /// Spawns real OS processes.
-pub struct Spawner;
+pub(crate) struct Spawner;
 
 impl Spawn for Spawner {
     fn spawn(&mut self, state: &mut ServiceState) -> Result<SpawnResult> {

@@ -34,7 +34,7 @@ pub enum Action {
 }
 
 /// Handles authentication commands.
-pub async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
+pub(crate) async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
     match action {
         Action::Requests => requests(channel, console).await,
         Action::Approve {
@@ -253,7 +253,7 @@ async fn list(channel: Channel, console: &Console) -> Result<()> {
 }
 
 /// Enrolls with a server by generating a CSR and polling for approval.
-pub async fn enroll(endpoint: &str, console: &Console) -> Result<()> {
+pub(crate) async fn enroll(endpoint: &str, console: &Console) -> Result<()> {
     let mut config = ClientConfig::load()?;
 
     if config.has_credentials_for_endpoint(endpoint) {

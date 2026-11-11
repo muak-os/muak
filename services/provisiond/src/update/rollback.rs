@@ -15,7 +15,7 @@ use crate::medium;
 /// # Errors
 ///
 /// Returns an error when the config cannot be restored or the reboot fails.
-pub fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
+pub(crate) fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     kmsg::info!("Rolling back update {update_id}: {reason}");
 
     let previous = fs::read_to_string(snapshot_path).ok();

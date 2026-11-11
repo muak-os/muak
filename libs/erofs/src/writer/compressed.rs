@@ -5,10 +5,10 @@ use std::io::{Read, Write};
 use super::dir::align8;
 use super::sizes::{block_size_usize, mul, usize_from_u32};
 use crate::checked::{add, u16_from_usize, write_byte, write_bytes};
-use crate::compress::{self, CompressedLayout};
+use crate::compress::{self, CompressedLayout, Compression};
 use crate::error::{ErofsError, Result};
 use crate::inode::{COMPACT_INODE_SIZE, Z_EROFS_COMPRESSION_ZSTD, Z_EROFS_MAP_HEADER_SIZE};
-use crate::{Compression, InodeLayout, layout};
+use crate::layout::{self, Inode};
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 const RECOMPRESS_DST_LEN: usize = 4096 + 32;
@@ -70,11 +70,7 @@ pub(super) struct CompactWriteState {
     pub(super) update_blkaddr_in_pack: bool,
 }
 
-pub(super) fn write_metadata(
-    buf: &mut [u8],
-    inode: &InodeLayout,
-    slot_offset: usize,
-) -> Result<()> {
+pub(super) fn write_metadata(buf: &mut [u8], inode: &Inode, slot_offset: usize) -> Result<()> {
     let compressed_file = inode
         .compressed
         .as_ref()
@@ -127,7 +123,7 @@ pub(super) fn write_metadata(
 
 pub(super) fn compressed_blocks<W: Write>(
     writer: &mut W,
-    inode: &InodeLayout,
+    inode: &Inode,
     reader: &mut dyn Read,
     compression: Compression,
     stage: &mut [u8],
@@ -485,11 +481,11 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::default(),
+            compression: crate::compress::Compression::default(),
         }
     }
 
-    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+    fn entry_of(inode: &crate::layout::Inode) -> crate::source::TreeEntry {
         crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,

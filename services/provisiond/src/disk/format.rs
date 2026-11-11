@@ -7,7 +7,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 // Wait for a device node to appear.
-pub fn wait_for_device(device: &str) -> Result<()> {
+pub(crate) fn wait_for_device(device: &str) -> Result<()> {
     for _ in 0_i32..30_i32 {
         if Path::new(device).exists() {
             return Ok(());
@@ -24,7 +24,7 @@ pub fn wait_for_device(device: &str) -> Result<()> {
 ///
 /// Returns an error when `size_bytes` is zero, when the device does not appear,
 /// or when the format itself fails.
-pub fn efi(device: &str, size_bytes: u64) -> Result<()> {
+pub(crate) fn efi(device: &str, size_bytes: u64) -> Result<()> {
     if size_bytes == 0 {
         bail!("Refusing to format {device} as EFI FAT32: partition size is zero");
     }
@@ -46,7 +46,7 @@ pub fn efi(device: &str, size_bytes: u64) -> Result<()> {
 }
 
 /// Formats a partition as Btrfs with the specified label.
-pub fn btrfs(device: &str, label: &str) -> Result<()> {
+pub(crate) fn btrfs(device: &str, label: &str) -> Result<()> {
     kmsg::info!("Formatting {} as btrfs with label '{}'", device, label);
 
     wait_for_device(device)?;

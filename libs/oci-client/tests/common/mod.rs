@@ -13,7 +13,7 @@ const TRUNCATED_BODY: &[u8] =
 /// # Errors
 ///
 /// Returns an error when the server thread cannot bind its socket.
-pub fn spawn_truncated_body() -> io::Result<String> {
+pub(crate) fn spawn_truncated_body() -> io::Result<String> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
     thread::spawn(move || {

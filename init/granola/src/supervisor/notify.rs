@@ -13,7 +13,7 @@ use super::spawner::Spawn;
 const MAX_DATAGRAM_SIZE: usize = 4096;
 
 /// Processed notification ready for the supervisor to act on.
-pub enum ServiceNotification {
+pub(super) enum ServiceNotification {
     Ready {
         service_name: String,
     },
@@ -28,12 +28,12 @@ pub enum ServiceNotification {
 }
 
 /// Listens for notifications from supervised services over a UNIX datagram socket.
-pub struct NotifyListener {
+pub(super) struct NotifyListener {
     socket: UnixDatagram,
 }
 
 impl NotifyListener {
-    pub fn new(services_dir: &Path) -> Result<Self> {
+    pub(super) fn new(services_dir: &Path) -> Result<Self> {
         let socket_path = services_dir.join("granola-notify.sock");
         drop(std::fs::remove_file(&socket_path));
 
@@ -48,7 +48,7 @@ impl NotifyListener {
     }
 
     /// Drains all pending notifications from the socket.
-    pub fn poll(&self) -> Vec<ServiceNotification> {
+    pub(super) fn poll(&self) -> Vec<ServiceNotification> {
         let mut buf = [0_u8; MAX_DATAGRAM_SIZE];
         let mut notifications = Vec::new();
 

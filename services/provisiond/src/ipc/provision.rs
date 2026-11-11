@@ -22,7 +22,7 @@ use crate::check::{self, Check};
 use crate::{disk, install, journal, power, reset, streaming, template, update};
 
 /// Implementation of the `ProvisionService` gRPC interface.
-pub struct ServiceImpl;
+pub(crate) struct ServiceImpl;
 
 #[tonic::async_trait]
 impl ProvisionService for ServiceImpl {
@@ -453,7 +453,7 @@ impl ProvisionService for ServiceImpl {
 
 /// Extracts the mTLS client certificate fingerprint from the request metadata.
 /// Creates the `ProvisionService` gRPC server.
-pub fn service() -> ProvisionServiceServer<ServiceImpl> {
+pub(crate) fn service() -> ProvisionServiceServer<ServiceImpl> {
     ProvisionServiceServer::new(ServiceImpl)
 }
 

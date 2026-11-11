@@ -17,7 +17,7 @@ use super::proto::auth::{
 };
 use crate::secrets::SECRETS_DIR;
 
-pub struct ServiceImpl;
+pub(crate) struct ServiceImpl;
 
 #[tonic::async_trait]
 impl AuthService for ServiceImpl {
@@ -253,7 +253,7 @@ fn ca_key_path() -> PathBuf {
     Path::new(SECRETS_DIR).join("ca.key")
 }
 
-pub fn service() -> AuthServiceServer<ServiceImpl> {
+pub(crate) fn service() -> AuthServiceServer<ServiceImpl> {
     AuthServiceServer::new(ServiceImpl)
 }
 

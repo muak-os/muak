@@ -7,10 +7,11 @@ use tokio::sync::mpsc;
 use tonic::Status;
 
 /// A pinned gRPC server-streaming type for progress messages.
-pub type ProgressStream<T> = Pin<Box<dyn tokio_stream::Stream<Item = Result<T, Status>> + Send>>;
+pub(crate) type ProgressStream<T> =
+    Pin<Box<dyn tokio_stream::Stream<Item = Result<T, Status>> + Send>>;
 
 /// Runs an async task that emits progress via a sender, returning a gRPC stream.
-pub fn run<T, R, F, Fut, C>(task: F, on_complete: C) -> ProgressStream<T>
+pub(crate) fn run<T, R, F, Fut, C>(task: F, on_complete: C) -> ProgressStream<T>
 where
     T: Send + 'static,
     R: Send + 'static,
@@ -37,7 +38,7 @@ where
 }
 
 /// Returns a stream that emits `item` once and then ends.
-pub fn single<T: Send + 'static>(item: T) -> ProgressStream<T> {
+pub(crate) fn single<T: Send + 'static>(item: T) -> ProgressStream<T> {
     Box::pin(tokio_stream::iter(core::iter::once(Ok(item))))
 }
 
@@ -53,7 +54,7 @@ async fn forward_progress<T>(
 }
 
 /// Sends a progress message via `tx`, ignoring a dropped receiver.
-pub async fn send_progress<T: Send>(tx: &mpsc::Sender<T>, msg: T) {
+pub(crate) async fn send_progress<T: Send>(tx: &mpsc::Sender<T>, msg: T) {
     let _sent = tx.send(msg).await;
 }
 

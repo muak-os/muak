@@ -1,6 +1,6 @@
 mod preview;
 mod show;
-pub(crate) mod wipe;
+pub mod wipe;
 
 use anyhow::Result;
 use tonic::transport::Channel;
@@ -43,7 +43,7 @@ pub enum Action {
 }
 
 /// Handles the disk command group, defaulting to the list view.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     action: Option<Action>,
     wide: bool,

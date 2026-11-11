@@ -25,7 +25,7 @@ pub struct Args {
     pub file_contexts: Option<PathBuf>,
 
     /// Zstd compression level for the EROFS image.
-    #[arg(long, default_value_t = erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
+    #[arg(long, default_value_t = erofs::compress::DEFAULT_ZSTD_COMPRESSION_LEVEL)]
     pub compression_level: i32,
 }
 
@@ -66,7 +66,7 @@ mod tests {
         assert!(args.file_contexts.is_none());
         assert_eq!(
             args.compression_level,
-            erofs::DEFAULT_ZSTD_COMPRESSION_LEVEL
+            erofs::compress::DEFAULT_ZSTD_COMPRESSION_LEVEL
         );
     }
 

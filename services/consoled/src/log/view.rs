@@ -11,7 +11,7 @@ use tui::text::{self, Line, Span};
 use crate::render::{FOOTER_ROWS, PANEL_ROWS};
 
 /// Renders the visible window into the log area between panel and footer.
-pub fn render<S: Screen>(
+pub(crate) fn render<S: Screen>(
     screen: &mut S,
     visible: (&[String], &[String]),
     cols: u16,
@@ -47,7 +47,7 @@ pub fn render<S: Screen>(
 
 #[cfg(test)]
 mod tests {
-    use tui::screen::Ansi;
+    use tui::screen::ansi::Ansi;
     use tui::size::Size;
 
     use super::*;

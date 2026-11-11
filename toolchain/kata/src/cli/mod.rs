@@ -32,7 +32,7 @@ enum Command {
 /// # Errors
 ///
 /// Returns an error if argument parsing fails or the requested operation fails.
-pub fn run_from<I, T>(args: I) -> Result<()>
+pub(crate) fn run_from<I, T>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -43,7 +43,7 @@ where
 
 /// Runs the CLI with the given arguments and returns an exit code.
 #[must_use]
-pub fn run_with<I, T>(args: I) -> i32
+pub(crate) fn run_with<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -59,7 +59,7 @@ where
 
 /// Runs the CLI with `std::env::args_os()` and returns an exit code.
 #[must_use]
-pub fn run() -> i32 {
+pub(crate) fn run() -> i32 {
     run_with(std::env::args_os())
 }
 

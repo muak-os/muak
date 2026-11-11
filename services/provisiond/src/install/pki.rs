@@ -6,13 +6,13 @@ use pki::key::Signer;
 use pki::{cert, csr, pem};
 
 /// PKI materials returned to the client after install.
-pub struct InstallResult {
+pub(crate) struct InstallResult {
     pub ca_pem: String,
     pub admin_cert_pem: String,
 }
 
 /// Server-side PKI materials written to the STATE partition.
-pub struct Server {
+pub(crate) struct Server {
     pub ca: String,
     pub ca_key: String,
     pub cert: String,
@@ -20,14 +20,14 @@ pub struct Server {
 }
 
 /// Intermediate CA materials shared across generation steps.
-pub struct CaMaterials {
+pub(crate) struct CaMaterials {
     pub signer: Signer,
     pub cert_pem: String,
     pub key_pem: String,
 }
 
 /// Generates the CA key and certificate.
-pub fn generate_ca() -> Result<CaMaterials> {
+pub(crate) fn generate_ca() -> Result<CaMaterials> {
     let (signer, cert) =
         cert::generate_ca("Muak CA").context("Failed to generate CA certificate")?;
 
@@ -43,7 +43,7 @@ pub fn generate_ca() -> Result<CaMaterials> {
 }
 
 /// Generates the server certificate signed by the given CA.
-pub fn generate_server_cert(ca: &CaMaterials) -> Result<Server> {
+pub(crate) fn generate_server_cert(ca: &CaMaterials) -> Result<Server> {
     let ca_cert = pem::decode_cert(&ca.cert_pem).context("Failed to decode CA certificate")?;
 
     let (server_key, server_cert) = cert::generate_server("muak-server", &ca.signer, &ca_cert)
@@ -64,7 +64,7 @@ pub fn generate_server_cert(ca: &CaMaterials) -> Result<Server> {
 }
 
 /// Signs the admin CSR with the given CA, returning client materials and initial auth config.
-pub fn sign_admin_csr(
+pub(crate) fn sign_admin_csr(
     csr_pem: &str,
     ca: &CaMaterials,
 ) -> Result<(InstallResult, config::auth::State)> {

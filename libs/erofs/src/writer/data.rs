@@ -6,18 +6,18 @@ use std::io::{Read, Write};
 use super::dir::{find_parent_nid, sorted_entries};
 use super::sizes::{full_block_bytes, usize_from_u32};
 use crate::checked::write_bytes;
-use crate::dir::{EROFS_FT_DIR, EROFS_FT_SYMLINK};
+use crate::dir::{self, EROFS_FT_DIR, EROFS_FT_SYMLINK};
 use crate::error::{ErofsError, Result};
 use crate::inode::EROFS_INODE_FLAT_INLINE;
-use crate::{InodeLayout, dir};
+use crate::layout::Inode;
 
 const ZERO_BLOCK: [u8; 4096] = [0_u8; 4096];
 
 /// Write the inline metadata tail of a directory or symlink into the metadata buffer.
 pub(super) fn write_inline_tail(
     buf: &mut [u8],
-    inode: &InodeLayout,
-    all_inodes: &[InodeLayout],
+    inode: &Inode,
+    all_inodes: &[Inode],
     path_to_idx: &BTreeMap<String, usize>,
     inode_header_end: usize,
     block_size: usize,
@@ -43,7 +43,7 @@ pub(super) fn write_inline_tail(
 /// Write the inline metadata data of an uncompressed regular file.
 pub(super) fn write_regular_inline_tail(
     buf: &mut [u8],
-    inode: &InodeLayout,
+    inode: &Inode,
     reader: &mut dyn Read,
     inode_header_end: usize,
 ) -> Result<()> {
@@ -63,7 +63,7 @@ pub(super) fn write_regular_inline_tail(
 /// Stream a regular file's data-phase bytes into the writer and zero-pad to its allocated blocks.
 pub(super) fn stream_plain<W: Write>(
     writer: &mut W,
-    inode: &InodeLayout,
+    inode: &Inode,
     reader: &mut dyn Read,
     block_size: usize,
     stage: &mut [u8],
@@ -94,8 +94,8 @@ pub(super) fn stream_plain<W: Write>(
 
 /// Serialized leading blocks of directory or symlink data for the data phase.
 pub(super) fn spill_blocks(
-    inode: &InodeLayout,
-    all_inodes: &[InodeLayout],
+    inode: &Inode,
+    all_inodes: &[Inode],
     path_to_idx: &BTreeMap<String, usize>,
     block_size: usize,
 ) -> Result<Option<Vec<u8>>> {
@@ -180,11 +180,11 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
-    fn entry_of(inode: &crate::InodeLayout) -> crate::source::TreeEntry {
+    fn entry_of(inode: &crate::layout::Inode) -> crate::source::TreeEntry {
         crate::source::TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,

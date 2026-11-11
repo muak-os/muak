@@ -15,7 +15,7 @@ const SELINUXFS_ENFORCE: &str = "/sys/fs/selinux/enforce";
 const POLICY_DIR: &str = "/newroot/etc/selinux";
 
 /// Finds, reads, and loads the `SELinux` policy into the kernel.
-pub fn load() -> Result<()> {
+pub(crate) fn load() -> Result<()> {
     let path = fs::read_dir(POLICY_DIR)
         .with_context(|| format!("Failed to read {POLICY_DIR}"))?
         .filter_map(Result::ok)
@@ -37,7 +37,7 @@ pub fn load() -> Result<()> {
 }
 
 /// Returns true if `SELinux` is in enforcing mode, false if permissive.
-pub fn is_enforcing() -> Result<bool> {
+pub(crate) fn is_enforcing() -> Result<bool> {
     let val = fs::read_to_string(SELINUXFS_ENFORCE).context("Failed to read SELinux enforce")?;
     Ok(val.trim() == "1")
 }

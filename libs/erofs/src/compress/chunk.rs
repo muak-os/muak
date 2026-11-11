@@ -4,8 +4,8 @@ use std::io::Read;
 
 use zstd::zstd_safe::{CCtx, get_error_name};
 
-use super::model::{CompressedLayout, Pcluster};
 use super::zstd::{PCLUSTER_SIZE, compression_error, new_cctx};
+use super::{CompressedLayout, Pcluster};
 use crate::error::{ErofsError, Result};
 
 const CHUNK_START: usize = 4 * PCLUSTER_SIZE;
@@ -218,7 +218,7 @@ mod tests {
 
     use super::super::zstd::PCLUSTER_SIZE;
     use super::{CHUNK_MAX, CHUNK_START, compress_file, has_representable_compact_indexes};
-    use crate::compress::model::{CompressedLayout, lcluster_count};
+    use crate::compress::{CompressedLayout, lcluster_count};
     use crate::error::ErofsError;
 
     fn xorshift32_bytes(seed: u32, len: usize) -> Vec<u8> {

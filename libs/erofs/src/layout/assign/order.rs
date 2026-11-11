@@ -3,13 +3,10 @@
 use alloc::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 
-use super::super::types::InodeLayout;
 use crate::dir::EROFS_FT_DIR;
+use crate::layout::Inode;
 
-pub(super) fn bfs_order(
-    inodes: &[InodeLayout],
-    path_to_idx: &BTreeMap<String, usize>,
-) -> Vec<usize> {
+pub(super) fn bfs_order(inodes: &[Inode], path_to_idx: &BTreeMap<String, usize>) -> Vec<usize> {
     let mut order = Vec::with_capacity(inodes.len());
     let mut queue = VecDeque::new();
 
@@ -26,7 +23,7 @@ pub(super) fn bfs_order(
     order
 }
 
-fn sorted_children(inodes: &[InodeLayout], dir_idx: usize) -> Vec<String> {
+fn sorted_children(inodes: &[Inode], dir_idx: usize) -> Vec<String> {
     let Some(dir_inode) = inodes.get(dir_idx) else {
         return Vec::new();
     };
@@ -46,7 +43,7 @@ fn sorted_children(inodes: &[InodeLayout], dir_idx: usize) -> Vec<String> {
 
 fn enqueue_children(
     sorted: &[String],
-    inodes: &[InodeLayout],
+    inodes: &[Inode],
     path_to_idx: &BTreeMap<String, usize>,
     order: &mut Vec<usize>,
     queue: &mut VecDeque<usize>,
@@ -70,14 +67,14 @@ mod tests {
     use alloc::collections::BTreeMap;
 
     use super::bfs_order;
-    use crate::InodeLayout;
     use crate::dir::EROFS_FT_DIR;
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::Inode;
 
     #[test]
     fn bfs_order_empty_path_to_idx_returns_empty() {
         // ARRANGE
-        let inodes: Vec<InodeLayout> = Vec::new();
+        let inodes: Vec<Inode> = Vec::new();
         let path_to_idx: BTreeMap<String, usize> = BTreeMap::new();
 
         // ACT
@@ -90,7 +87,7 @@ mod tests {
     #[test]
     fn bfs_order_ignores_missing_child_indices() {
         // ARRANGE
-        let inode = InodeLayout {
+        let inode = Inode {
             rel_path: "/child".to_owned(),
             nid: 0,
             ino: 0,

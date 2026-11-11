@@ -8,8 +8,9 @@ pub mod common;
 mod tests {
     use std::sync::mpsc::Receiver;
 
+    use tui::live::Options;
+    use tui::live::steps::Steps;
     use tui::live::tracker::Tracked;
-    use tui::live::{Options, Steps};
     use tui::size::Size;
     use tui::style::Theme;
 

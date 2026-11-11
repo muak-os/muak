@@ -1,7 +1,6 @@
 //! Deterministic single-pass zstd compression producing layout-only pclusters.
 
 mod chunk;
-mod config;
 mod model;
 mod zstd;
 
@@ -9,11 +8,61 @@ use std::io::Read;
 
 use crate::error::{ErofsError, Result};
 
-pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = config::DEFAULT_ZSTD_COMPRESSION_LEVEL;
+/// Default zstd compression level used for compressed EROFS data.
+pub const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 3;
+
 pub(super) const CHUNK_MAX: usize = chunk::CHUNK_MAX;
 
-pub type Compression = config::Compression;
-pub type CompressedLayout = model::CompressedLayout;
+/// One independently-decompressible pcluster.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pcluster {
+    /// Number of input bytes covered by this pcluster.
+    pub input_len: usize,
+    /// Number of bytes the pcluster compresses to (never above `PCLUSTER_SIZE`).
+    pub compressed_len: usize,
+}
+
+/// Layout-only result of compressing a file's data into multiple pclusters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompressedLayout {
+    /// Pclusters covering the file's data, in input order.
+    pub pclusters: Vec<Pcluster>,
+    /// Total uncompressed size of the file data, in bytes.
+    pub original_size: u64,
+}
+
+/// Compression configuration for EROFS file data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Compression {
+    /// Disable file data compression.
+    None,
+    /// Compress file data with zstd at the provided level.
+    Zstd {
+        /// Zstd compression level.
+        level: i32,
+    },
+}
+
+impl Compression {
+    pub(crate) fn is_enabled(self) -> bool {
+        matches!(self, Self::Zstd { .. })
+    }
+
+    pub(crate) fn level(self) -> Option<i32> {
+        match self {
+            Self::None => None,
+            Self::Zstd { level } => Some(level),
+        }
+    }
+}
+
+impl Default for Compression {
+    fn default() -> Self {
+        Self::Zstd {
+            level: DEFAULT_ZSTD_COMPRESSION_LEVEL,
+        }
+    }
+}
 
 /// Measure file data into layout-only pclusters without retaining bytes (pass 1).
 pub(crate) fn compress_file(
@@ -41,12 +90,12 @@ pub(crate) fn has_representable_compact_indexes(cf: &CompressedLayout) -> bool {
 }
 
 /// Number of logical clusters (input 4KB blocks).
-pub fn lcluster_count(cf: &CompressedLayout) -> u32 {
+pub(crate) fn lcluster_count(cf: &CompressedLayout) -> u32 {
     model::lcluster_count(cf)
 }
 
 /// Total number of physical 4KB blocks needed across all pclusters.
-pub fn pcluster_blocks(cf: &CompressedLayout) -> u32 {
+pub(crate) fn pcluster_blocks(cf: &CompressedLayout) -> u32 {
     model::pcluster_blocks(cf)
 }
 

@@ -7,7 +7,7 @@ use kata::ops::publish;
 
 /// Arguments of the `publish` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Release line to publish.
     #[arg(long)]
     release: String,

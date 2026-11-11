@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::VMS_DIR;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VmPersisted {
+pub(crate) struct VmPersisted {
     pub name: String,
     pub cpus: u32,
     pub memory_mb: u64,
@@ -26,12 +26,12 @@ pub struct VmPersisted {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiskConfigPersisted {
+pub(crate) struct DiskConfigPersisted {
     pub path: String,
     pub readonly: bool,
 }
 
-pub fn load_vms() -> Result<HashMap<String, VmPersisted>> {
+pub(crate) fn load_vms() -> Result<HashMap<String, VmPersisted>> {
     let dir = Path::new(VMS_DIR);
     if !dir.exists() {
         return Ok(HashMap::new());
@@ -64,14 +64,14 @@ fn load_vm_from_path(path: &Path) -> Result<VmPersisted> {
     Ok(serde_json::from_str(&content)?)
 }
 
-pub fn save_vm(vm_id: &str, vm: &VmPersisted) -> Result<()> {
+pub(crate) fn save_vm(vm_id: &str, vm: &VmPersisted) -> Result<()> {
     let path = Path::new(VMS_DIR).join(format!("{vm_id}.json"));
     let json = serde_json::to_string_pretty(vm)?;
     fs::write(path, json)?;
     Ok(())
 }
 
-pub fn delete_vm(vm_id: &str) -> Result<()> {
+pub(crate) fn delete_vm(vm_id: &str) -> Result<()> {
     let path = Path::new(VMS_DIR).join(format!("{vm_id}.json"));
     if path.exists() {
         fs::remove_file(path)?;

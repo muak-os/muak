@@ -8,21 +8,21 @@ use e2e::cli::Cli;
 use e2e::vm::TestFixture;
 use tokio::time::timeout;
 
-pub const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
-pub const DEFAULT_TAG: &str = "0.0.0-dev";
+pub(crate) const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
+pub(crate) const DEFAULT_TAG: &str = "0.0.0-dev";
 
 /// Registry serving the catalog for the initial install.
-pub fn install_registry() -> String {
+pub(crate) fn install_registry() -> String {
     std::env::var("REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_owned())
 }
 
 /// Catalog release installed on the machine.
-pub fn install_version() -> String {
+pub(crate) fn install_version() -> String {
     std::env::var("TAG").unwrap_or_else(|_| DEFAULT_TAG.to_owned())
 }
 
 /// Returns a system disk entry selecting the QEMU `NVMe` disk by subsystem.
-pub fn system_disk() -> Entry {
+pub(crate) fn system_disk() -> Entry {
     let mut entry = Entry::selector(Kind::System);
     entry.subsystem = Some("nvme".to_owned());
     entry
@@ -35,7 +35,7 @@ pub fn system_disk() -> Entry {
 ///
 /// Returns an error if the VM fails to boot, apid does not become ready, the config cannot be
 /// generated, the install command fails, or the installed-boot marker is not found.
-pub async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
+pub(crate) async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
     artifacts: &Artifacts,
     extra_config: F,
 ) -> Result<(TestFixture, Cli)> {

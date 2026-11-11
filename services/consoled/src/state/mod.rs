@@ -13,14 +13,14 @@ use proc::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SystemStatus {
+pub(crate) enum SystemStatus {
     Installed,
     Maintenance,
 }
 
 /// Snapshot of system state at a point in time.
 #[derive(Debug, Clone)]
-pub struct SystemState {
+pub(crate) struct SystemState {
     pub hostname: String,
     pub version: String,
     pub uptime: Uptime,
@@ -36,25 +36,25 @@ pub struct SystemState {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Uptime {
+pub(crate) struct Uptime {
     pub days: u64,
     pub hours: u64,
     pub minutes: u64,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CpuUsage {
+pub(crate) struct CpuUsage {
     pub permille: u64,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MemoryInfo {
+pub(crate) struct MemoryInfo {
     pub total_kb: u64,
     pub used_kb: u64,
 }
 
 #[derive(Debug, Clone)]
-pub struct NetInterface {
+pub(crate) struct NetInterface {
     pub name: String,
     pub addresses: Vec<String>,
 }
@@ -68,7 +68,7 @@ struct CpuTicks {
 /// Holds previous poll data and reusable read buffers so periodic collection
 /// allocates nothing beyond the returned snapshot.
 #[derive(Debug, Default)]
-pub struct PollState {
+pub(crate) struct PollState {
     prev_cpu: CpuTicks,
     scratch: String,
     net_scratch: String,
@@ -80,7 +80,7 @@ pub struct PollState {
 }
 
 impl MemoryInfo {
-    pub fn permille(&self) -> u64 {
+    pub(crate) fn permille(&self) -> u64 {
         if self.total_kb == 0 {
             return 0;
         }
@@ -89,7 +89,7 @@ impl MemoryInfo {
 }
 
 /// Collects a full system state snapshot.
-pub fn collect(poll: &mut PollState) -> SystemState {
+pub(crate) fn collect(poll: &mut PollState) -> SystemState {
     let hostname = read_hostname(&mut poll.scratch);
     let uptime = read_uptime(&mut poll.scratch);
     let cpu = read_cpu(&mut poll.scratch, &mut poll.prev_cpu);

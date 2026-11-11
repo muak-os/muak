@@ -21,7 +21,7 @@ use crate::secrets::SECRETS_DIR;
 ///
 /// Returns an error when the enrolled Secure Boot keys cannot be removed, when
 /// their signing material is missing, or when a partition cannot be deleted.
-pub fn factory_reset() -> Result<()> {
+pub(crate) fn factory_reset() -> Result<()> {
     kmsg::info!("Starting factory reset...");
 
     clear_secureboot(&firmware::system(), Path::new(SECRETS_DIR))?;

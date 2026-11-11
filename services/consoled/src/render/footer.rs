@@ -63,7 +63,7 @@ pub(super) fn draw<S: Screen>(
 
 #[cfg(test)]
 mod tests {
-    use tui::screen::Ansi;
+    use tui::screen::ansi::Ansi;
     use tui::size::Size;
 
     use super::*;

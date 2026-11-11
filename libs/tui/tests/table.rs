@@ -2,7 +2,7 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use tui::screen::Ansi;
+    use tui::screen::ansi::Ansi;
     use tui::size::Size;
     use tui::style::{self, AnsiColor, Theme};
     use tui::table::{Cell, Table};

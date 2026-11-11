@@ -15,7 +15,7 @@ pub enum Action {
 }
 
 /// Handles security subcommands.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut SecurityServiceClient<Channel>,
     action: Action,
     console: &Console,

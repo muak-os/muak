@@ -7,7 +7,7 @@ use tokio::io::{AsyncBufReadExt as _, BufReader};
 use super::{LogLevel, LogStream, LogWriter};
 
 /// Captures logs from the given stdout and stderr file descriptors, forwards them to the logger.
-pub fn capture(name: &str, stdout_fd: OwnedFd, stderr_fd: OwnedFd, logger: &LogWriter) {
+pub(crate) fn capture(name: &str, stdout_fd: OwnedFd, stderr_fd: OwnedFd, logger: &LogWriter) {
     spawn_reader(
         name.to_owned(),
         stdout_fd,
@@ -56,7 +56,7 @@ fn spawn_reader(name: String, fd: OwnedFd, stream: LogStream, logger: LogWriter)
 }
 
 /// Reads kernel messages from `/dev/kmsg` and feeds them into the log actor as `service = "kernel"`.
-pub fn kmsg(logger: &LogWriter) {
+pub(crate) fn kmsg(logger: &LogWriter) {
     let logger = logger.clone();
     tokio::spawn(async move {
         let file = match tokio::fs::OpenOptions::new()

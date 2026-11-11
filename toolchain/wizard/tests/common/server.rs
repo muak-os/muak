@@ -14,16 +14,16 @@ use std::thread;
 
 use crate::common::fixtures::{config_blob, config_digest};
 
-pub type RouteKey = (String, String);
-pub type Routes = HashMap<RouteKey, HttpResponse>;
+pub(crate) type RouteKey = (String, String);
+pub(crate) type Routes = HashMap<RouteKey, HttpResponse>;
 
 #[derive(Clone, Debug)]
-pub struct RecordedRequest {
-    pub method: String,
-    pub path: String,
+pub(crate) struct RecordedRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
 }
 
-pub struct MockRegistry {
+pub(crate) struct MockRegistry {
     address: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
     shutdown: Arc<AtomicBool>,
@@ -32,7 +32,7 @@ pub struct MockRegistry {
 }
 
 impl MockRegistry {
-    pub fn start(routes: Routes) -> Result<Self, IoError> {
+    pub(crate) fn start(routes: Routes) -> Result<Self, IoError> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
 
@@ -66,11 +66,11 @@ impl MockRegistry {
         })
     }
 
-    pub fn address(&self) -> &str {
+    pub(crate) fn address(&self) -> &str {
         &self.address
     }
 
-    pub fn request_count(&self, method: &str, path: &str) -> Result<usize, IoError> {
+    pub(crate) fn request_count(&self, method: &str, path: &str) -> Result<usize, IoError> {
         Ok(self.requests_for(method, path)?.len())
     }
 
@@ -107,7 +107,7 @@ impl Drop for MockRegistry {
 }
 
 #[derive(Clone)]
-pub struct HttpResponse {
+pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
     body: Vec<u8>,
@@ -115,7 +115,7 @@ pub struct HttpResponse {
 }
 
 impl HttpResponse {
-    pub fn json(body: Vec<u8>) -> Self {
+    pub(crate) fn json(body: Vec<u8>) -> Self {
         Self {
             status: 200,
             content_type: "application/vnd.oci.image.manifest.v1+json",
@@ -124,7 +124,7 @@ impl HttpResponse {
         }
     }
 
-    pub fn octet_stream(body: Vec<u8>) -> Self {
+    pub(crate) fn octet_stream(body: Vec<u8>) -> Self {
         Self {
             status: 200,
             content_type: "application/octet-stream",
@@ -134,7 +134,7 @@ impl HttpResponse {
     }
 }
 
-pub fn get<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
+pub(crate) fn get<T: Into<String>>(path: T, response: HttpResponse) -> (RouteKey, HttpResponse) {
     (("GET".to_owned(), path.into()), response)
 }
 

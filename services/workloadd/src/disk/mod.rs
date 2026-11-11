@@ -1,4 +1,4 @@
-pub mod image;
-pub mod scrub;
+pub(crate) mod image;
+pub(crate) mod scrub;
 
-pub const DATA_DIR: &str = "/run/data";
+pub(crate) const DATA_DIR: &str = "/run/data";

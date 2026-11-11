@@ -8,7 +8,8 @@ use crate::live::Options;
 use crate::live::lines::{message_line, spinner_line, status_line};
 use crate::live::renderer::{FRAME_DURATION, Renderer, write_active, write_frozen, write_plain};
 use crate::output::{Flags, Mode, Output};
-use crate::screen::{Ansi, Screen};
+use crate::screen::Screen;
+use crate::screen::ansi::Ansi;
 use crate::style::Stream;
 
 #[derive(Clone)]

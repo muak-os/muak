@@ -11,26 +11,26 @@ const KOBJECT_UEVENT_GROUP: u32 = 1;
 const UEVENT_MAX_SIZE: usize = 8192;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UeventAction<'a> {
+pub(crate) enum UeventAction<'a> {
     Add,
     Remove,
     Other(&'a str),
 }
 
 #[derive(Debug)]
-pub struct Uevent<'a> {
+pub(crate) struct Uevent<'a> {
     pub action: UeventAction<'a>,
     pub modalias: Option<&'a str>,
     pub subsystem: Option<&'a str>,
 }
 
-pub struct UeventListener {
+pub(crate) struct UeventListener {
     socket: OwnedFd,
     buf: [u8; UEVENT_MAX_SIZE],
 }
 
 impl UeventListener {
-    pub fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let socket = socket_with(
             AddressFamily::NETLINK,
             SocketType::DGRAM,
@@ -49,7 +49,7 @@ impl UeventListener {
     }
 
     /// Reads the next uevent from the netlink socket.
-    pub fn recv(&mut self) -> Result<Uevent<'_>> {
+    pub(crate) fn recv(&mut self) -> Result<Uevent<'_>> {
         let (bytes_initialized, _total_bytes) =
             recv(&self.socket, &mut self.buf[..], RecvFlags::empty())
                 .context("Failed to receive uevent")?;

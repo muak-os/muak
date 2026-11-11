@@ -6,7 +6,11 @@ pub mod error;
 mod user;
 
 // Include the generated RBAC rules from build.rs
-#[expect(clippy::inline_modules, reason = "generated RBAC rules")]
+#[expect(
+    clippy::inline_modules,
+    unreachable_pub,
+    reason = "generated RBAC rules"
+)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/rbac_rules.rs"));
 }

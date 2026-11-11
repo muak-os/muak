@@ -5,21 +5,21 @@ use crate::checked::{write_byte, write_bytes};
 use crate::error::{ErofsError, Result};
 use crate::inode::Z_EROFS_COMPRESSION_ZSTD;
 
-pub const EROFS_SUPER_MAGIC_V1: u32 = 0xE0F5_E1E2;
+pub(crate) const EROFS_SUPER_MAGIC_V1: u32 = 0xE0F5_E1E2;
 /// Byte offset of the superblock within the image (after the boot sector).
-pub const EROFS_SUPER_OFFSET: usize = 1024;
+pub(crate) const EROFS_SUPER_OFFSET: usize = 1024;
 const SB_OFF: u64 = 1024;
 /// Superblock carries a CRC32-C checksum of itself.
-pub const EROFS_FEATURE_COMPAT_SB_CHKSUM: u32 = 0x0000_0001;
+pub(crate) const EROFS_FEATURE_COMPAT_SB_CHKSUM: u32 = 0x0000_0001;
 /// Superblock carries a filesystem-wide modification timestamp.
-pub const EROFS_FEATURE_COMPAT_MTIME: u32 = 0x0000_0002;
+pub(crate) const EROFS_FEATURE_COMPAT_MTIME: u32 = 0x0000_0002;
 /// Last compressed pcluster is zero-padded to a full block boundary.
-pub const EROFS_FEATURE_INCOMPAT_ZERO_PADDING: u32 = 0x0000_0001;
+pub(crate) const EROFS_FEATURE_INCOMPAT_ZERO_PADDING: u32 = 0x0000_0001;
 /// Superblock carries compression algorithm configuration.
-pub const EROFS_FEATURE_INCOMPAT_COMPR_CFGS: u32 = 0x0000_0002;
+pub(crate) const EROFS_FEATURE_INCOMPAT_COMPR_CFGS: u32 = 0x0000_0002;
 
 /// Parameters for writing the on-disk superblock.
-pub struct SuperblockParams {
+pub(crate) struct SuperblockParams {
     pub root_nid: u16,
     pub inos: u64,
     pub epoch: u64,
@@ -29,7 +29,7 @@ pub struct SuperblockParams {
 }
 
 /// Serialize the 128-byte on-disk superblock into `writer` at the correct offset.
-pub fn write(buf: &mut [u8], params: &SuperblockParams) -> Result<()> {
+pub(crate) fn write(buf: &mut [u8], params: &SuperblockParams) -> Result<()> {
     let feature_compat = EROFS_FEATURE_COMPAT_SB_CHKSUM | EROFS_FEATURE_COMPAT_MTIME;
     let sb_off = usize::try_from(SB_OFF).unwrap_or_default();
     write_at(buf, sb_off, &EROFS_SUPER_MAGIC_V1.to_le_bytes())?;
@@ -82,7 +82,7 @@ fn write_compr_cfgs(buf: &mut [u8]) -> Result<()> {
 }
 
 /// Compute and write the CRC32-C checksum over the superblock region.
-pub fn write_checksum(buf: &mut [u8]) -> Result<()> {
+pub(crate) fn write_checksum(buf: &mut [u8]) -> Result<()> {
     let block_size = usize::try_from(BLOCK_SIZE).unwrap_or_default();
     let sb_off = usize::try_from(SB_OFF).unwrap_or_default();
     if buf.len() < block_size {

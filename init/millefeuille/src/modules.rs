@@ -10,7 +10,7 @@ use kmod::sysfs::for_each_modalias;
 use rustix::system::uname;
 
 /// Loads kernel modules from `root` based on the current system's modaliases.
-pub fn load(root: &Path) -> Result<usize> {
+pub(crate) fn load(root: &Path) -> Result<usize> {
     let krel = uname().release().to_string_lossy().into_owned();
     let mod_dir = module_dir(root, &krel);
 

@@ -30,7 +30,7 @@ struct TapDevice {
     mac_address: String,
 }
 
-pub struct VmActor {
+pub(super) struct VmActor {
     netlink_handle: rtnetlink::Handle,
     bridge_name: String,
     vms: HashMap<String, VmEntry>,
@@ -153,7 +153,7 @@ impl From<DiskUsage> for ProtoDiskUsage {
 }
 
 impl VmActor {
-    pub fn new(
+    pub(super) fn new(
         netlink_handle: rtnetlink::Handle,
         bridge_name: String,
         kvm_available: bool,
@@ -203,7 +203,7 @@ impl VmActor {
             .for_each(|vm_id| delete_orphaned_disk(&vm_id));
     }
 
-    pub async fn run(&mut self, mut cmd_rx: mpsc::Receiver<VmCommand>) {
+    pub(super) async fn run(&mut self, mut cmd_rx: mpsc::Receiver<VmCommand>) {
         self.process_pending_restarts().await;
 
         while let Some(cmd) = cmd_rx.recv().await {

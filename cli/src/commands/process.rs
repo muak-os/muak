@@ -15,7 +15,7 @@ pub enum Action {
 }
 
 /// Handles process subcommands.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut ProcessServiceClient<Channel>,
     action: Action,
     console: &Console,

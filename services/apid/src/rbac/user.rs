@@ -16,7 +16,7 @@ pub(super) struct AuthenticatedUser {
 impl AuthenticatedUser {
     /// Creates a new authenticated user from a permission list.
     #[cfg(test)]
-    pub fn new<I>(permissions: I) -> Self
+    pub(super) fn new<I>(permissions: I) -> Self
     where
         I: IntoIterator<Item = Permission>,
     {
@@ -29,21 +29,21 @@ impl AuthenticatedUser {
     ///
     /// Admin users automatically bypass permission checks.
     #[must_use]
-    pub fn has_permission(&self, permission: Permission) -> bool {
+    pub(super) fn has_permission(&self, permission: Permission) -> bool {
         self.permissions.contains(&permission) || self.permissions.contains(&Permission::Admin)
     }
 
     /// Checks if the user has the admin permission.
     #[cfg(test)]
     #[must_use]
-    pub fn is_admin(&self) -> bool {
+    pub(super) fn is_admin(&self) -> bool {
         self.permissions.contains(&Permission::Admin)
     }
 
     /// Returns the number of permissions this user has.
     #[cfg(test)]
     #[must_use]
-    pub fn permission_count(&self) -> usize {
+    pub(super) fn permission_count(&self) -> usize {
         self.permissions.len()
     }
 }

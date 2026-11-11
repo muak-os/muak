@@ -27,7 +27,7 @@ static CLAIMED_STAGES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 /// A content-addressed store holding layer blobs under `blobs/sha256/`.
 #[derive(Clone, Debug)]
-pub struct Content {
+pub(crate) struct Content {
     root: Option<PathBuf>,
 }
 
@@ -156,7 +156,7 @@ impl Content {
 }
 
 /// A streaming write end for a blob being fetched, with atomic commitment.
-pub struct Ingest {
+pub(crate) struct Ingest {
     staging_path: PathBuf,
     target_path: PathBuf,
     file: File,

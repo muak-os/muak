@@ -4,8 +4,8 @@ use std::io;
 
 use anyhow::Result;
 use tui::console::Console;
-use tui::live::StepsHandle;
 use tui::live::session::Session;
+use tui::live::steps::Handle;
 use tui::output::{Mode, Output};
 use wizard::progress::{Event, Noop, Reporter};
 
@@ -54,7 +54,7 @@ fn starts_steps(output: Output) -> bool {
     !output.is_quiet()
 }
 
-fn reporter(output: Output, handle: Option<StepsHandle>) -> io::Result<Live> {
+fn reporter(output: Output, handle: Option<Handle>) -> io::Result<Live> {
     match output.mode {
         Mode::Quiet => Ok(Live::Quiet(Noop)),
         Mode::Plain | Mode::Rich => {

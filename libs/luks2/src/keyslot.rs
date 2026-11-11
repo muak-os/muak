@@ -13,7 +13,7 @@ use crate::xts;
 const SHA256_LEN: usize = 32;
 
 /// Derives an intermediate key from a passphrase using Argon2id.
-pub fn derive_key(passphrase: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
+pub(crate) fn derive_key(passphrase: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
     if keyslot.kdf.r#type != "argon2id" {
         return Err(Luks2Error::UnsupportedKdf(keyslot.kdf.r#type.clone()));
     }
@@ -38,7 +38,7 @@ pub fn derive_key(passphrase: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
 }
 
 /// Anti-forensic split: expand a volume key into `stripes` * `key_size` bytes.
-pub fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
+pub(crate) fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
     let key_size = key.len();
     let stripes = usize::try_from(stripes)
         .map_err(|_error| Luks2Error::InvalidField("invalid stripe count".into()))?;
@@ -82,7 +82,7 @@ pub fn af_split(key: &[u8], stripes: u32) -> Result<Vec<u8>> {
 }
 
 /// Anti-forensic merge: recover the volume key from split stripes.
-pub fn af_merge(data: &[u8], key_size: usize, stripes: u32) -> Result<Vec<u8>> {
+pub(crate) fn af_merge(data: &[u8], key_size: usize, stripes: u32) -> Result<Vec<u8>> {
     let stripes = usize::try_from(stripes)
         .map_err(|_error| Luks2Error::InvalidField("invalid stripe count".into()))?;
     let expected_len = key_size
@@ -137,7 +137,11 @@ fn af_diffuse(data: &mut [u8]) -> Result<()> {
 }
 
 /// Encrypts a volume key into keyslot binary data ready to be written to disk.
-pub fn encrypt_keyslot(passphrase: &[u8], volume_key: &[u8], keyslot: &Keyslot) -> Result<Vec<u8>> {
+pub(crate) fn encrypt_keyslot(
+    passphrase: &[u8],
+    volume_key: &[u8],
+    keyslot: &Keyslot,
+) -> Result<Vec<u8>> {
     let mut derived_key = derive_key(passphrase, keyslot)?;
     let mut striped = af_split(volume_key, keyslot.af.stripes)?;
 
@@ -150,7 +154,11 @@ pub fn encrypt_keyslot(passphrase: &[u8], volume_key: &[u8], keyslot: &Keyslot) 
 }
 
 /// Decrypts keyslot binary data in place to recover a volume key candidate.
-pub fn decrypt_keyslot(passphrase: &[u8], keyslot: &Keyslot, data: &mut [u8]) -> Result<Vec<u8>> {
+pub(crate) fn decrypt_keyslot(
+    passphrase: &[u8],
+    keyslot: &Keyslot,
+    data: &mut [u8],
+) -> Result<Vec<u8>> {
     let mut derived_key = derive_key(passphrase, keyslot)?;
 
     let tweak = [0_u8; 16];

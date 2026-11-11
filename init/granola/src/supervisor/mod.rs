@@ -1,12 +1,12 @@
 mod dependency;
-pub mod logger;
+pub(crate) mod logger;
 mod notify;
-pub mod reaper;
+pub(crate) mod reaper;
 mod restart;
 pub(crate) mod service;
 mod socket;
-pub mod spawner;
-pub mod status;
+pub(crate) mod spawner;
+pub(crate) mod status;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,7 +25,7 @@ use tokio::sync::watch;
 const DEFAULT_SERVICES_DIR: &str = "/run/services";
 
 /// Manages the life cycle of all system services.
-pub struct Supervisor<S, R> {
+pub(crate) struct Supervisor<S, R> {
     services: HashMap<String, ServiceState>,
     notify_listener: NotifyListener,
     reaper: R,
@@ -36,7 +36,7 @@ pub struct Supervisor<S, R> {
 }
 
 impl Supervisor<Spawner, Reaper> {
-    pub fn new(
+    pub(crate) fn new(
         service_defs: Vec<Service>,
         logger: LogWriter,
         status: watch::Sender<Snapshot>,
@@ -53,7 +53,7 @@ impl Supervisor<Spawner, Reaper> {
 }
 
 impl<S: Spawn, R: Reap> Supervisor<S, R> {
-    pub fn with_backends(
+    pub(crate) fn with_backends(
         service_defs: Vec<Service>,
         logger: LogWriter,
         status: watch::Sender<Snapshot>,
@@ -89,7 +89,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
     }
 
     /// Main event loop. Runs until the system shuts down.
-    pub async fn run(&mut self) -> Result<()> {
+    pub(crate) async fn run(&mut self) -> Result<()> {
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
 

@@ -27,7 +27,7 @@ pub(super) struct LeaseTimers {
 
 impl LeaseTimers {
     /// Returns a new instance with all timers disarmed.
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             renew: None,
             rebind: None,
@@ -36,7 +36,7 @@ impl LeaseTimers {
     }
 
     /// Arms all three timers from the deadlines encoded in `lease`.
-    pub fn arm(&mut self, lease: &Lease) {
+    pub(super) fn arm(&mut self, lease: &Lease) {
         self.disarm();
         let now = SystemTime::now();
         self.renew = deadline_to_sleep(
@@ -57,7 +57,7 @@ impl LeaseTimers {
     }
 
     /// Cancels all active timers.
-    pub fn disarm(&mut self) {
+    pub(super) fn disarm(&mut self) {
         self.renew = None;
         self.rebind = None;
         self.expire = None;

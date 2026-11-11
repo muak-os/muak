@@ -3,7 +3,7 @@ use tokio::sync::oneshot;
 
 use crate::proto::vm::{VmConfig, VmInfo};
 
-pub enum VmCommand {
+pub(super) enum VmCommand {
     Create {
         config: VmConfig,
         reply: oneshot::Sender<Result<String>>,

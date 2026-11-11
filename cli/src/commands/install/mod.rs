@@ -22,7 +22,7 @@ struct CompletedInstall {
 }
 
 /// Options selecting what the install command does.
-pub struct Options {
+pub(crate) struct Options {
     pub force: bool,
     pub config: PathBuf,
     pub dry_run: bool,
@@ -30,7 +30,7 @@ pub struct Options {
 }
 
 /// Plans the install and runs it.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut ProvisionServiceClient<Channel>,
     options: Options,
     server_endpoint: &str,

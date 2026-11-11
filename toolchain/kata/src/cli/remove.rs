@@ -7,7 +7,7 @@ use kata::schema::view::Role;
 
 /// Arguments of the `remove` subcommand.
 #[derive(Parser, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Entry role: kernel, stub, installer, overlays or extensions.
     #[arg(long)]
     role: String,

@@ -1,3 +1,3 @@
-pub mod state;
+pub(crate) mod state;
 
-pub const VMS_DIR: &str = "/run/state/workloadd/vms";
+pub(crate) const VMS_DIR: &str = "/run/state/workloadd/vms";

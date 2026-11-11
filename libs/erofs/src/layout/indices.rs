@@ -2,20 +2,19 @@
 
 use alloc::collections::{BTreeMap, VecDeque};
 
-use super::parent_rel;
-use super::types::InodeLayout;
+use super::{Inode, parent_rel};
 use crate::dir::EROFS_FT_DIR;
 use crate::source::TreeEntry;
 
 /// Lookup maps populated from a directory tree walk.
-pub struct LayoutIndices {
+pub(super) struct LayoutIndices {
     pub path_to_idx: BTreeMap<String, usize>,
     pub dir_children: BTreeMap<String, Vec<String>>,
     pub nlink_map: BTreeMap<String, u16>,
 }
 
 /// Populate `LayoutIndices` from [`TreeEntry`] entries.
-pub fn build_from_entries(entries: &[TreeEntry], inodes: &[InodeLayout]) -> LayoutIndices {
+pub(super) fn build_from_entries(entries: &[TreeEntry], inodes: &[Inode]) -> LayoutIndices {
     let mut idx = LayoutIndices {
         path_to_idx: BTreeMap::new(),
         dir_children: BTreeMap::new(),
@@ -51,8 +50,8 @@ pub fn build_from_entries(entries: &[TreeEntry], inodes: &[InodeLayout]) -> Layo
 }
 
 /// Write computed nlink counts into each directory inode.
-pub fn apply_nlinks(
-    inodes: &mut [InodeLayout],
+pub(super) fn apply_nlinks(
+    inodes: &mut [Inode],
     nlink_map: &BTreeMap<String, u16>,
     path_to_idx: &BTreeMap<String, usize>,
 ) {
@@ -68,8 +67,8 @@ pub fn apply_nlinks(
 }
 
 /// Write child lists into each directory inode.
-pub fn apply_children(
-    inodes: &mut [InodeLayout],
+pub(super) fn apply_children(
+    inodes: &mut [Inode],
     dir_children: &BTreeMap<String, Vec<String>>,
     path_to_idx: &BTreeMap<String, usize>,
 ) {
@@ -85,8 +84,8 @@ pub fn apply_children(
 }
 
 /// Assign sequential inode numbers in BFS order matching NID assignment.
-pub fn assign_inos(
-    inodes: &mut [InodeLayout],
+pub(super) fn assign_inos(
+    inodes: &mut [Inode],
     path_to_idx: &BTreeMap<String, usize>,
     dir_children: &BTreeMap<String, Vec<String>>,
 ) {
@@ -121,7 +120,7 @@ pub fn assign_inos(
 }
 
 /// Check whether the inode at the given relative path is a directory.
-fn is_dir(inodes: &[InodeLayout], path_to_idx: &BTreeMap<String, usize>, rel: &str) -> bool {
+fn is_dir(inodes: &[Inode], path_to_idx: &BTreeMap<String, usize>, rel: &str) -> bool {
     path_to_idx
         .get(rel)
         .and_then(|&idx| inodes.get(idx))
@@ -130,7 +129,7 @@ fn is_dir(inodes: &[InodeLayout], path_to_idx: &BTreeMap<String, usize>, rel: &s
 
 /// Set the inode number of a single inode and return the next number.
 fn set_ino(
-    inodes: &mut [InodeLayout],
+    inodes: &mut [Inode],
     path_to_idx: &BTreeMap<String, usize>,
     rel: &str,
     ino: u32,
@@ -160,7 +159,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -284,7 +283,7 @@ mod tests {
     #[test]
     fn apply_nlinks_updates_nlink_count() {
         // ARRANGE
-        let mut inodes = vec![InodeLayout {
+        let mut inodes = vec![Inode {
             rel_path: "/".to_owned(),
             nid: 36,
             ino: 0,
@@ -319,7 +318,7 @@ mod tests {
     #[test]
     fn apply_children_populates_children_list() {
         // ARRANGE
-        let mut inodes = vec![InodeLayout {
+        let mut inodes = vec![Inode {
             rel_path: "/".to_owned(),
             nid: 36,
             ino: 0,
@@ -513,7 +512,7 @@ mod tests {
                 rdev: 0,
             },
         ];
-        let inodes = vec![InodeLayout {
+        let inodes = vec![Inode {
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,
@@ -547,7 +546,7 @@ mod tests {
     #[test]
     fn apply_children_and_nlinks_ignore_missing_indices() {
         // ARRANGE
-        let mut inodes = vec![InodeLayout {
+        let mut inodes = vec![Inode {
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,

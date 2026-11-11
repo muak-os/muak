@@ -13,12 +13,12 @@ pub(crate) const JOURNAL_DIR: &str = "/run/state/journal";
 const MAX_ENTRIES: usize = 1000;
 
 /// Schema version of the journal entry document.
-pub const API_VERSION: &str = "muak.dev/journal/v1-beta";
+pub(crate) const API_VERSION: &str = "muak.dev/journal/v1-beta";
 
 /// The kind of operation that produced a journal entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum ChangeKind {
+pub(crate) enum ChangeKind {
     Install,
     Update,
     Rollback,
@@ -40,7 +40,7 @@ impl core::fmt::Display for ChangeKind {
 /// One journal entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Entry {
+pub(crate) struct Entry {
     /// Schema version of this document.
     api_version: String,
     /// Unix timestamp of the change.
@@ -62,7 +62,7 @@ pub struct Entry {
 impl Entry {
     /// Creates a journal entry for the given change.
     #[must_use]
-    pub fn new(update_id: &str, author: &str, kind: ChangeKind) -> Self {
+    pub(crate) fn new(update_id: &str, author: &str, kind: ChangeKind) -> Self {
         Self {
             api_version: API_VERSION.to_owned(),
             timestamp: 0,
@@ -76,7 +76,7 @@ impl Entry {
 
     /// Attaches failure outcome fields to the entry.
     #[must_use]
-    pub fn failed(mut self, failed_version: &str, reason: &str) -> Self {
+    pub(crate) fn failed(mut self, failed_version: &str, reason: &str) -> Self {
         self.failed_version = Some(failed_version.to_owned());
         self.reason = Some(reason.to_owned());
 
@@ -89,7 +89,7 @@ impl Entry {
     ///
     /// Returns an error when parsing fails or the entry uses an unknown
     /// schema version.
-    pub fn from_toml(bytes: &str) -> Result<Self> {
+    pub(crate) fn from_toml(bytes: &str) -> Result<Self> {
         let entry: Self = toml::from_str(bytes).context("Failed to parse journal entry")?;
 
         if entry.api_version != API_VERSION {
@@ -104,37 +104,37 @@ impl Entry {
 
     /// Returns the Unix timestamp of the change.
     #[must_use]
-    pub const fn timestamp(&self) -> i64 {
+    pub(crate) const fn timestamp(&self) -> i64 {
         self.timestamp
     }
 
     /// Returns the update ID this entry belongs to.
     #[must_use]
-    pub fn update_id(&self) -> &str {
+    pub(crate) fn update_id(&self) -> &str {
         &self.update_id
     }
 
     /// Returns the author of the change.
     #[must_use]
-    pub fn author(&self) -> &str {
+    pub(crate) fn author(&self) -> &str {
         &self.author
     }
 
     /// Returns the kind of operation.
     #[must_use]
-    pub const fn kind(&self) -> &ChangeKind {
+    pub(crate) const fn kind(&self) -> &ChangeKind {
         &self.kind
     }
 
     /// Returns the catalog release that failed to boot, for rollback entries.
     #[must_use]
-    pub fn failed_version(&self) -> Option<&str> {
+    pub(crate) fn failed_version(&self) -> Option<&str> {
         self.failed_version.as_deref()
     }
 
     /// Returns the rollback reason, for rollback entries.
     #[must_use]
-    pub fn reason(&self) -> Option<&str> {
+    pub(crate) fn reason(&self) -> Option<&str> {
         self.reason.as_deref()
     }
 
@@ -143,7 +143,7 @@ impl Entry {
     /// # Errors
     ///
     /// Returns an error when serialization fails.
-    pub fn to_toml(&self) -> Result<String> {
+    pub(crate) fn to_toml(&self) -> Result<String> {
         toml::to_string(self).context("Failed to serialize journal entry")
     }
 }
@@ -153,7 +153,7 @@ impl Entry {
 /// # Errors
 ///
 /// Returns an error when the entry or its config snapshot cannot be written.
-pub fn append(entry: &Entry, config: &str) -> Result<()> {
+pub(crate) fn append(entry: &Entry, config: &str) -> Result<()> {
     let mut stamped = entry.clone();
     stamped.timestamp = now();
 
@@ -173,7 +173,7 @@ pub fn append(entry: &Entry, config: &str) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when an entry cannot be read.
-pub fn list(limit: usize) -> Result<Vec<Entry>> {
+pub(crate) fn list(limit: usize) -> Result<Vec<Entry>> {
     if !Path::new(JOURNAL_DIR).exists() {
         return Ok(Vec::new());
     }
@@ -203,7 +203,7 @@ pub fn list(limit: usize) -> Result<Vec<Entry>> {
 /// # Errors
 ///
 /// Returns an error when the entry or its snapshot cannot be read.
-pub fn snapshot(update_id: &str) -> Result<String> {
+pub(crate) fn snapshot(update_id: &str) -> Result<String> {
     if update_id.is_empty() {
         return fs::read_to_string(config::system::CONFIG_PATH)
             .context("Failed to read current config");
@@ -214,7 +214,7 @@ pub fn snapshot(update_id: &str) -> Result<String> {
 }
 
 /// Returns the rollback reason recorded for `update_id`, if any.
-pub fn find(update_id: &str) -> Option<Entry> {
+pub(crate) fn find(update_id: &str) -> Option<Entry> {
     let dir = find_entry_dir(update_id)?;
     read_entry(&dir).ok()
 }

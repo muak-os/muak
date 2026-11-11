@@ -2,7 +2,7 @@
 
 /// Generates a fake kernel image.
 #[must_use]
-pub fn fake_kernel(size: usize) -> Vec<u8> {
+pub(crate) fn fake_kernel(size: usize) -> Vec<u8> {
     let mut kernel = Vec::with_capacity(size);
     kernel.extend_from_slice(b"KERNEL_MAGIC");
     kernel.extend(
@@ -17,7 +17,7 @@ pub fn fake_kernel(size: usize) -> Vec<u8> {
 
 /// Generates a fake initrd image with gzip magic.
 #[must_use]
-pub fn fake_initrd(size: usize) -> Vec<u8> {
+pub(crate) fn fake_initrd(size: usize) -> Vec<u8> {
     let mut initrd = Vec::with_capacity(size);
     initrd.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00]);
     initrd.resize(size, 0xAA);
@@ -28,12 +28,12 @@ pub fn fake_initrd(size: usize) -> Vec<u8> {
 
 /// Generates a sample kernel command line.
 #[must_use]
-pub fn sample_cmdline() -> Vec<u8> {
+pub(crate) fn sample_cmdline() -> Vec<u8> {
     b"console=ttyS0 quiet".to_vec()
 }
 
 /// Generates a sample os-release document.
 #[must_use]
-pub fn sample_osrel() -> Vec<u8> {
+pub(crate) fn sample_osrel() -> Vec<u8> {
     b"ID=muak\nVERSION_ID=v1.2.3\n".to_vec()
 }

@@ -12,10 +12,10 @@ use tui::text::Line;
 use crate::state::SystemState;
 
 /// Total fixed height of the top panel: 1 header + 1 separator + 6 body + 1 separator.
-pub const PANEL_ROWS: u16 = 9;
+pub(crate) const PANEL_ROWS: u16 = 9;
 
 /// Fixed height of the bottom footer: 1 separator + 1 info row.
-pub const FOOTER_ROWS: u16 = 2;
+pub(crate) const FOOTER_ROWS: u16 = 2;
 
 const PANEL_BODY_ROWS: u16 = PANEL_ROWS - 3;
 
@@ -26,13 +26,13 @@ const DEFAULT_ROWS: u16 = 40;
 
 /// Whether the log area is auto-following new entries or pinned at an offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScrollMode {
+pub(crate) enum ScrollMode {
     Live,
     Scrollback,
 }
 
 /// Renders the final presentation of the interface.
-pub fn draw<S: Screen>(
+pub(crate) fn draw<S: Screen>(
     screen: &mut S,
     state: &SystemState,
     scroll_mode: ScrollMode,
@@ -70,7 +70,7 @@ fn draw_separator<S: Screen>(screen: &mut S, row: u16, separator: &str) -> io::R
 #[cfg(test)]
 mod tests {
     use firmware::secureboot::Status;
-    use tui::screen::Ansi;
+    use tui::screen::ansi::Ansi;
     use tui::size::Size;
 
     use super::*;

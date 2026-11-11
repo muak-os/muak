@@ -2,11 +2,11 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use crate::live::StepsHandle;
+use crate::live::steps::Handle;
 
 /// Live step display that aggregates per-item bytes and gates detail notes.
 pub struct Tracked {
-    steps: StepsHandle,
+    steps: Handle,
     verbose: bool,
     bytes: Mutex<ItemBytes>,
 }
@@ -14,7 +14,7 @@ pub struct Tracked {
 impl Tracked {
     /// Creates a tracker over `steps` that shows detail only when `verbose`.
     #[must_use]
-    pub fn new(steps: StepsHandle, verbose: bool) -> Self {
+    pub fn new(steps: Handle, verbose: bool) -> Self {
         Self {
             steps,
             verbose,

@@ -13,7 +13,7 @@ use crate::clock;
 const PTP_DEVICE_PATH: &str = "/dev/ptp0";
 
 /// Reads the current hypervisor clock time as a UNIX `Timespec`.
-pub fn now() -> Result<Timespec> {
+pub(crate) fn now() -> Result<Timespec> {
     let fd = open(PTP_DEVICE_PATH, OFlags::RDONLY, Mode::empty())?;
     let time = clock_gettime_dynamic(DynamicClockId::Dynamic(fd.as_fd()))?;
 
@@ -21,6 +21,6 @@ pub fn now() -> Result<Timespec> {
 }
 
 /// Sets the system clock from the hypervisor clock.
-pub fn sync() -> Result<Duration> {
+pub(crate) fn sync() -> Result<Duration> {
     Ok(clock::step(now()?)?)
 }

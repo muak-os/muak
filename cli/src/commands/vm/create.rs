@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tonic::transport::Channel;
 use tui::console::Console;
-use tui::live::Steps;
+use tui::live::steps::Steps;
 
 use crate::client::upload::upload;
 use crate::client::vm_service::vm_service_client::VmServiceClient;
@@ -10,7 +10,7 @@ use crate::client::vm_service::{
 };
 
 /// Parameters for creating a new VM.
-pub struct VmSpec {
+pub(super) struct VmSpec {
     pub name: String,
     pub cmdline: Option<String>,
     pub kernel: Option<String>,
@@ -23,7 +23,7 @@ pub struct VmSpec {
 }
 
 /// Creates a new VM with the specified configuration.
-pub async fn handle(
+pub(super) async fn handle(
     client: &mut VmServiceClient<Channel>,
     args: VmSpec,
     console: &Console,

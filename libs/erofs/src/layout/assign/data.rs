@@ -1,10 +1,10 @@
 //! Data block address assignment and total image size computation.
 
-use super::super::types::InodeLayout;
 use super::{meta_start, sizes};
 use crate::checked::{align_up, u32_from_usize};
+use crate::layout::Inode;
 
-pub(super) fn data_block_addrs(inodes: &mut [InodeLayout], do_compress: bool) {
+pub(super) fn data_block_addrs(inodes: &mut [Inode], do_compress: bool) {
     let bs = sizes::block_size();
     let meta_end = compute_meta_end(inodes, do_compress);
     let meta_end_aligned = align_up(meta_end, bs).unwrap_or(meta_end);
@@ -22,7 +22,7 @@ pub(super) fn data_block_addrs(inodes: &mut [InodeLayout], do_compress: bool) {
     }
 }
 
-pub(super) fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usize {
+pub(super) fn total_image_size(inodes: &[Inode], do_compress: bool) -> usize {
     let bs = sizes::block_size();
     let mut max_end = meta_start(do_compress);
 
@@ -47,7 +47,7 @@ pub(super) fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usi
     align_up(max_end, bs).unwrap_or(max_end)
 }
 
-fn compute_meta_end(inodes: &[InodeLayout], do_compress: bool) -> usize {
+fn compute_meta_end(inodes: &[Inode], do_compress: bool) -> usize {
     inodes
         .iter()
         .map(|inode| {
@@ -62,11 +62,11 @@ mod tests {
     use std::io;
 
     use super::{data_block_addrs, total_image_size};
+    use crate::BLOCK_SIZE;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::plan;
+    use crate::layout::{Inode, plan};
     use crate::source::{SizedFile, TreeEntry};
-    use crate::{BLOCK_SIZE, InodeLayout};
 
     fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -75,7 +75,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::default(),
+            compression: crate::compress::Compression::default(),
         }
     }
 
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn assign_data_and_total_size_handle_large_nid_fallbacks() {
         // ARRANGE
-        let inode = InodeLayout {
+        let inode = Inode {
             rel_path: "/".to_owned(),
             nid: u64::MAX,
             ino: 0,

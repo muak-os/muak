@@ -37,7 +37,7 @@ const OFFSET_END: usize = 264;
 
 /// On-disk LUKS2 binary header.
 #[derive(Debug)]
-pub struct Header {
+pub(crate) struct Header {
     pub size: u64,
     pub sequence_id: u64,
     pub label: [u8; 48],
@@ -49,7 +49,7 @@ pub struct Header {
 
 impl Header {
     /// Creates a new header for formatting a fresh LUKS2 volume.
-    pub fn new(uuid_str: &str, label: &str) -> Result<Self> {
+    pub(crate) fn new(uuid_str: &str, label: &str) -> Result<Self> {
         let mut label_buf = [0_u8; 48];
         let label_bytes = label.as_bytes();
         let len = label_bytes.len().min(47);
@@ -75,7 +75,7 @@ impl Header {
     }
 
     /// Serializes the header to a 4096-byte buffer and computes its checksum.
-    pub fn serialize(&mut self, is_primary: bool) -> Result<Vec<u8>> {
+    pub(crate) fn serialize(&mut self, is_primary: bool) -> Result<Vec<u8>> {
         let mut buf = vec![0_u8; BINARY_HEADER_SIZE];
 
         write_range(&mut buf, MAGIC_OFFSET..MAGIC_END, &LUKS_MAGIC)?;
@@ -120,7 +120,7 @@ impl Header {
     }
 
     /// Parses a binary header from a 4096-byte buffer.
-    pub fn parse(data: &[u8]) -> Result<Self> {
+    pub(crate) fn parse(data: &[u8]) -> Result<Self> {
         if data.len() < BINARY_HEADER_SIZE {
             return Err(Error::InvalidField("header too short".into()));
         }
@@ -189,7 +189,7 @@ impl Header {
         })
     }
 
-    pub fn uuid_str(&self) -> &str {
+    pub(crate) fn uuid_str(&self) -> &str {
         let end = self
             .uuid
             .iter()

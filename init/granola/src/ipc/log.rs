@@ -9,7 +9,7 @@ use super::proto::log::{
 };
 use crate::supervisor::logger::{LogEntry, LogLevel, LogReader, LogStream};
 
-pub struct ServiceImpl {
+pub(crate) struct ServiceImpl {
     reader: LogReader,
 }
 
@@ -87,7 +87,7 @@ impl LogService for ServiceImpl {
     }
 }
 
-pub fn service(reader: LogReader) -> LogServiceServer<ServiceImpl> {
+pub(crate) fn service(reader: LogReader) -> LogServiceServer<ServiceImpl> {
     LogServiceServer::new(ServiceImpl { reader })
 }
 

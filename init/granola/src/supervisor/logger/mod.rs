@@ -1,4 +1,4 @@
-pub mod sources;
+pub(crate) mod sources;
 
 use alloc::collections::VecDeque;
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ const BROADCAST_CAPACITY: usize = 256;
 /// Severity level for a log entry, using syslog priority values as discriminants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
-pub enum LogLevel {
+pub(crate) enum LogLevel {
     Error = 3,
     Warn = 4,
     Info = 6,
@@ -38,14 +38,14 @@ impl TryFrom<u8> for LogLevel {
 
 /// Which output stream a log line came from.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LogStream {
+pub(crate) enum LogStream {
     Stdout,
     Stderr,
 }
 
 /// A single captured log line.
 #[derive(Debug, Clone)]
-pub struct LogEntry {
+pub(crate) struct LogEntry {
     pub timestamp_nanos: u64,
     pub service: String,
     pub stream: LogStream,
@@ -68,14 +68,20 @@ enum LogCommand {
 
 /// Provides log appending capabilities to services.
 #[derive(Clone)]
-pub struct LogWriter {
+pub(crate) struct LogWriter {
     tx: mpsc::UnboundedSender<LogCommand>,
     epoch: Instant,
 }
 
 impl LogWriter {
     /// Sends a log entry to the actor.
-    pub fn append(&self, service: &str, stream: LogStream, level: LogLevel, message: String) {
+    pub(crate) fn append(
+        &self,
+        service: &str,
+        stream: LogStream,
+        level: LogLevel,
+        message: String,
+    ) {
         let entry = LogEntry {
             timestamp_nanos: u64::try_from(self.epoch.elapsed().as_nanos()).unwrap_or(u64::MAX),
             service: service.to_owned(),
@@ -89,13 +95,13 @@ impl LogWriter {
 
 /// Provides log querying and live subscription capabilities.
 #[derive(Clone)]
-pub struct LogReader {
+pub(crate) struct LogReader {
     tx: mpsc::UnboundedSender<LogCommand>,
 }
 
 impl LogReader {
     /// Query stored logs.
-    pub async fn query(&self, service: Option<String>, tail: usize) -> Vec<LogEntry> {
+    pub(crate) async fn query(&self, service: Option<String>, tail: usize) -> Vec<LogEntry> {
         let (reply_tx, reply_rx) = oneshot::channel();
         drop(self.tx.send(LogCommand::Query {
             service,
@@ -107,7 +113,7 @@ impl LogReader {
     }
 
     /// Subscribes to live log entries.
-    pub async fn subscribe(&self) -> Option<broadcast::Receiver<LogEntry>> {
+    pub(crate) async fn subscribe(&self) -> Option<broadcast::Receiver<LogEntry>> {
         let (reply_tx, reply_rx) = oneshot::channel();
         drop(self.tx.send(LogCommand::Subscribe { reply: reply_tx }));
 
@@ -116,7 +122,7 @@ impl LogReader {
 }
 
 /// The log storage actor. Owns all log data, no shared mutable state.
-pub struct LogActor {
+pub(crate) struct LogActor {
     rx: mpsc::UnboundedReceiver<LogCommand>,
     entries: HashMap<String, VecDeque<LogEntry>>,
     broadcast_tx: broadcast::Sender<LogEntry>,
@@ -124,7 +130,7 @@ pub struct LogActor {
 
 impl LogActor {
     /// Runs the actor loop until all senders are dropped.
-    pub async fn run(mut self) {
+    pub(crate) async fn run(mut self) {
         while let Some(cmd) = self.rx.recv().await {
             self.handle(cmd);
         }
@@ -196,7 +202,7 @@ impl LogActor {
 }
 
 /// Creates the log writer, reader, and actor.
-pub fn create() -> (LogWriter, LogReader, LogActor) {
+pub(crate) fn create() -> (LogWriter, LogReader, LogActor) {
     let (tx, rx) = mpsc::unbounded_channel();
     let epoch = Instant::now();
 

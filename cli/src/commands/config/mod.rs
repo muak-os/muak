@@ -36,7 +36,7 @@ pub enum Action {
 }
 
 /// Handles config subcommands.
-pub async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
+pub(crate) async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
     match action {
         Action::Generate => generate(channel).await,
         Action::Get { from, output } => get(channel, from, output, console).await,

@@ -51,7 +51,7 @@ pub enum Action {
 }
 
 /// Routes VM subcommands to their handlers.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut VmServiceClient<Channel>,
     action: Action,
     console: &Console,

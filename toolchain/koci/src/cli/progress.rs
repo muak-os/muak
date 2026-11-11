@@ -8,8 +8,8 @@ use koci::progress::report::Plain;
 use koci::progress::{Event, Noop, Reporter};
 use koci::ui::Terminal;
 use tui::console::Console;
-use tui::live::StepsHandle;
 use tui::live::session::Session;
+use tui::live::steps::Handle;
 use tui::output::{Mode, Output};
 
 // Reporter selected by the resolved output mode.
@@ -60,7 +60,7 @@ fn starts_steps(output: Output) -> bool {
     output.is_rich()
 }
 
-fn reporter(output: Output, handle: Option<StepsHandle>) -> io::Result<Live> {
+fn reporter(output: Output, handle: Option<Handle>) -> io::Result<Live> {
     match output.mode {
         Mode::Quiet => Ok(Live::Quiet(Noop)),
         Mode::Plain => Ok(Live::Plain(Plain {

@@ -15,7 +15,7 @@ use super::packet::{
 
 /// Indicates the DHCP server sent a NAK, requiring a return to INIT state.
 #[derive(Debug)]
-pub struct DhcpNak;
+pub(crate) struct DhcpNak;
 
 impl fmt::Display for DhcpNak {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

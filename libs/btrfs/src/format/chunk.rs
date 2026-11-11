@@ -24,14 +24,14 @@ pub(super) const BTRFS_BLOCK_GROUP_DUP: u64 = 1 << 5;
 
 /// Configuration for a single stripe.
 #[derive(Debug, Clone)]
-pub struct StripeConfig {
+pub(super) struct StripeConfig {
     pub devid: u64,
     pub offset: u64,
 }
 
 /// Builder for btrfs chunk items.
 #[derive(Debug)]
-pub struct ChunkBuilder {
+pub(super) struct ChunkBuilder {
     length: u64,
     chunk_type: u64,
     stripes: Vec<StripeConfig>,
@@ -40,7 +40,7 @@ pub struct ChunkBuilder {
 impl ChunkBuilder {
     /// Create a new chunk builder with the given length.
     #[must_use]
-    pub fn new(length: u64, chunk_type: u64) -> Self {
+    pub(super) fn new(length: u64, chunk_type: u64) -> Self {
         Self {
             length,
             chunk_type,
@@ -50,7 +50,7 @@ impl ChunkBuilder {
 
     /// Create a SINGLE chunk (one stripe).
     #[must_use]
-    pub fn single(length: u64, chunk_type: u64, physical_offset: u64) -> Self {
+    pub(super) fn single(length: u64, chunk_type: u64, physical_offset: u64) -> Self {
         let mut builder = Self::new(length, chunk_type);
         builder.add_stripe(1, physical_offset);
         builder
@@ -58,7 +58,12 @@ impl ChunkBuilder {
 
     /// Create a DUP chunk (two stripes on the same device).
     #[must_use]
-    pub fn dup(length: u64, chunk_type: u64, phys_offset_0: u64, phys_offset_1: u64) -> Self {
+    pub(super) fn dup(
+        length: u64,
+        chunk_type: u64,
+        phys_offset_0: u64,
+        phys_offset_1: u64,
+    ) -> Self {
         let mut builder = Self::new(length, chunk_type | BTRFS_BLOCK_GROUP_DUP);
         builder.add_stripe(1, phys_offset_0);
         builder.add_stripe(1, phys_offset_1);
@@ -66,13 +71,13 @@ impl ChunkBuilder {
     }
 
     /// Add a stripe to this chunk.
-    pub fn add_stripe(&mut self, devid: u64, offset: u64) -> &mut Self {
+    pub(super) fn add_stripe(&mut self, devid: u64, offset: u64) -> &mut Self {
         self.stripes.push(StripeConfig { devid, offset });
         self
     }
 
     /// Build the chunk item data.
-    pub fn build(&self, dev_uuid: &Uuid) -> Result<Vec<u8>> {
+    pub(super) fn build(&self, dev_uuid: &Uuid) -> Result<Vec<u8>> {
         let num_stripes = self.stripes.len();
         let stripe_bytes = num_stripes
             .checked_mul(size_of::<BtrfsStripe>())

@@ -5,7 +5,7 @@ use koci::registry;
 
 /// Arguments of the `digest` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Registry repository of the image.
     #[arg(short, long)]
     image: String,

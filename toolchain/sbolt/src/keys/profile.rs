@@ -12,7 +12,7 @@ use x509_cert::ext::{Extension, ToExtension as _};
 use x509_cert::name::Name;
 
 /// Unified profile for all Secure Boot certificate types (PK, KEK, db).
-pub struct SecureBootProfile {
+pub(super) struct SecureBootProfile {
     pub issuer: Option<Name>,
     pub subject: Name,
     pub ca: bool,
@@ -23,7 +23,7 @@ pub struct SecureBootProfile {
 
 impl SecureBootProfile {
     /// Platform Key: self-signed CA root of trust.
-    pub fn pk(subject: Name) -> Self {
+    pub(super) fn pk(subject: Name) -> Self {
         Self {
             issuer: None,
             subject,
@@ -35,7 +35,7 @@ impl SecureBootProfile {
     }
 
     /// Key Exchange Key: CA signed by PK.
-    pub fn kek(issuer: Name, subject: Name) -> Self {
+    pub(super) fn kek(issuer: Name, subject: Name) -> Self {
         Self {
             issuer: Some(issuer),
             subject,
@@ -47,7 +47,7 @@ impl SecureBootProfile {
     }
 
     /// Signature Database key: self-signed trust anchor for image signatures.
-    pub fn db(subject: Name) -> Self {
+    pub(super) fn db(subject: Name) -> Self {
         Self {
             issuer: None,
             subject,

@@ -26,7 +26,7 @@ enum ScrubOutcome {
 }
 
 /// Requests the periodic scrub timer to stop after the current cycle.
-pub fn shutdown() {
+pub(crate) fn shutdown() {
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
@@ -111,7 +111,7 @@ fn format_gib(bytes: u64) -> String {
 }
 
 /// Periodic scrub timer. Runs a read-only btrfs scrub on the data partition.
-pub async fn timer() {
+pub(crate) async fn timer() {
     const SCRUB_INTERVAL: Duration = Duration::from_hours(168);
 
     let mut interval = interval(SCRUB_INTERVAL);

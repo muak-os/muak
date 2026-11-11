@@ -6,7 +6,7 @@ use crate::statemachine::StateMachine;
 
 /// Status of the entire network subsystem.
 #[derive(Debug, Clone, PartialEq)]
-pub enum NetworkState {
+pub(super) enum NetworkState {
     Uninitialized,
     Initializing,
     Operational,

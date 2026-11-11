@@ -2,8 +2,8 @@
 
 extern crate alloc;
 
-mod client;
-mod commands;
+pub mod client;
+pub mod commands;
 mod format;
 
 use std::io;

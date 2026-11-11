@@ -4,7 +4,7 @@ use anyhow::Result;
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
-pub enum SupervisorCommand {
+pub(super) enum SupervisorCommand {
     Initialize { reply: oneshot::Sender<Result<()>> },
     Reconcile { reply: oneshot::Sender<()> },
 }

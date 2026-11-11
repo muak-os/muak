@@ -7,12 +7,12 @@ use rustix::net::{
 };
 
 /// Returns the canonical socket path for a named service within a services directory.
-pub fn path(services_dir: &Path, name: &str) -> PathBuf {
+pub(super) fn path(services_dir: &Path, name: &str) -> PathBuf {
     services_dir.join(format!("{name}.sock"))
 }
 
 /// Pre-binds and listens on a UNIX stream socket.
-pub fn pre_bind(path: &Path) -> Result<OwnedFd> {
+pub(super) fn pre_bind(path: &Path) -> Result<OwnedFd> {
     drop(std::fs::remove_file(path));
 
     let fd = socket_with(

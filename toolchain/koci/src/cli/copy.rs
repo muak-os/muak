@@ -8,7 +8,7 @@ use super::{Console, progress};
 
 /// Arguments of the `copy` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     /// Source image reference, including its tag.
     #[arg(long)]
     source: String,

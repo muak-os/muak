@@ -20,7 +20,7 @@ const CHUNK_SIZE: usize = 1024 * 1024;
 ///
 /// Returns an error if the file cannot be opened or read, the streaming upload
 /// fails, or the server reports an error.
-pub async fn upload(
+pub(crate) async fn upload(
     client: &mut VmServiceClient<Channel>,
     file_path: &str,
     vm_id: Option<&str>,

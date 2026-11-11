@@ -3,7 +3,8 @@
 use anyhow::{Context as _, Result};
 use tokio::sync::mpsc;
 use tui::input::Key;
-use tui::screen::{Ansi, Screen as _};
+use tui::screen::Screen as _;
+use tui::screen::ansi::Ansi;
 use tui::size::Size;
 
 use crate::log::buffer::Buffer;
@@ -14,7 +15,7 @@ use crate::tty::Tty;
 
 const SEPARATOR_CHAR: &str = "─";
 
-pub struct App {
+pub(crate) struct App {
     tty: Tty,
     logs: Buffer,
     poll_state: PollState,
@@ -25,7 +26,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(mut tty: Tty) -> Result<Self> {
+    pub(crate) fn new(mut tty: Tty) -> Result<Self> {
         let size = tty.size();
         let mut poll_state = PollState::default();
         let sys_state = state::collect(&mut poll_state);
@@ -55,23 +56,23 @@ impl App {
         })
     }
 
-    pub fn tty(&self) -> &Tty {
+    pub(crate) fn tty(&self) -> &Tty {
         &self.tty
     }
 
     /// Marks the whole panel for redraw at the next settle.
-    pub fn handle_tick(&mut self) {
+    pub(crate) fn handle_tick(&mut self) {
         self.full_dirty = true;
     }
 
     /// Records a kernel log line.
-    pub fn handle_kmsg(&mut self, line: String) {
+    pub(crate) fn handle_kmsg(&mut self, line: String) {
         self.logs.push(line);
         self.log_dirty = true;
     }
 
     /// Applies a key event; rendering is deferred to the next settle.
-    pub fn handle_input(&mut self, key: Key) {
+    pub(crate) fn handle_input(&mut self, key: Key) {
         let log_rows = self.log_rows();
         match key {
             Key::Up | Key::Char('k') => self.logs.scroll_up(1, log_rows),
@@ -93,7 +94,7 @@ impl App {
     }
 
     /// Flushes all dirty regions to the terminal once per drained event batch.
-    pub fn settle(&mut self) {
+    pub(crate) fn settle(&mut self) {
         let size = self.tty.size();
 
         if self.full_dirty {
@@ -108,7 +109,7 @@ impl App {
         }
     }
 
-    pub fn shutdown(&mut self) -> Result<()> {
+    pub(crate) fn shutdown(&mut self) -> Result<()> {
         let size = self.tty.size();
         let mut screen = Ansi::new(&mut self.tty, size);
         screen.show_cursor()?;
@@ -166,6 +167,6 @@ impl App {
 }
 
 /// Spawns the kernel log reader and returns its event stream.
-pub fn spawn_kmsg_reader() -> Result<mpsc::Receiver<String>> {
+pub(crate) fn spawn_kmsg_reader() -> Result<mpsc::Receiver<String>> {
     reader::spawn().context("Failed to spawn kmsg reader")
 }

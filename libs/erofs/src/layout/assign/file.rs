@@ -1,20 +1,21 @@
 //! Regular-file, symlink, special-file, and compressed layout decisions.
 
-use super::super::types::InodeLayout;
 use super::Slot;
 use super::compact::index_bytes;
 use super::sizes::{align8, header_only_padded, inline_fits, padded_slots, truncate_usize_to_u32};
+use crate::SLOT_SIZE;
 use crate::checked::align_up;
+use crate::compress::{self, Compression};
 use crate::error::{ErofsError, Result};
 use crate::inode::{
     EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE, EROFS_INODE_FLAT_PLAIN,
     Z_EROFS_MAP_HEADER_SIZE,
 };
+use crate::layout::Inode;
 use crate::source::SizedFile;
-use crate::{Compression, SLOT_SIZE, compress};
 
 pub(super) fn symlink(
-    inodes: &mut [InodeLayout],
+    inodes: &mut [Inode],
     i: usize,
     nid: u64,
     slot_offset: usize,
@@ -42,7 +43,7 @@ pub(super) fn symlink(
 }
 
 pub(super) fn regular(
-    inodes: &mut [InodeLayout],
+    inodes: &mut [Inode],
     i: usize,
     slot: Slot,
     compression: Compression,
@@ -91,7 +92,7 @@ pub(super) fn regular(
 }
 
 fn compressed_regular(
-    inodes: &mut [InodeLayout],
+    inodes: &mut [Inode],
     i: usize,
     nid: u64,
     inode_header: usize,
@@ -140,12 +141,7 @@ fn compressed_regular(
     Ok(Some(align_up(meta_total, SLOT_SIZE).unwrap_or(meta_total)))
 }
 
-pub(super) fn special(
-    inodes: &mut [InodeLayout],
-    i: usize,
-    nid: u64,
-    inode_header: usize,
-) -> usize {
+pub(super) fn special(inodes: &mut [Inode], i: usize, nid: u64, inode_header: usize) -> usize {
     let Some(inode) = inodes.get_mut(i) else {
         return 0;
     };
@@ -163,16 +159,15 @@ mod tests {
 
     use super::super::Slot;
     use super::{regular, special, symlink};
-    use crate::compress::pcluster_blocks;
+    use crate::compress::{Compression, pcluster_blocks};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::{
         COMPACT_INODE_SIZE, EROFS_INODE_COMPRESSED_COMPACT, EROFS_INODE_FLAT_INLINE,
         EROFS_INODE_FLAT_PLAIN,
     };
-    use crate::layout::plan;
+    use crate::layout::{Inode, plan};
     use crate::source::{self, SizedFile, TreeEntry};
     use crate::writer::image;
-    use crate::{Compression, InodeLayout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -181,7 +176,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -192,7 +187,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::default(),
+            compression: crate::compress::Compression::default(),
         }
     }
 
@@ -953,7 +948,7 @@ mod tests {
     #[test]
     fn layout_functions_return_zero_for_missing_inode_index() {
         // ARRANGE
-        let mut inodes = vec![InodeLayout {
+        let mut inodes = vec![Inode {
             rel_path: "/".to_owned(),
             nid: 0,
             ino: 0,

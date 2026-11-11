@@ -9,12 +9,12 @@ use crate::proto::vm::{
     UploadFileResponse, upload_file_request,
 };
 
-pub struct VmServiceImpl {
+pub(crate) struct VmServiceImpl {
     handle: VmActorHandle,
 }
 
 impl VmServiceImpl {
-    pub fn new(handle: VmActorHandle) -> Self {
+    pub(crate) fn new(handle: VmActorHandle) -> Self {
         Self { handle }
     }
 }

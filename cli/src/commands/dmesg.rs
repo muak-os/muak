@@ -6,7 +6,7 @@ use crate::client::log_service::log_service_client::LogServiceClient;
 use crate::commands::logs;
 
 /// Streams kernel logs.
-pub async fn handle(
+pub(crate) async fn handle(
     client: &mut LogServiceClient<Channel>,
     follow: bool,
     console: &Console,

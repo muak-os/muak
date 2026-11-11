@@ -5,12 +5,12 @@ use core::time::Duration;
 use rustix::system::RebootCommand;
 
 /// Schedules a reboot after the given number of seconds.
-pub fn reboot(delay: u64) {
+pub(crate) fn reboot(delay: u64) {
     schedule("reboot", RebootCommand::Restart, delay);
 }
 
 /// Schedules a power-off after the given number of seconds.
-pub fn poweroff(delay: u64) {
+pub(crate) fn poweroff(delay: u64) {
     schedule("power off", RebootCommand::PowerOff, delay);
 }
 

@@ -10,7 +10,7 @@ use crate::client::version_service::GetVersionRequest;
 use crate::client::version_service::version_service_client::VersionServiceClient;
 
 /// Fetches the server version string via gRPC.
-pub async fn fetch_server(channel: Channel) -> Option<String> {
+pub(crate) async fn fetch_server(channel: Channel) -> Option<String> {
     let mut client = VersionServiceClient::new(channel);
     client
         .get_version(GetVersionRequest {})
@@ -20,7 +20,7 @@ pub async fn fetch_server(channel: Channel) -> Option<String> {
 }
 
 /// Handles the `version` command: prints client/server versions and any warnings.
-pub async fn handle(channel: Channel, console: &Console) -> Result<()> {
+pub(crate) async fn handle(channel: Channel, console: &Console) -> Result<()> {
     let client_ver = env!("CARGO_PKG_VERSION");
     println!("{} {}", console.paint("Client:", Role::Label), client_ver);
 
@@ -39,7 +39,7 @@ pub async fn handle(channel: Channel, console: &Console) -> Result<()> {
 }
 
 /// Prints a warning to stderr if versions are not identical.
-pub fn print_compat_warning(console: &Console, client_ver: &str, server_ver: &str) {
+pub(crate) fn print_compat_warning(console: &Console, client_ver: &str, server_ver: &str) {
     if client_ver == server_ver {
         return;
     }

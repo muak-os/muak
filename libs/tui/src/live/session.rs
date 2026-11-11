@@ -2,7 +2,7 @@
 
 use std::io;
 
-use super::{Steps, StepsHandle};
+use super::steps::{Handle, Steps};
 use crate::output::Output;
 
 /// Owns an optional step renderer and a domain progress reporter.
@@ -19,7 +19,7 @@ impl<R> Session<R> {
     /// Returns an error when the renderer thread or the reporter factory fails.
     pub fn new<M>(output: Output, start_steps: bool, make: M) -> io::Result<Self>
     where
-        M: FnOnce(Output, Option<StepsHandle>) -> io::Result<R>,
+        M: FnOnce(Output, Option<Handle>) -> io::Result<R>,
     {
         let steps = if start_steps {
             Some(Steps::stderr_with(output)?)
@@ -37,7 +37,7 @@ impl<R> Session<R> {
     /// Returns an error when the reporter factory fails.
     pub fn with_steps<M>(output: Output, steps: Option<Steps>, make: M) -> io::Result<Self>
     where
-        M: FnOnce(Output, Option<StepsHandle>) -> io::Result<R>,
+        M: FnOnce(Output, Option<Handle>) -> io::Result<R>,
     {
         let handle = steps.as_ref().map(Steps::handle);
         let live = make(output, handle)?;

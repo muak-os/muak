@@ -9,7 +9,7 @@ use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
 /// Switches to the new root filesystem.
-pub fn new_root(newroot: &str) -> Result<()> {
+pub(crate) fn new_root(newroot: &str) -> Result<()> {
     move_pseudo_mounts(newroot).context("moving pseudo mounts failed")?;
     chdir(newroot).context("chdir newroot failed")?;
     chroot(".").context("chroot failed")?;
@@ -19,7 +19,7 @@ pub fn new_root(newroot: &str) -> Result<()> {
 }
 
 /// Executes the init binary from the new root filesystem with the given environment entries.
-pub fn exec_init(env: &[(&str, &str)]) -> Result<()> {
+pub(crate) fn exec_init(env: &[(&str, &str)]) -> Result<()> {
     let root = Path::new("/");
     let init_path = find_init(root)?;
     let err = Command::new(&init_path).envs(env.iter().copied()).exec();

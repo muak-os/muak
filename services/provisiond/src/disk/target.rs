@@ -17,12 +17,12 @@ pub(crate) struct Targets {
 
 impl Targets {
     /// Returns true when DATA lives on its own disk.
-    pub fn is_split(&self) -> bool {
+    pub(crate) fn is_split(&self) -> bool {
         self.data.is_some()
     }
 
     /// Returns the data disk path, falling back to the system disk when shared.
-    pub fn data(&self) -> &str {
+    pub(crate) fn data(&self) -> &str {
         self.data.as_deref().unwrap_or(&self.system)
     }
 }

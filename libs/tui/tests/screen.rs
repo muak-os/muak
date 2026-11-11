@@ -2,7 +2,8 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use tui::screen::{Ansi, Screen as _};
+    use tui::screen::Screen as _;
+    use tui::screen::ansi::Ansi;
     use tui::size::Size;
     use tui::style::{self, AnsiColor};
     use tui::text::{Line, Span};

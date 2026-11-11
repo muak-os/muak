@@ -11,7 +11,7 @@ use crate::medium;
 /// # Errors
 ///
 /// Returns an error when the embedded default config fails to parse or serialize.
-pub fn render(version: String, extensions: &[String]) -> Result<String> {
+pub(crate) fn render(version: String, extensions: &[String]) -> Result<String> {
     let mut config: Config = config::system::parse_from_str(&config::system::serialize_default())
         .context("embedded default config is invalid")?;
     config.host.version = version;
@@ -25,7 +25,7 @@ pub fn render(version: String, extensions: &[String]) -> Result<String> {
 /// # Errors
 ///
 /// Returns an error when the medium carries no version metadata.
-pub async fn generate() -> Result<String> {
+pub(crate) async fn generate() -> Result<String> {
     let (version, extensions) =
         task::spawn_blocking(|| -> anyhow::Result<(String, Vec<String>)> {
             let version = medium::version()?;

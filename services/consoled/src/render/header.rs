@@ -47,7 +47,7 @@ pub(super) fn draw<S: Screen>(screen: &mut S, state: &SystemState, row: u16) -> 
 #[cfg(test)]
 mod tests {
     use firmware::secureboot::Status;
-    use tui::screen::Ansi;
+    use tui::screen::ansi::Ansi;
     use tui::size::Size;
 
     use super::*;

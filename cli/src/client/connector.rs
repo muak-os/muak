@@ -22,27 +22,27 @@ use tonic::codegen::Service;
 
 /// Shared state for capturing the server certificate fingerprint during TOFU.
 #[derive(Clone, Debug, Default)]
-pub struct TofuState {
+pub(super) struct TofuState {
     inner: Arc<OnceLock<String>>,
 }
 
 impl TofuState {
     /// Returns the captured server fingerprint, if one has been recorded.
-    pub fn fingerprint(&self) -> Option<&str> {
+    pub(super) fn fingerprint(&self) -> Option<&str> {
         self.inner.get().map(String::as_str)
     }
 }
 
 /// TLS connector that captures the server certificate fingerprint on first use.
 #[derive(Clone)]
-pub struct TofuTlsConnector {
+pub(super) struct TofuTlsConnector {
     tls_connector: tokio_rustls::TlsConnector,
     server_name: ServerName<'static>,
     server_addr: SocketAddr,
 }
 
 impl TofuTlsConnector {
-    pub fn new(server: &str, state: TofuState) -> Result<Self> {
+    pub(super) fn new(server: &str, state: TofuState) -> Result<Self> {
         let server_addr: SocketAddr = server
             .parse()
             .with_context(|| format!("Invalid server address: {server}"))?;
@@ -101,14 +101,14 @@ impl Service<Uri> for TofuTlsConnector {
 
 /// TLS connector that only accepts a server with a specific certificate fingerprint.
 #[derive(Clone)]
-pub struct PinnedTlsConnector {
+pub(super) struct PinnedTlsConnector {
     tls_connector: tokio_rustls::TlsConnector,
     server_name: ServerName<'static>,
     server_addr: SocketAddr,
 }
 
 impl PinnedTlsConnector {
-    pub fn new(server: &str, fingerprint: &str) -> Result<Self> {
+    pub(super) fn new(server: &str, fingerprint: &str) -> Result<Self> {
         let server_addr: SocketAddr = server
             .parse()
             .with_context(|| format!("Invalid server address: {server}"))?;

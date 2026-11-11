@@ -9,14 +9,15 @@ pub(super) mod sizes;
 
 use alloc::collections::BTreeMap;
 
-use super::types::InodeLayout;
+use super::Inode;
+use crate::SLOT_SIZE;
 use crate::checked::align_up;
+use crate::compress::Compression;
 use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
 use crate::error::Result;
 use crate::inode::COMPACT_INODE_SIZE;
 use crate::source::SizedFile;
 use crate::superblock::EROFS_SUPER_OFFSET;
-use crate::{Compression, SLOT_SIZE};
 
 /// Byte offset at which the inode metadata region begins (no compression).
 pub(super) const META_START: usize = EROFS_SUPER_OFFSET + 128;
@@ -52,8 +53,8 @@ pub(super) fn meta_start(has_compression: bool) -> usize {
 /// # Errors
 ///
 /// Returns an error when a regular file cannot be read.
-pub fn nids_and_layouts(
-    inodes: &mut [InodeLayout],
+pub(super) fn nids_and_layouts(
+    inodes: &mut [Inode],
     path_to_idx: &BTreeMap<String, usize>,
     compression: Compression,
     files: &mut [SizedFile<'_>],
@@ -98,12 +99,12 @@ pub fn nids_and_layouts(
 }
 
 /// Assign data block addresses after all NIDs are computed.
-pub fn data_block_addrs(inodes: &mut [InodeLayout], do_compress: bool) {
+pub(super) fn data_block_addrs(inodes: &mut [Inode], do_compress: bool) {
     data::data_block_addrs(inodes, do_compress);
 }
 
 /// Compute the total image size from the layout.
-pub fn total_image_size(inodes: &[InodeLayout], do_compress: bool) -> usize {
+pub(super) fn total_image_size(inodes: &[Inode], do_compress: bool) -> usize {
     data::total_image_size(inodes, do_compress)
 }
 
@@ -118,11 +119,12 @@ mod tests {
     use std::io;
 
     use super::nids_and_layouts;
+    use crate::SLOT_SIZE;
+    use crate::compress::Compression;
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE, EROFS_FT_SYMLINK};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
-    use crate::layout::{ImagePlan, plan};
+    use crate::layout::{ImagePlan, Inode, plan};
     use crate::source::{SizedFile, TreeEntry};
-    use crate::{Compression, InodeLayout, SLOT_SIZE};
 
     const FIRST_NID: usize = super::META_START.div_euclid(SLOT_SIZE);
 
@@ -133,7 +135,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -144,7 +146,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::default(),
+            compression: crate::compress::Compression::default(),
         }
     }
 
@@ -187,8 +189,8 @@ mod tests {
         );
     }
 
-    fn flat_plain_inode(rel_path: &str, file_type: u8) -> InodeLayout {
-        InodeLayout {
+    fn flat_plain_inode(rel_path: &str, file_type: u8) -> Inode {
+        Inode {
             rel_path: rel_path.to_owned(),
             nid: 0,
             ino: 0,

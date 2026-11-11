@@ -1,9 +1,9 @@
 //! gRPC service implementations for provisiond.
 
-pub mod auth;
-pub mod provision;
-pub mod security;
-pub mod version;
+pub(crate) mod auth;
+pub(crate) mod provision;
+pub(crate) mod security;
+pub(crate) mod version;
 
 #[expect(
     clippy::absolute_paths,
@@ -19,27 +19,28 @@ pub mod version;
     clippy::excessive_nesting,
     clippy::impl_trait_in_params,
     clippy::inline_modules,
-    clippy::module_name_repetitions,
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::too_many_lines,
     clippy::trivially_copy_pass_by_ref,
+    unnameable_types,
+    unreachable_pub,
     reason = "generated protobuf code"
 )]
-pub mod proto {
-    pub mod auth {
+pub(crate) mod proto {
+    pub(crate) mod auth {
         tonic::include_proto!("muak.auth.v1");
     }
-    pub mod provision {
+    pub(crate) mod provision {
         tonic::include_proto!("muak.provision.v1");
     }
-    pub mod security {
+    pub(crate) mod security {
         tonic::include_proto!("muak.security.v1");
     }
-    pub mod service {
+    pub(crate) mod service {
         tonic::include_proto!("muak.service.v1");
     }
-    pub mod version {
+    pub(crate) mod version {
         tonic::include_proto!("muak.version.v1");
     }
 }

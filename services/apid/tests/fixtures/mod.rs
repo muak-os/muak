@@ -1,3 +1,3 @@
 //! Test fixtures for apid integration tests.
 
-pub mod mock_backend;
+pub(crate) mod mock_backend;

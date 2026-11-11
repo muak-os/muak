@@ -3,7 +3,7 @@
 pub(crate) mod build;
 mod commit;
 mod failure;
-pub mod kexec;
+pub(crate) mod kexec;
 mod progress;
 mod readiness;
 mod recovery;
@@ -30,7 +30,7 @@ pub(crate) const SECRETS_DIR: &str = "/run/state/secrets";
 
 /// Status of a system update.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpdateStatus {
+pub(crate) enum UpdateStatus {
     Unknown,
     Pending,
     Committed,
@@ -38,7 +38,7 @@ pub enum UpdateStatus {
 }
 
 /// Returns the current status of a given update ID.
-pub fn status(update_id: &str) -> UpdateStatus {
+pub(crate) fn status(update_id: &str) -> UpdateStatus {
     resolve_status(
         update_id,
         journal::find(update_id).as_ref(),
@@ -46,7 +46,7 @@ pub fn status(update_id: &str) -> UpdateStatus {
     )
 }
 
-pub fn check_and_handle_pending_validation() {
+pub(crate) fn check_and_handle_pending_validation() {
     let Some((update_id, snapshot_path)) = snapshot::find_pending() else {
         return;
     };
@@ -82,7 +82,7 @@ pub fn check_and_handle_pending_validation() {
 /// # Errors
 ///
 /// Returns an error when `requested` is empty or when it is a downgrade of `current`.
-pub fn resolve_target(current: &str, requested: &str) -> Result<String> {
+pub(crate) fn resolve_target(current: &str, requested: &str) -> Result<String> {
     if requested.is_empty() {
         bail!("update target version must be specified");
     }
@@ -116,7 +116,7 @@ pub(crate) const fn strategy(offline: bool) -> Strategy {
     }
 }
 
-pub fn signal_cli_contact() {
+pub(crate) fn signal_cli_contact() {
     validation::signal_cli_contact();
 }
 

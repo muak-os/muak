@@ -3,12 +3,12 @@
 use super::filter::compute_name_filter;
 use crate::checked::{add, align_up, sub, u8_from_usize, u16_from_usize, write_byte, write_bytes};
 
-pub const EROFS_XATTR_INDEX_SECURITY: u8 = 6;
-pub const XATTR_HEADER_SIZE: usize = 12;
-pub const XATTR_ENTRY_HEADER_SIZE: usize = 4;
+pub(super) const EROFS_XATTR_INDEX_SECURITY: u8 = 6;
+pub(super) const XATTR_HEADER_SIZE: usize = 12;
+pub(super) const XATTR_ENTRY_HEADER_SIZE: usize = 4;
 
 /// Compute the inline xattr payload for a single `security.selinux` label.
-pub fn payload(label: &[u8]) -> Vec<u8> {
+pub(super) fn payload(label: &[u8]) -> Vec<u8> {
     let name_suffix = b"selinux";
     let e_name_len = name_suffix.len();
     let e_value_size = label.len();
@@ -60,7 +60,7 @@ pub fn payload(label: &[u8]) -> Vec<u8> {
 }
 
 /// Compute `i_xattr_icount` from the total inline xattr payload size.
-pub fn icount(payload_size: usize) -> u16 {
+pub(super) fn icount(payload_size: usize) -> u16 {
     if payload_size == 0 {
         return 0;
     }
@@ -74,7 +74,7 @@ pub fn icount(payload_size: usize) -> u16 {
 }
 
 /// Round up to the next multiple of 4.
-pub fn align4(val: usize) -> usize {
+pub(super) fn align4(val: usize) -> usize {
     align_up(val, 4).unwrap_or(val)
 }
 

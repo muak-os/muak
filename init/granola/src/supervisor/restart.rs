@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use super::service::{ServiceState, ServiceStatus};
 
 const RESTART_DELAY: Duration = Duration::from_secs(1);
-pub const MAX_RESTART_ATTEMPTS: u32 = 5;
+pub(super) const MAX_RESTART_ATTEMPTS: u32 = 5;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
 /// Delay applied when a restart is due but its dependencies are not ready.
@@ -16,12 +16,12 @@ struct PendingRestart {
 }
 
 /// Manages restarts scheduling and policy decisions.
-pub struct RestartQueue {
+pub(super) struct RestartQueue {
     pending: Vec<PendingRestart>,
 }
 
 impl RestartQueue {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             pending: Vec::new(),
         }
@@ -29,7 +29,7 @@ impl RestartQueue {
 
     /// Determines whether a service should be restarted based on its
     /// current state, restart count, exit code, and the restart window.
-    pub fn should_restart(state: &ServiceState, exit_code: Option<i32>) -> bool {
+    pub(super) fn should_restart(state: &ServiceState, exit_code: Option<i32>) -> bool {
         if state.status == ServiceStatus::Stopping {
             return false;
         }
@@ -48,7 +48,7 @@ impl RestartQueue {
     }
 
     /// Schedules a service for restart after the configured delay.
-    pub fn schedule(&mut self, state: &mut ServiceState) {
+    pub(super) fn schedule(&mut self, state: &mut ServiceState) {
         Self::begin_attempt(state);
         Self::log_retry(state);
         self.enqueue(&state.service.name);
@@ -56,7 +56,7 @@ impl RestartQueue {
 
     /// Counts a failed spawn attempt and either queues a delayed retry or marks
     /// the service failed once the attempt budget is exhausted.
-    pub fn record_spawn_failure(&mut self, state: &mut ServiceState, error: &str) {
+    pub(super) fn record_spawn_failure(&mut self, state: &mut ServiceState, error: &str) {
         Self::begin_attempt(state);
         kmsg::error!(
             "Failed to spawn service {} (attempt {}/{}): {error}",
@@ -80,12 +80,12 @@ impl RestartQueue {
     }
 
     /// Returns whether the service already has a restart scheduled.
-    pub fn is_queued(&self, name: &str) -> bool {
+    pub(super) fn is_queued(&self, name: &str) -> bool {
         self.pending.iter().any(|restart| restart.name == name)
     }
 
     /// Marks a service as permanently failed.
-    pub fn mark_failed(state: &mut ServiceState) {
+    pub(super) fn mark_failed(state: &mut ServiceState) {
         state.status = ServiceStatus::Failed;
         kmsg::error!(
             "Service {} failed permanently after {} restarts",
@@ -95,7 +95,7 @@ impl RestartQueue {
     }
 
     /// Returns the names of services whose restart delay has elapsed.
-    pub fn take_due<F>(&mut self, deps_ready: F) -> Vec<String>
+    pub(super) fn take_due<F>(&mut self, deps_ready: F) -> Vec<String>
     where
         F: Fn(&str) -> bool,
     {

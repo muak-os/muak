@@ -3,8 +3,8 @@
 mod lines;
 mod renderer;
 pub mod session;
-mod spinner;
-mod steps;
+pub mod spinner;
+pub mod steps;
 pub mod summary;
 pub mod tracker;
 
@@ -12,15 +12,6 @@ use crate::glyphs::Glyphs;
 use crate::output::{Flags, Mode, Output};
 use crate::size::Size;
 use crate::style::{Stream, Theme};
-
-/// Animated spinner.
-pub type Spinner = spinner::Spinner;
-
-/// Ordered multi-step progress display.
-pub type Steps = steps::Steps;
-
-/// Cloneable handle for updating a running [`Steps`].
-pub type StepsHandle = steps::StepsHandle;
 
 /// Live widget options.
 #[derive(Clone, Copy, Debug)]

@@ -6,13 +6,13 @@ use alloc::string::{String, ToString as _};
 use alloc::vec::Vec;
 use std::path::Path;
 
-use crate::InodeLayout;
 use crate::checked::align_up;
 use crate::dir::{EROFS_FT_DIR, Entry};
+use crate::layout::Inode;
 
 pub(super) fn find_parent_nid(
-    inode: &InodeLayout,
-    all_inodes: &[InodeLayout],
+    inode: &Inode,
+    all_inodes: &[Inode],
     path_to_idx: &BTreeMap<String, usize>,
 ) -> u64 {
     if inode.rel_path == "/" {
@@ -39,8 +39,8 @@ pub(super) fn align8(val: usize) -> usize {
 }
 
 pub(super) fn sorted_entries(
-    inode: &InodeLayout,
-    all_inodes: &[InodeLayout],
+    inode: &Inode,
+    all_inodes: &[Inode],
     path_to_idx: &BTreeMap<String, usize>,
     parent_nid: u64,
 ) -> Vec<Entry> {
@@ -86,8 +86,8 @@ mod tests {
     use super::{find_parent_nid, sorted_entries};
     use crate::dir::{EROFS_FT_DIR, EROFS_FT_REG_FILE};
     use crate::inode::EROFS_INODE_FLAT_PLAIN;
+    use crate::layout::{self, Inode};
     use crate::source::{SizedFile, TreeEntry};
-    use crate::{InodeLayout, layout};
 
     fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
         crate::MkfsConfig {
@@ -96,7 +96,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::Compression::None,
+            compression: crate::compress::Compression::None,
         }
     }
 
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn find_parent_nid_returns_zero_for_missing_parent() {
         // ARRANGE
-        let inode = InodeLayout {
+        let inode = Inode {
             rel_path: "/child".to_owned(),
             nid: 2,
             ino: 0,
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn build_sorted_dir_entries_skips_missing_and_keeps_known_children() {
         // ARRANGE
-        let inode = InodeLayout {
+        let inode = Inode {
             rel_path: "child".to_owned(),
             nid: 2,
             ino: 0,
@@ -357,7 +357,7 @@ mod tests {
             rdev: 0,
             compressed: None,
         };
-        let known_child = InodeLayout {
+        let known_child = Inode {
             rel_path: "/known".to_owned(),
             nid: 9,
             file_type: EROFS_FT_REG_FILE,

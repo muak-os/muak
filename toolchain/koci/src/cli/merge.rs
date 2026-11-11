@@ -8,7 +8,7 @@ use super::Console;
 
 /// Arguments of the `merge` subcommand.
 #[derive(clap::Args, Debug)]
-pub struct Args {
+pub(super) struct Args {
     #[arg(short, long)]
     image: String,
 

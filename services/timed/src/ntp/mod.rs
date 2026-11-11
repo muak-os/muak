@@ -73,7 +73,7 @@ fn parse_response(packet: &[u8; NTP_PACKET_SIZE]) -> Result<Timespec> {
 }
 
 /// Perform a single SNTP time synchronization against a given server.
-pub async fn sync(server: &str) -> Result<Duration> {
+pub(crate) async fn sync(server: &str) -> Result<Duration> {
     let addr = format!("{server}:{NTP_PORT}")
         .to_socket_addrs()?
         .next()

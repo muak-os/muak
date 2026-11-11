@@ -107,7 +107,7 @@ async fn run_version_preflight(channel: Channel, console: &Console) {
 }
 
 /// Routes CLI commands to their handlers.
-pub async fn run(cli: Cli, console: &Console) -> Result<()> {
+pub(crate) async fn run(cli: Cli, console: &Console) -> Result<()> {
     if handle_offline_cmd(&cli, console).await? {
         return Ok(());
     }

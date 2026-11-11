@@ -29,7 +29,8 @@ fn quiet_options() -> Options {
 
 #[cfg(test)]
 mod tests {
-    use tui::live::{Spinner, Steps};
+    use tui::live::spinner::Spinner;
+    use tui::live::steps::Steps;
 
     use super::*;
 

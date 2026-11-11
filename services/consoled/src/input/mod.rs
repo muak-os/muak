@@ -19,7 +19,7 @@ const SPLIT_SEQUENCE_TIMEOUT: Duration = Duration::from_millis(50);
 /// # Errors
 ///
 /// Returns an error when the file descriptor cannot be registered for asynchronous notifications.
-pub fn spawn(file: File) -> Result<mpsc::Receiver<Key>> {
+pub(crate) fn spawn(file: File) -> Result<mpsc::Receiver<Key>> {
     let (tx, rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
     // SAFETY: `file` uniquely owns the descriptor and stays open for the lifetime of
     // the `AsyncFd`, so the registered descriptor remains valid and unchanged.

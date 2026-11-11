@@ -9,22 +9,23 @@ use std::io;
 use state::{Command, run};
 
 use crate::live::Options;
-use crate::live::renderer::{Handle, Renderer};
+use crate::live::renderer::{Handle as RendererHandle, Renderer};
 use crate::output::{Flags, Output};
 use crate::progress::Unit;
-use crate::screen::{Ansi, Screen};
+use crate::screen::Screen;
+use crate::screen::ansi::Ansi;
 use crate::style::Stream;
 
 /// Cloneable handle for updating a running [`Steps`].
 #[derive(Clone)]
-pub struct StepsHandle {
-    handle: Handle<Command>,
+pub struct Handle {
+    handle: RendererHandle<Command>,
 }
 
 /// Ordered multi-step progress display.
 pub struct Steps {
     renderer: Renderer<Command>,
-    handle: StepsHandle,
+    handle: Handle,
 }
 
 impl Steps {
@@ -43,7 +44,7 @@ impl Steps {
 
         Ok(Self {
             renderer,
-            handle: StepsHandle { handle },
+            handle: Handle { handle },
         })
     }
 
@@ -89,7 +90,7 @@ impl Steps {
 
     /// Returns a cloneable handle for updating steps.
     #[must_use]
-    pub fn handle(&self) -> StepsHandle {
+    pub fn handle(&self) -> Handle {
         self.handle.clone()
     }
 
@@ -148,7 +149,7 @@ impl Steps {
     }
 }
 
-impl StepsHandle {
+impl Handle {
     /// Begins a new step.
     pub fn start<M: Into<String>>(&self, message: M) {
         self.handle.send_waiting(Command::Start(message.into()));

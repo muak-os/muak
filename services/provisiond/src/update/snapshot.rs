@@ -22,7 +22,7 @@ const CMDLINE: &str = "/proc/cmdline";
 const UPDATE_ID_PREFIX: &str = "muak.update_id=";
 
 /// Returns the pending `(update_id, path)` of a kept previous config.
-pub fn find_pending() -> Option<(String, PathBuf)> {
+pub(crate) fn find_pending() -> Option<(String, PathBuf)> {
     let path = PathBuf::from(CONFIG_PREV_PATH);
     if !path.exists() {
         return None;
@@ -35,12 +35,12 @@ pub fn find_pending() -> Option<(String, PathBuf)> {
 }
 
 /// Returns the path to the previous config kept by a prepare.
-pub fn path() -> PathBuf {
+pub(crate) fn path() -> PathBuf {
     PathBuf::from(CONFIG_PREV_PATH)
 }
 
 /// Restores the previous config by rename and records the rollback, returning journal success.
-pub fn restore(
+pub(crate) fn restore(
     update_id: &str,
     prev_path: &Path,
     failed_version: &str,
@@ -77,7 +77,7 @@ pub fn restore(
 }
 
 /// Generates a unique update ID from the current wall clock.
-pub fn generate_id() -> String {
+pub(crate) fn generate_id() -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

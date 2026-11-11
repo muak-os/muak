@@ -8,7 +8,7 @@ pub mod entries;
 pub mod extract;
 pub mod fetch;
 pub(crate) mod layer;
-pub(crate) mod lazy;
+pub mod lazy;
 pub mod parallel;
 pub mod paths;
 pub(crate) mod resolve;

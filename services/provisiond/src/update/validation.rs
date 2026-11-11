@@ -12,7 +12,7 @@ use crate::medium;
 static CLI_CONTACT: Notify = Notify::const_new();
 const CONFIRMATION_WINDOW: Duration = Duration::from_mins(5);
 
-pub async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
+pub(super) async fn validate(update_id: &str, snapshot_path: &Path) -> Result<()> {
     let previous = std::fs::read_to_string(snapshot_path).ok();
     let old_version = previous
         .as_deref()
@@ -107,7 +107,7 @@ async fn wait_for_confirmation() -> Result<()> {
 }
 
 /// Wakes the validation task when the CLI contacts provisiond.
-pub fn signal_cli_contact() {
+pub(super) fn signal_cli_contact() {
     CLI_CONTACT.notify_one();
 }
 

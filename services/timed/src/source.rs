@@ -9,7 +9,7 @@ use crate::{hypervisor, ntp};
 
 /// Selected time source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Source {
+pub(crate) enum Source {
     /// Hypervisor clock when available, NTP otherwise.
     Auto,
     /// Hypervisor clock only (`/dev/ptp0`); fail if absent.
@@ -20,7 +20,7 @@ pub enum Source {
 
 impl Source {
     /// Parses the `host.clock` config value (empty means [`Source::Auto`]).
-    pub fn from_config(value: &str) -> Result<Self> {
+    pub(crate) fn from_config(value: &str) -> Result<Self> {
         match value {
             "" | "auto" => Ok(Self::Auto),
             "hypervisor" => Ok(Self::Hypervisor),
@@ -32,7 +32,7 @@ impl Source {
     }
 
     /// Returns whether this source requires a configured NTP server.
-    pub fn needs_ntp(self) -> bool {
+    pub(crate) fn needs_ntp(self) -> bool {
         !matches!(self, Self::Hypervisor)
     }
 }
@@ -48,7 +48,7 @@ impl Display for Source {
 }
 
 /// Performs a single synchronization attempt against the selected source.
-pub async fn sync(source: Source, server: &str) -> Result<(Source, Duration)> {
+pub(crate) async fn sync(source: Source, server: &str) -> Result<(Source, Duration)> {
     match source {
         Source::Hypervisor => hypervisor::sync().map(|offset| (Source::Hypervisor, offset)),
         Source::Ntp => ntp::sync(server).await.map(|offset| (Source::Ntp, offset)),

@@ -12,7 +12,7 @@ const SECTION_ALIGNMENT: usize = 4096;
 const EXTRA_SECTION_HEADER_SLOTS: usize = 4;
 
 /// Generates a minimal valid PE64 EFI stub (same shape yuki's tests use).
-pub fn generate_stub() -> Vec<u8> {
+pub(crate) fn generate_stub() -> Vec<u8> {
     generate_stub_with_section_count(1)
 }
 

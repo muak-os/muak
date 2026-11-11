@@ -11,7 +11,7 @@ use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Channel;
 use tui::console::Console;
-use tui::live::Steps;
+use tui::live::steps::Steps;
 
 use self::trigger::{Outcome, classify, failure_message, reboot_notice};
 use crate::client::connect;
@@ -80,7 +80,7 @@ impl PollFeedback {
 }
 
 /// Handles the update command.
-pub async fn handle(
+pub(crate) async fn handle(
     ctx: &ServerContext,
     version: Option<String>,
     config_path: Option<PathBuf>,
