@@ -125,7 +125,7 @@ mod tests {
         let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
 
         // ACT
-        let output = assert_success_insecure!(cli, ["disks"]).await?;
+        let output = assert_success_insecure!(cli, ["disks", "--wide"]).await?;
 
         // ASSERT
         ensure!(

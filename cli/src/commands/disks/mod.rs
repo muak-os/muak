@@ -12,19 +12,18 @@ use tui::units;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
 use crate::client::provision_service::{DiskInfo, ListDisksRequest, PartitionInfo};
 
-const COLUMNS: [&str; 10] = [
+const COLUMNS: [&str; 9] = [
     "ID",
     "SIZE",
     "TRANSPORT",
     "ROT",
     "SERIAL",
-    "WWID",
     "MODEL",
     "RO",
     "PARTS",
     "ROLE",
 ];
-const WIDE_COLUMNS: [&str; 3] = ["BUS PATH", "SUBSYSTEM", "REM"];
+const WIDE_COLUMNS: [&str; 4] = ["WWID", "BUS PATH", "SUBSYSTEM", "REM"];
 const PARTITION_COLUMNS: [&str; 3] = ["FS", "NAME", "MOUNT"];
 const FIELD_COLUMNS: [&str; 2] = ["FIELD", "VALUE"];
 
@@ -122,7 +121,6 @@ fn row_cells(disk: &DiskInfo, wide: bool) -> Vec<String> {
         transport(disk).to_owned(),
         yes_no(disk.rotational),
         disk.serial.clone(),
-        disk.wwid.clone(),
         disk.model.clone(),
         yes_no(disk.read_only),
         disk.partitions.len().to_string(),
@@ -130,6 +128,7 @@ fn row_cells(disk: &DiskInfo, wide: bool) -> Vec<String> {
     ];
 
     if wide {
+        row.push(disk.wwid.clone());
         row.push(disk.bus_path.clone());
         row.push(disk.subsystem.clone());
         row.push(yes_no(disk.removable));
@@ -298,15 +297,15 @@ mod tests {
         assert_eq!(cells[1], units::bytes(GIB));
         assert_eq!(cells[3], "Yes");
         assert_eq!(cells[4], "Serial");
-        assert_eq!(cells[5], "Wwid");
-        assert_eq!(cells[6], "Model");
-        assert_eq!(cells[7], "No");
-        assert_eq!(cells[8], "1");
+        assert_eq!(cells[5], "Model");
+        assert_eq!(cells[6], "No");
+        assert_eq!(cells[7], "1");
+        assert!(!cells.iter().any(|cell| cell == "Wwid"));
         assert!(cells[COLUMNS.len()..].iter().all(String::is_empty));
     }
 
     #[test]
-    fn wide_row_cells_append_bus_path_subsystem_and_removable() {
+    fn wide_row_cells_append_wwid_bus_path_subsystem_and_removable() {
         // ARRANGE
         let mut disk = disk("sda");
         disk.bus_path = "/pci0000:00/ata1".to_owned();
@@ -318,9 +317,10 @@ mod tests {
 
         // ASSERT
         assert_eq!(cells.len(), headers(true).len());
-        assert_eq!(cells[COLUMNS.len()], "/pci0000:00/ata1");
-        assert_eq!(cells[COLUMNS.len() + 1], "scsi");
-        assert_eq!(cells[COLUMNS.len() + 2], "Yes");
+        assert_eq!(cells[COLUMNS.len()], "Wwid");
+        assert_eq!(cells[COLUMNS.len() + 1], "/pci0000:00/ata1");
+        assert_eq!(cells[COLUMNS.len() + 2], "scsi");
+        assert_eq!(cells[COLUMNS.len() + 3], "Yes");
     }
 
     #[test]
@@ -477,6 +477,20 @@ mod tests {
         // ASSERT
         assert_eq!(actual_default, default);
         assert_eq!(actual_wide, wide);
+    }
+
+    #[test]
+    fn headers_keep_wwid_in_the_wide_view_only() {
+        // ARRANGE
+        let wwid = "WWID";
+
+        // ACT
+        let default = headers(false);
+        let wide = headers(true);
+
+        // ASSERT
+        assert_eq!(wide.iter().filter(|name| **name == wwid).count(), 1);
+        assert!(!default.contains(&wwid));
     }
 
     #[test]
