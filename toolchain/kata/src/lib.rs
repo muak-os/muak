@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "cli")]
 extern crate alloc;
 
 pub mod error;

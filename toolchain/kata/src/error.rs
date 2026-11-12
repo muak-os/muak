@@ -1,5 +1,7 @@
 //! Error types for catalog schema and publisher operations.
 
+use core::result::Result as CoreResult;
+
 use thiserror::Error;
 
 /// Error type for parsing, validating, and serializing catalog documents.
@@ -23,7 +25,7 @@ pub enum DocumentError {
 }
 
 /// Result type alias for catalog schema operations.
-pub type DocumentResult<T> = core::result::Result<T, DocumentError>;
+pub type DocumentResult<T> = CoreResult<T, DocumentError>;
 
 /// Publisher-side error type.
 #[cfg(feature = "cli")]
@@ -62,4 +64,4 @@ pub enum KataError {
 
 /// Result type alias for publisher operations.
 #[cfg(feature = "cli")]
-pub type Result<T> = core::result::Result<T, KataError>;
+pub type Result<T> = CoreResult<T, KataError>;
