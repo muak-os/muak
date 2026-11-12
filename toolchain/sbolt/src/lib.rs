@@ -8,8 +8,6 @@
 
 #![warn(missing_docs)]
 
-extern crate alloc;
-
 pub mod efi;
 pub mod error;
 pub mod keys;

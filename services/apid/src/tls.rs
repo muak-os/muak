@@ -38,7 +38,7 @@ pub fn load_tls_config_with_paths(
     server_cert_path: &str,
     server_key_path: &str,
 ) -> Result<TlsAcceptor> {
-    let ca_certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(ca_cert_path)
+    let ca_certs: Vec<CertificateDer<'_>> = CertificateDer::pem_file_iter(ca_cert_path)
         .context("Failed to read CA certificate")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse CA certificate")?;
@@ -55,7 +55,7 @@ pub fn load_tls_config_with_paths(
         .build()
         .context("Failed to build client verifier")?;
 
-    let server_certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(server_cert_path)
+    let server_certs: Vec<CertificateDer<'_>> = CertificateDer::pem_file_iter(server_cert_path)
         .context("Failed to read server certificate")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse server certificate")?;

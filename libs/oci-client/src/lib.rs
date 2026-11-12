@@ -2,8 +2,6 @@
 
 #![warn(missing_docs)]
 
-extern crate alloc;
-
 pub mod auth;
 pub mod blob;
 pub mod challenge;

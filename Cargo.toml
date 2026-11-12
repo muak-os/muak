@@ -237,5 +237,6 @@ blanket_clippy_restriction_lints = "allow"
 
 [workspace.lints.rust]
 non_ascii_idents = "deny"
-unreachable_pub = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
 unnameable_types = "deny"
+unreachable_pub = "deny"

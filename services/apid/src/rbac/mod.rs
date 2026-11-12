@@ -1,7 +1,5 @@
 //! Role-Based Access Control (RBAC) for the API gateway.
 
-extern crate alloc;
-
 pub mod error;
 mod user;
 

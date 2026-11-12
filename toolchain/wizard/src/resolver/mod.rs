@@ -28,7 +28,7 @@ const RESOLUTION_POLICY: &str = "muak/default";
 ///
 /// Returns an error when the release version is invalid or a catalog cannot be
 /// fetched or does not contain a selected entry.
-pub fn plan(request: &Request, profile: &Profile) -> Result<Resolution> {
+pub fn plan(request: &Request<'_>, profile: &Profile) -> Result<Resolution> {
     let registry = request.registry();
     let arch = request.target_arch().unwrap_or_else(arch::host);
     let release = request.version();

@@ -1,7 +1,5 @@
 //! Service framework for granola-managed daemons.
 
-pub extern crate kmsg;
-
 pub mod runtime;
 
 // A proc-macro can only be re-exported with `pub use`; there is no
@@ -12,3 +10,9 @@ pub mod runtime;
     reason = "re-exporting a proc-macro requires `pub use`"
 )]
 pub use granola_macros::service;
+#[expect(
+    clippy::useless_attribute,
+    clippy::pub_use,
+    reason = "re-exporting the kmsg crate for downstream users"
+)]
+pub use kmsg;

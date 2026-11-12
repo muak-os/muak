@@ -1,7 +1,5 @@
 //! Btrfs periodic scrub.
 
-extern crate alloc;
-
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 

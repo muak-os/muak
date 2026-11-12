@@ -162,6 +162,8 @@ fn window_expired(
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use alloc::collections::VecDeque;
     use core::future::{pending, ready};
 

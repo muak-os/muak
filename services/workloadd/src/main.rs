@@ -1,7 +1,5 @@
 //! Workload daemon for Muak - Manages virtual machines and their life cycle.
 
-extern crate alloc;
-
 mod actor;
 mod disk;
 mod hypervisor;

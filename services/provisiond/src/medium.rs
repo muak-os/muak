@@ -52,6 +52,8 @@ fn version_from(path: &Path) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use tempfile::tempdir;
     use wizard::domain::profile::{CustomizationSpec, KernelSpec, Profile};
 

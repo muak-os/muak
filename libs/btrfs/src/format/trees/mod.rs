@@ -165,7 +165,7 @@ impl TreeResult {
 /// Trait for tree builders.
 pub(super) trait TreeBuilder {
     /// Build the tree and return the result.
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult>;
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult>;
 }
 
 // Chunk tree builder
@@ -186,7 +186,7 @@ impl Default for ChunkTreeBuilder {
 }
 
 impl TreeBuilder for ChunkTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         // Dev item
@@ -270,7 +270,7 @@ impl Default for DevTreeBuilder {
 }
 
 impl TreeBuilder for DevTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         // Dev stats
@@ -346,7 +346,7 @@ impl Default for ExtentTreeBuilder {
 }
 
 impl TreeBuilder for ExtentTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         let blocks = layout::all_tree_blocks(ctx.layout);
@@ -382,7 +382,7 @@ impl Default for BlockGroupTreeBuilder {
 }
 
 impl TreeBuilder for BlockGroupTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         // Data block group
@@ -440,7 +440,7 @@ impl Default for FreeSpaceTreeBuilder {
 }
 
 impl TreeBuilder for FreeSpaceTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
         let nodesize = BTRFS_DEFAULT_NODESIZE_U64;
 
@@ -546,7 +546,7 @@ impl FsTreeBuilder {
 }
 
 impl TreeBuilder for FsTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         let inode = InodeItemBuilder::new()
@@ -590,7 +590,7 @@ impl DataRelocTreeBuilder {
 }
 
 impl TreeBuilder for DataRelocTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         let inode = InodeItemBuilder::new()
@@ -638,7 +638,7 @@ impl Default for UuidTreeBuilder {
 }
 
 impl TreeBuilder for UuidTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         let uuid_bytes = ctx.fs_uuid.as_bytes();
@@ -688,7 +688,7 @@ impl Default for CsumTreeBuilder {
 }
 
 impl TreeBuilder for CsumTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         Ok(TreeResult::empty(
             ctx.layout.meta_block(layout::BLK_CSUM),
             BTRFS_CSUM_TREE_OBJECTID,
@@ -708,7 +708,7 @@ impl RootTreeBuilder {
         Self { now }
     }
 
-    fn add_system_roots(builder: &mut LeafBuilder, ctx: &TreeContext) {
+    fn add_system_roots(builder: &mut LeafBuilder, ctx: &TreeContext<'_>) {
         add_root_item(
             builder,
             BTRFS_EXTENT_TREE_OBJECTID,
@@ -752,7 +752,7 @@ impl RootTreeBuilder {
         );
     }
 
-    fn add_fs_root(&self, builder: &mut LeafBuilder, ctx: &TreeContext) -> Result<()> {
+    fn add_fs_root(&self, builder: &mut LeafBuilder, ctx: &TreeContext<'_>) -> Result<()> {
         builder.add_item(
             BTRFS_FS_TREE_OBJECTID,
             BTRFS_INODE_REF_KEY,
@@ -773,7 +773,7 @@ impl RootTreeBuilder {
         Ok(())
     }
 
-    fn add_root_dir(&self, builder: &mut LeafBuilder, ctx: &TreeContext) -> Result<()> {
+    fn add_root_dir(&self, builder: &mut LeafBuilder, ctx: &TreeContext<'_>) -> Result<()> {
         let dir_inode = InodeItemBuilder::new()
             .generation(ctx.generation)
             .timestamps(self.now)
@@ -809,7 +809,7 @@ impl RootTreeBuilder {
 }
 
 impl TreeBuilder for RootTreeBuilder {
-    fn build(&self, ctx: &TreeContext) -> Result<TreeResult> {
+    fn build(&self, ctx: &TreeContext<'_>) -> Result<TreeResult> {
         let mut builder = LeafBuilder::new();
 
         Self::add_system_roots(&mut builder, ctx);
@@ -827,7 +827,7 @@ impl TreeBuilder for RootTreeBuilder {
 }
 
 /// Build a `BtrfsDevItem`.
-fn build_dev_item(ctx: &TreeContext) -> BtrfsDevItem {
+fn build_dev_item(ctx: &TreeContext<'_>) -> BtrfsDevItem {
     let mut dev = BtrfsDevItem::new();
     write_u64(&mut dev.devid, 1);
     write_u64(&mut dev.total_bytes, ctx.device_size);

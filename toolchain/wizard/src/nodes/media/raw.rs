@@ -55,7 +55,7 @@ fn run(
     let layout = media::layout(ctx, uki.size, assets)?;
 
     let mut esp_readers: Vec<&mut dyn Read> = Vec::new();
-    let mut raw_blobs: Vec<raw::Blob> = Vec::new();
+    let mut raw_blobs: Vec<raw::Blob<'_>> = Vec::new();
     for (asset, input) in assets.iter().zip(overlays.iter_mut()) {
         match *asset {
             Asset::EspFile { .. } => esp_readers.push(&mut input.reader),

@@ -1,7 +1,5 @@
 //! Provisioning daemon for Muak.
 
-extern crate alloc;
-
 mod cache;
 mod check;
 mod disk;

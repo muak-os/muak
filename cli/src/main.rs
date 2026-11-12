@@ -1,7 +1,5 @@
 //! Muak CLI - Command-line interface for managing Muak Linux systems.
 
-extern crate alloc;
-
 pub mod client;
 pub mod commands;
 mod format;

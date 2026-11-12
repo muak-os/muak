@@ -52,7 +52,7 @@ impl EntryInfo<'_> {
 /// Returns an error when the entry path or hard link target escapes the
 /// extraction root, or the entry type is unsupported.
 pub(crate) fn classify_tar_entry<'a>(
-    entry: &tar::Entry<impl Read>,
+    entry: &tar::Entry<'_, impl Read>,
     scratch: &'a mut Scratch,
 ) -> Result<EntryInfo<'a>> {
     let header = entry.header();
@@ -130,9 +130,9 @@ pub(crate) fn scan_whiteouts<R: Read>(data: R) -> Result<Vec<PathBuf>> {
 ///
 /// Returns an error when the handler fails.
 pub(crate) fn handle_file_entry<R: Read>(
-    mut entry: tar::Entry<R>,
+    mut entry: tar::Entry<'_, R>,
     info: EntryInfo<'_>,
-    handler: &mut impl FnMut(FileEntry) -> Result<()>,
+    handler: &mut impl FnMut(FileEntry<'_>) -> Result<()>,
 ) -> Result<()> {
     let (path, kind, size, link, meta) = match info {
         EntryInfo::Skip | EntryInfo::Whiteout(_) => return Ok(()),
@@ -167,7 +167,7 @@ fn meta_of(header: &tar::Header) -> Meta {
     }
 }
 
-fn link_name<'a>(entry: &'a tar::Entry<impl Read>, path: &Path) -> Result<Cow<'a, Path>> {
+fn link_name<'a>(entry: &'a tar::Entry<'_, impl Read>, path: &Path) -> Result<Cow<'a, Path>> {
     match entry.link_name()? {
         Some(target) => Ok(target),
         None => Err(unsupported_entry("link without a target", path)),
@@ -228,7 +228,7 @@ mod tests {
         archive.into_inner().expect("finish archive")
     }
 
-    fn classify_one<R: Read>(entry: &tar::Entry<R>, scratch: &mut Scratch) -> String {
+    fn classify_one<R: Read>(entry: &tar::Entry<'_, R>, scratch: &mut Scratch) -> String {
         match classify_tar_entry(entry, scratch).expect("classify entry") {
             EntryInfo::Skip => "skip".to_owned(),
             EntryInfo::Whiteout(path) => format!("whiteout:{}", path.display()),

@@ -24,7 +24,7 @@ pub(crate) async fn walk<F>(
 where
     F: for<'a, 'b> FnMut(
         usize,
-        tar::Entry<&'a mut download::LayerReader>,
+        tar::Entry<'_, &'a mut download::LayerReader<'_>>,
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
@@ -63,7 +63,7 @@ fn extract_all<F>(
 where
     F: for<'a, 'b> FnMut(
         usize,
-        tar::Entry<&'a mut download::LayerReader>,
+        tar::Entry<'_, &'a mut download::LayerReader<'_>>,
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {
@@ -92,7 +92,7 @@ where
 
 /// Iterate one layer's archive, skipping entries blocked by whiteouts.
 fn extract_layer<F>(
-    reader: &mut download::LayerReader,
+    reader: &mut download::LayerReader<'_>,
     layer_idx: usize,
     whiteouts: &HashMap<PathBuf, usize>,
     on_entry: &mut F,
@@ -100,7 +100,7 @@ fn extract_layer<F>(
 where
     F: for<'a, 'b> FnMut(
         usize,
-        tar::Entry<&'a mut download::LayerReader>,
+        tar::Entry<'_, &'a mut download::LayerReader<'_>>,
         scan::EntryInfo<'b>,
     ) -> Result<()>,
 {

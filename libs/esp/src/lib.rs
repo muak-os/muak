@@ -2,8 +2,6 @@
 
 #![warn(missing_docs)]
 
-extern crate alloc;
-
 pub mod arch;
 pub mod error;
 pub mod guid;

@@ -78,6 +78,8 @@ fn next_link(link: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use super::*;
 
     const URL: &str = "https://registry.example/v2/muak/linux/tags/list";

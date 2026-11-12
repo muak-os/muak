@@ -5,8 +5,6 @@
 
 #![warn(missing_docs)]
 
-extern crate alloc;
-
 mod text;
 
 pub mod aliases;

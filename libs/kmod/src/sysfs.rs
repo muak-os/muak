@@ -56,6 +56,8 @@ fn read_modalias(device_path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use std::io::Write as _;
 
     use tempfile::TempDir;

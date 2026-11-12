@@ -142,6 +142,8 @@ fn parse_hex_gateway(hex: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use super::*;
 
     #[test]

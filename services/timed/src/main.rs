@@ -4,8 +4,6 @@
 //! when available (see `host.clock`), or SNTP against a configured NTP
 //! server. Uses simple direct clock setting (no PLL).
 
-extern crate alloc;
-
 mod clock;
 mod hypervisor;
 mod ntp;

@@ -1,7 +1,5 @@
 //! Console status display daemon.
 
-extern crate alloc;
-
 mod app;
 mod input;
 mod log;
