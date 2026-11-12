@@ -11,7 +11,7 @@ use super::*;
 #[tokio::test]
 async fn supervisor_initializes_with_one_interface() {
     // ARRANGE
-    let config = super::make_config();
+    let config = make_config();
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
@@ -36,7 +36,7 @@ async fn supervisor_initializes_with_one_interface() {
 #[tokio::test]
 async fn supervisor_shuts_down_when_all_channels_dropped() {
     // ARRANGE
-    let config = super::make_config();
+    let config = make_config();
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 

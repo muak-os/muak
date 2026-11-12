@@ -191,7 +191,7 @@ pub fn collapse(permissions: &[Permission]) -> Vec<String> {
     let mut remaining: Vec<_> = permissions
         .iter()
         .filter(|perm| !handled.contains(*perm))
-        .map(alloc::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
     remaining.sort();
     remaining.dedup();
@@ -412,7 +412,7 @@ mod tests {
         let collapsed = collapse(&[]);
 
         // ASSERT
-        assert_eq!(collapsed, Vec::<alloc::string::String>::new());
+        assert_eq!(collapsed, Vec::<String>::new());
     }
 
     #[test]

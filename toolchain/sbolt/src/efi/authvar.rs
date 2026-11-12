@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(got_attrs, attrs.bits());
         offset = attrs_end;
 
-        let time_bytes = super::time_to_bytes(&timestamp);
+        let time_bytes = time_to_bytes(&timestamp);
         let time_end = offset.checked_add(16).expect("time end offset");
         assert_eq!(desc.get(offset..time_end).expect("time bytes"), &time_bytes);
         offset = time_end;

@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(keyslot.area.encryption, CIPHER_SPEC);
         assert_eq!(keyslot.area.offset, DEFAULT_KEYSLOT_AREA_OFFSET.to_string());
 
-        let decoded_salt = base64ct::Base64::decode_vec(&keyslot.kdf.salt).unwrap();
+        let decoded_salt = Base64::decode_vec(&keyslot.kdf.salt).unwrap();
         assert_eq!(decoded_salt, kdf_salt);
     }
 

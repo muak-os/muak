@@ -183,7 +183,7 @@ mod tests {
             key_size: 64,
             kdf: Kdf {
                 r#type: "argon2id".to_owned(),
-                salt: base64ct::Base64::encode_string(&[0x42_u8; 64]),
+                salt: Base64::encode_string(&[0x42_u8; 64]),
                 time: Some(1),
                 memory: Some(0x0001_0000),
                 cpus: Some(4),

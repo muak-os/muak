@@ -132,7 +132,7 @@ mod tests {
         let second = stream.next().await;
 
         // ASSERT
-        assert_eq!(first.and_then(core::result::Result::ok), Some(7_u32));
+        assert_eq!(first.and_then(Result::ok), Some(7_u32));
         assert!(second.is_none(), "stream must end after a single item");
     }
 
@@ -142,8 +142,8 @@ mod tests {
         let (first, second, completion_value) = run_forwards_progress_scenario().await;
 
         // ASSERT
-        assert_eq!(first.and_then(core::result::Result::ok), Some(1_u32));
-        assert_eq!(second.and_then(core::result::Result::ok), Some(2_u32));
+        assert_eq!(first.and_then(Result::ok), Some(1_u32));
+        assert_eq!(second.and_then(Result::ok), Some(2_u32));
         assert_eq!(completion_value, Some(99_u32));
     }
 }

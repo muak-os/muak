@@ -1,6 +1,5 @@
 //! Bridging of boot-image metadata into `/run/boot`.
 
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -24,10 +23,10 @@ fn bridge_from(metadata_dir: &Path, boot_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    fs::create_dir_all(boot_dir)
+    std::fs::create_dir_all(boot_dir)
         .with_context(|| format!("failed to create {}", boot_dir.display()))?;
 
-    let entries = fs::read_dir(metadata_dir)
+    let entries = std::fs::read_dir(metadata_dir)
         .with_context(|| format!("failed to read {}", metadata_dir.display()))?;
 
     for entry in entries {
@@ -39,7 +38,7 @@ fn bridge_from(metadata_dir: &Path, boot_dir: &Path) -> Result<()> {
         }
 
         let destination = boot_dir.join(entry.file_name());
-        fs::copy(&source, &destination)
+        std::fs::copy(&source, &destination)
             .with_context(|| format!("failed to copy {}", source.display()))?;
     }
 

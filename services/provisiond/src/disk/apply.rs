@@ -7,7 +7,7 @@ use ::disk::plan::{Plan, Size};
 use ::disk::role::Role;
 use anyhow::{Result, anyhow, bail};
 use blockdev::device;
-use partdev::{clear, kernel, table};
+use partdev::{clear, kernel};
 use parttable::gpt::layout::{Placement, PlacementRequest, Size as PlacementSize, Start};
 use parttable::gpt::partition::Partition as GptPartition;
 use parttable::gpt::table::Table;
@@ -75,12 +75,12 @@ pub(crate) fn plan(disk: &str, plan: &Plan) -> Result<AppliedPlan> {
     }
 
     let file = open_disk_rw(disk)?;
-    let sector_count = table::sector_count(&file)?;
+    let sector_count = partdev::table::sector_count(&file)?;
     let mut gpt = load_table(&file, sector_count, plan.wipe)?;
 
     let created = place_all(&mut gpt, plan)?;
 
-    table::commit(&file, &gpt, sector_count)?;
+    partdev::table::commit(&file, &gpt, sector_count)?;
     drop(file);
 
     kmsg::info!("Re-reading partition table of {}", disk);
@@ -118,7 +118,7 @@ pub(crate) fn load_table(file: &File, sector_count: u64, wipe: bool) -> Result<T
         return Ok(Table::create(sector_count, SECTOR_SIZE, DISK_GUID)?);
     }
 
-    let table = table::read(file).map_err(|error| {
+    let table = partdev::table::read(file).map_err(|error| {
         anyhow!("no partition table found; cannot append to a blank disk: {error}")
     })?;
 

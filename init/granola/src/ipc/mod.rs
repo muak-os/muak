@@ -23,6 +23,7 @@ pub(crate) mod services;
     clippy::trivially_copy_pass_by_ref,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod proto {

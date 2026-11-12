@@ -1,7 +1,5 @@
 //! Final summary block.
 
-use std::io;
-
 use crate::live::renderer::write_plain;
 use crate::output::{Mode, Output};
 use crate::screen::Screen;
@@ -47,7 +45,7 @@ impl<'a> Summary<'a> {
 /// # Errors
 ///
 /// Returns an error when writing to standard output fails.
-pub fn print(summary: &Summary<'_>, output: Output) -> io::Result<()> {
+pub fn print(summary: &Summary<'_>, output: Output) -> std::io::Result<()> {
     let mut screen = Ansi::new(std::io::stdout(), output.size);
 
     render(summary, output, &mut screen)
@@ -58,7 +56,11 @@ pub fn print(summary: &Summary<'_>, output: Output) -> io::Result<()> {
 /// # Errors
 ///
 /// Returns an error when writing to `screen` fails.
-pub fn render<S: Screen>(summary: &Summary<'_>, output: Output, screen: &mut S) -> io::Result<()> {
+pub fn render<S: Screen>(
+    summary: &Summary<'_>,
+    output: Output,
+    screen: &mut S,
+) -> std::io::Result<()> {
     match output.mode {
         Mode::Quiet => match summary.quiet {
             Some(value) => write_plain(screen, &Line::plain(0, value)),

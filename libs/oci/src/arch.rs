@@ -40,7 +40,7 @@ impl fmt::Display for Arch {
 impl core::str::FromStr for Arch {
     type Err = String;
 
-    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::ALL
             .iter()
             .copied()

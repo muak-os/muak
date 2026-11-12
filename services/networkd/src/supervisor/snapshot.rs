@@ -52,7 +52,7 @@ mod tests {
         // ASSERT
         assert_eq!(snap.state, NetworkState::Uninitialized);
         assert!(snap.primary.is_none());
-        assert_eq!(snap.backups, Vec::<netlib::interface::Name>::new());
+        assert_eq!(snap.backups, Vec::<Name>::new());
         assert!(snap.interfaces.is_empty());
     }
 }

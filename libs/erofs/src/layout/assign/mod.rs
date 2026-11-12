@@ -135,7 +135,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::compress::Compression::None,
+            compression: Compression::None,
         }
     }
 
@@ -146,7 +146,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::compress::Compression::default(),
+            compression: Compression::default(),
         }
     }
 
@@ -462,11 +462,8 @@ mod tests {
         let start = super::meta_start(false);
 
         // ACT & ASSERT
-        assert!(start.is_multiple_of(crate::SLOT_SIZE));
-        assert_eq!(
-            start,
-            super::META_START.div_ceil(crate::SLOT_SIZE) * crate::SLOT_SIZE
-        );
+        assert!(start.is_multiple_of(SLOT_SIZE));
+        assert_eq!(start, super::META_START.div_ceil(SLOT_SIZE) * SLOT_SIZE);
     }
 
     #[test]
@@ -477,7 +474,7 @@ mod tests {
 
         // ACT & ASSERT
         assert!(with > without);
-        assert!(with.is_multiple_of(crate::SLOT_SIZE));
+        assert!(with.is_multiple_of(SLOT_SIZE));
     }
 
     #[test]

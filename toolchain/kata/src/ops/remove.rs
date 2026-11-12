@@ -234,8 +234,8 @@ mod tests {
         }
     }
 
-    fn input(root: &TempDir, role: Role, release: &str) -> super::Input {
-        super::Input {
+    fn input(root: &TempDir, role: Role, release: &str) -> Input {
+        Input {
             dir: root.path().to_path_buf(),
             role,
             name: None,

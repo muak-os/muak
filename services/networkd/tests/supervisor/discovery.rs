@@ -11,7 +11,7 @@ use super::*;
 #[tokio::test]
 async fn no_interfaces_retries_on_empty_discovery() {
     // ARRANGE
-    let config = super::make_config();
+    let config = make_config();
     let mock = MockNetlinkOps::new();
 
     let (_event_tx, event_rx) = mpsc::channel(32);
@@ -31,7 +31,7 @@ async fn no_interfaces_retries_on_empty_discovery() {
 #[tokio::test]
 async fn all_no_carrier_retries_on_degraded_discovery() {
     // ARRANGE
-    let config = super::make_config();
+    let config = make_config();
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], false);
     mock.add_link("eth1", [0xBB; 6], false);

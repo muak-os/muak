@@ -259,7 +259,7 @@ mod tests {
         let mut initrd_r = Cursor::new(initrd);
         let mut osrel_r = Cursor::new(osrel);
 
-        let sections = crate::write::write(
+        let sections = write(
             &manifest,
             &mut stub,
             Input {
@@ -289,7 +289,7 @@ mod tests {
         cmdline: u64,
         kernel: u64,
         initrd: u64,
-    ) -> (crate::prepare::Manifest, Cursor<&[u8]>) {
+    ) -> (Manifest, Cursor<&[u8]>) {
         let stub_size = u64::try_from(stub.len()).unwrap();
         let mut stub_reader = Cursor::new(stub);
         let probe = probe::probe(&mut stub_reader).unwrap();
@@ -352,7 +352,7 @@ mod tests {
         let mut cmdline_r = Cursor::new(&cmdline);
         let mut kernel_r = Cursor::new(&kernel);
         let mut initrd_r = Cursor::new(&initrd);
-        crate::write::write(
+        write(
             &manifest,
             &mut stub_r,
             Input {
@@ -439,7 +439,7 @@ mod tests {
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
 
         // ACT
-        let result = crate::write::write(
+        let result = write(
             &manifest,
             &mut stub_r,
             Input {
@@ -481,7 +481,7 @@ mod tests {
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
 
         // ACT
-        let result = crate::write::write(
+        let result = write(
             &manifest,
             &mut stub_r,
             Input {
@@ -566,7 +566,7 @@ mod tests {
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
 
         // ACT
-        crate::write::write(
+        write(
             &manifest,
             &mut stub_reader,
             Input {
@@ -660,7 +660,7 @@ mod tests {
         let mut initrd_r = Cursor::new(vec![0xCC; 2048]);
 
         // ACT
-        let result = crate::write::write(
+        let result = write(
             &manifest,
             &mut stub_r,
             Input {

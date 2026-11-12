@@ -72,7 +72,7 @@ impl Cli {
     pub fn config_path(&self) -> PathBuf {
         self.config_dir
             .path()
-            .join(format!("config.{}", config::system::CONFIG_EXTENSION))
+            .join(format!("config.{}", system::CONFIG_EXTENSION))
     }
 
     /// Runs `muakctl` with the given arguments, injecting `--endpoint` and `MUAK_CONFIG`.
@@ -152,10 +152,9 @@ impl Cli {
             .assert_success_impl(["config", "generate"], false)
             .await?;
         let mut cfg: system::Config =
-            config::system::parse_from_str(&raw).context("failed to parse generated config")?;
+            system::parse_from_str(&raw).context("failed to parse generated config")?;
         patch(&mut cfg);
-        let patched =
-            config::system::serialize(&cfg).context("failed to serialise patched config")?;
+        let patched = system::serialize(&cfg).context("failed to serialise patched config")?;
         let tmp = NamedTempFile::new().context("failed to create config tempfile")?;
         std::fs::write(tmp.path(), patched).context("failed to write config tempfile")?;
         Ok(tmp)

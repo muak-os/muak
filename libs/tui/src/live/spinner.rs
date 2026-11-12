@@ -1,6 +1,5 @@
 //! Animated single-line spinner.
 
-use std::io;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Instant;
 
@@ -32,7 +31,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn start<S, M>(screen: S, message: M, options: Options) -> io::Result<Self>
+    pub fn start<S, M>(screen: S, message: M, options: Options) -> std::io::Result<Self>
     where
         S: Screen + Send + 'static,
         M: Into<String>,
@@ -53,7 +52,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stdout<M: Into<String>>(message: M) -> io::Result<Self> {
+    pub fn stdout<M: Into<String>>(message: M) -> std::io::Result<Self> {
         Self::stdout_with(message, Output::detect(Stream::Stdout, Flags::default()))
     }
 
@@ -62,7 +61,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stderr<M: Into<String>>(message: M) -> io::Result<Self> {
+    pub fn stderr<M: Into<String>>(message: M) -> std::io::Result<Self> {
         Self::stderr_with(message, Output::detect(Stream::Stderr, Flags::default()))
     }
 
@@ -71,7 +70,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stdout_with<M: Into<String>>(message: M, output: Output) -> io::Result<Self> {
+    pub fn stdout_with<M: Into<String>>(message: M, output: Output) -> std::io::Result<Self> {
         let screen = Ansi::new(std::io::stdout(), output.size);
 
         Self::start(screen, message, Options::from_output(output))
@@ -82,7 +81,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stderr_with<M: Into<String>>(message: M, output: Output) -> io::Result<Self> {
+    pub fn stderr_with<M: Into<String>>(message: M, output: Output) -> std::io::Result<Self> {
         let screen = Ansi::new(std::io::stderr(), output.size);
 
         Self::start(screen, message, Options::from_output(output))
@@ -100,7 +99,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread fails.
-    pub fn success<M: Into<String>>(self, message: M) -> io::Result<()> {
+    pub fn success<M: Into<String>>(self, message: M) -> std::io::Result<()> {
         self.finish_with(Command::Success(message.into()))
     }
 
@@ -109,7 +108,7 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread fails.
-    pub fn fail<M: Into<String>>(self, message: M) -> io::Result<()> {
+    pub fn fail<M: Into<String>>(self, message: M) -> std::io::Result<()> {
         self.finish_with(Command::Fail(message.into()))
     }
 
@@ -118,11 +117,11 @@ impl Spinner {
     /// # Errors
     ///
     /// Returns an error when the renderer thread fails.
-    pub fn stop(self) -> io::Result<()> {
+    pub fn stop(self) -> std::io::Result<()> {
         self.renderer.finish()
     }
 
-    fn finish_with(self, command: Command) -> io::Result<()> {
+    fn finish_with(self, command: Command) -> std::io::Result<()> {
         if let Some(handle) = self.renderer.handle() {
             handle.send_waiting(command);
         }
@@ -131,7 +130,7 @@ impl Spinner {
     }
 }
 
-fn run<S: Screen>(mut screen: S, options: Options, rx: &Receiver<Command>) -> io::Result<()> {
+fn run<S: Screen>(mut screen: S, options: Options, rx: &Receiver<Command>) -> std::io::Result<()> {
     let mut message: Option<String> = None;
     let mut frame = 0_usize;
     let started = Instant::now();
@@ -177,7 +176,7 @@ fn update<S: Screen>(
     frame: &mut usize,
     started: Instant,
     text: String,
-) -> io::Result<()> {
+) -> std::io::Result<()> {
     if options.tty {
         draw(screen, options, &text, *frame, started)?;
         *frame = frame.saturating_add(1);
@@ -199,7 +198,7 @@ fn tick<S: Screen>(
     message: Option<&String>,
     frame: &mut usize,
     started: Instant,
-) -> io::Result<()> {
+) -> std::io::Result<()> {
     let Some(text) = message else {
         return Ok(());
     };
@@ -215,7 +214,7 @@ fn finish<S: Screen>(
     options: Options,
     message: &str,
     success: bool,
-) -> io::Result<()> {
+) -> std::io::Result<()> {
     if options.mode == Mode::Quiet && success {
         return Ok(());
     }
@@ -230,7 +229,7 @@ fn finish<S: Screen>(
     }
 }
 
-fn clear<S: Screen>(screen: &mut S, options: Options) -> io::Result<()> {
+fn clear<S: Screen>(screen: &mut S, options: Options) -> std::io::Result<()> {
     if !options.tty {
         return Ok(());
     }
@@ -258,7 +257,7 @@ fn draw<S: Screen>(
     message: &str,
     frame: usize,
     started: Instant,
-) -> io::Result<()> {
+) -> std::io::Result<()> {
     let width = usize::from(screen.size().cols);
     let line = spinner_line(
         message,

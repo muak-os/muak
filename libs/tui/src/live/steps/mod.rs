@@ -4,8 +4,6 @@ mod progress;
 mod render;
 mod state;
 
-use std::io;
-
 use state::{Command, run};
 
 use crate::live::Options;
@@ -34,13 +32,13 @@ impl Steps {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn new<S: Screen + Send + 'static>(screen: S, options: Options) -> io::Result<Self> {
+    pub fn new<S: Screen + Send + 'static>(screen: S, options: Options) -> std::io::Result<Self> {
         let renderer = Renderer::start("tui-steps", Command::Stop, move |rx| {
             run(screen, options, rx)
         })?;
         let handle = renderer
             .handle()
-            .ok_or_else(|| io::Error::other("renderer thread is not running"))?;
+            .ok_or_else(|| std::io::Error::other("renderer thread is not running"))?;
 
         Ok(Self {
             renderer,
@@ -53,7 +51,7 @@ impl Steps {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stdout() -> io::Result<Self> {
+    pub fn stdout() -> std::io::Result<Self> {
         Self::stdout_with(Output::detect(Stream::Stdout, Flags::default()))
     }
 
@@ -62,7 +60,7 @@ impl Steps {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stderr() -> io::Result<Self> {
+    pub fn stderr() -> std::io::Result<Self> {
         Self::stderr_with(Output::detect(Stream::Stderr, Flags::default()))
     }
 
@@ -71,7 +69,7 @@ impl Steps {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stdout_with(output: Output) -> io::Result<Self> {
+    pub fn stdout_with(output: Output) -> std::io::Result<Self> {
         let screen = Ansi::new(std::io::stdout(), output.size);
 
         Self::new(screen, Options::from_output(output))
@@ -82,7 +80,7 @@ impl Steps {
     /// # Errors
     ///
     /// Returns an error when the renderer thread cannot start.
-    pub fn stderr_with(output: Output) -> io::Result<Self> {
+    pub fn stderr_with(output: Output) -> std::io::Result<Self> {
         let screen = Ansi::new(std::io::stderr(), output.size);
 
         Self::new(screen, Options::from_output(output))
@@ -144,7 +142,7 @@ impl Steps {
     /// # Errors
     ///
     /// Returns an error when the renderer thread fails.
-    pub fn finish(self) -> io::Result<()> {
+    pub fn finish(self) -> std::io::Result<()> {
         self.renderer.finish()
     }
 }

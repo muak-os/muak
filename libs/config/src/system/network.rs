@@ -78,7 +78,7 @@ pub struct Cidr4 {
 impl FromStr for Cidr4 {
     type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (addr_part, prefix_part) = s
             .split_once('/')
             .ok_or_else(|| format!("missing '/' in CIDR address: '{s}'"))?;
@@ -103,18 +103,13 @@ impl fmt::Display for Cidr4 {
 }
 
 impl Serialize for Cidr4 {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())
     }
 }
 
 impl<'de> Deserialize<'de> for Cidr4 {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
 
         text.parse::<Cidr4>().map_err(serde::de::Error::custom)
@@ -133,7 +128,7 @@ pub struct Cidr6 {
 impl FromStr for Cidr6 {
     type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (addr_part, prefix_part) = s
             .split_once('/')
             .ok_or_else(|| format!("missing '/' in CIDR address: '{s}'"))?;
@@ -158,18 +153,13 @@ impl fmt::Display for Cidr6 {
 }
 
 impl Serialize for Cidr6 {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())
     }
 }
 
 impl<'de> Deserialize<'de> for Cidr6 {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
 
         text.parse::<Cidr6>().map_err(serde::de::Error::custom)

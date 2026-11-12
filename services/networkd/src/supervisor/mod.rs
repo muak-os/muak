@@ -248,7 +248,7 @@ pub fn start() -> Result<NetworkActorHandle> {
 
     let ops = Rtnl::new(handle.clone());
     let event_rx = start_events_monitor();
-    let config = Arc::new(config::system::network()?.clone());
+    let config = Arc::new(network()?.clone());
 
     start_with(ops, event_rx, config, Resolver::default())
 }

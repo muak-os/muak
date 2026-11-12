@@ -257,9 +257,9 @@ mod tests {
     const PLAIN_LAYER: &str = "application/vnd.oci.image.layer.v1.tar";
 
     fn test_store_bytes() -> (File, Vec<u8>) {
-        let tmp = tempfile::TempDir::new().expect("temp dir");
+        let tmp = TempDir::new().expect("temp dir");
         let path = tmp.path().join("layer.tar");
-        let mut file = std::fs::File::create(&path).expect("create layer file");
+        let mut file = File::create(&path).expect("create layer file");
         file.write_all(b"tar-entry-bytes").expect("write layer");
         let bytes = b"tar-entry-bytes".to_vec();
 

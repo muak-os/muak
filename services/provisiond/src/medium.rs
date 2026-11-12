@@ -52,8 +52,6 @@ fn version_from(path: &Path) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    extern crate alloc;
-
     use tempfile::tempdir;
     use wizard::domain::profile::{CustomizationSpec, KernelSpec, Profile};
 
@@ -69,10 +67,7 @@ mod tests {
         // ASSERT
         assert!(parsed.overlay().is_none());
         assert_eq!(parsed.kernel().source(), "muak-os/linux");
-        assert_eq!(
-            parsed.customization().extensions(),
-            Vec::<alloc::string::String>::new()
-        );
+        assert_eq!(parsed.customization().extensions(), Vec::<String>::new());
     }
 
     #[test]

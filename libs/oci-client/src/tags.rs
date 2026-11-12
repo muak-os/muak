@@ -78,8 +78,6 @@ fn next_link(link: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    extern crate alloc;
-
     use super::*;
 
     const URL: &str = "https://registry.example/v2/muak/linux/tags/list";
@@ -104,8 +102,8 @@ mod tests {
             parse_tags(br#"{"name":"muak/linux","tags":null}"#, URL).expect("valid tags list");
 
         // ASSERT
-        assert_eq!(missing, Vec::<alloc::string::String>::new());
-        assert_eq!(null, Vec::<alloc::string::String>::new());
+        assert_eq!(missing, Vec::<String>::new());
+        assert_eq!(null, Vec::<String>::new());
     }
 
     #[test]

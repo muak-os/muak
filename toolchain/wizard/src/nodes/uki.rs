@@ -2,11 +2,10 @@
 
 use std::io::Read as _;
 
-use koci::pull;
 use uki::measure::MeasuredSection;
 use yuki::pe::section::Section;
-use yuki::write::{self, Input};
-use yuki::{prepare, probe};
+use yuki::prepare::Components;
+use yuki::write::Input;
 
 use crate::artifact::Artifact;
 use crate::error::{Result, WizardError};
@@ -66,7 +65,7 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     let kind = graph.node(id)?.kind;
 
     let mut prefix = Vec::new();
-    pull::files(
+    koci::pull::files(
         build.stub(),
         &build.arch(),
         None,
@@ -84,17 +83,17 @@ fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Resul
     .map_err(|e| WizardError::pull("probe stub prefix", build.stub(), &e))?;
 
     let mut stub = prefix.as_slice();
-    let probed = probe::probe(&mut stub)
+    let probed = yuki::probe::probe(&mut stub)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;
 
     let input = |port: PortId| -> Result<u64> {
         let sid = graph.node(id)?.input(port)?;
         Ok(graph.stream(sid)?.size)
     };
-    let manifest = prepare::prepare(
+    let manifest = yuki::prepare::prepare(
         probed,
         input(UKI_STUB)?,
-        prepare::Components {
+        Components {
             cmdline: input(UKI_CMDLINE)?,
             kernel: input(UKI_KERNEL)?,
             initramfs: input(UKI_INITRAMFS)?,
@@ -130,12 +129,12 @@ fn run(
     let osrel_text = osrel(ctx.build.version());
     let mut osrel_reader = osrel_text.as_slice();
 
-    let probed = probe::probe(&mut stub.reader)
+    let probed = yuki::probe::probe(&mut stub.reader)
         .map_err(|e| WizardError::BuildError(format!("probe stub header: {e}")))?;
-    let manifest = prepare::prepare(
+    let manifest = yuki::prepare::prepare(
         probed,
         stub.size,
-        prepare::Components {
+        Components {
             cmdline: cmdline.size,
             kernel: kernel.size,
             initramfs: initramfs.size,
@@ -152,7 +151,7 @@ fn run(
         )));
     }
 
-    write::write(
+    yuki::write::write(
         &manifest,
         &mut stub.reader,
         input(&mut cmdline),

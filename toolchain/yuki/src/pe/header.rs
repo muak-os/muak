@@ -48,9 +48,9 @@ fn header_fields(
 fn section_headers(prefix: &mut [u8], metadata: &Metadata, table: &Table) -> Result<()> {
     for (i, header) in table.headers.iter().enumerate() {
         let section_index = usize::from(metadata.existing_section_count).saturating_add(i);
-        let offset = metadata.section_table_offset.saturating_add(
-            section_index.saturating_mul(core::mem::size_of::<ImageSectionHeader>()),
-        );
+        let offset = metadata
+            .section_table_offset
+            .saturating_add(section_index.saturating_mul(size_of::<ImageSectionHeader>()));
         let header_bytes = section::header_to_bytes(header);
         range(prefix, offset, &header_bytes, "section header")?;
     }
@@ -156,7 +156,7 @@ mod tests {
         patch(&mut prefix, &metadata, &table).unwrap();
 
         // ASSERT
-        let hdr_size = core::mem::size_of::<ImageSectionHeader>();
+        let hdr_size = size_of::<ImageSectionHeader>();
         let first_new =
             metadata.section_table_offset + usize::from(metadata.existing_section_count) * hdr_size;
         assert_eq!(&prefix[first_new..first_new + 8], b".cmdline");

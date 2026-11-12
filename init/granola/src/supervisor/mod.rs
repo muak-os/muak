@@ -268,7 +268,7 @@ mod tests {
     }
 
     impl Spawn for FakeSpawner {
-        fn spawn(&mut self, state: &mut service::ServiceState) -> Result<SpawnResult> {
+        fn spawn(&mut self, state: &mut ServiceState) -> Result<SpawnResult> {
             let pid = self.next_pid;
             self.next_pid = self.next_pid.saturating_add(1);
             self.spawned.push((state.service.name.clone(), pid));
@@ -298,7 +298,7 @@ mod tests {
     }
 
     impl Spawn for FailingSpawner {
-        fn spawn(&mut self, _state: &mut service::ServiceState) -> Result<SpawnResult> {
+        fn spawn(&mut self, _state: &mut ServiceState) -> Result<SpawnResult> {
             self.attempts = self.attempts.saturating_add(1);
             bail!("Binary not found: /nonexistent");
         }
@@ -881,7 +881,7 @@ mod tests {
         assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(1));
 
         let not_yet_due = sup.restart_queue.take_due(|_| false);
-        assert_eq!(not_yet_due, Vec::<alloc::string::String>::new());
+        assert_eq!(not_yet_due, Vec::<String>::new());
 
         let due = sup.restart_queue.take_due(|_| true);
 

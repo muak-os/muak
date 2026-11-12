@@ -1,7 +1,7 @@
 //! Build subcommand.
 
 use std::fmt::Write as _;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -156,7 +156,7 @@ fn report_outputs(
     let mut rows: Vec<(String, String)> = Vec::new();
     for &artifact in &args.artifacts {
         let path = args.output_dir.join(artifact.output_name(codec));
-        let size = fs::metadata(&path).map_or(0, |meta| meta.len());
+        let size = std::fs::metadata(&path).map_or(0, |meta| meta.len());
         rows.push((
             artifact.filename().to_owned(),
             format!("{} ({})", path.display(), units::bytes(size)),

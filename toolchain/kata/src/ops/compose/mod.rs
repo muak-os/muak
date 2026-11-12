@@ -14,7 +14,6 @@ pub(crate) mod selection;
 use std::path::{Path, PathBuf};
 
 use bases::{output_documents, parent_bases, parent_line};
-use koci::registry;
 use plan::{Auto, Selections};
 
 use crate::error::{KataError, Result};
@@ -110,7 +109,7 @@ fn gate_publication(documents: &[Document], release: &str, force: bool) -> Resul
 
     for document in documents {
         let line_reference = reference(document.kind().dir(), release);
-        if registry::manifest_exists(&line_reference)
+        if koci::registry::manifest_exists(&line_reference)
             .map_err(|error| KataError::Registry(error.to_string()))?
         {
             return Err(KataError::Gate(format!(

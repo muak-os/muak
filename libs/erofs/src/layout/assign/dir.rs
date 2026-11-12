@@ -134,7 +134,7 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::compress::Compression::None,
+            compression: Compression::None,
         }
     }
 

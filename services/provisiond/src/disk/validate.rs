@@ -82,7 +82,7 @@ mod tests {
             },
         );
 
-        partdev::table::commit(disk.as_file(), &table, sector_count).expect("commit table");
+        table::commit(disk.as_file(), &table, sector_count).expect("commit table");
 
         disk
     }

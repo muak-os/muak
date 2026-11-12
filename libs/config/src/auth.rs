@@ -156,7 +156,7 @@ mod tests {
     use super::*;
     use crate::codec::TomlCodec;
 
-    fn parse(contents: &str) -> crate::Result<State> {
+    fn parse(contents: &str) -> Result<State> {
         TomlCodec::decode(contents)
     }
 

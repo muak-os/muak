@@ -1,6 +1,5 @@
-//! Journal of config changes.
+//! Journal of configuration changes.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
@@ -158,10 +157,10 @@ pub(crate) fn append(entry: &Entry, config: &str) -> Result<()> {
     stamped.timestamp = now();
 
     let dir = Path::new(JOURNAL_DIR).join(stem(stamped.timestamp, &stamped.update_id));
-    fs::create_dir_all(&dir).context("Failed to create journal entry dir")?;
-    fs::write(dir.join("entry.toml"), stamped.to_toml()?)
+    std::fs::create_dir_all(&dir).context("Failed to create journal entry dir")?;
+    std::fs::write(dir.join("entry.toml"), stamped.to_toml()?)
         .context("Failed to write journal entry")?;
-    fs::write(dir.join("config.toml"), config).context("Failed to write config snapshot")?;
+    std::fs::write(dir.join("config.toml"), config).context("Failed to write config snapshot")?;
 
     prune();
 
@@ -178,7 +177,7 @@ pub(crate) fn list(limit: usize) -> Result<Vec<Entry>> {
         return Ok(Vec::new());
     }
 
-    let mut dirs: Vec<PathBuf> = fs::read_dir(JOURNAL_DIR)
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(JOURNAL_DIR)
         .context("Failed to read journal dir")?
         .filter_map(core::result::Result::ok)
         .map(|entry| entry.path())
@@ -205,12 +204,13 @@ pub(crate) fn list(limit: usize) -> Result<Vec<Entry>> {
 /// Returns an error when the entry or its snapshot cannot be read.
 pub(crate) fn snapshot(update_id: &str) -> Result<String> {
     if update_id.is_empty() {
-        return fs::read_to_string(config::system::CONFIG_PATH)
+        return std::fs::read_to_string(config::system::CONFIG_PATH)
             .context("Failed to read current config");
     }
 
     let dir = find_entry_dir(update_id).context("No journal entry found for update ID")?;
-    fs::read_to_string(dir.join("config.toml")).context("Failed to read journal config snapshot")
+    std::fs::read_to_string(dir.join("config.toml"))
+        .context("Failed to read journal config snapshot")
 }
 
 /// Returns the rollback reason recorded for `update_id`, if any.
@@ -221,13 +221,13 @@ pub(crate) fn find(update_id: &str) -> Option<Entry> {
 
 fn read_entry(dir: &Path) -> Result<Entry> {
     let bytes =
-        fs::read_to_string(dir.join("entry.toml")).context("Failed to read journal entry")?;
+        std::fs::read_to_string(dir.join("entry.toml")).context("Failed to read journal entry")?;
 
     Entry::from_toml(&bytes)
 }
 
 fn find_entry_dir(update_id: &str) -> Option<PathBuf> {
-    fs::read_dir(JOURNAL_DIR)
+    std::fs::read_dir(JOURNAL_DIR)
         .ok()?
         .filter_map(core::result::Result::ok)
         .map(|entry| entry.path())
@@ -239,7 +239,7 @@ fn find_entry_dir(update_id: &str) -> Option<PathBuf> {
 }
 
 fn prune() {
-    let mut dirs: Vec<PathBuf> = match fs::read_dir(JOURNAL_DIR) {
+    let mut dirs: Vec<PathBuf> = match std::fs::read_dir(JOURNAL_DIR) {
         Ok(rd) => rd
             .filter_map(core::result::Result::ok)
             .map(|entry| entry.path())
@@ -254,7 +254,7 @@ fn prune() {
     dirs.sort_unstable();
     let to_delete = dirs.len().saturating_sub(MAX_ENTRIES);
     for dir in dirs.iter().take(to_delete) {
-        if let Err(e) = fs::remove_dir_all(dir) {
+        if let Err(e) = std::fs::remove_dir_all(dir) {
             eprintln!("Failed to prune journal entry {}: {e}", dir.display());
         }
     }
@@ -305,7 +305,7 @@ mod tests {
                     .is_some_and(|name| name.ends_with(&format!("-{update_id}")))
             })
             .context("No journal entry found")?;
-        fs::read_to_string(entry_dir.join("config.toml")).context("Failed to read snapshot")
+        std::fs::read_to_string(entry_dir.join("config.toml")).context("Failed to read snapshot")
     }
 
     fn rollback_from(dir: &Path, update_id: &str) -> Option<String> {
@@ -323,7 +323,7 @@ mod tests {
     }
 
     fn prune_from(dir: &Path, max: usize) {
-        let mut dirs: Vec<PathBuf> = fs::read_dir(dir)
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(dir)
             .expect("read dir")
             .filter_map(core::result::Result::ok)
             .map(|entry| entry.path())
@@ -334,12 +334,12 @@ mod tests {
         dirs.sort_unstable();
         let to_delete = dirs.len().saturating_sub(max);
         for path in dirs.iter().take(to_delete) {
-            fs::remove_dir_all(path).expect("prune");
+            std::fs::remove_dir_all(path).expect("prune");
         }
     }
 
     fn list_from(dir: &Path, limit: usize) -> Result<Vec<Entry>> {
-        let mut dirs: Vec<PathBuf> = fs::read_dir(dir)?
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(dir)?
             .filter_map(core::result::Result::ok)
             .map(|entry| entry.path())
             .collect();
@@ -509,7 +509,7 @@ mod tests {
         prune_from(&dir, 3);
 
         // ASSERT
-        let remaining: Vec<_> = fs::read_dir(&dir)
+        let remaining: Vec<_> = std::fs::read_dir(&dir)
             .expect("read dir")
             .filter_map(core::result::Result::ok)
             .map(|entry| entry.path())

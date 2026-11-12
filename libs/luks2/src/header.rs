@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(header.size, DEFAULT_HEADER_SIZE);
         assert_eq!(header.sequence_id, 1);
 
-        let label_str = core::str::from_utf8(&header.label)
+        let label_str = str::from_utf8(&header.label)
             .unwrap()
             .trim_end_matches('\0');
         assert_eq!(label_str, label);
@@ -296,7 +296,7 @@ mod tests {
         let header = Header::new(uuid, &label).unwrap();
 
         // ASSERT
-        let label_str = core::str::from_utf8(&header.label)
+        let label_str = str::from_utf8(&header.label)
             .unwrap()
             .trim_end_matches('\0');
         assert_eq!(label_str.len(), 47);
@@ -522,9 +522,7 @@ mod tests {
 
         // ASSERT
         let alg_bytes = &serialized[72..104];
-        let alg_str = core::str::from_utf8(alg_bytes)
-            .unwrap()
-            .trim_end_matches('\0');
+        let alg_str = str::from_utf8(alg_bytes).unwrap().trim_end_matches('\0');
         assert_eq!(alg_str, CHECKSUM_ALG);
     }
 

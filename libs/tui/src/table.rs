@@ -1,7 +1,6 @@
 //! Table rendering with styled cells and display widths.
 
 use alloc::borrow::Cow;
-use std::io;
 
 use crate::screen::Screen;
 use crate::screen::ansi::Ansi;
@@ -118,7 +117,7 @@ impl Table {
     /// # Errors
     ///
     /// Returns an error when the screen writer fails.
-    pub fn render<S: Screen>(&self, screen: &mut S, theme: Theme) -> io::Result<()> {
+    pub fn render<S: Screen>(&self, screen: &mut S, theme: Theme) -> std::io::Result<()> {
         if !self.headers.is_empty() {
             self.render_row(screen, &self.headers, theme, true)?;
         }
@@ -135,7 +134,7 @@ impl Table {
     /// # Errors
     ///
     /// Returns an error when standard output fails.
-    pub fn print(&self) -> io::Result<()> {
+    pub fn print(&self) -> std::io::Result<()> {
         let mut screen = Ansi::new(std::io::stdout(), Size::default());
 
         self.render(&mut screen, crate::style::stdout())
@@ -157,7 +156,7 @@ impl Table {
         cells: &[Cell],
         theme: Theme,
         header: bool,
-    ) -> io::Result<()> {
+    ) -> std::io::Result<()> {
         if let Some((last, rest)) = cells.split_last() {
             self.render_cells(screen, rest, theme, header)?;
             write_cell(screen, last, theme, header)?;
@@ -172,7 +171,7 @@ impl Table {
         cells: &[Cell],
         theme: Theme,
         header: bool,
-    ) -> io::Result<()> {
+    ) -> std::io::Result<()> {
         for (index, cell) in cells.iter().enumerate() {
             write_cell(screen, cell, theme, header)?;
             self.write_padding(screen, index, cell)?;
@@ -186,7 +185,7 @@ impl Table {
         screen: &mut S,
         index: usize,
         cell: &Cell,
-    ) -> io::Result<()> {
+    ) -> std::io::Result<()> {
         let column_width = self
             .widths
             .get(index)
@@ -203,7 +202,7 @@ fn write_cell<S: Screen>(
     cell: &Cell,
     theme: Theme,
     header: bool,
-) -> io::Result<()> {
+) -> std::io::Result<()> {
     if header {
         return write_header_cell(screen, cell, theme);
     }
@@ -215,7 +214,7 @@ fn write_cell<S: Screen>(
     Ok(())
 }
 
-fn write_header_cell<S: Screen>(screen: &mut S, cell: &Cell, theme: Theme) -> io::Result<()> {
+fn write_header_cell<S: Screen>(screen: &mut S, cell: &Cell, theme: Theme) -> std::io::Result<()> {
     for span in &cell.spans {
         let styled = Span::styled(span.text().to_owned(), theme.style(Role::Header));
         screen.write_span(&styled)?;
@@ -224,7 +223,7 @@ fn write_header_cell<S: Screen>(screen: &mut S, cell: &Cell, theme: Theme) -> io
     Ok(())
 }
 
-fn write_spaces<S: Screen>(screen: &mut S, count: usize) -> io::Result<()> {
+fn write_spaces<S: Screen>(screen: &mut S, count: usize) -> std::io::Result<()> {
     let spaces = " ".repeat(count);
 
     screen.write_span(&Span::plain(spaces))

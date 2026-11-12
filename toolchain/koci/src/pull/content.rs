@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write as _};
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -76,9 +76,12 @@ impl Content {
     /// # Errors
     ///
     /// Returns an IO error when the blob is not stored.
-    pub(crate) fn open_blob(&self, digest: &str) -> io::Result<File> {
+    pub(crate) fn open_blob(&self, digest: &str) -> std::io::Result<File> {
         let path = cache::blob_file_path(self.root.as_deref(), digest).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "digest without sha256 prefix")
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "digest without sha256 prefix",
+            )
         })?;
 
         File::open(path)
@@ -228,11 +231,11 @@ impl Ingest {
 }
 
 impl std::io::Write for Ingest {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.file.write(buf)
     }
 
-    fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.file.flush()
     }
 }
@@ -500,7 +503,7 @@ mod tests {
         std::fs::create_dir_all(tmp.path().join("ingest")).expect("create ingest dir");
         std::fs::write(&ingest, b"still being written").expect("write fresh");
         std::fs::write(&stale, b"abandoned").expect("write stale");
-        let old = std::time::SystemTime::now()
+        let old = SystemTime::now()
             .checked_sub(STALE_INGEST + Duration::from_mins(1))
             .expect("old timestamp");
         let stale_file = File::options()

@@ -152,8 +152,7 @@ fn build_header(
 fn validate_header_capacity(metadata: &Metadata, additional_sections: usize) -> Result<()> {
     let total_sections =
         usize::from(metadata.existing_section_count).saturating_add(additional_sections);
-    let section_table_size =
-        total_sections.saturating_mul(core::mem::size_of::<ImageSectionHeader>());
+    let section_table_size = total_sections.saturating_mul(size_of::<ImageSectionHeader>());
     let section_table_end = metadata
         .section_table_offset
         .saturating_add(section_table_size);
@@ -224,8 +223,8 @@ pub(crate) fn build_table(
 
 pub(crate) fn header_to_bytes(
     header: &ImageSectionHeader,
-) -> [u8; core::mem::size_of::<ImageSectionHeader>()] {
-    let mut bytes = [0_u8; core::mem::size_of::<ImageSectionHeader>()];
+) -> [u8; size_of::<ImageSectionHeader>()] {
+    let mut bytes = [0_u8; size_of::<ImageSectionHeader>()];
 
     bytes[SECTION_NAME_OFFSET..SECTION_NAME_OFFSET + SECTION_NAME_MAX_LEN]
         .copy_from_slice(&header.name);
@@ -597,7 +596,7 @@ mod tests {
         let bytes = header_to_bytes(&ImageSectionHeader::default());
 
         // ASSERT
-        assert_eq!(bytes.len(), core::mem::size_of::<ImageSectionHeader>());
+        assert_eq!(bytes.len(), size_of::<ImageSectionHeader>());
         assert_eq!(byte_range(&bytes, 24..36), [0_u8; 12]);
     }
 

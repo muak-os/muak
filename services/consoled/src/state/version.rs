@@ -1,6 +1,5 @@
 //! Release version from the booted image metadata.
 
-use std::fs;
 use std::path::Path;
 
 use super::PollState;
@@ -19,7 +18,7 @@ pub(super) fn read(poll: &mut PollState) -> String {
 }
 
 fn version_from(path: &Path) -> Option<String> {
-    let contents = fs::read_to_string(path).ok()?;
+    let contents = std::fs::read_to_string(path).ok()?;
     let version = contents.trim();
 
     (!version.is_empty()).then(|| version.to_owned())

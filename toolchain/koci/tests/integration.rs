@@ -2,8 +2,6 @@
 
 #![cfg(feature = "cli")]
 
-extern crate alloc;
-
 #[cfg(test)]
 mod fixtures;
 #[cfg(test)]
@@ -197,7 +195,7 @@ mod tests {
         let entries: Vec<_> = archive
             .entries()
             .expect("iterate layer entries")
-            .filter_map(std::result::Result::ok)
+            .filter_map(Result::ok)
             .collect();
         entries
             .iter()
@@ -1511,7 +1509,7 @@ mod tests {
         let digests: Vec<String> = layers.iter().map(|layer| sha256_digest(layer)).collect();
         let entries = digests
             .iter()
-            .zip(layers.iter().map(alloc::vec::Vec::len))
+            .zip(layers.iter().map(Vec::len))
             .map(|(digest, size)| {
                 (
                     digest.as_str(),

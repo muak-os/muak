@@ -37,7 +37,7 @@ pub(crate) fn set_icmpv6_filter<Fd: AsFd>(fd: Fd, filter: &Icmp6Filter) -> Resul
             libc::IPPROTO_ICMPV6,
             ICMP6_FILTER,
             core::ptr::addr_of!(*filter).cast::<libc::c_void>(),
-            libc::socklen_t::try_from(core::mem::size_of::<Icmp6Filter>()).unwrap_or(0),
+            libc::socklen_t::try_from(size_of::<Icmp6Filter>()).unwrap_or(0),
         )
     };
     if ret < 0_i32 {

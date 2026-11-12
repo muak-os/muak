@@ -243,7 +243,7 @@ mod tests {
         let member = Member::File {
             path: "catalog.toml".to_owned(),
             mode: 0o644,
-            file: std::fs::File::open(&source).expect("open"),
+            file: File::open(&source).expect("open"),
         };
         let mut bytes = Vec::new();
         let mut uncompressed = encode::Uncompressed::new();

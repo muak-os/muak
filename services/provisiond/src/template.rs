@@ -26,16 +26,15 @@ pub(crate) fn render(version: String, extensions: &[String]) -> Result<String> {
 ///
 /// Returns an error when the medium carries no version metadata.
 pub(crate) async fn generate() -> Result<String> {
-    let (version, extensions) =
-        task::spawn_blocking(|| -> anyhow::Result<(String, Vec<String>)> {
-            let version = medium::version()?;
-            let extensions = medium::profile()
-                .map_or_default(|booted| booted.customization().extensions().to_vec());
+    let (version, extensions) = task::spawn_blocking(|| -> Result<(String, Vec<String>)> {
+        let version = medium::version()?;
+        let extensions =
+            medium::profile().map_or_default(|booted| booted.customization().extensions().to_vec());
 
-            Ok((version, extensions))
-        })
-        .await
-        .context("template generation task failed")??;
+        Ok((version, extensions))
+    })
+    .await
+    .context("template generation task failed")??;
 
     render(version, &extensions)
 }

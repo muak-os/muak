@@ -674,7 +674,7 @@ ntp = "pool.ntp.org"
     #[test]
     fn load_from_path_nonexistent_uses_default() {
         // ARRANGE
-        let path = std::path::Path::new("/nonexistent/config.toml");
+        let path = Path::new("/nonexistent/config.toml");
 
         // ACT
         let config = load_from_path(path).unwrap();
@@ -713,14 +713,7 @@ ntp = "pool.ntp.org"
         let changes = diff(&config, &config).unwrap();
 
         // ASSERT
-        assert_eq!(
-            changes,
-            Vec::<(
-                alloc::string::String,
-                alloc::string::String,
-                alloc::string::String
-            )>::new()
-        );
+        assert_eq!(changes, Vec::<(String, String, String)>::new());
     }
 
     #[test]

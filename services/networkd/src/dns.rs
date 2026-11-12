@@ -2,7 +2,6 @@
 
 use core::fmt::Write as _;
 use core::net::{Ipv4Addr, Ipv6Addr};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -81,8 +80,8 @@ pub fn write_resolv_conf(
         println!("DNS: nameserver {ns}");
     }
 
-    fs::write(tmp_path, &content)?;
-    fs::rename(tmp_path, path)?;
+    std::fs::write(tmp_path, &content)?;
+    std::fs::rename(tmp_path, path)?;
 
     println!(
         "DNS configuration written to {} ({} v4, {} v6)",

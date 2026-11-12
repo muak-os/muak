@@ -369,7 +369,7 @@ mod tests {
         // ACT
         let display = name.to_string();
         let as_ref = name.as_ref();
-        let borrowed = core::borrow::Borrow::<str>::borrow(&name);
+        let borrowed = Borrow::<str>::borrow(&name);
 
         // ASSERT
         assert_eq!(display, "eth0");

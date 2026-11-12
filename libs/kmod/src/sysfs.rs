@@ -1,6 +1,5 @@
 //! Sysfs modalias discovery.
 
-use std::fs;
 use std::path::Path;
 
 /// Calls `callback` for each discovered sysfs modalias.
@@ -23,14 +22,14 @@ where
         return Ok(());
     }
 
-    let devices_dirs: Vec<_> = fs::read_dir(sys_bus)?
+    let devices_dirs: Vec<_> = std::fs::read_dir(sys_bus)?
         .filter_map(Result::ok)
         .map(|entry| entry.path().join("devices"))
         .filter(|devices_dir| devices_dir.exists())
         .collect();
 
     for devices_dir in devices_dirs {
-        let Ok(entries) = fs::read_dir(&devices_dir) else {
+        let Ok(entries) = std::fs::read_dir(&devices_dir) else {
             continue;
         };
         for modalias in entries
@@ -46,7 +45,7 @@ where
 
 fn read_modalias(device_path: &Path) -> Option<String> {
     let modalias_path = device_path.join("modalias");
-    let modalias = fs::read_to_string(&modalias_path).ok()?;
+    let modalias = std::fs::read_to_string(&modalias_path).ok()?;
     let modalias = modalias.trim();
     if modalias.is_empty() {
         return None;
@@ -56,8 +55,6 @@ fn read_modalias(device_path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    extern crate alloc;
-
     use std::io::Write as _;
 
     use tempfile::TempDir;
@@ -174,7 +171,7 @@ mod tests {
         let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert_eq!(collected, Vec::<alloc::string::String>::new());
+        assert_eq!(collected, Vec::<String>::new());
     }
 
     #[test]
@@ -185,7 +182,7 @@ mod tests {
             collect_modaliases(Path::new("/nonexistent/sys/bus")).expect("collect failed");
 
         // ASSERT
-        assert_eq!(collected, Vec::<alloc::string::String>::new());
+        assert_eq!(collected, Vec::<String>::new());
     }
 
     #[test]
@@ -307,7 +304,7 @@ mod tests {
         let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert_eq!(collected, Vec::<alloc::string::String>::new());
+        assert_eq!(collected, Vec::<String>::new());
     }
 
     #[test]
@@ -322,7 +319,7 @@ mod tests {
         let collected = collect_modaliases(dir.path()).expect("collect failed");
 
         // ASSERT
-        assert_eq!(collected, Vec::<alloc::string::String>::new());
+        assert_eq!(collected, Vec::<String>::new());
     }
 
     #[test]

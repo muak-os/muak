@@ -358,11 +358,7 @@ pub(super) fn build_dir_item(
 }
 
 /// Build a `BtrfsDevExtent` structure.
-pub(super) fn build_dev_extent(
-    chunk_offset: u64,
-    length: u64,
-    chunk_tree_uuid: &uuid::Uuid,
-) -> Vec<u8> {
+pub(super) fn build_dev_extent(chunk_offset: u64, length: u64, chunk_tree_uuid: &Uuid) -> Vec<u8> {
     let mut de = BtrfsDevExtent {
         chunk_tree: [0; 8],
         chunk_objectid: [0; 8],

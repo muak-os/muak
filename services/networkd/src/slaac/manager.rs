@@ -490,7 +490,7 @@ fn next_timer_deadline(manager: &Manager) -> Instant {
 
 fn create_all_routers_sockaddr(ifindex: u32) -> SocketAddrV6 {
     let all_routers = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
-    let std_sockaddr = core::net::SocketAddrV6::new(all_routers, 0, 0, ifindex);
+    let std_sockaddr = SocketAddrV6::new(all_routers, 0, 0, ifindex);
     SocketAddrV6::new(
         *std_sockaddr.ip(),
         std_sockaddr.port(),

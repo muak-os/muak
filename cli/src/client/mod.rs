@@ -1,5 +1,6 @@
 #![expect(
     clippy::inline_modules,
+    unused_qualifications,
     reason = "generated protobuf modules are included inline"
 )]
 
@@ -25,6 +26,7 @@ pub(crate) mod upload;
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod process_service {
@@ -48,6 +50,7 @@ pub(crate) mod process_service {
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod vm_service {
@@ -71,6 +74,7 @@ pub(crate) mod vm_service {
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod provision_service {
@@ -94,6 +98,7 @@ pub(crate) mod provision_service {
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod auth_service {
@@ -117,6 +122,7 @@ pub(crate) mod auth_service {
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod security_service {
@@ -140,6 +146,7 @@ pub(crate) mod security_service {
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod log_service {
@@ -163,6 +170,7 @@ pub(crate) mod log_service {
     clippy::arbitrary_source_item_ordering,
     unnameable_types,
     unreachable_pub,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub(crate) mod version_service {

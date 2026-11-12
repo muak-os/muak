@@ -2,9 +2,9 @@
 
 mod atomic;
 
+use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 
 use anyhow::{Context as _, Result, bail};
 use esp::path::validate_relative;
@@ -31,11 +31,11 @@ pub(crate) fn unmount() {
 }
 
 /// Opens a new file at `relative_path` under `esp_root` for writing.
-pub(crate) fn create(esp_root: &Path, relative_path: &str) -> Result<fs::File> {
+pub(crate) fn create(esp_root: &Path, relative_path: &str) -> Result<File> {
     validate_relative(relative_path)?;
     let dest = resolve(esp_root, relative_path);
 
-    fs::File::create(&dest).with_context(|| format!("Failed to create {}", dest.display()))
+    File::create(&dest).with_context(|| format!("Failed to create {}", dest.display()))
 }
 
 /// Atomically copies bytes from `reader` into a file at `relative_path` under `esp_root`.
@@ -56,9 +56,9 @@ pub(crate) fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> 
         let path = entry.path().context("read tar entry path")?;
         let dest = esp_root.join(path.as_ref());
         create_parents(&dest)?;
-        let mut file = fs::File::create(&dest)
-            .with_context(|| format!("Failed to create {}", dest.display()))?;
-        io::copy(&mut entry, &mut file)
+        let mut file =
+            File::create(&dest).with_context(|| format!("Failed to create {}", dest.display()))?;
+        std::io::copy(&mut entry, &mut file)
             .with_context(|| format!("Failed to write {}", dest.display()))?;
     }
 
@@ -72,7 +72,7 @@ pub(crate) fn write_bytes(esp_root: &Path, relative_path: &str, data: &[u8]) -> 
 
 fn create_parents(dest: &Path) -> Result<()> {
     if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).with_context(|| {
+        std::fs::create_dir_all(parent).with_context(|| {
             format!("Failed to create parent directories for {}", dest.display())
         })?;
     }

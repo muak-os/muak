@@ -52,11 +52,7 @@ impl DhcpConnector for MockDhcpConnector {
         Ok(Socket::from_fd(fd, 0)?)
     }
 
-    async fn create_unicast(
-        &self,
-        _interface: &str,
-        _src_ip: core::net::Ipv4Addr,
-    ) -> Result<UdpSocket> {
+    async fn create_unicast(&self, _interface: &str, _src_ip: Ipv4Addr) -> Result<UdpSocket> {
         Ok(UdpSocket::bind("127.0.0.1:0").await?)
     }
 }

@@ -17,7 +17,7 @@ pub(super) fn read_interfaces(main: &mut String, net: &mut String) -> Vec<NetInt
     };
 
     let mut ifaces: Vec<NetInterface> = entries
-        .filter_map(core::result::Result::ok)
+        .filter_map(Result::ok)
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name == "lo" || interface_type(&entry.path()) != 1 {
@@ -142,8 +142,6 @@ fn parse_hex_gateway(hex: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    extern crate alloc;
-
     use super::*;
 
     #[test]
@@ -192,7 +190,7 @@ mod tests {
         let addrs = parse_fib_trie_for_iface(content, "eth0");
 
         // ASSERT
-        assert_eq!(addrs, Vec::<alloc::string::String>::new());
+        assert_eq!(addrs, Vec::<String>::new());
     }
 
     #[test]
@@ -203,7 +201,7 @@ mod tests {
         // ACT / ASSERT
         assert_eq!(
             parse_fib_trie_for_iface(content, "eth0"),
-            Vec::<alloc::string::String>::new()
+            Vec::<String>::new()
         );
     }
 }

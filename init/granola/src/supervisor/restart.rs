@@ -348,7 +348,7 @@ mod tests {
         let due = queue.take_due(|_| true);
 
         // ASSERT
-        assert_eq!(due, Vec::<alloc::string::String>::new());
+        assert_eq!(due, Vec::<String>::new());
     }
 
     #[test]
@@ -362,7 +362,7 @@ mod tests {
         let due = queue.take_due(|_| true);
 
         // ASSERT
-        assert_eq!(due, Vec::<alloc::string::String>::new());
+        assert_eq!(due, Vec::<String>::new());
         assert_eq!(queue.pending.len(), 1);
     }
 
@@ -400,7 +400,7 @@ mod tests {
         let due = queue.take_due(|_| false);
 
         // ASSERT
-        assert_eq!(due, Vec::<alloc::string::String>::new());
+        assert_eq!(due, Vec::<String>::new());
         assert_eq!(queue.pending.len(), 1);
     }
 }

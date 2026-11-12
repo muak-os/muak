@@ -156,7 +156,7 @@ async fn shutdown_command_stops_actor() {
         .await
         .expect("send failed");
 
-    sleep(core::time::Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(50)).await;
 
     // ASSERT
     let result = handle.cmd_tx.send(Command::LinkUp).await;

@@ -487,7 +487,7 @@ mod tests {
     fn build_indices_ignores_missing_inode_entries() {
         // ARRANGE
         let entries = vec![
-            super::TreeEntry {
+            TreeEntry {
                 rel_path: "/".to_owned(),
                 file_type: EROFS_FT_DIR,
                 size: 0,
@@ -499,7 +499,7 @@ mod tests {
                 symlink_target: Vec::new(),
                 rdev: 0,
             },
-            super::TreeEntry {
+            TreeEntry {
                 rel_path: "/file".to_owned(),
                 file_type: EROFS_FT_REG_FILE,
                 size: 0,
@@ -578,7 +578,7 @@ mod tests {
 
         // ASSERT
         let root = inodes.first().expect("root inode");
-        assert_eq!(root.children, Vec::<alloc::string::String>::new());
+        assert_eq!(root.children, Vec::<String>::new());
         assert_eq!(root.nlink, 1);
     }
 }

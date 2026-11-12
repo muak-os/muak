@@ -263,7 +263,7 @@ fn pending_csr_path(fingerprint: &str) -> PathBuf {
 }
 
 /// Stores a pending CSR to disk.
-async fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> anyhow::Result<()> {
+async fn store_pending_csr(fingerprint: &str, csr_pem: &str) -> Result<()> {
     fs::create_dir_all(pending_dir()).await?;
     let path = pending_csr_path(fingerprint);
     fs::write(path, csr_pem).await?;

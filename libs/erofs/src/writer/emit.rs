@@ -153,8 +153,8 @@ mod tests {
     use crate::superblock::{EROFS_SUPER_MAGIC_V1, EROFS_SUPER_OFFSET};
     use crate::{MkfsConfig, SLOT_SIZE, layout};
 
-    fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
-        crate::MkfsConfig {
+    fn test_config(epoch: u64) -> MkfsConfig<'static> {
+        MkfsConfig {
             source_date_epoch: epoch,
             file_contexts: None,
             uuid: [0; 16],
@@ -164,8 +164,8 @@ mod tests {
         }
     }
 
-    fn compress_config(epoch: u64) -> crate::MkfsConfig<'static> {
-        crate::MkfsConfig {
+    fn compress_config(epoch: u64) -> MkfsConfig<'static> {
+        MkfsConfig {
             source_date_epoch: epoch,
             file_contexts: None,
             uuid: [0; 16],
@@ -175,8 +175,8 @@ mod tests {
         }
     }
 
-    fn entry_of(inode: &crate::layout::Inode) -> crate::source::TreeEntry {
-        crate::source::TreeEntry {
+    fn entry_of(inode: &layout::Inode) -> TreeEntry {
+        TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
             size: u64::from(inode.size),
@@ -190,7 +190,7 @@ mod tests {
         }
     }
 
-    fn zero_data(entry: &crate::source::TreeEntry) -> Vec<u8> {
+    fn zero_data(entry: &TreeEntry) -> Vec<u8> {
         if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
             vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
         } else {
@@ -198,8 +198,8 @@ mod tests {
         }
     }
 
-    fn pair_files<R: std::io::Read>(
-        entries: Vec<crate::source::TreeEntry>,
+    fn pair_files<R: io::Read>(
+        entries: Vec<TreeEntry>,
         readers: &mut [R],
     ) -> Vec<crate::source::SizedFile<'_>> {
         entries
@@ -209,9 +209,9 @@ mod tests {
             .collect()
     }
 
-    fn cursor_set(data: &[Vec<u8>]) -> Vec<std::io::Cursor<&[u8]>> {
+    fn cursor_set(data: &[Vec<u8>]) -> Vec<io::Cursor<&[u8]>> {
         data.iter()
-            .map(|bytes| std::io::Cursor::new(bytes.as_slice()))
+            .map(|bytes| io::Cursor::new(bytes.as_slice()))
             .collect()
     }
 

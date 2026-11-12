@@ -73,7 +73,7 @@ mod tests {
 
         // ASSERT
         assert!(
-            layout.total_size >= payload + fatfs::builder::FREE_SLACK,
+            layout.total_size >= payload + builder::FREE_SLACK,
             "the ESP must keep room for runtime writes"
         );
     }

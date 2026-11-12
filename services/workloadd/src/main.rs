@@ -25,6 +25,7 @@ mod persistence;
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::too_many_lines,
+    unused_qualifications,
     reason = "generated protobuf code"
 )]
 pub mod proto {

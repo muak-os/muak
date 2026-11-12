@@ -188,8 +188,6 @@ fn invalid_source(spec: &str, details: &str) -> KociError {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
-
     use super::*;
 
     fn source(spec: &str) -> Source {
@@ -289,27 +287,35 @@ mod tests {
 
         // ASSERT
         let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("parse index");
-        assert_eq!(parsed.get("schemaVersion").and_then(Value::as_u64), Some(2));
         assert_eq!(
-            parsed.get("mediaType").and_then(Value::as_str),
+            parsed
+                .get("schemaVersion")
+                .and_then(serde_json::Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            parsed.get("mediaType").and_then(serde_json::Value::as_str),
             Some("application/vnd.oci.image.index.v1+json")
         );
 
         let manifests = parsed
             .get("manifests")
-            .and_then(Value::as_array)
+            .and_then(serde_json::Value::as_array)
             .expect("manifests array");
         let descriptor = manifests.first().expect("first descriptor");
         assert_eq!(
-            descriptor.get("digest").and_then(Value::as_str),
+            descriptor.get("digest").and_then(serde_json::Value::as_str),
             Some("sha256:abc")
         );
-        assert_eq!(descriptor.get("size").and_then(Value::as_u64), Some(123));
+        assert_eq!(
+            descriptor.get("size").and_then(serde_json::Value::as_u64),
+            Some(123)
+        );
         assert_eq!(
             descriptor
                 .get("platform")
                 .and_then(|platform| platform.get("os"))
-                .and_then(Value::as_str),
+                .and_then(serde_json::Value::as_str),
             Some("linux")
         );
     }

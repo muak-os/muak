@@ -1,6 +1,6 @@
 //! Rootfs-specific directory injection and per-entry file readers.
 
-use std::io::{self, Read};
+use std::io::{Empty, Read};
 use std::path::Path;
 
 use erofs::dir::EROFS_FT_REG_FILE;
@@ -15,7 +15,7 @@ pub const REQUIRED_DIRS: &[&str] = &["dev", "proc", "sys", "run", "etc/services"
 #[derive(Debug)]
 pub struct FileReaders {
     files: Vec<Option<std::fs::File>>,
-    empties: Vec<std::io::Empty>,
+    empties: Vec<Empty>,
 }
 
 impl FileReaders {
@@ -42,7 +42,7 @@ impl FileReaders {
 pub fn inject_required_dirs(root: &Path) -> Result<()> {
     for dir in REQUIRED_DIRS {
         std::fs::create_dir_all(root.join(dir)).map_err(|source| {
-            MumiError::Io(io::Error::other(format!(
+            MumiError::Io(std::io::Error::other(format!(
                 "Failed to create required directory: {dir}: {source}"
             )))
         })?;
@@ -62,14 +62,14 @@ pub fn ensure_default_resolv_conf(path: &Path) -> Result<()> {
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| {
-            MumiError::Io(io::Error::other(format!(
+            MumiError::Io(std::io::Error::other(format!(
                 "Failed to create parent for {}: {source}",
                 path.display()
             )))
         })?;
     }
     std::os::unix::fs::symlink("/run/resolv.conf", path).map_err(|source| {
-        MumiError::Io(io::Error::other(format!(
+        MumiError::Io(std::io::Error::other(format!(
             "Failed to create symlink at {}: {source}",
             path.display()
         )))
@@ -93,14 +93,14 @@ pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<FileReaders> {
         }
         let path = dir.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
         let file = std::fs::File::open(&path).map_err(|source| {
-            MumiError::Io(io::Error::other(format!(
+            MumiError::Io(std::io::Error::other(format!(
                 "Failed to open {}: {source}",
                 path.display()
             )))
         })?;
         files.push(Some(file));
     }
-    let empties = vec![io::empty(); entries.len()];
+    let empties = vec![std::io::empty(); entries.len()];
 
     Ok(FileReaders { files, empties })
 }
@@ -179,7 +179,7 @@ mod tests {
 
         // ASSERT
         let target = std::fs::read_link(&resolv).unwrap();
-        assert_eq!(target, std::path::Path::new("/usr/lib/resolv.conf"));
+        assert_eq!(target, Path::new("/usr/lib/resolv.conf"));
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
         // ASSERT
         resolv.symlink_metadata().unwrap();
         let target = std::fs::read_link(&resolv).unwrap();
-        assert_eq!(target, std::path::Path::new("/run/resolv.conf"));
+        assert_eq!(target, Path::new("/run/resolv.conf"));
     }
 
     #[test]

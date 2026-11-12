@@ -358,7 +358,7 @@ mod tests {
 
         let dep_path = dir.path().join("modules.dep");
         {
-            let mut file = std::fs::File::create(&dep_path).expect("create failed");
+            let mut file = File::create(&dep_path).expect("create failed");
             writeln!(file, "kernel/a.ko: kernel/b.ko").expect("write failed");
             writeln!(file, "kernel/b.ko:").expect("write failed");
         }
@@ -383,7 +383,7 @@ mod tests {
 
         let dep_path = dir.path().join("modules.dep");
         {
-            let mut file = std::fs::File::create(&dep_path).expect("create failed");
+            let mut file = File::create(&dep_path).expect("create failed");
             writeln!(file, "kernel/a.ko: kernel/b.ko").expect("write failed");
             writeln!(file, "kernel/b.ko:").expect("write failed");
         }

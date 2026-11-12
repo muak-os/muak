@@ -1,6 +1,6 @@
 //! Update preparation: builds the UKI assets and stages the new configuration.
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::path::PathBuf;
 
 use ::disk::role::Role;
@@ -85,7 +85,7 @@ async fn prepare_inner(
     };
 
     let assets_dir = staging_dir.join("assets");
-    fs::create_dir_all(&assets_dir)
+    std::fs::create_dir_all(&assets_dir)
         .with_context(|| format!("create assets dir {}", assets_dir.display()))?;
     let uki_path = assets_dir.join("uki.efi");
     let mut uki_file = File::create(&uki_path)
@@ -193,7 +193,7 @@ fn derive_install_profile(extensions: &[String]) -> Result<Profile> {
 
 fn create_staging_dir() -> Result<PathBuf> {
     let dir = PathBuf::from(UPDATE_DIR);
-    fs::create_dir_all(&dir).context("Failed to create update staging dir")?;
+    std::fs::create_dir_all(&dir).context("Failed to create update staging dir")?;
 
     Ok(dir)
 }

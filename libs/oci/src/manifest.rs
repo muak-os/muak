@@ -97,7 +97,7 @@ mod tests {
             media_type: None,
             digest: digest.to_owned(),
             size: 0,
-            platform: Some(crate::model::Platform {
+            platform: Some(Platform {
                 architecture: architecture.map(str::to_owned),
                 os: os.map(str::to_owned),
             }),

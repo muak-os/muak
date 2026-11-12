@@ -110,8 +110,8 @@ mod tests {
     use crate::error::ErofsError;
     use crate::source::TreeEntry;
 
-    fn test_config(epoch: u64) -> crate::MkfsConfig<'static> {
-        crate::MkfsConfig {
+    fn test_config(epoch: u64) -> MkfsConfig<'static> {
+        MkfsConfig {
             source_date_epoch: epoch,
             file_contexts: None,
             uuid: [0; 16],

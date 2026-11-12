@@ -481,12 +481,12 @@ mod tests {
             uuid: [0; 16],
             force_uid: None,
             force_gid: None,
-            compression: crate::compress::Compression::default(),
+            compression: compress::Compression::default(),
         }
     }
 
-    fn entry_of(inode: &crate::layout::Inode) -> crate::source::TreeEntry {
-        crate::source::TreeEntry {
+    fn entry_of(inode: &layout::Inode) -> TreeEntry {
+        TreeEntry {
             rel_path: inode.rel_path.clone(),
             file_type: inode.file_type,
             size: u64::from(inode.size),
@@ -500,8 +500,8 @@ mod tests {
         }
     }
 
-    fn zero_data(entry: &crate::source::TreeEntry) -> Vec<u8> {
-        if entry.file_type == crate::dir::EROFS_FT_REG_FILE && entry.size > 0 {
+    fn zero_data(entry: &TreeEntry) -> Vec<u8> {
+        if entry.file_type == EROFS_FT_REG_FILE && entry.size > 0 {
             vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
         } else {
             Vec::new()
@@ -509,13 +509,13 @@ mod tests {
     }
 
     fn pair_files<R: std::io::Read>(
-        entries: Vec<crate::source::TreeEntry>,
+        entries: Vec<TreeEntry>,
         readers: &mut [R],
-    ) -> Vec<crate::source::SizedFile<'_>> {
+    ) -> Vec<SizedFile<'_>> {
         entries
             .into_iter()
             .zip(readers.iter_mut())
-            .map(|(entry, reader)| crate::source::SizedFile { entry, reader })
+            .map(|(entry, reader)| SizedFile { entry, reader })
             .collect()
     }
 

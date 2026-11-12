@@ -48,7 +48,7 @@ impl Platform for Linux {
         };
 
         read_dir
-            .filter_map(std::result::Result::ok)
+            .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
             .filter_map(|entry| raw_entry(&entry.path()))
             .collect()

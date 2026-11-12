@@ -159,13 +159,13 @@ impl GptHeader {
     }
 }
 
-fn field(sector: &[u8; 512], range: core::ops::Range<usize>) -> Result<&[u8]> {
+fn field(sector: &[u8; 512], range: Range<usize>) -> Result<&[u8]> {
     sector
         .get(range)
         .ok_or_else(|| ParttableError::Gpt("GPT header truncated".to_owned()))
 }
 
-fn le_u32(sector: &[u8; 512], range: core::ops::Range<usize>) -> Result<u32> {
+fn le_u32(sector: &[u8; 512], range: Range<usize>) -> Result<u32> {
     let bytes: [u8; 4] = field(sector, range)?
         .try_into()
         .map_err(|_err| ParttableError::Gpt("GPT header field truncated".to_owned()))?;
@@ -173,7 +173,7 @@ fn le_u32(sector: &[u8; 512], range: core::ops::Range<usize>) -> Result<u32> {
     Ok(u32::from_le_bytes(bytes))
 }
 
-fn le_u64(sector: &[u8; 512], range: core::ops::Range<usize>) -> Result<u64> {
+fn le_u64(sector: &[u8; 512], range: Range<usize>) -> Result<u64> {
     let bytes: [u8; 8] = field(sector, range)?
         .try_into()
         .map_err(|_err| ParttableError::Gpt("GPT header field truncated".to_owned()))?;
@@ -181,7 +181,7 @@ fn le_u64(sector: &[u8; 512], range: core::ops::Range<usize>) -> Result<u64> {
     Ok(u64::from_le_bytes(bytes))
 }
 
-fn put(header: &mut [u8; GPT_HEADER_SIZE], range: core::ops::Range<usize>, bytes: &[u8]) {
+fn put(header: &mut [u8; GPT_HEADER_SIZE], range: Range<usize>, bytes: &[u8]) {
     if let Some(dst) = header.get_mut(range) {
         dst.copy_from_slice(bytes);
     }

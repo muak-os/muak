@@ -129,8 +129,8 @@ fn grpc_ok_response() -> Response<Full<Bytes>> {
         .header("content-type", "application/grpc")
         .header("grpc-status", "0")
         .header("grpc-message", "OK")
-        .body(http_body_util::Full::new(Bytes::new()))
-        .unwrap_or(Response::new(http_body_util::Full::new(Bytes::new())))
+        .body(Full::new(Bytes::new()))
+        .unwrap_or(Response::new(Full::new(Bytes::new())))
 }
 
 #[cfg(test)]

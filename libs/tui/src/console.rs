@@ -1,7 +1,5 @@
 //! Console facade shared by the command-line interfaces.
 
-use std::io;
-
 #[cfg(feature = "live")]
 #[cfg(feature = "live")]
 use crate::live::spinner::Spinner;
@@ -112,7 +110,7 @@ impl Console {
     /// # Errors
     ///
     /// Returns an error when writing to standard output fails.
-    pub fn table(&self, table: &Table) -> io::Result<()> {
+    pub fn table(&self, table: &Table) -> std::io::Result<()> {
         let mut screen = Ansi::new(std::io::stdout(), self.stdout.size);
 
         table.render(&mut screen, self.stdout.theme)
@@ -132,7 +130,7 @@ impl Console {
     ///
     /// Returns an error when the renderer thread cannot start.
     #[cfg(feature = "live")]
-    pub fn steps(&self) -> io::Result<Steps> {
+    pub fn steps(&self) -> std::io::Result<Steps> {
         Steps::stderr_with(self.stderr)
     }
 
@@ -142,7 +140,7 @@ impl Console {
     ///
     /// Returns an error when the renderer thread cannot start.
     #[cfg(feature = "live")]
-    pub fn spinner(&self, message: &str) -> io::Result<Spinner> {
+    pub fn spinner(&self, message: &str) -> std::io::Result<Spinner> {
         Spinner::stderr_with(message, self.stderr)
     }
 }
