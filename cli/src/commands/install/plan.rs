@@ -7,13 +7,12 @@ use tui::style::Role;
 use tui::table::Table;
 use tui::units;
 
-use crate::client::provision_service::{DiskInfo, InstallPlan, PlannedPartition, PreflightCheck};
+use crate::client::provision_service::{DiskInfo, InstallPlan, PlannedPartition};
 
 const DISK_COLUMNS: [&str; 7] = ["ROLE", "DEVICE", "SIZE", "SERIAL", "WWID", "MODEL", "WIPE"];
 const PARTITION_COLUMNS: [&str; 4] = ["DISK", "ROLE", "NAME", "SIZE"];
-const CHECK_COLUMNS: [&str; 3] = ["CHECK", "RESULT", "DETAIL"];
 
-/// Prints the resolved disks, the data that will be destroyed and the checks.
+/// Prints the resolved disks, the data that will be destroyed and the partitions.
 pub(crate) fn print(plan: &InstallPlan, console: &Console) -> io::Result<()> {
     console.table(&table(&DISK_COLUMNS, disk_rows(plan)))?;
 
@@ -26,13 +25,7 @@ pub(crate) fn print(plan: &InstallPlan, console: &Console) -> io::Result<()> {
         }
     }
 
-    console.table(&table(&PARTITION_COLUMNS, partition_rows(plan)))?;
-    console.table(&table(&CHECK_COLUMNS, check_rows(plan)))
-}
-
-/// Returns true when at least one preflight check refuses the plan.
-pub(crate) fn refused(plan: &InstallPlan) -> bool {
-    plan.checks.iter().any(|check| !check.passed)
+    console.table(&table(&PARTITION_COLUMNS, partition_rows(plan)))
 }
 
 /// Returns the device path of the system disk, for operator messages.
@@ -111,26 +104,6 @@ fn partition_size(partition: &PlannedPartition) -> String {
     }
 }
 
-fn check_rows(plan: &InstallPlan) -> Vec<Vec<String>> {
-    plan.checks.iter().map(check_row).collect()
-}
-
-fn check_row(check: &PreflightCheck) -> Vec<String> {
-    vec![
-        check.name.clone(),
-        result(check.passed),
-        check.detail.clone(),
-    ]
-}
-
-fn result(passed: bool) -> String {
-    if passed {
-        "pass".to_owned()
-    } else {
-        "fail".to_owned()
-    }
-}
-
 fn yes_no(value: bool) -> String {
     if value {
         "yes".to_owned()
@@ -167,18 +140,6 @@ mod tests {
                 size_bytes: 1024,
                 fill: false,
             }],
-            checks: vec![
-                PreflightCheck {
-                    name: "disk_size".to_owned(),
-                    passed: true,
-                    detail: "'/dev/sda' meets the minimum size".to_owned(),
-                },
-                PreflightCheck {
-                    name: "system_disk_in_use".to_owned(),
-                    passed: false,
-                    detail: "hosts the running system".to_owned(),
-                },
-            ],
         }
     }
 
@@ -246,35 +207,6 @@ mod tests {
 
         // ASSERT
         assert_eq!(row[3], "remaining");
-    }
-
-    #[test]
-    fn checks_report_their_outcome() {
-        // ARRANGE
-        let plan = plan();
-
-        // ACT
-        let rows = check_rows(&plan);
-
-        // ASSERT
-        assert_eq!(rows[0][1], "pass");
-        assert_eq!(rows[1][1], "fail");
-    }
-
-    #[test]
-    fn refusal_needs_a_failing_check() {
-        // ARRANGE
-        let refusing = plan();
-        let mut accepted = refusing.clone();
-
-        // ACT
-        for check in &mut accepted.checks {
-            check.passed = true;
-        }
-
-        // ASSERT
-        assert!(refused(&refusing));
-        assert!(!refused(&accepted));
     }
 
     #[test]

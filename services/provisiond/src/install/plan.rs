@@ -1,4 +1,4 @@
-//! Dry-run install plan: resolved targets, planned partitions and preflight checks.
+//! Dry-run install plan: resolved targets and planned partitions that passed preflight.
 
 use ::disk::plan::{Plan as LayoutPlan, Size};
 use anyhow::{Context as _, Result};
@@ -7,8 +7,7 @@ use config::system;
 
 use super::layout::plan_from_doc;
 use super::preflight;
-use crate::check::Check;
-use crate::disk;
+use crate::{check, disk};
 
 /// One partition the install will place.
 pub(crate) struct PlannedPartition {
@@ -23,7 +22,6 @@ pub(crate) struct InstallPlan {
     pub system: Disk,
     pub wipe: bool,
     pub partitions: Vec<PlannedPartition>,
-    pub checks: Vec<Check>,
 }
 
 /// Resolves `config` into an install plan without writing anything.
@@ -41,8 +39,9 @@ pub(crate) async fn resolve(
 
     let checked = targets.clone();
     let secureboot = config.host.secureboot;
-    let checks = tokio::task::spawn_blocking(move || {
-        preflight::checks(&checked, &inventory, force, allow_system_disk, secureboot)
+    tokio::task::spawn_blocking(move || {
+        let checks = preflight::checks(&checked, &inventory, force, allow_system_disk, secureboot)?;
+        check::enforce(&checks)
     })
     .await
     .context("preflight task")??;
@@ -51,7 +50,6 @@ pub(crate) async fn resolve(
         system,
         wipe: doc.wipe(),
         partitions: partitions_for(&targets.system, &layout),
-        checks,
     })
 }
 

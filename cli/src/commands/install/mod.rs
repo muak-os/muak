@@ -40,9 +40,6 @@ pub(crate) async fn handle(
     let plan = request_plan(client, &config_bytes, &options).await?;
 
     plan::print(&plan, console)?;
-    if plan::refused(&plan) {
-        return Err(Failure::preflight("Install refused by preflight checks").into());
-    }
 
     if options.dry_run {
         console.info("Dry run: nothing was written");
@@ -209,4 +206,25 @@ async fn install(
     console.success(&msg);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refused_plan_is_a_preflight_failure() {
+        // ARRANGE
+        let status = tonic::Status::failed_precondition(
+            "Disk '/dev/sda' hosts the running system. Use --allow-system-disk to destroy it.",
+        );
+
+        // ACT
+        let error = plan_error(status);
+
+        // ASSERT
+        let failure = error.downcast_ref::<Failure>().expect("preflight failure");
+        assert_eq!(failure.code(), 3_i32);
+        assert!(failure.to_string().contains("Use --allow-system-disk"));
+    }
 }

@@ -93,11 +93,10 @@ message PreflightCheck {
 }
 
 message InstallPlan {
-    reserved 2, 3;
+    reserved 2, 3, 6;
     DiskInfo system_disk = 1;
     bool wipe = 4;
     repeated PlannedPartition partitions = 5;
-    repeated PreflightCheck checks = 6;
 }
 
 message InstallProgress {

@@ -2,7 +2,6 @@
 
 use ::disk::plan::Size;
 
-use super::checks;
 use super::inventory::to_disk_info;
 use super::proto::provision::{InstallPlan, PlannedPartition};
 use crate::install::plan::{InstallPlan as DomainPlan, PlannedPartition as DomainPartition};
@@ -17,7 +16,6 @@ pub(crate) fn to_install_plan(plan: DomainPlan) -> InstallPlan {
             .into_iter()
             .map(to_planned_partition)
             .collect(),
-        checks: plan.checks.into_iter().map(checks::to_proto).collect(),
     }
 }
 
