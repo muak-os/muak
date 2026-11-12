@@ -13,27 +13,21 @@ use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 use super::luks::resolve_key;
 
 const STATE_MOUNT: &str = "/run/state";
-const DATA_MOUNT: &str = "/run/data";
 const EPHEMERAL_MOUNT: &str = "/run/ephemeral";
 const STATE_CONFIG: &str = "/run/state/config.toml";
 
-/// Mount persistent STATE, DATA, and EPHEMERAL partitions if the system is installed.
+/// Mount persistent STATE and EPHEMERAL partitions if the system is installed.
 pub(crate) fn persistent() -> bool {
     let state_devices = discover::find_by_partname(Role::State.gpt_name());
     if state_devices.is_empty() {
         return false;
     }
 
-    let data_devices = discover::find_by_partname(Role::Data.gpt_name());
     for state_dev in state_devices {
-        match try_mount_persistent_candidate(&state_dev, &data_devices) {
+        match try_mount_persistent_candidate(&state_dev) {
             Ok(()) => return true,
             Err(error) => {
-                kmsg::warn!(
-                    "Ignoring invalid STATE candidate {}: {:#}",
-                    state_dev,
-                    error
-                );
+                kmsg::warn!("Ignoring STATE candidate {}: {:#}", state_dev, error);
                 cleanup_persistent_mounts();
             }
         }
@@ -42,7 +36,7 @@ pub(crate) fn persistent() -> bool {
     false
 }
 
-fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> Result<()> {
+fn try_mount_persistent_candidate(state_dev: &str) -> Result<()> {
     let luks_key = resolve_key(state_dev)?;
 
     let Some(key) = luks_key else {
@@ -64,35 +58,14 @@ fn try_mount_persistent_candidate(state_dev: &str, data_devices: &[String]) -> R
 
     kmsg::info!("Mounted STATE partition at /run/state");
 
-    if let Some(data_dev) = data_devices.first() {
-        luks2::open(data_dev, Role::Data.dm_name(), &key)
-            .with_context(|| format!("Failed to open LUKS device: {data_dev}"))?;
-        let data_device = format!("/dev/mapper/{}", Role::Data.dm_name());
-
-        mount_btrfs(&data_device, DATA_MOUNT)
-            .with_context(|| format!("Failed to mount DATA partition: {data_dev}"))?;
-
-        kmsg::info!("Mounted DATA partition at /run/data");
-        quota::enable(DATA_MOUNT)?;
-    }
-
-    mount_ephemeral(&key);
-
-    Ok(())
-}
-
-fn mount_ephemeral(key: &[u8]) {
-    let Some(device) = discover::find_by_partname(Role::Ephemeral.gpt_name())
+    let Some(ephemeral_device) = discover::find_by_partname(Role::Ephemeral.gpt_name())
         .into_iter()
         .next()
     else {
-        kmsg::warn!("EPHEMERAL partition not found; continuing without it");
-        return;
+        bail!("EPHEMERAL partition not found");
     };
 
-    if let Err(error) = try_mount_ephemeral(&device, key) {
-        kmsg::warn!("Ignoring EPHEMERAL partition {}: {:#}", device, error);
-    }
+    try_mount_ephemeral(&ephemeral_device, &key)
 }
 
 fn try_mount_ephemeral(device: &str, key: &[u8]) -> Result<()> {
@@ -107,6 +80,13 @@ fn try_mount_ephemeral(device: &str, key: &[u8]) -> Result<()> {
     }
 
     kmsg::info!("Mounted EPHEMERAL partition at /run/ephemeral");
+
+    if let Err(error) = quota::enable(EPHEMERAL_MOUNT) {
+        try_unmount(EPHEMERAL_MOUNT);
+        close_mapping(Role::Ephemeral);
+        remove_mountpoint(EPHEMERAL_MOUNT);
+        return Err(error.into());
+    }
 
     Ok(())
 }
@@ -133,12 +113,14 @@ fn mount_btrfs(device: &str, target: &str) -> Result<()> {
 }
 
 fn cleanup_persistent_mounts() {
-    try_unmount(EPHEMERAL_MOUNT);
-    close_mapping(Role::Ephemeral);
-    try_unmount(DATA_MOUNT);
-    close_mapping(Role::Data);
-    try_unmount(STATE_MOUNT);
-    close_mapping(Role::State);
+    teardown(Role::Ephemeral, EPHEMERAL_MOUNT);
+    teardown(Role::State, STATE_MOUNT);
+}
+
+fn teardown(role: Role, target: &str) {
+    try_unmount(target);
+    close_mapping(role);
+    remove_mountpoint(target);
 }
 
 fn close_mapping(role: Role) {

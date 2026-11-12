@@ -93,9 +93,8 @@ message PreflightCheck {
 }
 
 message InstallPlan {
+    reserved 2, 3;
     DiskInfo system_disk = 1;
-    DiskInfo data_disk = 2;
-    bool shared_data = 3;
     bool wipe = 4;
     repeated PlannedPartition partitions = 5;
     repeated PreflightCheck checks = 6;
@@ -160,7 +159,7 @@ message DiskInfo {
     bool cdrom = 13;
     repeated string symlinks = 14;
     bool is_system = 15;
-    bool is_data = 16;
+    reserved 16;
 }
 
 message ListDisksRequest {}

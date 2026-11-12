@@ -8,17 +8,12 @@ pub(crate) fn is_system(disk: &types::Disk) -> bool {
     has(disk, Role::State)
 }
 
-/// Returns true when `disk` carries the Muak DATA partition.
-pub(crate) fn is_data(disk: &types::Disk) -> bool {
-    has(disk, Role::Data)
-}
-
 /// Returns true when a partition is mounted or carries a Muak role name.
 pub(crate) fn in_use(partition: &types::Partition) -> bool {
     !partition.mount_point.is_empty()
         || matches!(
             Role::from_gpt_name(&partition.gpt_name),
-            Some(Role::State | Role::Ephemeral | Role::Data)
+            Some(Role::State | Role::Ephemeral)
         )
 }
 
@@ -57,24 +52,16 @@ mod tests {
     }
 
     #[test]
-    fn system_and_data_membership_follow_the_gpt_names() {
+    fn system_membership_follows_the_gpt_names() {
         // ARRANGE
         let system = disk(vec![partition(Role::State.gpt_name(), "")]);
-        let data = disk(vec![partition(Role::Data.gpt_name(), "")]);
-        let both = disk(vec![
-            partition(Role::State.gpt_name(), ""),
-            partition(Role::Data.gpt_name(), ""),
-        ]);
+        let ephemeral = disk(vec![partition(Role::Ephemeral.gpt_name(), "")]);
 
         // ACT
-        let results = [
-            (is_system(&system), is_data(&system)),
-            (is_system(&data), is_data(&data)),
-            (is_system(&both), is_data(&both)),
-        ];
+        let results = (is_system(&system), is_system(&ephemeral));
 
         // ASSERT
-        assert_eq!(results, [(true, false), (false, true), (true, true)]);
+        assert_eq!(results, (true, false));
     }
 
     #[test]
@@ -82,20 +69,18 @@ mod tests {
         // ARRANGE
         let renamed = disk(vec![
             partition("STATE_OLD", ""),
-            partition("DATA_OLD", ""),
             partition("EPHEMERAL_OLD", ""),
         ]);
 
         // ACT
         let results = (
             is_system(&renamed),
-            is_data(&renamed),
             in_use(&renamed.partitions[0]),
-            in_use(&renamed.partitions[2]),
+            in_use(&renamed.partitions[1]),
         );
 
         // ASSERT
-        assert_eq!(results, (false, false, false, false));
+        assert_eq!(results, (false, false, false));
     }
 
     #[test]
@@ -104,7 +89,6 @@ mod tests {
         let mounted = partition("", "/mnt");
         let state = partition(Role::State.gpt_name(), "");
         let ephemeral = partition(Role::Ephemeral.gpt_name(), "");
-        let data = partition(Role::Data.gpt_name(), "");
         let esp = partition(Role::Esp.gpt_name(), "");
         let bare = partition("", "");
 
@@ -113,7 +97,6 @@ mod tests {
             in_use(&mounted),
             in_use(&state),
             in_use(&ephemeral),
-            in_use(&data),
             in_use(&esp),
             in_use(&bare),
         ];
@@ -121,8 +104,8 @@ mod tests {
         // ASSERT
         assert_eq!(
             checked,
-            [true, true, true, true, false, false],
-            "mounted, STATE, EPHEMERAL and DATA are in use; the ESP is not"
+            [true, true, true, false, false],
+            "mounted, STATE and EPHEMERAL are in use; the ESP is not"
         );
     }
 }

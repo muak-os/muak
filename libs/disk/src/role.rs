@@ -15,8 +15,6 @@ pub enum Role {
     State,
     /// Encrypted ephemeral partition holding resettable workload data.
     Ephemeral,
-    /// Data partition holding workload data.
-    Data,
 }
 
 impl Role {
@@ -25,7 +23,7 @@ impl Role {
     pub const fn type_guid(self) -> [u8; 16] {
         match self {
             Self::Esp => ESP_TYPE_GUID,
-            Self::State | Self::Ephemeral | Self::Data => LINUX_FS_GUID,
+            Self::State | Self::Ephemeral => LINUX_FS_GUID,
         }
     }
 
@@ -36,14 +34,13 @@ impl Role {
             Self::Esp => "EFI",
             Self::State => "STATE",
             Self::Ephemeral => "EPHEMERAL",
-            Self::Data => "DATA",
         }
     }
 
     /// Role carrying `gpt_name`, or `None` when the name is not a Muak role.
     #[must_use]
     pub fn from_gpt_name(gpt_name: &str) -> Option<Self> {
-        [Self::Esp, Self::State, Self::Ephemeral, Self::Data]
+        [Self::Esp, Self::State, Self::Ephemeral]
             .into_iter()
             .find(|role| role.gpt_name() == gpt_name)
     }
@@ -55,7 +52,6 @@ impl Role {
             Self::Esp => "muak-esp",
             Self::State => "muak-state",
             Self::Ephemeral => "muak-ephemeral",
-            Self::Data => "muak-data",
         }
     }
 }

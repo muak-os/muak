@@ -182,16 +182,16 @@ mod tests {
             starting_lba: 4096,
             ending_lba: 8191,
             attributes: 0,
-            name: "DATA".to_owned(),
+            name: "BULK".to_owned(),
         };
         let bytes = partition.encode();
 
         // ACT
-        partition.name = "DATA".to_owned();
+        partition.name = "BULK".to_owned();
         let decoded = Partition::decode(&bytes).expect("entry must decode");
 
         // ASSERT
-        assert_eq!(decoded.name, "DATA");
+        assert_eq!(decoded.name, "BULK");
         assert_eq!(decoded.type_guid, LINUX_FS_GUID);
     }
 

@@ -176,7 +176,7 @@ mod tests {
         // ARRANGE
         let base_sectors = u64::MAX - 1;
         let mut request =
-            PlacementRequest::new(LINUX_FS_GUID, [0xaa; 16], "DATA", Size::Bytes(1024 * 1024));
+            PlacementRequest::new(LINUX_FS_GUID, [0xaa; 16], "BULK", Size::Bytes(1024 * 1024));
         request.alignment_lba = 1;
         request.start = super::super::layout::Start::AtOrAfter(u64::MAX - 100);
 

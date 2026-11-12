@@ -1,34 +1,37 @@
-//! Selection of a physical disk from a config selector entry.
+//! Selection of a physical disk from a config selector.
 
 use anyhow::{Result, bail};
 use blockdev::types::Disk;
-use config::system::disk::Entry;
+use config::system::disk::Selector;
 
 use super::pattern;
 
-/// Returns true when `disk` satisfies every matcher present on a selector `entry`.
-pub(crate) fn matches(entry: &Entry, disk: &Disk) -> bool {
-    entry.device.is_none()
+/// Returns true when `disk` satisfies every matcher present on a selector.
+pub(crate) fn matches(selector: &Selector, disk: &Disk) -> bool {
+    selector.device.is_none()
         && !disk.read_only
-        && string_matches(entry.serial.as_deref(), &disk.serial)
-        && string_matches(entry.wwid.as_deref(), &disk.wwid)
-        && string_matches(entry.model.as_deref(), &disk.model)
-        && string_matches(entry.subsystem.as_deref(), &disk.subsystem)
-        && string_matches(entry.bus_path.as_deref(), &disk.bus_path)
-        && entry
+        && string_matches(selector.serial.as_deref(), &disk.serial)
+        && string_matches(selector.wwid.as_deref(), &disk.wwid)
+        && string_matches(selector.model.as_deref(), &disk.model)
+        && string_matches(selector.subsystem.as_deref(), &disk.subsystem)
+        && string_matches(selector.bus_path.as_deref(), &disk.bus_path)
+        && selector
             .rotational
             .is_none_or(|expected| expected == disk.rotational)
 }
 
-/// Resolves the disk selected by `entry`, refusing ambiguous matches.
-pub(crate) fn resolve<'a>(entry: &Entry, disks: &'a [Disk]) -> Result<&'a Disk> {
-    let candidates: Vec<&Disk> = disks.iter().filter(|disk| matches(entry, disk)).collect();
+/// Resolves the disk selected by `selector`, refusing ambiguous matches.
+pub(crate) fn resolve<'a>(selector: &Selector, disks: &'a [Disk]) -> Result<&'a Disk> {
+    let candidates: Vec<&Disk> = disks
+        .iter()
+        .filter(|disk| matches(selector, disk))
+        .collect();
 
     if candidates.is_empty() {
         let available: Vec<&str> = disks.iter().map(|disk| disk.name.as_str()).collect();
         bail!(
             "no disk matches {} (available: {})",
-            describe(entry),
+            describe(selector),
             names(&available)
         );
     }
@@ -40,24 +43,24 @@ pub(crate) fn resolve<'a>(entry: &Entry, disks: &'a [Disk]) -> Result<&'a Disk> 
     let identified: Vec<String> = candidates.iter().map(|disk| identify(disk)).collect();
     bail!(
         "{} matches multiple disks: {}; pin one with device, serial or wwid",
-        describe(entry),
+        describe(selector),
         identified.join(", ")
     );
 }
 
-/// Renders a human readable description of a disk entry for messages.
-pub(crate) fn describe(entry: &Entry) -> String {
-    if let Some(device) = entry.device.as_deref() {
+/// Renders a human readable description of a disk selector for messages.
+pub(crate) fn describe(selector: &Selector) -> String {
+    if let Some(device) = selector.device.as_deref() {
         return format!("device {device}");
     }
 
     let mut parts = Vec::new();
-    push_matcher(&mut parts, "serial", entry.serial.as_deref());
-    push_matcher(&mut parts, "wwid", entry.wwid.as_deref());
-    push_matcher(&mut parts, "model", entry.model.as_deref());
-    push_matcher(&mut parts, "subsystem", entry.subsystem.as_deref());
-    push_matcher(&mut parts, "bus_path", entry.bus_path.as_deref());
-    if let Some(rotational) = entry.rotational {
+    push_matcher(&mut parts, "serial", selector.serial.as_deref());
+    push_matcher(&mut parts, "wwid", selector.wwid.as_deref());
+    push_matcher(&mut parts, "model", selector.model.as_deref());
+    push_matcher(&mut parts, "subsystem", selector.subsystem.as_deref());
+    push_matcher(&mut parts, "bus_path", selector.bus_path.as_deref());
+    if let Some(rotational) = selector.rotational {
         parts.push(format!("rotational={rotational}"));
     }
 
@@ -104,8 +107,6 @@ fn names(disks: &[&str]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use config::system::disk::Kind;
-
     use super::*;
 
     fn disk(name: &str) -> Disk {
@@ -116,8 +117,8 @@ mod tests {
         }
     }
 
-    fn selector() -> Entry {
-        Entry::selector(Kind::System)
+    fn selector() -> Selector {
+        Selector::default()
     }
 
     #[test]
@@ -219,7 +220,7 @@ mod tests {
         // ARRANGE
         let mut disk = disk("sda");
         disk.serial = "SN123".to_owned();
-        let entry = Entry::device(Kind::System, "/dev/sda");
+        let entry = Selector::device("/dev/sda");
 
         // ACT
         let matched = matches(&entry, &disk);

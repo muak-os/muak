@@ -22,10 +22,6 @@ pub(crate) fn checks(
     let mut checks = vec![not_installed(force)];
     let system = disk::listed(inventory, &targets.system, "system")?;
     checks.extend(for_disk(system, force));
-    if targets.is_split() {
-        let data = disk::listed(inventory, targets.data(), "data")?;
-        checks.extend(for_disk(data, force));
-    }
     checks.push(system_disk_in_use(
         &targets.system,
         running_system_disk(&blockdev::handle()).as_deref(),

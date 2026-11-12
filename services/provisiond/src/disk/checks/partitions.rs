@@ -43,10 +43,10 @@ pub(crate) fn mounted(disk: &Disk, allow: bool) -> Check {
 }
 
 pub(crate) fn muak(disk: &Disk, allow: bool) -> Check {
-    if !(roles::is_system(disk) || roles::is_data(disk)) {
+    if !roles::is_system(disk) {
         return Check::pass(
             "muak_partitions",
-            format!("'{}' has no Muak STATE or DATA partition", disk.path),
+            format!("'{}' has no Muak STATE partition", disk.path),
         );
     }
 
@@ -54,9 +54,8 @@ pub(crate) fn muak(disk: &Disk, allow: bool) -> Check {
         return Check::pass(
             "muak_partitions",
             format!(
-                "'{}' carries the Muak {} partition and the override was given",
-                disk.path,
-                role(disk)
+                "'{}' carries the Muak STATE partition and the override was given",
+                disk.path
             ),
         );
     }
@@ -64,19 +63,10 @@ pub(crate) fn muak(disk: &Disk, allow: bool) -> Check {
     Check::fail(
         "muak_partitions",
         format!(
-            "Disk '{}' carries the Muak {} partition, pass --force / --allow-system-disk to overwrite it",
-            disk.path,
-            role(disk)
+            "Disk '{}' carries the Muak STATE partition, pass --force / --allow-system-disk to overwrite it",
+            disk.path
         ),
     )
-}
-
-fn role(disk: &Disk) -> &'static str {
-    match (roles::is_system(disk), roles::is_data(disk)) {
-        (true, true) => "STATE and DATA",
-        (true, false) => "STATE",
-        (false, _) => "DATA",
-    }
 }
 
 #[cfg(test)]
@@ -148,29 +138,21 @@ mod tests {
     }
 
     #[test]
-    fn state_and_data_partitions_fail_the_muak_check_on_both_paths() {
+    fn state_partitions_fail_the_muak_check_on_both_paths() {
         // ARRANGE
         let state_file = NamedTempFile::new().expect("state disk");
         let mut state = disk(state_file.path().to_str().expect("utf8"));
         state
             .partitions
             .push(partition(1, "", Role::State.gpt_name()));
-        let file = NamedTempFile::new().expect("data disk");
-        let mut data = disk(file.path().to_str().expect("utf8"));
-        data.partitions
-            .push(partition(1, "", Role::Data.gpt_name()));
 
         // ACT
         let state_install = install(&state, "muak_partitions");
         let state_wipe = muak(&state, false);
-        let data_install = install(&data, "muak_partitions");
-        let data_wipe = muak(&data, false);
 
         // ASSERT
-        assert!(!state_install, "the install list must refuse STATE alone");
-        assert!(!state_wipe.passed, "the wipe check must refuse STATE alone");
-        assert!(!data_install, "the install list must refuse DATA alone");
-        assert!(!data_wipe.passed, "the wipe check must refuse DATA alone");
+        assert!(!state_install, "the install list must refuse STATE");
+        assert!(!state_wipe.passed, "the wipe check must refuse STATE");
     }
 
     #[test]

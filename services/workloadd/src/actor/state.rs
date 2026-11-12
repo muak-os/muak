@@ -14,6 +14,7 @@ use super::VmCommand;
 use crate::disk;
 use crate::disk::image::{create_raw, get_path};
 use crate::hypervisor::{self, DiskConfig, VmStartConfig};
+use crate::persistence::VMS_DIR;
 use crate::persistence::state::{DiskConfigPersisted, VmPersisted, delete_vm, load_vms, save_vm};
 use crate::proto::vm::{
     DiskConfig as ProtoDiskConfig, DiskUsage as ProtoDiskUsage, Hypervisor as HypervisorType,
@@ -47,7 +48,7 @@ struct VmEntry {
 
 impl VmEntry {
     fn to_info(&self, vm_id: &str) -> VmInfo {
-        let disk_usage = get_usage(vm_id, disk::DATA_DIR).ok().map(Into::into);
+        let disk_usage = get_usage(vm_id, disk::WORKLOAD_DIR).ok().map(Into::into);
 
         VmInfo {
             vm_id: vm_id.to_owned(),
@@ -194,9 +195,12 @@ impl VmActor {
     }
 
     fn cleanup_orphaned_disks(vms: &HashMap<String, VmEntry>) {
-        list(disk::DATA_DIR)
+        let metadata_dir = Path::new(VMS_DIR).file_name();
+
+        list(disk::WORKLOAD_DIR)
             .unwrap_or_default()
             .into_iter()
+            .filter(|name| Path::new(name).file_name() != metadata_dir)
             .filter(|vm_id| !vms.contains_key(vm_id))
             .for_each(|vm_id| delete_orphaned_disk(&vm_id));
     }
@@ -279,8 +283,8 @@ impl VmActor {
         };
         let size_bytes = size_mb.saturating_mul(1024 * 1024);
 
-        create(&vm_id, disk::DATA_DIR)?;
-        set(&vm_id, size_bytes, disk::DATA_DIR)?;
+        create(&vm_id, disk::WORKLOAD_DIR)?;
+        set(&vm_id, size_bytes, disk::WORKLOAD_DIR)?;
         create_raw(&vm_id, size_bytes)?;
 
         let now = SystemTime::now()
@@ -345,7 +349,7 @@ impl VmActor {
             HypervisorType::try_from(entry.config.hypervisor).unwrap_or(HypervisorType::Qemu);
         let hypervisor = hypervisor::create_hypervisor(hypervisor_type);
 
-        let vm_data_dir = PathBuf::from(disk::DATA_DIR).join(vm_id);
+        let vm_data_dir = PathBuf::from(disk::WORKLOAD_DIR).join(vm_id);
         let serial_log_path = vm_data_dir.join("serial.log");
 
         let kernel_path = resolve_boot_asset(&vm_data_dir, "kernel")?;
@@ -450,7 +454,7 @@ impl VmActor {
 
         println!("Deleting VM {vm_id}");
 
-        if let Err(e) = delete(vm_id, disk::DATA_DIR) {
+        if let Err(e) = delete(vm_id, disk::WORKLOAD_DIR) {
             eprintln!("Failed to delete disk subvolume: {e}");
         }
 
@@ -489,7 +493,7 @@ impl VmActor {
 
         let safe_filename = filename.replace(['/', '\\', '\0'], "_");
 
-        let vm_dir = PathBuf::from(disk::DATA_DIR).join(vm_id);
+        let vm_dir = PathBuf::from(disk::WORKLOAD_DIR).join(vm_id);
         if !vm_dir.exists() {
             anyhow::bail!("VM directory not found: {vm_id}. Create the VM first.");
         }
@@ -507,7 +511,9 @@ impl VmActor {
             .get(vm_id)
             .ok_or_else(|| anyhow::anyhow!("VM not found: {vm_id}"))?;
 
-        let log_path = PathBuf::from(disk::DATA_DIR).join(vm_id).join("serial.log");
+        let log_path = PathBuf::from(disk::WORKLOAD_DIR)
+            .join(vm_id)
+            .join("serial.log");
 
         if !log_path.exists() {
             return Ok(String::new());
@@ -573,7 +579,7 @@ async fn cleanup_tap_on_err(handle: &rtnetlink::Handle, tap_name: Option<String>
 
 fn delete_orphaned_disk(vm_id: &str) {
     kmsg::warn!(@ "workloadd", "Cleaning up orphaned disk: {}", vm_id);
-    if let Err(e) = delete(vm_id, disk::DATA_DIR) {
+    if let Err(e) = delete(vm_id, disk::WORKLOAD_DIR) {
         kmsg::error!(@ "workloadd", "Failed to delete orphaned disk {}: {}", vm_id, e);
     }
 }

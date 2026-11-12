@@ -32,7 +32,7 @@ Muak is managed by a gRPC API instead of a traditional shell.
 
 ### Immutable Filesystem
 
-Muak uses an immutable filesystem to ensure that the base system remains unchanged and secure. This means that any changes made to the base system are lost upon reboot, ensuring a clean state every time. Persistent data lives in GPT partitions managed by the installer: a small STATE partition stores the data needed to make Muak functional, a resettable EPHEMERAL partition holds workload data that can be discarded, and a DATA partition holds workload data that survives resets.
+Muak uses an immutable filesystem to ensure that the base system remains unchanged and secure. This means that any changes made to the base system are lost upon reboot, ensuring a clean state every time. Persistent data lives in GPT partitions managed by the installer: a small STATE partition stores the data needed to make Muak functional, and an EPHEMERAL partition, which fills the rest of the disk, holds workload data and is destroyed by a factory reset.
 
 ### No External Binaries
 

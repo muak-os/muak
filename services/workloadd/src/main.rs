@@ -47,8 +47,6 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-const STATE_DIR: &str = "/run/state/workloadd";
-
 /// Entry point for the VM daemon.
 #[granola::service("workloadd")]
 #[tokio::main]
@@ -68,7 +66,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         notifier.status("KVM not available", Health::Degraded)?;
     }
 
-    create_dir_all(format!("{STATE_DIR}/vms")).await?;
+    create_dir_all(persistence::VMS_DIR).await?;
 
     let (connection, netlink_handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);

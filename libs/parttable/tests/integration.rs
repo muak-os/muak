@@ -68,7 +68,7 @@ mod tests {
             type_guid: LINUX_FS_GUID,
             unique_guid: [0xBB; 16],
             attributes: 0,
-            name: "DATA".to_owned(),
+            name: "BULK".to_owned(),
         };
 
         // ACT
@@ -104,7 +104,7 @@ mod tests {
             type_guid: LINUX_FS_GUID,
             unique_guid: [0xBB; 16],
             attributes: 0,
-            name: "DATA".to_owned(),
+            name: "BULK".to_owned(),
         };
 
         // ACT
@@ -129,7 +129,7 @@ mod tests {
             type_guid: LINUX_FS_GUID,
             unique_guid: [0xBB; 16],
             attributes: 0,
-            name: "DATA".to_owned(),
+            name: "BULK".to_owned(),
         };
 
         // ACT

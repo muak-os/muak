@@ -546,11 +546,11 @@ mod tests {
         let previous = "[host]\nport = 50051\nname = \"old\"\nversion = \"v1.0.0\"\n\n\
                         [network]\ndns = [\"1.1.1.1\"]\ninterfaces = [\"eth0\"]\n\n\
                         [vm]\ncpus = 2\n\n\
-                        [[disks]]\ndevice = \"/dev/vda\"\n";
+                        [disk]\ndevice = \"/dev/vda\"\n";
         let next = "[host]\nport = 50051\nname = \"new\"\nversion = \"v2.0.0\"\n\n\
                     [network]\ninterfaces = [\"eth0\"]\ndns = [\"1.1.1.1\"]\n\n\
                     [vm]\ncpus = 4\n\n\
-                    [[disks]]\ndevice = \"/dev/vdb\"\n";
+                    [disk]\ndevice = \"/dev/vdb\"\n";
 
         // ACT
         let isolating = isolates(previous, next).expect("both documents must parse");

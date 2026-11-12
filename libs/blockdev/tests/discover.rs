@@ -16,7 +16,7 @@ mod tests {
         fixture.disk("sda", 8192);
         fixture.partition("sda", "sda1", 1, "EFI", 2048, 512);
         fixture.partition("sda", "sda2", 2, "EFI_OLD", 4096, 512);
-        fixture.partition("sda", "sda3", 3, "DATA", 6144, 512);
+        fixture.partition("sda", "sda3", 3, "BULK", 6144, 512);
 
         // ACT
         let devices = Linux::rooted(&fixture.roots()).find_by_partname("EFI");
@@ -63,7 +63,7 @@ mod tests {
         fixture.partition("sda", "sda1", 1, "STATE", 2048, 512);
 
         // ACT
-        let devices = Linux::rooted(&fixture.roots()).find_by_partname("DATA");
+        let devices = Linux::rooted(&fixture.roots()).find_by_partname("BULK");
 
         // ASSERT
         assert_eq!(devices, Vec::<String>::new());

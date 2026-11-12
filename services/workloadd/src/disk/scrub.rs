@@ -8,7 +8,7 @@ use btrfs::scrub::{get_fs_info, scrub};
 use tokio::task::spawn_blocking;
 use tokio::time::interval;
 
-use super::DATA_DIR;
+use super::WORKLOAD_DIR;
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -28,9 +28,9 @@ pub(crate) fn shutdown() {
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
-/// Run a read-only scrub across every device on `DATA_DIR`.
+/// Run a read-only scrub across every device on `WORKLOAD_DIR`.
 fn run() -> ScrubOutcome {
-    let device_ids = match get_fs_info(DATA_DIR) {
+    let device_ids = match get_fs_info(WORKLOAD_DIR) {
         Ok(ids) => ids,
         Err(e) => return ScrubOutcome::Error(format!("Failed to enumerate devices: {e}")),
     };
@@ -42,7 +42,7 @@ fn run() -> ScrubOutcome {
     let mut results = Vec::with_capacity(device_ids.len());
 
     for devid in &device_ids {
-        match scrub(DATA_DIR, *devid, true) {
+        match scrub(WORKLOAD_DIR, *devid, true) {
             Ok(progress) => results.push(DeviceResult { progress }),
             Err(e) => {
                 return ScrubOutcome::Error(format!("Scrub failed on device {devid}: {e}"));
@@ -108,7 +108,7 @@ fn format_gib(bytes: u64) -> String {
     format!("{whole}.{fraction:02}")
 }
 
-/// Periodic scrub timer. Runs a read-only btrfs scrub on the data partition.
+/// Periodic scrub timer. Runs a read-only btrfs scrub on the ephemeral partition.
 pub(crate) async fn timer() {
     const SCRUB_INTERVAL: Duration = Duration::from_hours(168);
 

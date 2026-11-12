@@ -96,18 +96,15 @@ pub(crate) fn unmount(mount_point: &str) -> Result<()> {
 /// Unmounts every filesystem on the targets so partitioning can proceed.
 pub(crate) fn unmount_targets(targets: &Targets) -> Result<()> {
     let kernel = blockdev::handle();
-
-    for device in [targets.system.as_str(), targets.data()] {
-        let mounted = get_disk_mounts(&kernel, device);
-        if mounted.is_empty() {
-            continue;
-        }
-
-        sync();
-        unmount_all(&mounted).with_context(|| format!("Failed to unmount '{device}'"))?;
+    let device = targets.system.as_str();
+    let mounted = get_disk_mounts(&kernel, device);
+    if mounted.is_empty() {
+        return Ok(());
     }
 
-    Ok(())
+    sync();
+
+    unmount_all(&mounted).with_context(|| format!("Failed to unmount '{device}'"))
 }
 
 fn of_disk(mut mounts: Vec<Mount>, disk: &str) -> Vec<Mount> {

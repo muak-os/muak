@@ -38,7 +38,7 @@ pub(crate) async fn run(
     progress: mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
     let inventory = disk::list_disks().await?;
-    let targets = disk::target::resolve_with(&config.disks, &inventory)?;
+    let targets = disk::target::resolve_with(&config.disk, &inventory)?;
     validate_disks(
         &targets,
         inventory,

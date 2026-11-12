@@ -5,11 +5,10 @@ use anyhow::{Context as _, Result};
 use blockdev::types::Disk;
 use config::system;
 
-use super::layout::plans_from_doc;
+use super::layout::plan_from_doc;
 use super::preflight;
 use crate::check::Check;
 use crate::disk;
-use crate::disk::target::Targets;
 
 /// One partition the install will place.
 pub(crate) struct PlannedPartition {
@@ -22,8 +21,6 @@ pub(crate) struct PlannedPartition {
 /// Everything the install will resolve, create and destroy.
 pub(crate) struct InstallPlan {
     pub system: Disk,
-    pub data: Disk,
-    pub shared_data: bool,
     pub wipe: bool,
     pub partitions: Vec<PlannedPartition>,
     pub checks: Vec<Check>,
@@ -36,12 +33,11 @@ pub(crate) async fn resolve(
     allow_system_disk: bool,
 ) -> Result<InstallPlan> {
     let inventory = disk::list_disks().await?;
-    let targets = disk::target::resolve_with(&config.disks, &inventory)?;
+    let targets = disk::target::resolve_with(&config.disk, &inventory)?;
     let doc = disk::load_document()?;
-    let (system_plan, data_plan) = plans_from_doc(&doc, !targets.is_split())?;
+    let layout = plan_from_doc(&doc)?;
 
     let system = disk::listed(&inventory, &targets.system, "system")?.clone();
-    let data = disk::listed(&inventory, targets.data(), "data")?.clone();
 
     let checked = targets.clone();
     let secureboot = config.host.secureboot;
@@ -53,25 +49,10 @@ pub(crate) async fn resolve(
 
     Ok(InstallPlan {
         system,
-        data,
-        shared_data: !targets.is_split(),
         wipe: doc.wipe(),
-        partitions: planned(&targets, &system_plan, data_plan.as_ref()),
+        partitions: partitions_for(&targets.system, &layout),
         checks,
     })
-}
-
-fn planned(
-    targets: &Targets,
-    system_plan: &LayoutPlan,
-    data_plan: Option<&LayoutPlan>,
-) -> Vec<PlannedPartition> {
-    let mut partitions = partitions_for(&targets.system, system_plan);
-    if let Some(plan) = data_plan {
-        partitions.extend(partitions_for(targets.data(), plan));
-    }
-
-    partitions
 }
 
 fn partitions_for(device: &str, plan: &LayoutPlan) -> Vec<PlannedPartition> {

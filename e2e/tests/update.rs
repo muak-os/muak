@@ -96,7 +96,7 @@ mod tests {
         let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
-                cfg.disks = vec![system_disk()];
+                cfg.disk = system_disk();
                 cfg.host.registry = registry;
                 cfg.host.version = version;
             })
@@ -157,7 +157,7 @@ mod tests {
         let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
-                cfg.disks = vec![system_disk()];
+                cfg.disk = system_disk();
                 cfg.host.registry = registry;
                 cfg.host.version = version;
                 cfg.host.secureboot = true;
@@ -221,7 +221,7 @@ mod tests {
         let (registry, version) = (install_registry(), install_version());
         let update_cfg = cli
             .generate_config(|cfg| {
-                cfg.disks = vec![system_disk()];
+                cfg.disk = system_disk();
                 cfg.host.registry = registry;
                 cfg.host.version = version;
                 cfg.host.secureboot = false;

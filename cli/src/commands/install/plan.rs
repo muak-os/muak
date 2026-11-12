@@ -17,10 +17,6 @@ const CHECK_COLUMNS: [&str; 3] = ["CHECK", "RESULT", "DETAIL"];
 pub(crate) fn print(plan: &InstallPlan, console: &Console) -> io::Result<()> {
     console.table(&table(&DISK_COLUMNS, disk_rows(plan)))?;
 
-    if plan.shared_data {
-        console.line(Role::Muted, "DATA shares the system disk");
-    }
-
     if plan.wipe {
         for device in wiped(plan) {
             console.line(
@@ -60,13 +56,7 @@ fn table(headers: &[&str], rows: Vec<Vec<String>>) -> Table {
 }
 
 fn disk_rows(plan: &InstallPlan) -> Vec<Vec<String>> {
-    let mut rows = vec![disk_row(plan.system_disk.as_ref(), "system", plan)];
-    if plan.shared_data {
-        return rows;
-    }
-    rows.push(disk_row(plan.data_disk.as_ref(), "data", plan));
-
-    rows
+    vec![disk_row(system_disk(plan), "system", plan)]
 }
 
 fn disk_row(disk: Option<&DiskInfo>, role: &str, plan: &InstallPlan) -> Vec<String> {
@@ -94,16 +84,10 @@ fn disk_row(disk: Option<&DiskInfo>, role: &str, plan: &InstallPlan) -> Vec<Stri
 }
 
 fn wiped(plan: &InstallPlan) -> Vec<&str> {
-    let mut devices: Vec<&str> = plan
-        .system_disk
+    plan.system_disk
         .iter()
         .map(|disk| disk.path.as_str())
-        .collect();
-    if !plan.shared_data {
-        devices.extend(plan.data_disk.iter().map(|disk| disk.path.as_str()));
-    }
-
-    devices
+        .collect()
 }
 
 fn partition_rows(plan: &InstallPlan) -> Vec<Vec<String>> {
@@ -159,7 +143,7 @@ fn yes_no(value: bool) -> String {
 mod tests {
     use super::*;
 
-    fn disk(name: &str, role: bool) -> DiskInfo {
+    fn disk(name: &str) -> DiskInfo {
         DiskInfo {
             name: name.to_owned(),
             path: format!("/dev/{name}"),
@@ -167,17 +151,14 @@ mod tests {
             model: "Disk".to_owned(),
             serial: "SN123".to_owned(),
             wwid: "naa.5000".to_owned(),
-            is_system: role,
-            is_data: !role,
+            is_system: true,
             ..Default::default()
         }
     }
 
-    fn plan(shared_data: bool) -> InstallPlan {
+    fn plan() -> InstallPlan {
         InstallPlan {
-            system_disk: Some(disk("sda", true)),
-            data_disk: Some(disk("sdb", false)),
-            shared_data,
+            system_disk: Some(disk("sda")),
             wipe: true,
             partitions: vec![PlannedPartition {
                 disk: "/dev/sda".to_owned(),
@@ -202,37 +183,23 @@ mod tests {
     }
 
     #[test]
-    fn split_assignments_list_both_disks() {
+    fn the_system_disk_is_listed() {
         // ARRANGE
-        let plan = plan(false);
+        let plan = plan();
 
         // ACT
         let rows = disk_rows(&plan);
 
         // ASSERT
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 1);
         assert_eq!(rows[0][0], "system");
         assert_eq!(rows[0][1], "/dev/sda");
-        assert_eq!(rows[1][0], "data");
-        assert_eq!(rows[1][1], "/dev/sdb");
     }
 
     #[test]
-    fn shared_assignments_list_only_the_system_disk() {
+    fn wiped_devices_hold_the_system_disk() {
         // ARRANGE
-        let plan = plan(true);
-
-        // ACT
-        let rows = disk_rows(&plan);
-
-        // ASSERT
-        assert_eq!(rows.len(), 1, "shared data lives on the system disk");
-    }
-
-    #[test]
-    fn wiped_devices_skip_the_shared_data_duplicate() {
-        // ARRANGE
-        let plan = plan(true);
+        let plan = plan();
 
         // ACT
         let devices = wiped(&plan);
@@ -244,7 +211,7 @@ mod tests {
     #[test]
     fn missing_disks_render_as_not_in_inventory() {
         // ARRANGE
-        let mut plan = plan(false);
+        let mut plan = plan();
         plan.system_disk = None;
 
         // ACT
@@ -257,7 +224,7 @@ mod tests {
     #[test]
     fn fixed_partitions_show_their_byte_size() {
         // ARRANGE
-        let plan = plan(false);
+        let plan = plan();
         let partition = plan.partitions.first().expect("planned partition");
 
         // ACT
@@ -270,7 +237,7 @@ mod tests {
     #[test]
     fn fill_partitions_show_the_remaining_space() {
         // ARRANGE
-        let plan = plan(false);
+        let plan = plan();
         let mut partition = plan.partitions[0].clone();
 
         // ACT
@@ -284,7 +251,7 @@ mod tests {
     #[test]
     fn checks_report_their_outcome() {
         // ARRANGE
-        let plan = plan(false);
+        let plan = plan();
 
         // ACT
         let rows = check_rows(&plan);
@@ -297,7 +264,7 @@ mod tests {
     #[test]
     fn refusal_needs_a_failing_check() {
         // ARRANGE
-        let refusing = plan(false);
+        let refusing = plan();
         let mut accepted = refusing.clone();
 
         // ACT
@@ -313,7 +280,7 @@ mod tests {
     #[test]
     fn system_path_is_the_system_device() {
         // ARRANGE
-        let plan = plan(false);
+        let plan = plan();
 
         // ACT
         let path = system_path(&plan);

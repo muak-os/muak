@@ -1,8 +1,11 @@
 use std::fs::File;
 
 use ::disk::plan::Plan;
-use anyhow::{Context as _, Result};
+use ::disk::role::Role;
+use ::disk::sizes::EPHEMERAL_MIN_SIZE;
+use anyhow::{Context as _, Result, bail};
 use partdev::table;
+use parttable::gpt::layout::Placement;
 
 use super::apply;
 use super::constants::{MB, SECTOR_SIZE};
@@ -12,14 +15,15 @@ use super::constants::{MB, SECTOR_SIZE};
 /// # Errors
 ///
 /// Returns an error when the disk cannot be opened, its partition table cannot
-/// be read, or the plan does not fit the available space.
+/// be read, the plan does not fit the available space, or the resolved
+/// EPHEMERAL partition is smaller than [`EPHEMERAL_MIN_SIZE`].
 pub(crate) fn fits_plan(disk: &str, plan: &Plan) -> Result<()> {
     let file =
         File::open(disk).with_context(|| format!("Failed to open '{disk}' for size probe"))?;
     let sector_count = table::sector_count(&file)?;
 
     let mut gpt = apply::load_table(&file, sector_count, plan.wipe)?;
-    apply::place_all(&mut gpt, plan).with_context(|| {
+    let created = apply::place_all(&mut gpt, plan).with_context(|| {
         let mib = sector_count
             .saturating_mul(SECTOR_SIZE)
             .checked_div(MB)
@@ -27,6 +31,26 @@ pub(crate) fn fits_plan(disk: &str, plan: &Plan) -> Result<()> {
 
         format!("Disk '{disk}' cannot hold the layout ({mib} MiB available)")
     })?;
+
+    ensure_ephemeral_minimum(disk, created)
+}
+
+fn ensure_ephemeral_minimum(disk: &str, created: Vec<(Placement, Option<Role>)>) -> Result<()> {
+    let minimum = EPHEMERAL_MIN_SIZE.checked_div(MB).unwrap_or(0);
+
+    for (placement, role) in created {
+        if role != Some(Role::Ephemeral) {
+            continue;
+        }
+
+        let bytes = apply::partition_bytes(&placement.partition);
+        if bytes < EPHEMERAL_MIN_SIZE {
+            bail!(
+                "EPHEMERAL on '{disk}' resolves to {} MiB, below the {minimum} MiB minimum",
+                bytes.checked_div(MB).unwrap_or(0)
+            );
+        }
+    }
 
     Ok(())
 }
@@ -64,6 +88,13 @@ mod tests {
 
     fn fixed_plan(bytes: u64) -> Plan {
         Plan::wiped(vec![spec("TEST", Size::Fixed(bytes))])
+    }
+
+    fn ephemeral_plan() -> Plan {
+        Plan::wiped(vec![
+            spec("TEST", Size::Fixed(MB)),
+            PartitionSpec::create(Role::Ephemeral, "EPHEMERAL", LINUX_FS_GUID, Size::Fill),
+        ])
     }
 
     fn disk_with_foreign_partition(sector_count: u64) -> NamedTempFile {
@@ -141,6 +172,48 @@ mod tests {
         assert!(
             format!("{error:#}").contains("partition 2 start LBA 4096 is after end LBA 4095"),
             "{error:#}"
+        );
+    }
+
+    #[test]
+    fn fits_plan_accepts_a_fill_ephemeral_at_the_exact_minimum() {
+        // ARRANGE
+        let plan = ephemeral_plan();
+        let disk = disk_image(20_975_649);
+
+        // ACT
+        let result = fits_plan(path(&disk), &plan);
+
+        // ASSERT
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn fits_plan_rejects_a_fill_ephemeral_one_sector_below_the_minimum() {
+        // ARRANGE
+        let plan = ephemeral_plan();
+        let disk = disk_image(20_975_648);
+        let disk_path = path(&disk);
+
+        // ACT
+        let error = fits_plan(disk_path, &plan).expect_err("one sector short must fail");
+
+        // ASSERT
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("10239 MiB"),
+            "error must state the resolved size: {message}"
+        );
+        assert!(
+            message.contains(&format!(
+                "{} MiB minimum",
+                EPHEMERAL_MIN_SIZE.checked_div(MB).unwrap_or(0)
+            )),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!("EPHEMERAL on '{disk_path}'")),
+            "error must name the disk: {message}"
         );
     }
 

@@ -6,44 +6,18 @@ use ::disk::plan::Plan;
 use ::disk::role::Role;
 use anyhow::{Result, bail};
 
-/// Builds the system-disk and data-disk plans from the boot image's disk
-/// plan, splitting DATA onto its own disk when the assignment is split.
-///
-/// # Errors
-///
-/// Returns an error when the document cannot be converted to a plan or is
-/// missing a required role.
-pub(super) fn plans_from_doc(doc: &Document, shared_data: bool) -> Result<(Plan, Option<Plan>)> {
+// Builds the system-disk plan from the boot image's disk plan, rejecting a
+// document without the ESP, STATE or EPHEMERAL partition.
+pub(super) fn plan_from_doc(doc: &Document) -> Result<Plan> {
     let plan = convert::to_plan(doc)?;
 
-    for role in [Role::Esp, Role::State, Role::Ephemeral, Role::Data] {
+    for role in [Role::Esp, Role::State, Role::Ephemeral] {
         if !plan.partitions.iter().any(|spec| spec.role == Some(role)) {
             bail!("disk plan is missing the '{role:?}' partition");
         }
     }
 
-    if shared_data {
-        return Ok((plan, None));
-    }
-
-    let mut system_specs = plan.partitions.clone();
-    let data_specs: Vec<::disk::plan::PartitionSpec> = system_specs
-        .iter()
-        .filter(|spec| spec.role == Some(Role::Data))
-        .cloned()
-        .collect();
-    system_specs.retain(|spec| spec.role != Some(Role::Data));
-
-    Ok((
-        Plan {
-            wipe: plan.wipe,
-            partitions: system_specs,
-        },
-        Some(Plan {
-            wipe: plan.wipe,
-            partitions: data_specs,
-        }),
-    ))
+    Ok(plan)
 }
 
 #[cfg(test)]
@@ -70,58 +44,22 @@ mod tests {
     }
 
     #[test]
-    fn shared_assignment_keeps_data_on_the_system_plan() {
+    fn every_partition_stays_on_the_single_plan() {
         // ARRANGE
         let doc = standard_doc();
 
         // ACT
-        let (system, data) = plans_from_doc(&doc, true).expect("plans");
+        let plan = plan_from_doc(&doc).expect("plan");
 
         // ASSERT
-        assert!(system.wipe);
+        assert!(plan.wipe);
+        assert_eq!(plan.partitions.len(), 3);
         assert_eq!(
-            system.partitions.len(),
-            4,
-            "all partitions stay on the system disk"
-        );
-        assert!(
-            data.is_none(),
-            "shared assignment has no separate data plan"
-        );
-    }
-
-    #[test]
-    fn split_assignment_moves_data_to_its_own_plan() {
-        // ARRANGE
-        let doc = standard_doc();
-
-        // ACT
-        let (system, data) = plans_from_doc(&doc, false).expect("plans");
-
-        // ASSERT
-        assert_eq!(
-            system.partitions.len(),
-            3,
-            "system disk keeps ESP + STATE + EPHEMERAL only"
-        );
-        assert!(
-            system
-                .partitions
+            plan.partitions
                 .iter()
-                .all(|spec| spec.role != Some(Role::Data))
-        );
-        assert!(
-            system
-                .partitions
-                .iter()
-                .any(|spec| spec.role == Some(Role::Ephemeral)),
-            "EPHEMERAL stays on the system disk"
-        );
-        let data = data.expect("split assignment must produce a data plan");
-        assert_eq!(data.partitions.len(), 1, "the data disk carries DATA only");
-        assert_eq!(
-            data.partitions.first().expect("data spec").role,
-            Some(Role::Data)
+                .map(|spec| spec.role)
+                .collect::<Vec<_>>(),
+            vec![Some(Role::Esp), Some(Role::State), Some(Role::Ephemeral)]
         );
     }
 
@@ -140,7 +78,7 @@ mod tests {
         );
 
         // ACT
-        let result = plans_from_doc(&doc, true);
+        let result = plan_from_doc(&doc);
 
         // ASSERT
         let error = result.expect_err("missing roles must be rejected");
@@ -148,7 +86,29 @@ mod tests {
     }
 
     #[test]
-    fn recorded_names_flow_into_the_plans() {
+    fn plans_require_the_ephemeral_role() {
+        // ARRANGE
+        let standard = standard_doc();
+        let doc = Document::new(
+            standard.wipe(),
+            standard
+                .partitions()
+                .iter()
+                .filter(|partition| partition.role != Role::Ephemeral)
+                .cloned()
+                .collect(),
+        );
+
+        // ACT
+        let result = plan_from_doc(&doc);
+
+        // ASSERT
+        let error = result.expect_err("a missing ephemeral partition must be rejected");
+        assert!(error.to_string().contains("Ephemeral"), "{error}");
+    }
+
+    #[test]
+    fn recorded_names_flow_into_the_plan() {
         // ARRANGE
         let mut doc = standard_doc();
         let state = doc.find(Role::State).cloned().expect("state");
@@ -157,10 +117,10 @@ mod tests {
         doc = replace(&doc, &renamed);
 
         // ACT
-        let (system, _) = plans_from_doc(&doc, true).expect("plans");
+        let plan = plan_from_doc(&doc).expect("plan");
 
         // ASSERT
-        let state_spec = system
+        let state_spec = plan
             .partitions
             .iter()
             .find(|spec| spec.role == Some(Role::State))

@@ -7,7 +7,7 @@ mod tests {
     use disk::layout::Layout;
     use disk::plan::Size;
     use disk::role::Role;
-    use disk::sizes::{EFI_SIZE, EPHEMERAL_SIZE, ESP_TYPE_GUID, STATE_SIZE};
+    use disk::sizes::{EFI_SIZE, ESP_TYPE_GUID, STATE_SIZE};
     use parttable::gpt::partition::LINUX_FS_GUID;
 
     use crate::common;
@@ -61,26 +61,13 @@ mod tests {
         assert!(plan.wipe, "the system disk must be wiped");
         assert_eq!(
             roles,
-            vec![
-                Some(Role::Esp),
-                Some(Role::State),
-                Some(Role::Ephemeral),
-                Some(Role::Data)
-            ]
+            vec![Some(Role::Esp), Some(Role::State), Some(Role::Ephemeral)]
         );
-        assert_eq!(names, vec!["EFI", "STATE", "EPHEMERAL", "DATA"]);
+        assert_eq!(names, vec!["EFI", "STATE", "EPHEMERAL"]);
         assert_eq!(
             sizes,
-            vec![
-                Size::Fixed(EFI_SIZE),
-                Size::Fixed(STATE_SIZE),
-                Size::Fixed(EPHEMERAL_SIZE),
-                Size::Fill
-            ]
+            vec![Size::Fixed(EFI_SIZE), Size::Fixed(STATE_SIZE), Size::Fill]
         );
-        assert_eq!(
-            guids,
-            vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID, LINUX_FS_GUID]
-        );
+        assert_eq!(guids, vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID]);
     }
 }

@@ -35,9 +35,9 @@ pub struct Config {
     /// Host-level configuration (name, registry, version, ports, etc.).
     #[serde(default)]
     pub host: host::Config,
-    /// Disk assignment entries for the system and optional data disks.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub disks: Vec<disk::Entry>,
+    /// Disk selector for the system disk.
+    #[serde(default, skip_serializing_if = "disk::Selector::is_empty")]
+    pub disk: disk::Selector,
     /// Network configuration (interfaces, DNS, IPv6).
     #[serde(default)]
     pub network: network::Config,
@@ -51,7 +51,7 @@ impl Default for Config {
         toml::from_str(DEFAULT_CONFIG).unwrap_or_else(|_| Config {
             api_version: API_VERSION.to_owned(),
             host: host::Config::default(),
-            disks: Vec::new(),
+            disk: disk::Selector::default(),
             network: network::Config::default(),
             vm: vm::Config::default(),
         })
@@ -64,8 +64,7 @@ impl Config {
     pub fn same_as(&self, other: &Config) -> bool {
         self.api_version == other.api_version
             && self.host.same_as(&other.host)
-            && disk::system(&self.disks) == disk::system(&other.disks)
-            && disk::data(&self.disks) == disk::data(&other.disks)
+            && self.disk == other.disk
             && self.network == other.network
             && self.vm == other.vm
     }
@@ -113,7 +112,7 @@ impl Config {
                 "host.version must be set".to_owned(),
             ));
         }
-        disk::validate_for_install(&self.disks)
+        disk::validate_for_install(&self.disk)
     }
 
     /// Validates that the config is acceptable for an update operation.
@@ -129,7 +128,7 @@ impl Config {
                 "host.version must be set".to_owned(),
             ));
         }
-        disk::validate_immutable(&self.disks, &installed.disks)?;
+        disk::validate_immutable(&self.disk, &installed.disk)?;
 
         Ok(())
     }
@@ -348,7 +347,7 @@ mod tests {
         let mut config = Config::default();
         config.host.port = 8080;
         config.host.version = "v1.0.0".to_owned();
-        config.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
+        config.disk = disk::Selector::device("/dev/sda");
 
         // ACT & ASSERT
         config.validate().unwrap();
@@ -360,7 +359,7 @@ mod tests {
         // ARRANGE
         let mut config = Config::default();
         config.host.port = 8080;
-        config.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
+        config.disk = disk::Selector::device("/dev/sda");
 
         // ACT & ASSERT
         assert!(config.validate_for_install().is_err());
@@ -382,10 +381,18 @@ mod tests {
         let mut config = Config::default();
         config.host.port = 8080;
         config.host.version = "v1.0.0".to_owned();
-        config.disks = Vec::new();
+        config.disk = disk::Selector::default();
 
-        // ACT & ASSERT
-        assert!(config.validate_for_install().is_err());
+        // ACT
+        let error = config.validate_for_install().unwrap_err();
+
+        // ASSERT
+        assert!(
+            error
+                .to_string()
+                .contains("requires a device or at least one matcher"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -411,31 +418,10 @@ mod tests {
         let mut installed = Config::default();
         installed.host.port = 8080;
         installed.host.version = "v1.0.0".to_owned();
-        installed.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sda")];
+        installed.disk = disk::Selector::device("/dev/sda");
 
         let mut requested = installed.clone();
-        requested.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sdb")];
-
-        // ACT & ASSERT
-        assert!(requested.validate_for_update(&installed).is_err());
-    }
-
-    #[test]
-    fn validate_for_update_rejects_data_disk_change() {
-        // ARRANGE
-        let mut installed = Config::default();
-        installed.host.port = 8080;
-        installed.host.version = "v1.0.0".to_owned();
-        installed.disks = vec![
-            disk::Entry::device(disk::Kind::System, "/dev/sda"),
-            disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
-        ];
-
-        let mut requested = installed.clone();
-        requested.disks = vec![
-            disk::Entry::device(disk::Kind::System, "/dev/sda"),
-            disk::Entry::device(disk::Kind::Data, "/dev/sdc"),
-        ];
+        requested.disk = disk::Selector::device("/dev/sdb");
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -588,7 +574,7 @@ image = "10.0.2.2:5000/installer:dev"
         let mut config = Config::default();
         config.host.port = 9090;
         config.host.name = "testhost".to_owned();
-        config.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/nvme0n1")];
+        config.disk = disk::Selector::device("/dev/nvme0n1");
         config.network.ipv6 = true;
         config.network.dns = vec!["9.9.9.9".parse().unwrap()];
         config.vm.auto_restart = true;
@@ -601,10 +587,7 @@ image = "10.0.2.2:5000/installer:dev"
         assert_eq!(restored.api_version, API_VERSION);
         assert_eq!(restored.host.port, 9090);
         assert_eq!(restored.host.name, "testhost");
-        assert_eq!(
-            restored.disks,
-            vec![disk::Entry::device(disk::Kind::System, "/dev/nvme0n1")]
-        );
+        assert_eq!(restored.disk, disk::Selector::device("/dev/nvme0n1"));
         assert!(restored.network.ipv6);
         assert_eq!(
             restored.network.dns,
@@ -640,6 +623,21 @@ ntp = "pool.ntp.org"
 
         // ASSERT
         result.unwrap_err();
+    }
+
+    #[test]
+    fn parse_from_str_rejects_legacy_disks_table() {
+        // ARRANGE
+        let toml_str = with_version("[[disks]]\nrole = \"system\"\ndevice = \"/dev/sda\"\n");
+
+        // ACT
+        let result = parse_from_str(&toml_str);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "the legacy [[disks]] table must be rejected"
+        );
     }
 
     #[test]
@@ -893,39 +891,14 @@ ntp = "pool.ntp.org"
     }
 
     #[test]
-    fn same_as_ignores_disk_order() {
-        // ARRANGE
-        let installed = Config {
-            disks: vec![
-                disk::Entry::device(disk::Kind::System, "/dev/sda"),
-                disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
-            ],
-            ..Config::default()
-        };
-        let requested = Config {
-            disks: vec![
-                disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
-                disk::Entry::device(disk::Kind::System, "/dev/sda"),
-            ],
-            ..Config::default()
-        };
-
-        // ACT
-        let same = requested.same_as(&installed);
-
-        // ASSERT
-        assert!(same, "disk ordering must not matter");
-    }
-
-    #[test]
     fn same_as_detects_disk_change() {
         // ARRANGE
         let installed = Config {
-            disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sda")],
+            disk: disk::Selector::device("/dev/sda"),
             ..Config::default()
         };
         let requested = Config {
-            disks: vec![disk::Entry::device(disk::Kind::System, "/dev/sdb")],
+            disk: disk::Selector::device("/dev/sdb"),
             ..Config::default()
         };
 

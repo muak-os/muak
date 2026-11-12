@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use super::DATA_DIR;
+use super::WORKLOAD_DIR;
 
 pub(crate) fn create_raw(vm_id: &str, size_bytes: u64) -> Result<PathBuf> {
     let path = get_path(vm_id);
@@ -27,7 +27,7 @@ pub(crate) fn create_raw(vm_id: &str, size_bytes: u64) -> Result<PathBuf> {
 }
 
 pub(crate) fn get_path(vm_id: &str) -> PathBuf {
-    PathBuf::from(DATA_DIR).join(vm_id).join("disk.raw")
+    PathBuf::from(WORKLOAD_DIR).join(vm_id).join("disk.raw")
 }
 
 fn create_sparse_file(mut file: File, size_bytes: u64) -> Result<()> {
