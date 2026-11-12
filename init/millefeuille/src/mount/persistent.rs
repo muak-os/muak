@@ -108,6 +108,12 @@ fn try_mount_ephemeral(device: &str, key: &[u8]) -> Result<()> {
 
     kmsg::info!("Mounted EPHEMERAL partition at /run/ephemeral");
 
+    if let Err(error) = quota::enable(EPHEMERAL_MOUNT) {
+        try_unmount(EPHEMERAL_MOUNT);
+        close_mapping(Role::Ephemeral);
+        return Err(error.into());
+    }
+
     Ok(())
 }
 
