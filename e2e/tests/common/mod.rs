@@ -1,7 +1,7 @@
 use core::time::Duration;
 
 use anyhow::Result;
-use config::system::disk::{Entry, Kind};
+use config::system::disk::Selector;
 use e2e::artifacts::Artifacts;
 use e2e::assert_success_insecure;
 use e2e::cli::Cli;
@@ -21,11 +21,12 @@ pub(crate) fn install_version() -> String {
     std::env::var("TAG").unwrap_or_else(|_| DEFAULT_TAG.to_owned())
 }
 
-/// Returns a system disk entry selecting the QEMU `NVMe` disk by subsystem.
-pub(crate) fn system_disk() -> Entry {
-    let mut entry = Entry::selector(Kind::System);
-    entry.subsystem = Some("nvme".to_owned());
-    entry
+/// Returns a system disk selector matching the QEMU `NVMe` disk by subsystem.
+pub(crate) fn system_disk() -> Selector {
+    Selector {
+        subsystem: Some("nvme".to_owned()),
+        ..Selector::default()
+    }
 }
 
 /// Boots a VM, runs install with the given extra config patch, waits for the
@@ -51,7 +52,7 @@ pub(crate) async fn boot_and_install<F: FnOnce(&mut config::system::Config)>(
     let (registry, version) = (install_registry(), install_version());
     let config_file = cli
         .generate_config(|cfg| {
-            cfg.disks = vec![system_disk()];
+            cfg.disk = system_disk();
             cfg.host.registry = registry;
             cfg.host.version = version;
             extra_config(cfg);

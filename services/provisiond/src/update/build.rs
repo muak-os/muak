@@ -48,7 +48,7 @@ async fn prepare_inner(
         cache::enforce();
     }
     let installed = system::config()?;
-    let target = disk::target::resolve_system(&installed.disks).await?;
+    let target = disk::target::resolve_system(&installed.disk).await?;
     verify_system_disk(&target)?;
 
     streaming::send_progress(

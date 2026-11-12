@@ -90,7 +90,7 @@ mod tests {
             cfg.host.extensions
         );
 
-        cfg.disks = vec![system_disk()];
+        cfg.disk = system_disk();
         cfg.host.registry = common::install_registry();
         let patched = config::system::serialize(&cfg).context("serialise generated config")?;
         let config_file = NamedTempFile::new().context("create config tempfile")?;
@@ -169,7 +169,7 @@ mod tests {
         let (registry, version) = (common::install_registry(), common::install_version());
         let config_file = cli
             .generate_config(|cfg| {
-                cfg.disks = vec![system_disk()];
+                cfg.disk = system_disk();
                 cfg.host.registry = registry;
                 cfg.host.version = version;
                 cfg.host.secureboot = false;
@@ -215,7 +215,7 @@ mod tests {
         let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
         let config_file = cli
             .generate_config(|cfg| {
-                cfg.disks = vec![system_disk()];
+                cfg.disk = system_disk();
                 cfg.host.registry = common::install_registry();
                 cfg.host.version = common::install_version();
                 cfg.host.secureboot = false;

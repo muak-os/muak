@@ -1,24 +1,13 @@
-//! Disk assignment configuration.
+//! Disk selection configuration.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ConfigError, Result};
 
-/// Role a disk plays in the partition layout.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    /// Disk hosting the system image.
-    #[default]
-    System,
-}
-
-/// Disk assignment entry selected either by device path or by matchers.
+/// Disk selector matched either by device path or by matchers.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Entry {
-    /// Role of this disk.
-    pub role: Kind,
+pub struct Selector {
     /// Explicit device path (e.g. `/dev/sda`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
@@ -42,30 +31,20 @@ pub struct Entry {
     pub rotational: Option<bool>,
 }
 
-impl Entry {
-    /// Creates an entry pinned to an explicit device path.
+impl Selector {
+    /// Creates a selector pinned to an explicit device path.
     #[must_use]
-    pub fn device<S: Into<String>>(role: Kind, device: S) -> Self {
+    pub fn device<S: Into<String>>(device: S) -> Self {
         Self {
-            role,
             device: Some(device.into()),
             ..Self::default()
         }
     }
 
-    /// Creates an entry that selects a disk by matchers.
+    /// Returns true when the selector constrains no disk at all.
     #[must_use]
-    pub fn selector(role: Kind) -> Self {
-        Self {
-            role,
-            ..Self::default()
-        }
-    }
-
-    /// Returns true when the entry selects disks by matchers instead of a device path.
-    #[must_use]
-    pub fn is_selector(&self) -> bool {
-        self.device.is_none() && self.has_matcher()
+    pub fn is_empty(&self) -> bool {
+        self.device.is_none() && !self.has_matcher() && self.rotational.is_none()
     }
 
     fn matchers(&self) -> [(&'static str, Option<&str>); 5] {
@@ -85,78 +64,44 @@ impl Entry {
     }
 }
 
-/// Returns the configured system disk entry, if any.
-#[must_use]
-pub fn system(entries: &[Entry]) -> Option<&Entry> {
-    entries.iter().find(|entry| entry.role == Kind::System)
-}
-
-pub(super) fn validate_for_install(entries: &[Entry]) -> Result<()> {
-    let systems = entries
-        .iter()
-        .filter(|entry| entry.role == Kind::System)
-        .count();
-    match systems {
-        1 => {}
-        0 => {
-            return Err(ConfigError::ValidationError(
-                "disks must contain exactly one system entry".to_owned(),
-            ));
-        }
-        _ => {
-            return Err(ConfigError::ValidationError(
-                "disks must contain exactly one system entry, found several".to_owned(),
-            ));
-        }
-    }
-
-    for entry in entries {
-        validate_entry(entry)?;
-    }
-
-    Ok(())
-}
-
-pub(super) fn validate_immutable(current: &[Entry], installed: &[Entry]) -> Result<()> {
-    let before = system(installed);
-    let after = system(current);
-    if before != after {
-        return Err(ConfigError::ValidationError(format!(
-            "disk.system cannot be changed after install (installed: {before:?}, requested: {after:?})"
-        )));
-    }
-
-    Ok(())
-}
-
-fn validate_entry(entry: &Entry) -> Result<()> {
-    if let Some(device) = entry.device.as_deref() {
+pub(super) fn validate_for_install(selector: &Selector) -> Result<()> {
+    if let Some(device) = selector.device.as_deref() {
         if device.is_empty() {
             return Err(ConfigError::ValidationError(
-                "disk.system device must not be empty".to_owned(),
+                "disk device must not be empty".to_owned(),
             ));
         }
-        if entry.has_matcher() {
+        if selector.has_matcher() {
             return Err(ConfigError::ValidationError(
-                "disk.system entry cannot set both device and matchers".to_owned(),
+                "disk cannot set both device and matchers".to_owned(),
             ));
         }
 
         return Ok(());
     }
 
-    if !entry.has_matcher() {
+    if !selector.has_matcher() {
         return Err(ConfigError::ValidationError(
-            "disk.system entry requires a device or at least one matcher".to_owned(),
+            "disk requires a device or at least one matcher".to_owned(),
         ));
     }
 
-    for (name, value) in entry.matchers() {
+    for (name, value) in selector.matchers() {
         if value == Some("") {
             return Err(ConfigError::ValidationError(format!(
-                "disk.system.{name} matcher must not be empty"
+                "disk.{name} matcher must not be empty"
             )));
         }
+    }
+
+    Ok(())
+}
+
+pub(super) fn validate_immutable(current: &Selector, installed: &Selector) -> Result<()> {
+    if current != installed {
+        return Err(ConfigError::ValidationError(format!(
+            "disk cannot be changed after install (installed: {installed:?}, requested: {current:?})"
+        )));
     }
 
     Ok(())
@@ -166,54 +111,34 @@ fn validate_entry(entry: &Entry) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn system_device(path: &str) -> Entry {
-        Entry::device(Kind::System, path)
-    }
-
     #[test]
     fn device_constructor_pins_path() {
         // ARRANGE & ACT
-        let entry = system_device("/dev/sda");
+        let selector = Selector::device("/dev/sda");
 
         // ASSERT
-        assert_eq!(entry.role, Kind::System);
-        assert_eq!(entry.device.as_deref(), Some("/dev/sda"));
-        assert!(!entry.is_selector());
+        assert_eq!(selector.device.as_deref(), Some("/dev/sda"));
+        assert!(!selector.has_matcher());
     }
 
     #[test]
-    fn selector_constructor_is_selector() {
+    fn is_empty_reports_unconstrained_selector() {
         // ARRANGE
-        let mut entry = Entry::selector(Kind::System);
-        entry.serial = Some("ABC*".to_owned());
+        let empty = Selector::default();
+        let pinned = Selector::device("/dev/sda");
 
         // ACT & ASSERT
-        assert!(entry.is_selector());
-        assert_eq!(entry.device, None);
+        assert!(empty.is_empty());
+        assert!(!pinned.is_empty());
     }
 
     #[test]
-    fn system_lookup_returns_the_system_entry() {
+    fn validate_for_install_accepts_device() {
         // ARRANGE
-        let entries = vec![system_device("/dev/sda")];
+        let selector = Selector::device("/dev/sda");
 
         // ACT
-        let found = system(&entries);
-
-        // ASSERT
-        assert_eq!(
-            found.and_then(|entry| entry.device.as_deref()),
-            Some("/dev/sda")
-        );
-    }
-
-    #[test]
-    fn validate_for_install_accepts_system_only() {
-        // ARRANGE
-        let entries = vec![system_device("/dev/sda")];
-
-        // ACT
-        let result = validate_for_install(&entries);
+        let result = validate_for_install(&selector);
 
         // ASSERT
         result.unwrap();
@@ -222,140 +147,119 @@ mod tests {
     #[test]
     fn validate_for_install_accepts_selector() {
         // ARRANGE
-        let mut entry = Entry::selector(Kind::System);
-        entry.serial = Some("ABC?".to_owned());
-        entry.rotational = Some(false);
+        let selector = Selector {
+            serial: Some("ABC?".to_owned()),
+            rotational: Some(false),
+            ..Selector::default()
+        };
 
         // ACT
-        let result = validate_for_install(&[entry]);
+        let result = validate_for_install(&selector);
 
         // ASSERT
         result.unwrap();
     }
 
     #[test]
-    fn validate_for_install_rejects_missing_system() {
+    fn validate_for_install_rejects_empty_selector() {
         // ARRANGE
-        let entries: Vec<Entry> = Vec::new();
+        let selector = Selector::default();
 
         // ACT
-        let result = validate_for_install(&entries);
+        let error = validate_for_install(&selector).unwrap_err();
 
         // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_for_install_rejects_multiple_system() {
-        // ARRANGE
-        let entries = vec![system_device("/dev/sda"), system_device("/dev/sdb")];
-
-        // ACT
-        let result = validate_for_install(&entries);
-
-        // ASSERT
-        assert!(result.is_err());
+        assert!(
+            error
+                .to_string()
+                .contains("requires a device or at least one matcher"),
+            "{error}"
+        );
     }
 
     #[test]
     fn validate_for_install_rejects_device_and_matcher() {
         // ARRANGE
-        let mut entry = system_device("/dev/sda");
-        entry.serial = Some("ABC".to_owned());
+        let mut selector = Selector::device("/dev/sda");
+        selector.serial = Some("ABC".to_owned());
 
         // ACT
-        let result = validate_for_install(&[entry]);
+        let error = validate_for_install(&selector).unwrap_err();
 
         // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_for_install_rejects_empty_entry() {
-        // ARRANGE
-        let entries = vec![Entry::selector(Kind::System)];
-
-        // ACT
-        let result = validate_for_install(&entries);
-
-        // ASSERT
-        assert!(result.is_err());
+        assert!(
+            error
+                .to_string()
+                .contains("cannot set both device and matchers"),
+            "{error}"
+        );
     }
 
     #[test]
     fn validate_for_install_rejects_empty_device() {
         // ARRANGE
-        let entries = vec![system_device("")];
+        let selector = Selector::device("");
 
         // ACT
-        let result = validate_for_install(&entries);
+        let error = validate_for_install(&selector).unwrap_err();
 
         // ASSERT
-        assert!(result.is_err());
+        assert!(error.to_string().contains("disk device"), "{error}");
     }
 
     #[test]
     fn validate_for_install_rejects_empty_matcher() {
         // ARRANGE
-        let mut entry = Entry::selector(Kind::System);
-        entry.model = Some(String::new());
+        let selector = Selector {
+            model: Some(String::new()),
+            ..Selector::default()
+        };
 
         // ACT
-        let result = validate_for_install(&[entry]);
+        let error = validate_for_install(&selector).unwrap_err();
 
         // ASSERT
-        assert!(result.is_err());
+        assert!(error.to_string().contains("disk.model matcher"), "{error}");
     }
 
     #[test]
-    fn validate_immutable_reports_changed_role() {
+    fn validate_immutable_rejects_changed_disk() {
         // ARRANGE
-        let installed = vec![system_device("/dev/sda")];
-        let current = vec![system_device("/dev/sdb")];
+        let installed = Selector::device("/dev/sda");
+        let current = Selector::device("/dev/sdb");
 
         // ACT
         let error = validate_immutable(&current, &installed).unwrap_err();
 
         // ASSERT
-        assert!(error.to_string().contains("disk.system"), "{error}");
+        assert!(
+            error.to_string().contains("disk cannot be changed"),
+            "{error}"
+        );
     }
 
     #[test]
-    fn entry_requires_role() {
+    fn validate_immutable_accepts_same_disk() {
         // ARRANGE
-        let missing = "serial = \"ABC\"";
-        let present = "role = \"system\"\nserial = \"ABC\"";
+        let installed = Selector::device("/dev/sda");
+        let current = Selector::device("/dev/sda");
 
         // ACT
-        let missing = toml::from_str::<Entry>(missing);
-        let present = toml::from_str::<Entry>(present);
+        let result = validate_immutable(&current, &installed);
 
         // ASSERT
-        assert!(missing.is_err(), "role must be required");
-        assert_eq!(present.unwrap().role, Kind::System);
+        result.unwrap();
     }
 
     #[test]
-    fn rejects_the_removed_data_role() {
+    fn rejects_the_removed_role_field() {
         // ARRANGE
-        let encoded = "role = \"data\"\nserial = \"ABC\"";
+        let encoded = "role = \"system\"\ndevice = \"/dev/sda\"";
 
         // ACT
-        let result = toml::from_str::<Entry>(encoded);
+        let result = toml::from_str::<Selector>(encoded);
 
         // ASSERT
-        assert!(result.is_err(), "the data role no longer exists");
-    }
-
-    #[test]
-    fn kind_serializes_lowercase() {
-        // ARRANGE
-        let entry = system_device("/dev/sda");
-
-        // ACT
-        let encoded = toml::to_string(&entry).unwrap();
-
-        // ASSERT
-        assert!(encoded.contains("role = \"system\""), "{encoded}");
+        assert!(result.is_err(), "role is no longer a known field");
     }
 }

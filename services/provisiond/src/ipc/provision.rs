@@ -527,7 +527,7 @@ mod tests {
         let installed = config::system::Config::default();
         let raw = format!(
             "api_version = \"{}\"\n\n[host]\nname = \"muak\"\nversion = \"v2.0.0\"\nport = 50051\n\
-             ntp = \"pool.ntp.org\"\n\n[[disks]]\nrole = \"system\"\nwwid = \"eui.0025385b71a1c7d4\"\n",
+             ntp = \"pool.ntp.org\"\n\n[disk]\nwwid = \"eui.0025385b71a1c7d4\"\n",
             config::system::API_VERSION
         );
 

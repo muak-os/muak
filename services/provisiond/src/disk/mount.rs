@@ -103,6 +103,7 @@ pub(crate) fn unmount_targets(targets: &Targets) -> Result<()> {
     }
 
     sync();
+
     unmount_all(&mounted).with_context(|| format!("Failed to unmount '{device}'"))
 }
 

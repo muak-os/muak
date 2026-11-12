@@ -33,7 +33,7 @@ pub(crate) async fn resolve(
     allow_system_disk: bool,
 ) -> Result<InstallPlan> {
     let inventory = disk::list_disks().await?;
-    let targets = disk::target::resolve_with(&config.disks, &inventory)?;
+    let targets = disk::target::resolve_with(&config.disk, &inventory)?;
     let doc = disk::load_document()?;
     let layout = plan_from_doc(&doc)?;
 

@@ -17,8 +17,7 @@ port = 50051
 # clock = "auto"
 ntp = "pool.ntp.org"
 
-# [[disks]]
-# role = "system"
+# [disk]
 # device = "/dev/nvme0n1"
 
 [network]
