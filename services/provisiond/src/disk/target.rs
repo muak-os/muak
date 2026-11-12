@@ -1,50 +1,22 @@
 //! Resolution of configured disk entries to kernel device paths.
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use blockdev::types::Disk;
 use config::system::disk::{self, Entry};
 
 use super::{list_disks, select};
 
-/// Device paths resolved from the configured disk entries.
+/// Device path resolved from the configured system disk entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Targets {
     /// Kernel device path of the system disk.
     pub system: String,
-    /// Kernel device path of the data disk when it does not share the system disk.
-    pub data: Option<String>,
-}
-
-impl Targets {
-    /// Returns true when DATA lives on its own disk.
-    pub(crate) fn is_split(&self) -> bool {
-        self.data.is_some()
-    }
-
-    /// Returns the data disk path, falling back to the system disk when shared.
-    pub(crate) fn data(&self) -> &str {
-        self.data.as_deref().unwrap_or(&self.system)
-    }
 }
 
 /// Resolves the configured entries against one inventory snapshot.
 pub(crate) fn resolve_with(entries: &[Entry], disks: &[Disk]) -> Result<Targets> {
-    let system = system_device(entries, disks)?;
-
-    let Some(data_entry) = disk::data(entries) else {
-        return Ok(Targets { system, data: None });
-    };
-
-    let data = resolve_device(data_entry, disks)?;
-    if data == system {
-        bail!(
-            "data disk resolves to the system disk '{system}', omit the data entry to share the system disk"
-        );
-    }
-
     Ok(Targets {
-        system,
-        data: Some(data),
+        system: system_device(entries, disks)?,
     })
 }
 
@@ -127,42 +99,16 @@ mod tests {
     }
 
     #[test]
-    fn targets_without_data_share_system_disk() {
-        // ARRANGE
-        let targets = Targets {
-            system: "/dev/sda".to_owned(),
-            data: None,
-        };
-
-        // ACT & ASSERT
-        assert!(!targets.is_split());
-        assert_eq!(targets.data(), "/dev/sda");
-    }
-
-    #[test]
-    fn targets_with_data_are_split() {
-        // ARRANGE
-        let targets = Targets {
-            system: "/dev/sda".to_owned(),
-            data: Some("/dev/sdb".to_owned()),
-        };
-
-        // ACT & ASSERT
-        assert!(targets.is_split());
-        assert_eq!(targets.data(), "/dev/sdb");
-    }
-
-    #[test]
-    fn system_device_ignores_data_entry() {
+    fn system_device_resolves_the_system_entry() {
         // ARRANGE
         let dir = tempfile::TempDir::new().expect("temp dir");
         std::fs::write(dir.path().join("sda"), b"").expect("device file");
         let system_link = dir.path().join("system");
         std::os::unix::fs::symlink(dir.path().join("sda"), &system_link).expect("system link");
-        let entries = vec![
-            Entry::device(Kind::System, system_link.to_str().expect("utf8")),
-            Entry::device(Kind::Data, "/nonexistent/muak-data"),
-        ];
+        let entries = vec![Entry::device(
+            Kind::System,
+            system_link.to_str().expect("utf8"),
+        )];
 
         // ACT
         let system = system_device(&entries, &[]).expect("system disk");
@@ -172,49 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_resolved_devices_error() {
-        // ARRANGE
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        std::fs::write(dir.path().join("sda"), b"").expect("device file");
-        let system_link = dir.path().join("system");
-        let data_link = dir.path().join("data");
-        std::os::unix::fs::symlink(dir.path().join("sda"), &system_link).expect("system link");
-        std::os::unix::fs::symlink(dir.path().join("sda"), &data_link).expect("data link");
-        let entries = vec![
-            Entry::device(Kind::System, system_link.to_str().expect("utf8")),
-            Entry::device(Kind::Data, data_link.to_str().expect("utf8")),
-        ];
-
-        // ACT
-        let error = resolve_with(&entries, &[]).unwrap_err();
-
-        // ASSERT
-        assert!(
-            error.to_string().contains("share the system disk"),
-            "{error}"
-        );
-    }
-
-    #[test]
     fn resolve_with_uses_the_given_snapshot() {
-        // ARRANGE
-        let disks = vec![disk("sda", "SN123"), disk("sdb", "SN456")];
-        let mut system_entry = Entry::selector(Kind::System);
-        system_entry.serial = Some("SN123".to_owned());
-        let mut data_entry = Entry::selector(Kind::Data);
-        data_entry.serial = Some("SN456".to_owned());
-        let entries = vec![system_entry, data_entry];
-
-        // ACT
-        let targets = resolve_with(&entries, &disks).expect("targets");
-
-        // ASSERT
-        assert_eq!(targets.system, "/dev/sda");
-        assert_eq!(targets.data.as_deref(), Some("/dev/sdb"));
-    }
-
-    #[test]
-    fn resolve_with_shares_the_system_disk_without_a_data_entry() {
         // ARRANGE
         let disks = vec![disk("sda", "SN123")];
         let mut system_entry = Entry::selector(Kind::System);
@@ -225,28 +129,7 @@ mod tests {
         let targets = resolve_with(&entries, &disks).expect("targets");
 
         // ASSERT
-        assert!(!targets.is_split());
-        assert_eq!(targets.data(), "/dev/sda");
-    }
-
-    #[test]
-    fn resolve_with_refuses_the_same_disk_for_system_and_data() {
-        // ARRANGE
-        let disks = vec![disk("sda", "SN123")];
-        let mut system_entry = Entry::selector(Kind::System);
-        system_entry.serial = Some("SN123".to_owned());
-        let mut data_entry = Entry::selector(Kind::Data);
-        data_entry.serial = Some("SN123".to_owned());
-        let entries = vec![system_entry, data_entry];
-
-        // ACT
-        let error = resolve_with(&entries, &disks).unwrap_err();
-
-        // ASSERT
-        assert!(
-            error.to_string().contains("share the system disk"),
-            "{error}"
-        );
+        assert_eq!(targets.system, "/dev/sda");
     }
 
     #[test]

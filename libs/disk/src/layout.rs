@@ -3,12 +3,12 @@
 use crate::error::DiskError;
 use crate::plan::{PartitionSpec, Plan, Size};
 use crate::role::Role;
-use crate::sizes::{EFI_SIZE, EPHEMERAL_MIN_SIZE, STATE_SIZE};
+use crate::sizes::{EFI_SIZE, STATE_SIZE};
 
 /// A distro-owned disk layout applied by the installer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layout {
-    /// Standard UEFI/GPT layout: ESP, STATE and EPHEMERAL, then DATA filling the disk.
+    /// Standard UEFI/GPT layout: ESP, STATE and EPHEMERAL filling the disk.
     Uefi,
 }
 
@@ -45,15 +45,14 @@ impl Layout {
             })
     }
 
-    /// System plan of this layout: ESP, STATE and EPHEMERAL, then DATA filling the disk.
+    /// System plan of this layout: ESP, STATE and EPHEMERAL filling the disk.
     #[must_use]
     pub fn plan(self) -> Plan {
         match self {
             Self::Uefi => Plan::wiped(vec![
                 spec(Role::Esp, Size::Fixed(EFI_SIZE)),
                 spec(Role::State, Size::Fixed(STATE_SIZE)),
-                spec(Role::Ephemeral, Size::Fixed(EPHEMERAL_MIN_SIZE)),
-                spec(Role::Data, Size::Fill),
+                spec(Role::Ephemeral, Size::Fill),
             ]),
         }
     }

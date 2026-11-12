@@ -66,7 +66,7 @@ mod tests {
         // ARRANGE
         let fixture = Fixture::new();
         fixture.disk("sda", 8192);
-        fixture.partition("sda", "sda2", 2, "DATA", 4096, 2048);
+        fixture.partition("sda", "sda2", 2, "BULK", 4096, 2048);
         fixture.partition("sda", "sda1", 1, "STATE", 2048, 1024);
         let state = fixture.roots().dev.join("sda1");
         fixture.mounts(&format!(

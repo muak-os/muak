@@ -4,7 +4,7 @@ use ::disk::role::Role;
 use anyhow::{Context as _, Result};
 use tokio::sync::mpsc;
 
-use super::layout::plans_from_doc;
+use super::layout::plan_from_doc;
 use super::send_progress;
 use crate::disk;
 use crate::ipc::proto::provision::InstallProgress;
@@ -15,21 +15,16 @@ const DM_STATE: &str = Role::State.dm_name();
 // dm-crypt mapping name for the EPHEMERAL volume.
 const DM_EPHEMERAL: &str = Role::Ephemeral.dm_name();
 
-// dm-crypt mapping name for the DATA volume.
-const DM_DATA: &str = Role::Data.dm_name();
-
 pub(super) struct PartitionInfo {
     pub(super) efi: String,
     pub(super) efi_size: u64,
     pub(super) state: String,
     pub(super) ephemeral: String,
-    pub(super) data: String,
 }
 
 pub(super) struct Mapped {
     pub(super) state: String,
     pub(super) ephemeral: String,
-    pub(super) data: String,
 }
 
 pub(super) async fn partition(
@@ -39,10 +34,8 @@ pub(super) async fn partition(
     send_progress(progress, &format!("Partitioning {}", targets.system)).await;
 
     let system = targets.system.clone();
-    let data = targets.data().to_owned();
-    let split = targets.is_split();
 
-    tokio::task::spawn_blocking(move || partition_blocking(&system, &data, split)).await?
+    tokio::task::spawn_blocking(move || partition_blocking(&system)).await?
 }
 
 pub(super) async fn format_luks(
@@ -54,54 +47,47 @@ pub(super) async fn format_luks(
 
     disk::format::efi(&partitions.efi, partitions.efi_size)?;
 
-    let (state_result, ephemeral_result, data_result) = tokio::join!(
+    let (state_result, ephemeral_result) = tokio::join!(
         luks_format(&partitions.state, luks_key, Role::State),
         luks_format(&partitions.ephemeral, luks_key, Role::Ephemeral),
-        luks_format(&partitions.data, luks_key, Role::Data),
     );
 
     state_result?;
     ephemeral_result?;
-    data_result?;
 
     Ok(())
 }
 
 pub(super) async fn open_luks(partitions: &PartitionInfo, luks_key: &[u8]) -> Result<Mapped> {
-    let (state_result, ephemeral_result, data_result) = tokio::join!(
+    let (state_result, ephemeral_result) = tokio::join!(
         luks_open(&partitions.state, luks_key, Role::State),
         luks_open(&partitions.ephemeral, luks_key, Role::Ephemeral),
-        luks_open(&partitions.data, luks_key, Role::Data),
     );
 
     state_result?;
     ephemeral_result?;
-    data_result?;
 
     Ok(Mapped {
         state: format!("/dev/mapper/{DM_STATE}"),
         ephemeral: format!("/dev/mapper/{DM_EPHEMERAL}"),
-        data: format!("/dev/mapper/{DM_DATA}"),
     })
 }
 
 pub(super) async fn format_btrfs(mapped: &Mapped) -> Result<()> {
-    let (state_result, ephemeral_result, data_result) = tokio::join!(
+    let (state_result, ephemeral_result) = tokio::join!(
         btrfs_format(&mapped.state, Role::State),
         btrfs_format(&mapped.ephemeral, Role::Ephemeral),
-        btrfs_format(&mapped.data, Role::Data),
     );
 
     state_result?;
     ephemeral_result?;
-    data_result?;
 
     Ok(())
 }
 
 pub(super) fn close_luks() -> Result<()> {
     let mut failure = None;
-    for name in [DM_DATA, DM_EPHEMERAL, DM_STATE] {
+    for name in [DM_EPHEMERAL, DM_STATE] {
         if let Err(error) = luks2::close(name)
             && failure.is_none()
         {
@@ -117,36 +103,24 @@ pub(super) fn close_luks() -> Result<()> {
     }
 }
 
-fn partition_blocking(system_disk: &str, data_disk: &str, split: bool) -> Result<PartitionInfo> {
-    let shared_data = !split;
+fn partition_blocking(system_disk: &str) -> Result<PartitionInfo> {
     let doc = disk::load_document()?;
-    let (system_plan, data_plan) = plans_from_doc(&doc, shared_data)?;
+    let plan = plan_from_doc(&doc)?;
 
-    disk::validate::fits_plan(system_disk, &system_plan)?;
-    if let Some(ref plan) = data_plan {
-        disk::validate::fits_plan(data_disk, plan)?;
-    }
+    disk::validate::fits_plan(system_disk, &plan)?;
 
-    let system = disk::apply::plan(system_disk, &system_plan)?;
+    let system = disk::apply::plan(system_disk, &plan)?;
     let esp = system.role(Role::Esp)?;
     let efi = esp.device.clone();
     let efi_size = esp.size_bytes;
     let state = system.role(Role::State)?.device.clone();
     let ephemeral = system.role(Role::Ephemeral)?.device.clone();
-    let data = match data_plan {
-        Some(ref plan) => disk::apply::plan(data_disk, plan)?
-            .role(Role::Data)?
-            .device
-            .clone(),
-        None => system.role(Role::Data)?.device.clone(),
-    };
 
     Ok(PartitionInfo {
         efi,
         efi_size,
         state,
         ephemeral,
-        data,
     })
 }
 

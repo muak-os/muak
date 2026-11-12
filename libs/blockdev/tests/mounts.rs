@@ -53,10 +53,10 @@ mod tests {
         // ARRANGE
         let fixture = Fixture::new();
         let device = fixture.dev_node("sda1");
-        let link = fixture.roots().dev.join("by-label-DATA");
+        let link = fixture.roots().dev.join("by-label-EPHEMERAL");
         std::os::unix::fs::symlink(&device, &link).expect("device link");
         fixture.mounts(&format!(
-            "{} /run/data btrfs rw 0 0\n",
+            "{} /run/ephemeral btrfs rw 0 0\n",
             link.to_string_lossy()
         ));
         let table = mounts::read(&fixture.roots().mounts);
@@ -65,7 +65,7 @@ mod tests {
         let found = mounts::of(&table, &device.to_string_lossy()).to_owned();
 
         // ASSERT
-        assert_eq!(found, "/run/data");
+        assert_eq!(found, "/run/ephemeral");
     }
 
     #[test]

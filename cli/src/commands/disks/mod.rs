@@ -160,11 +160,10 @@ fn transport(disk: &DiskInfo) -> &str {
 }
 
 fn role(disk: &DiskInfo) -> String {
-    match (disk.is_system, disk.is_data) {
-        (true, true) => "system,data".to_owned(),
-        (true, false) => "system".to_owned(),
-        (false, true) => "data".to_owned(),
-        (false, false) => "-".to_owned(),
+    if disk.is_system {
+        "system".to_owned()
+    } else {
+        "-".to_owned()
     }
 }
 
@@ -267,7 +266,6 @@ mod tests {
             cdrom: false,
             symlinks: Vec::new(),
             is_system: false,
-            is_data: false,
         }
     }
 
@@ -381,22 +379,17 @@ mod tests {
     }
 
     #[test]
-    fn role_combines_system_and_data_flags() {
+    fn role_reports_the_system_flag() {
         // ARRANGE
         let mut system = disk("sda");
         system.is_system = true;
-        let mut data = disk("sdb");
-        data.is_data = true;
-        let mut both = disk("sdc");
-        both.is_system = true;
-        both.is_data = true;
         let none = disk("sdd");
 
         // ACT
-        let roles = [role(&system), role(&data), role(&both), role(&none)];
+        let roles = [role(&system), role(&none)];
 
         // ASSERT
-        assert_eq!(roles, ["system", "data", "system,data", "-"]);
+        assert_eq!(roles, ["system", "-"]);
     }
 
     #[test]

@@ -16,8 +16,6 @@ pub(crate) struct Target {
     pub path: String,
     /// Whether the disk carries the Muak STATE partition.
     pub is_system: bool,
-    /// Whether the disk carries the Muak DATA partition.
-    pub is_data: bool,
     /// Partition numbers currently present on the disk.
     pub partitions: Vec<u32>,
 }
@@ -54,7 +52,6 @@ pub(crate) fn validate_in<K: Kernel>(
         target: Target {
             path: disk.path.clone(),
             is_system: roles::is_system(disk),
-            is_data: roles::is_data(disk),
             partitions: disk
                 .partitions
                 .iter()
@@ -243,17 +240,13 @@ mod tests {
         system
             .partitions
             .push(partition(1, "", Role::State.gpt_name()));
-        system
-            .partitions
-            .push(partition(2, "", Role::Data.gpt_name()));
 
         // ACT
         let verdict = validate(&[system], "sda", true).expect("allowed");
 
         // ASSERT
         assert!(verdict.target.is_system);
-        assert!(verdict.target.is_data);
-        assert_eq!(verdict.target.partitions, [1, 2]);
+        assert_eq!(verdict.target.partitions, [1]);
         assert!(verdict.checks.iter().all(|check| check.passed));
     }
 

@@ -35,7 +35,7 @@ pub struct Config {
     /// Host-level configuration (name, registry, version, ports, etc.).
     #[serde(default)]
     pub host: host::Config,
-    /// Disk assignment entries for the system and optional data disks.
+    /// Disk assignment entries for the system disk.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disks: Vec<disk::Entry>,
     /// Network configuration (interfaces, DNS, IPv6).
@@ -65,7 +65,6 @@ impl Config {
         self.api_version == other.api_version
             && self.host.same_as(&other.host)
             && disk::system(&self.disks) == disk::system(&other.disks)
-            && disk::data(&self.disks) == disk::data(&other.disks)
             && self.network == other.network
             && self.vm == other.vm
     }
@@ -415,27 +414,6 @@ mod tests {
 
         let mut requested = installed.clone();
         requested.disks = vec![disk::Entry::device(disk::Kind::System, "/dev/sdb")];
-
-        // ACT & ASSERT
-        assert!(requested.validate_for_update(&installed).is_err());
-    }
-
-    #[test]
-    fn validate_for_update_rejects_data_disk_change() {
-        // ARRANGE
-        let mut installed = Config::default();
-        installed.host.port = 8080;
-        installed.host.version = "v1.0.0".to_owned();
-        installed.disks = vec![
-            disk::Entry::device(disk::Kind::System, "/dev/sda"),
-            disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
-        ];
-
-        let mut requested = installed.clone();
-        requested.disks = vec![
-            disk::Entry::device(disk::Kind::System, "/dev/sda"),
-            disk::Entry::device(disk::Kind::Data, "/dev/sdc"),
-        ];
 
         // ACT & ASSERT
         assert!(requested.validate_for_update(&installed).is_err());
@@ -890,31 +868,6 @@ ntp = "pool.ntp.org"
 
         // ASSERT
         assert!(same, "identical configs must compare equal");
-    }
-
-    #[test]
-    fn same_as_ignores_disk_order() {
-        // ARRANGE
-        let installed = Config {
-            disks: vec![
-                disk::Entry::device(disk::Kind::System, "/dev/sda"),
-                disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
-            ],
-            ..Config::default()
-        };
-        let requested = Config {
-            disks: vec![
-                disk::Entry::device(disk::Kind::Data, "/dev/sdb"),
-                disk::Entry::device(disk::Kind::System, "/dev/sda"),
-            ],
-            ..Config::default()
-        };
-
-        // ACT
-        let same = requested.same_as(&installed);
-
-        // ASSERT
-        assert!(same, "disk ordering must not matter");
     }
 
     #[test]

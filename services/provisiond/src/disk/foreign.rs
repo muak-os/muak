@@ -65,9 +65,7 @@ fn holder_names<K: Kernel>(disk: &Disk, kernel: &K) -> Result<Vec<String>> {
 }
 
 fn is_muak_mapping(holder: &str) -> bool {
-    holder == Role::State.dm_name()
-        || holder == Role::Ephemeral.dm_name()
-        || holder == Role::Data.dm_name()
+    holder == Role::State.dm_name() || holder == Role::Ephemeral.dm_name()
 }
 
 fn swap_device<K: Kernel>(disk: &Disk, kernel: &K) -> Result<Option<String>> {
@@ -252,14 +250,12 @@ mod tests {
             holders: holders(&[
                 ("sda/sda1", &[Role::State.dm_name()]),
                 ("sda/sda2", &[Role::Ephemeral.dm_name()]),
-                ("sda/sda3", &[Role::Data.dm_name()]),
             ]),
             ..Fake::default()
         };
         let mut disk = disk("sda");
         disk.partitions.push(partition(1));
         disk.partitions.push(partition(2));
-        disk.partitions.push(partition(3));
 
         // ACT
         let checks = checks(&disk, &fake);

@@ -94,7 +94,7 @@ mod tests {
         );
 
         // ACT
-        let found = doc.find(Role::Data);
+        let found = doc.find(Role::State);
 
         // ASSERT
         assert!(found.is_none(), "absent roles must return none");

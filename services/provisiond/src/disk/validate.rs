@@ -32,16 +32,17 @@ pub(crate) fn fits_plan(disk: &str, plan: &Plan) -> Result<()> {
         format!("Disk '{disk}' cannot hold the layout ({mib} MiB available)")
     })?;
 
-    ensure_ephemeral_minimum(disk, &created)
+    ensure_ephemeral_minimum(disk, created)
 }
 
-fn ensure_ephemeral_minimum(disk: &str, created: &[(Placement, Option<Role>)]) -> Result<()> {
+fn ensure_ephemeral_minimum(disk: &str, created: Vec<(Placement, Option<Role>)>) -> Result<()> {
     let minimum = EPHEMERAL_MIN_SIZE.checked_div(MB).unwrap_or(0);
 
-    for (placement, _) in created
-        .iter()
-        .filter(|(_, role)| *role == Some(Role::Ephemeral))
-    {
+    for (placement, role) in created {
+        if role != Some(Role::Ephemeral) {
+            continue;
+        }
+
         let bytes = apply::partition_bytes(&placement.partition);
         if bytes < EPHEMERAL_MIN_SIZE {
             bail!(
@@ -204,7 +205,10 @@ mod tests {
             "error must state the resolved size: {message}"
         );
         assert!(
-            message.contains(&format!("{} MiB minimum", EPHEMERAL_MIN_SIZE / MB)),
+            message.contains(&format!(
+                "{} MiB minimum",
+                EPHEMERAL_MIN_SIZE.checked_div(MB).unwrap_or(0)
+            )),
             "{message}"
         );
         assert!(

@@ -11,8 +11,6 @@ pub enum Kind {
     /// Disk hosting the system image.
     #[default]
     System,
-    /// Optional disk hosting persistent data.
-    Data,
 }
 
 /// Disk assignment entry selected either by device path or by matchers.
@@ -93,18 +91,6 @@ pub fn system(entries: &[Entry]) -> Option<&Entry> {
     entries.iter().find(|entry| entry.role == Kind::System)
 }
 
-/// Returns the configured data disk entry, if any.
-#[must_use]
-pub fn data(entries: &[Entry]) -> Option<&Entry> {
-    entries.iter().find(|entry| entry.role == Kind::Data)
-}
-
-/// Returns true when data lives on its own disk instead of the system disk.
-#[must_use]
-pub fn is_split(entries: &[Entry]) -> bool {
-    data(entries).is_some()
-}
-
 pub(super) fn validate_for_install(entries: &[Entry]) -> Result<()> {
     let systems = entries
         .iter()
@@ -124,16 +110,6 @@ pub(super) fn validate_for_install(entries: &[Entry]) -> Result<()> {
         }
     }
 
-    let data = entries
-        .iter()
-        .filter(|entry| entry.role == Kind::Data)
-        .count();
-    if data > 1 {
-        return Err(ConfigError::ValidationError(
-            "disks must contain at most one data entry".to_owned(),
-        ));
-    }
-
     for entry in entries {
         validate_entry(entry)?;
     }
@@ -142,15 +118,12 @@ pub(super) fn validate_for_install(entries: &[Entry]) -> Result<()> {
 }
 
 pub(super) fn validate_immutable(current: &[Entry], installed: &[Entry]) -> Result<()> {
-    for role in [Kind::System, Kind::Data] {
-        let before = installed.iter().find(|entry| entry.role == role);
-        let after = current.iter().find(|entry| entry.role == role);
-        if before != after {
-            return Err(ConfigError::ValidationError(format!(
-                "disk.{} cannot be changed after install (installed: {before:?}, requested: {after:?})",
-                label(role)
-            )));
-        }
+    let before = system(installed);
+    let after = system(current);
+    if before != after {
+        return Err(ConfigError::ValidationError(format!(
+            "disk.system cannot be changed after install (installed: {before:?}, requested: {after:?})"
+        )));
     }
 
     Ok(())
@@ -159,45 +132,34 @@ pub(super) fn validate_immutable(current: &[Entry], installed: &[Entry]) -> Resu
 fn validate_entry(entry: &Entry) -> Result<()> {
     if let Some(device) = entry.device.as_deref() {
         if device.is_empty() {
-            return Err(ConfigError::ValidationError(format!(
-                "disk.{} device must not be empty",
-                label(entry.role)
-            )));
+            return Err(ConfigError::ValidationError(
+                "disk.system device must not be empty".to_owned(),
+            ));
         }
         if entry.has_matcher() {
-            return Err(ConfigError::ValidationError(format!(
-                "disk.{} entry cannot set both device and matchers",
-                label(entry.role)
-            )));
+            return Err(ConfigError::ValidationError(
+                "disk.system entry cannot set both device and matchers".to_owned(),
+            ));
         }
 
         return Ok(());
     }
 
     if !entry.has_matcher() {
-        return Err(ConfigError::ValidationError(format!(
-            "disk.{} entry requires a device or at least one matcher",
-            label(entry.role)
-        )));
+        return Err(ConfigError::ValidationError(
+            "disk.system entry requires a device or at least one matcher".to_owned(),
+        ));
     }
 
     for (name, value) in entry.matchers() {
         if value == Some("") {
             return Err(ConfigError::ValidationError(format!(
-                "disk.{}.{name} matcher must not be empty",
-                label(entry.role)
+                "disk.system.{name} matcher must not be empty"
             )));
         }
     }
 
     Ok(())
-}
-
-fn label(role: Kind) -> &'static str {
-    match role {
-        Kind::System => "system",
-        Kind::Data => "data",
-    }
 }
 
 #[cfg(test)]
@@ -222,7 +184,7 @@ mod tests {
     #[test]
     fn selector_constructor_is_selector() {
         // ARRANGE
-        let mut entry = Entry::selector(Kind::Data);
+        let mut entry = Entry::selector(Kind::System);
         entry.serial = Some("ABC*".to_owned());
 
         // ACT & ASSERT
@@ -231,40 +193,18 @@ mod tests {
     }
 
     #[test]
-    fn system_and_data_lookup_ignores_order() {
+    fn system_lookup_returns_the_system_entry() {
         // ARRANGE
-        let entries = vec![
-            Entry::device(Kind::Data, "/dev/sdb"),
-            system_device("/dev/sda"),
-        ];
+        let entries = vec![system_device("/dev/sda")];
 
         // ACT
-        let system = system(&entries);
-        let data = data(&entries);
+        let found = system(&entries);
 
         // ASSERT
         assert_eq!(
-            system.and_then(|entry| entry.device.as_deref()),
+            found.and_then(|entry| entry.device.as_deref()),
             Some("/dev/sda")
         );
-        assert_eq!(
-            data.and_then(|entry| entry.device.as_deref()),
-            Some("/dev/sdb")
-        );
-    }
-
-    #[test]
-    fn is_split_requires_data_entry() {
-        // ARRANGE
-        let shared = vec![system_device("/dev/sda")];
-        let split = vec![
-            system_device("/dev/sda"),
-            Entry::device(Kind::Data, "/dev/sdb"),
-        ];
-
-        // ACT & ASSERT
-        assert!(!is_split(&shared));
-        assert!(is_split(&split));
     }
 
     #[test]
@@ -296,7 +236,7 @@ mod tests {
     #[test]
     fn validate_for_install_rejects_missing_system() {
         // ARRANGE
-        let entries = vec![Entry::device(Kind::Data, "/dev/sdb")];
+        let entries: Vec<Entry> = Vec::new();
 
         // ACT
         let result = validate_for_install(&entries);
@@ -309,22 +249,6 @@ mod tests {
     fn validate_for_install_rejects_multiple_system() {
         // ARRANGE
         let entries = vec![system_device("/dev/sda"), system_device("/dev/sdb")];
-
-        // ACT
-        let result = validate_for_install(&entries);
-
-        // ASSERT
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_for_install_rejects_multiple_data() {
-        // ARRANGE
-        let entries = vec![
-            system_device("/dev/sda"),
-            Entry::device(Kind::Data, "/dev/sdb"),
-            Entry::device(Kind::Data, "/dev/sdc"),
-        ];
 
         // ACT
         let result = validate_for_install(&entries);
@@ -384,25 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_immutable_ignores_order() {
-        // ARRANGE
-        let installed = vec![
-            system_device("/dev/sda"),
-            Entry::device(Kind::Data, "/dev/sdb"),
-        ];
-        let current = vec![
-            Entry::device(Kind::Data, "/dev/sdb"),
-            system_device("/dev/sda"),
-        ];
-
-        // ACT
-        let result = validate_immutable(&current, &installed);
-
-        // ASSERT
-        result.unwrap();
-    }
-
-    #[test]
     fn validate_immutable_reports_changed_role() {
         // ARRANGE
         let installed = vec![system_device("/dev/sda")];
@@ -419,7 +324,7 @@ mod tests {
     fn entry_requires_role() {
         // ARRANGE
         let missing = "serial = \"ABC\"";
-        let present = "role = \"data\"\nserial = \"ABC\"";
+        let present = "role = \"system\"\nserial = \"ABC\"";
 
         // ACT
         let missing = toml::from_str::<Entry>(missing);
@@ -427,7 +332,19 @@ mod tests {
 
         // ASSERT
         assert!(missing.is_err(), "role must be required");
-        assert_eq!(present.unwrap().role, Kind::Data);
+        assert_eq!(present.unwrap().role, Kind::System);
+    }
+
+    #[test]
+    fn rejects_the_removed_data_role() {
+        // ARRANGE
+        let encoded = "role = \"data\"\nserial = \"ABC\"";
+
+        // ACT
+        let result = toml::from_str::<Entry>(encoded);
+
+        // ASSERT
+        assert!(result.is_err(), "the data role no longer exists");
     }
 
     #[test]

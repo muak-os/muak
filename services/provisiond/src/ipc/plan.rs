@@ -11,8 +11,6 @@ use crate::install::plan::{InstallPlan as DomainPlan, PlannedPartition as Domain
 pub(crate) fn to_install_plan(plan: DomainPlan) -> InstallPlan {
     InstallPlan {
         system_disk: Some(to_disk_info(plan.system)),
-        data_disk: Some(to_disk_info(plan.data)),
-        shared_data: plan.shared_data,
         wipe: plan.wipe,
         partitions: plan
             .partitions
@@ -67,8 +65,8 @@ mod tests {
         // ARRANGE
         let partition = DomainPartition {
             disk: "/dev/sda".to_owned(),
-            role: "DATA".to_owned(),
-            name: "DATA".to_owned(),
+            role: "EPHEMERAL".to_owned(),
+            name: "EPHEMERAL".to_owned(),
             size: Size::Fill,
         };
 

@@ -20,10 +20,6 @@ ntp = "pool.ntp.org"
 # [[disks]]
 # role = "system"
 # device = "/dev/nvme0n1"
-#
-# [[disks]]
-# role = "data"
-# wwid = "eui.0025385b71a1c7d4"
 
 [network]
 dns = [

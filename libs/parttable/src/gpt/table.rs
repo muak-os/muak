@@ -373,7 +373,7 @@ mod tests {
                 starting_lba: 4096,
                 ending_lba: 8191,
                 attributes: 0,
-                name: "DATA".to_owned(),
+                name: "BULK".to_owned(),
             },
         );
 

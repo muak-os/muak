@@ -73,7 +73,7 @@ fn summary(target: &Target, options: Options) -> String {
 }
 
 fn needs_release<K: Kernel>(kernel: &K, target: &Target) -> bool {
-    !get_disk_mounts(kernel, &target.path).is_empty() || target.is_system || target.is_data
+    !get_disk_mounts(kernel, &target.path).is_empty() || target.is_system
 }
 
 fn release<K: Kernel>(kernel: &K, target: &Target) -> Result<()> {
@@ -83,9 +83,6 @@ fn release<K: Kernel>(kernel: &K, target: &Target) -> Result<()> {
     if target.is_system {
         close_mapping(Role::State);
         close_mapping(Role::Ephemeral);
-    }
-    if target.is_data {
-        close_mapping(Role::Data);
     }
 
     Ok(())

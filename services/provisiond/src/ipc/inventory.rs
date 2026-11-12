@@ -9,7 +9,6 @@ use crate::disk::roles;
 pub(crate) fn to_disk_info(disk: types::Disk) -> DiskInfo {
     DiskInfo {
         is_system: roles::is_system(&disk),
-        is_data: roles::is_data(&disk),
         cdrom: false,
         symlinks: Vec::new(),
         name: disk.name,
@@ -87,7 +86,6 @@ mod tests {
         assert!(!proto.cdrom, "cdrom is a constant of the proto mapping");
         assert!(proto.symlinks.is_empty(), "symlinks are always empty");
         assert!(proto.is_system);
-        assert!(!proto.is_data);
 
         let partition = proto.partitions.first().expect("partition");
         assert_eq!(partition.gpt_name, Role::State.gpt_name());

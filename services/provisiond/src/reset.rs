@@ -1,4 +1,4 @@
-//! Factory reset functionality for removing STATE, EPHEMERAL and DATA partitions.
+//! Factory reset functionality for removing STATE and EPHEMERAL partitions.
 
 use std::path::Path;
 
@@ -15,7 +15,7 @@ use crate::disk;
 use crate::disk::roles;
 use crate::secrets::SECRETS_DIR;
 
-/// Performs a factory reset by deleting the STATE, EPHEMERAL and DATA partitions.
+/// Performs a factory reset by deleting the STATE and EPHEMERAL partitions.
 ///
 /// # Errors
 ///
@@ -26,7 +26,6 @@ pub(crate) fn factory_reset() -> Result<()> {
 
     clear_secureboot(&firmware::system(), Path::new(SECRETS_DIR))?;
 
-    disk::mount::unmount("/run/data")?;
     disk::mount::unmount("/run/state")?;
     disk::mount::unmount("/run/ephemeral")?;
 
@@ -39,9 +38,6 @@ pub(crate) fn factory_reset() -> Result<()> {
             e
         );
     }
-    if let Err(e) = luks2::close(Role::Data.dm_name()) {
-        kmsg::warn!("Failed to close LUKS DATA mapping (may not exist): {}", e);
-    }
 
     let state_device =
         roles::device(Role::State).context("STATE partition not found on any disk")?;
@@ -50,20 +46,6 @@ pub(crate) fn factory_reset() -> Result<()> {
         .context("Failed to resolve the disk carrying the STATE partition")?;
     delete_role(&state_disk, Role::State)?;
     delete_role(&state_disk, Role::Ephemeral)?;
-
-    match roles::device(Role::Data) {
-        Some(data_device) => {
-            let data_disk = discover::parent_disk(&data_device)
-                .map(|name| format!("/dev/{name}"))
-                .context("Failed to resolve the disk carrying the DATA partition")?;
-            if data_disk == state_disk {
-                delete_role(&state_disk, Role::Data)?;
-            } else {
-                delete_role(&data_disk, Role::Data)?;
-            }
-        }
-        None => kmsg::info!("No DATA partition found, nothing to delete"),
-    }
 
     kmsg::info!("Factory reset complete");
 

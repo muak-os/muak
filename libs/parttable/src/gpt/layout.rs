@@ -375,7 +375,7 @@ mod tests {
             Start::AfterLastUsed,
             Size::Bytes(1024 * 1024),
             LINUX_FS_GUID,
-            "DATA",
+            "BULK",
         )
         .place(&mut table, 512)
         .expect("placement must succeed");
@@ -397,7 +397,7 @@ mod tests {
             Start::FirstUsable,
             Size::FillToLastUsable,
             LINUX_FS_GUID,
-            "DATA",
+            "BULK",
         )
         .place(&mut table, 512)
         .expect("placement must succeed");
@@ -492,7 +492,7 @@ mod tests {
             Start::AfterPartition(9),
             Size::Lbas(1),
             LINUX_FS_GUID,
-            "DATA",
+            "BULK",
         )
         .place(&mut table, 512);
 

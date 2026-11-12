@@ -10,40 +10,49 @@ mod tests {
     #[test]
     fn gpt_names_are_stable() {
         // ARRANGE
-        let roles = [Role::Esp, Role::State, Role::Ephemeral, Role::Data];
+        let roles = [Role::Esp, Role::State, Role::Ephemeral];
 
         // ACT
         let names: Vec<_> = roles.iter().map(|role| role.gpt_name()).collect();
 
         // ASSERT
-        assert_eq!(names, vec!["EFI", "STATE", "EPHEMERAL", "DATA"]);
+        assert_eq!(names, vec!["EFI", "STATE", "EPHEMERAL"]);
     }
 
     #[test]
     fn type_guids_are_stable() {
         // ARRANGE
-        let roles = [Role::Esp, Role::State, Role::Ephemeral, Role::Data];
+        let roles = [Role::Esp, Role::State, Role::Ephemeral];
 
         // ACT
         let guids: Vec<_> = roles.iter().map(|role| role.type_guid()).collect();
 
         // ASSERT
-        assert_eq!(
-            guids,
-            vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID, LINUX_FS_GUID]
-        );
+        assert_eq!(guids, vec![ESP_TYPE_GUID, LINUX_FS_GUID, LINUX_FS_GUID]);
     }
 
     #[test]
     fn dm_names_are_stable() {
         // ARRANGE
-        let roles = [Role::State, Role::Ephemeral, Role::Data];
+        let roles = [Role::State, Role::Ephemeral];
 
         // ACT
         let names: Vec<_> = roles.iter().map(|role| role.dm_name()).collect();
 
         // ASSERT
-        assert_eq!(names, vec!["muak-state", "muak-ephemeral", "muak-data"]);
+        assert_eq!(names, vec!["muak-state", "muak-ephemeral"]);
+    }
+
+    #[test]
+    fn data_is_not_a_role() {
+        // ARRANGE
+        let name = "DATA";
+
+        // ACT
+        let role = Role::from_gpt_name(name);
+
+        // ASSERT
+        assert!(role.is_none(), "the DATA partition role no longer exists");
     }
 
     #[test]
