@@ -7,7 +7,7 @@ use crate::live::spinner::Spinner;
 use crate::live::steps::Steps;
 #[cfg(feature = "live")]
 use crate::live::summary::{self, Summary};
-use crate::output::{Flags, Output};
+use crate::output::{Flags, Mode, Output};
 use crate::screen::ansi::Ansi;
 use crate::style::{Role, Stream, Style, Styled};
 use crate::table::Table;
@@ -105,13 +105,17 @@ impl Console {
         self.stdout.theme.style(role)
     }
 
-    /// Prints `table` to standard output.
+    /// Prints `table` to standard output, fitting it in rich mode.
     ///
     /// # Errors
     ///
     /// Returns an error when writing to standard output fails.
     pub fn table(&self, table: &Table) -> std::io::Result<()> {
         let mut screen = Ansi::new(std::io::stdout(), self.stdout.size);
+
+        if self.stdout.mode == Mode::Rich {
+            return table.render_fitted(&mut screen, self.stdout.theme, self.stdout.size.cols);
+        }
 
         table.render(&mut screen, self.stdout.theme)
     }
