@@ -7,7 +7,7 @@ mod tests {
     use disk::layout::Layout;
     use disk::plan::Size;
     use disk::role::Role;
-    use disk::sizes::{EFI_SIZE, EPHEMERAL_SIZE, ESP_TYPE_GUID, STATE_SIZE};
+    use disk::sizes::{EFI_SIZE, EPHEMERAL_MIN_SIZE, ESP_TYPE_GUID, STATE_SIZE};
     use parttable::gpt::partition::LINUX_FS_GUID;
 
     use crate::common;
@@ -74,7 +74,7 @@ mod tests {
             vec![
                 Size::Fixed(EFI_SIZE),
                 Size::Fixed(STATE_SIZE),
-                Size::Fixed(EPHEMERAL_SIZE),
+                Size::Fixed(EPHEMERAL_MIN_SIZE),
                 Size::Fill
             ]
         );

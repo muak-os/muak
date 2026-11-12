@@ -164,7 +164,8 @@ pub(crate) fn place_all(gpt: &mut Table, plan: &Plan) -> Result<Vec<(Placement, 
     Ok(created)
 }
 
-fn partition_bytes(partition: &GptPartition) -> u64 {
+/// Resolved size of a placed partition in bytes, or zero when the LBAs overflow.
+pub(crate) fn partition_bytes(partition: &GptPartition) -> u64 {
     partition
         .ending_lba
         .checked_sub(partition.starting_lba)

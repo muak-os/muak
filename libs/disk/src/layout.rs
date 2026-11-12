@@ -3,7 +3,7 @@
 use crate::error::DiskError;
 use crate::plan::{PartitionSpec, Plan, Size};
 use crate::role::Role;
-use crate::sizes::{EFI_SIZE, EPHEMERAL_SIZE, STATE_SIZE};
+use crate::sizes::{EFI_SIZE, EPHEMERAL_MIN_SIZE, STATE_SIZE};
 
 /// A distro-owned disk layout applied by the installer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +52,7 @@ impl Layout {
             Self::Uefi => Plan::wiped(vec![
                 spec(Role::Esp, Size::Fixed(EFI_SIZE)),
                 spec(Role::State, Size::Fixed(STATE_SIZE)),
-                spec(Role::Ephemeral, Size::Fixed(EPHEMERAL_SIZE)),
+                spec(Role::Ephemeral, Size::Fixed(EPHEMERAL_MIN_SIZE)),
                 spec(Role::Data, Size::Fill),
             ]),
         }
