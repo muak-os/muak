@@ -159,13 +159,13 @@ mod tests {
     #[test]
     fn fitted_headerless_column_keeps_a_readable_floor() {
         // ARRANGE
-        let table = Table::new().header(&["A"]).row(&["x", "extra-value"]);
+        let table = Table::new().header(&["A"]).row(&["x", "extra-columns"]);
 
         // ACT
         let output = render_fitted(&table, Theme::plain(), 8);
 
         // ASSERT
-        assert_eq!(output, "A\nx  ex\u{2026}ue\n");
+        assert_eq!(output, "A\nx  ex\u{2026}ns\n");
     }
 
     #[test]
