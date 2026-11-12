@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 
+#[cfg(any(feature = "copy", feature = "pull"))]
 extern crate alloc;
 
 #[cfg(feature = "sign")]

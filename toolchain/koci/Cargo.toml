@@ -59,9 +59,8 @@ cli = [
     "sign",
     "ui",
 ]
-ui = ["sink", "tui/live", "tui/size"]
-sink = ["dep:tui"]
-copy = ["dep:bytes", "json", "registry", "sink"]
+ui = ["dep:tui", "tui/live", "tui/size"]
+copy = ["dep:bytes", "dep:tui", "json", "registry"]
 merge = ["dep:bytes", "json", "registry"]
 pull = [
     "dep:base64ct",
@@ -70,9 +69,9 @@ pull = [
     "dep:rustix",
     "dep:signature",
     "dep:tar",
+    "dep:tui",
     "json",
     "registry",
-    "sink",
     "stargz",
 ]
 push = ["dep:bytes", "dep:tar", "json", "registry", "stargz"]
