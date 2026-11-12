@@ -19,6 +19,12 @@ ntp = "pool.ntp.org"
 
 # [disk]
 # device = "/dev/nvme0n1"
+# serial = "ABC123"
+# wwid = "0x5000c500a1b2c3d4"
+# model = "Samsung SSD 990 PRO"
+# subsystem = "nvme"
+# bus_path = "pci0000:00/0000:00:1d.0"
+# rotational = false
 
 [network]
 dns = [
@@ -38,6 +44,7 @@ ipv6.autoconf = true
 name = "br0"
 type = "bridge"
 bridge.port = ["auto"]
+# bridge.stp = false
 
 # [[network.interfaces]]
 # name = "eth0"
