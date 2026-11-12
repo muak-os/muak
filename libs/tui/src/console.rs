@@ -7,7 +7,7 @@ use crate::live::spinner::Spinner;
 use crate::live::steps::Steps;
 #[cfg(feature = "live")]
 use crate::live::summary::{self, Summary};
-use crate::output::{Flags, Mode, Output};
+use crate::output::{Flags, Output};
 use crate::screen::ansi::Ansi;
 use crate::style::{Role, Stream, Style, Styled};
 use crate::table::Table;
@@ -111,13 +111,18 @@ impl Console {
     ///
     /// Returns an error when writing to standard output fails.
     pub fn table(&self, table: &Table) -> std::io::Result<()> {
-        let mut screen = Ansi::new(std::io::stdout(), self.stdout.size);
+        let cols = self.stdout.is_rich().then_some(self.stdout.size.cols);
 
-        if self.stdout.mode == Mode::Rich {
-            return table.render_fitted(&mut screen, self.stdout.theme, self.stdout.size.cols);
-        }
+        self.write_table(table, cols)
+    }
 
-        table.render(&mut screen, self.stdout.theme)
+    /// Prints `table` to standard output at its natural width.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard output fails.
+    pub fn table_unfitted(&self, table: &Table) -> std::io::Result<()> {
+        self.write_table(table, None)
     }
 
     /// Prints `summary` to standard output, warning when it cannot be written.
@@ -146,5 +151,14 @@ impl Console {
     #[cfg(feature = "live")]
     pub fn spinner(&self, message: &str) -> std::io::Result<Spinner> {
         Spinner::stderr_with(message, self.stderr)
+    }
+
+    fn write_table(&self, table: &Table, cols: Option<u16>) -> std::io::Result<()> {
+        let mut screen = Ansi::new(std::io::stdout(), self.stdout.size);
+
+        match cols {
+            Some(cols) => table.render_fitted(&mut screen, self.stdout.theme, cols),
+            None => table.render(&mut screen, self.stdout.theme),
+        }
     }
 }

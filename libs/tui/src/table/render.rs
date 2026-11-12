@@ -90,8 +90,6 @@ fn elided<S: Screen>(
         text.push_str(span.text());
     }
     let elided = text::elide(&text, width);
-    // A header cell never reaches this point: every column floor is at least its
-    // own header width, so headers always render at or below their column.
     let style = if header {
         theme.style(Role::Header)
     } else {

@@ -102,7 +102,11 @@ async fn list(
         table = render(table, disk, wide);
     }
 
-    console.table(&table)?;
+    if wide {
+        console.table_unfitted(&table)?;
+    } else {
+        console.table(&table)?;
+    }
 
     Ok(())
 }

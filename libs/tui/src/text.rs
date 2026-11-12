@@ -131,9 +131,6 @@ pub fn truncate(text: &str, max_width: usize) -> &str {
 }
 
 /// Shortens `text` to `max_width` display columns by eliding its middle.
-///
-/// Budgets below three columns truncate the tail instead, leaving no room for
-/// the ellipsis.
 #[must_use]
 pub fn elide(text: &str, max_width: usize) -> Cow<'_, str> {
     if width(text) <= max_width {

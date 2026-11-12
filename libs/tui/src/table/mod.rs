@@ -126,9 +126,6 @@ impl Table {
 
     /// Renders the table inline through `screen`, fitting it to `cols` columns.
     ///
-    /// Cells wider than their fitted column are elided to their flattened text,
-    /// keeping the style of their first span.
-    ///
     /// # Errors
     ///
     /// Returns an error when the screen writer fails.

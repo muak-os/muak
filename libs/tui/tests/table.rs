@@ -286,6 +286,25 @@ mod tests {
     }
 
     #[test]
+    fn unfitted_budget_beyond_eighty_columns_keeps_wide_values_whole() {
+        // ARRANGE
+        let wwid =
+            "naa.6001405d3f2b1c4a8e9f0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
+        let table = Table::new().header(&["NAME", "WWID"]).row(&["disk", wwid]);
+
+        // ACT
+        let natural = render_bytes(&table, Theme::plain());
+        let fitted = render_fitted_bytes(&table, Theme::plain(), 80);
+        let unfitted = render_fitted_bytes(&table, Theme::plain(), u16::MAX);
+
+        // ASSERT
+        assert!(natural.len() > 80);
+        assert!(strip_ansi(&natural).contains(wwid));
+        assert_ne!(fitted, natural);
+        assert_eq!(unfitted, natural);
+    }
+
+    #[test]
     fn fitted_sub_row_keeps_the_tree_prefix() {
         // ARRANGE
         let table = Table::new()
