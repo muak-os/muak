@@ -23,7 +23,7 @@ set positional-arguments
 rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-11@sha256:31457d716676b10f55d2ddf83b4980b61779540764e2603762bbbef5c746552e")
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 export tag := env_var_or_default("TAG", "0.0.0-dev")
-toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c18a288141bf4745151ae83d0d5f05d875a102c5348a12d5ab89fa94b4f1c3a0")
+toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:675909c8c1624c8e85aa9f41cf743b139cd3286c5cfd11515b1e75a88e809275")
 signature := env_var_or_default("SIGNATURE", "signature.key")
 profile := env_var_or_default("PROFILE", "")
 out := `test -f .git && realpath -m "$(git rev-parse --git-common-dir)/../_out" || realpath -m _out`
