@@ -6,7 +6,7 @@ use tui::style::Role;
 
 use crate::client::security_service::security_service_client::SecurityServiceClient;
 use crate::client::security_service::{
-    GetSecurityStateRequest, SecureBootDeviation, SecureBootState,
+    GetSecurityStateRequest, GetSecurityStateResponse, SecureBootDeviation, SecureBootState,
 };
 
 #[derive(Subcommand, Clone)]
@@ -25,28 +25,38 @@ pub(crate) async fn handle(
             let response = client
                 .get_security_state(tonic::Request::new(GetSecurityStateRequest {}))
                 .await?;
-            let resp = response.into_inner();
+            let state = response.into_inner();
 
             console.line(Role::Header, "Security State");
 
-            let status = firmware_status(console, resp.secure_boot);
-            println!("  Secure Boot: {status}");
-
-            let setup_mode = toggle(console, resp.setup_mode, false);
-            println!("  Setup Mode:  {setup_mode}");
-
-            let config = toggle(console, resp.config_enabled, true);
-            println!("  Config:      {config}");
-
-            let deviation = SecureBootDeviation::try_from(resp.deviation)
-                .unwrap_or(SecureBootDeviation::Unspecified);
-            if let Some(warning) = deviation_warning(deviation) {
-                console.line(Role::Warn, &format!("  Warning: {warning}"));
+            for line in report(console, &state) {
+                println!("{line}");
             }
         }
     }
 
     Ok(())
+}
+
+fn report(console: &Console, state: &GetSecurityStateResponse) -> Vec<String> {
+    let status = firmware_status(console, state.secure_boot);
+    let setup_mode = toggle(console, state.setup_mode, false);
+
+    let mut lines = vec![
+        format!("  Secure Boot: {status}"),
+        format!("  Setup Mode:  {setup_mode}"),
+    ];
+
+    if let Some(warning) = deviation_warning(deviation(state.deviation)) {
+        let text = format!("  Warning: {warning}");
+        lines.push(console.paint(&text, Role::Warn).to_string());
+    }
+
+    lines
+}
+
+fn deviation(value: i32) -> SecureBootDeviation {
+    SecureBootDeviation::try_from(value).unwrap_or(SecureBootDeviation::Unspecified)
 }
 
 fn firmware_status(console: &Console, value: i32) -> String {
@@ -83,5 +93,90 @@ fn deviation_warning(deviation: SecureBootDeviation) -> Option<&'static str> {
             Some("config disables Secure Boot but firmware still enforces it")
         }
         SecureBootDeviation::None | SecureBootDeviation::Unspecified => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tui::glyphs::Glyphs;
+    use tui::output::{Mode, Output};
+    use tui::size::Size;
+    use tui::style::Theme;
+
+    use super::*;
+
+    fn console() -> Console {
+        let output = Output {
+            mode: Mode::Plain,
+            theme: Theme::plain(),
+            glyphs: Glyphs::plain(),
+            size: Size::new(80, 25),
+            verbose: false,
+        };
+
+        Console::new(output, output)
+    }
+
+    fn response(
+        secure_boot: SecureBootState,
+        config_enabled: bool,
+        deviation: SecureBootDeviation,
+    ) -> GetSecurityStateResponse {
+        GetSecurityStateResponse {
+            secure_boot: secure_boot.into(),
+            setup_mode: true,
+            config_enabled,
+            deviation: deviation.into(),
+        }
+    }
+
+    #[test]
+    fn report_omits_config_when_firmware_matches_it() {
+        // ARRANGE
+        let console = console();
+        let state = response(SecureBootState::Disabled, false, SecureBootDeviation::None);
+
+        // ACT
+        let lines = report(&console, &state);
+
+        // ASSERT
+        assert_eq!(lines, ["  Secure Boot: Disabled", "  Setup Mode:  Enabled"]);
+    }
+
+    #[test]
+    fn report_warns_when_config_wants_secure_boot_without_keys() {
+        // ARRANGE
+        let console = console();
+        let state = response(
+            SecureBootState::Disabled,
+            true,
+            SecureBootDeviation::ConfigEnabledNoKeys,
+        );
+
+        // ACT
+        let lines = report(&console, &state);
+
+        // ASSERT
+        assert_eq!(lines.len(), 3);
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("  Warning: config enables Secure Boot but no keys are enrolled")
+        );
+    }
+
+    #[test]
+    fn report_marks_pending_firmware_reboot() {
+        // ARRANGE
+        let console = console();
+        let state = response(SecureBootState::Pending, true, SecureBootDeviation::None);
+
+        // ACT
+        let lines = report(&console, &state);
+
+        // ASSERT
+        assert_eq!(
+            lines.first().map(String::as_str),
+            Some("  Secure Boot: Pending (firmware reboot required)")
+        );
     }
 }
