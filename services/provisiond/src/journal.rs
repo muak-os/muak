@@ -60,7 +60,7 @@ pub(crate) struct Entry {
 
 impl Entry {
     /// Creates a journal entry for the given change.
-    #[must_use]
+    #[must_use = "dropping it discards the journal entry"]
     pub(crate) fn new(update_id: &str, author: &str, kind: ChangeKind) -> Self {
         Self {
             api_version: API_VERSION.to_owned(),
@@ -74,7 +74,7 @@ impl Entry {
     }
 
     /// Attaches failure outcome fields to the entry.
-    #[must_use]
+    #[must_use = "dropping it discards the recorded failure"]
     pub(crate) fn failed(mut self, failed_version: &str, reason: &str) -> Self {
         self.failed_version = Some(failed_version.to_owned());
         self.reason = Some(reason.to_owned());
@@ -102,37 +102,37 @@ impl Entry {
     }
 
     /// Returns the Unix timestamp of the change.
-    #[must_use]
+    #[must_use = "callers need the time to order journal entries"]
     pub(crate) const fn timestamp(&self) -> i64 {
         self.timestamp
     }
 
     /// Returns the update ID this entry belongs to.
-    #[must_use]
+    #[must_use = "callers need the id to identify the update"]
     pub(crate) fn update_id(&self) -> &str {
         &self.update_id
     }
 
     /// Returns the author of the change.
-    #[must_use]
+    #[must_use = "callers need the author to attribute the change"]
     pub(crate) fn author(&self) -> &str {
         &self.author
     }
 
     /// Returns the kind of operation.
-    #[must_use]
+    #[must_use = "callers need the kind to render the entry"]
     pub(crate) const fn kind(&self) -> &ChangeKind {
         &self.kind
     }
 
     /// Returns the catalog release that failed to boot, for rollback entries.
-    #[must_use]
+    #[must_use = "callers must handle an entry with no failure"]
     pub(crate) fn failed_version(&self) -> Option<&str> {
         self.failed_version.as_deref()
     }
 
     /// Returns the rollback reason, for rollback entries.
-    #[must_use]
+    #[must_use = "callers must handle an entry with no failure reason"]
     pub(crate) fn reason(&self) -> Option<&str> {
         self.reason.as_deref()
     }

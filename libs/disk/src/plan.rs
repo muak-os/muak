@@ -29,7 +29,7 @@ pub struct PartitionSpec {
 
 impl PartitionSpec {
     /// Creates a partition spec for partitions we manage.
-    #[must_use]
+    #[must_use = "dropping it discards the partition spec"]
     pub fn create(role: Role, name: &str, type_guid: [u8; 16], size: Size) -> Self {
         Self {
             role: Some(role),
@@ -51,7 +51,7 @@ pub struct Plan {
 
 impl Plan {
     /// Creates a plan that wipes the disk before placing the partitions.
-    #[must_use]
+    #[must_use = "dropping it discards the planned specs"]
     pub fn wiped(partitions: Vec<PartitionSpec>) -> Self {
         Self {
             wipe: true,

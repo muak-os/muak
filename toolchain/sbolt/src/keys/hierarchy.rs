@@ -18,7 +18,7 @@ pub enum KeyType {
 
 impl KeyType {
     /// Returns the common name suffix for this key type.
-    #[must_use]
+    #[must_use = "callers need the suffix to name the certificate"]
     pub(crate) fn cn_suffix(self) -> &'static str {
         match self {
             Self::Pk => "Platform Key",
@@ -28,7 +28,7 @@ impl KeyType {
     }
 
     /// Returns the filename prefix for this key type.
-    #[must_use]
+    #[must_use = "callers need the prefix to name the key files"]
     pub(crate) fn file_prefix(self) -> &'static str {
         match self {
             Self::Pk => "pk",

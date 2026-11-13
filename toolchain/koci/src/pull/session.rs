@@ -27,13 +27,13 @@ pub struct Session {
 
 impl Session {
     /// The resolved layer descriptors of the platform manifest, not yet downloaded.
-    #[must_use]
+    #[must_use = "callers need the descriptors to download the layers"]
     pub fn layers(&self) -> &[Descriptor] {
         &self.layers
     }
 
     /// The resolved platform manifest digest.
-    #[must_use]
+    #[must_use = "callers need the digest to name the cached image"]
     pub fn digest(&self) -> &str {
         &self.digest
     }
@@ -69,7 +69,7 @@ impl Session {
     }
 
     /// Lazy layer handles that download each blob on first read.
-    #[must_use]
+    #[must_use = "dropping it discards the lazy layer handles"]
     pub fn lazy(&self) -> Layers<'_> {
         Layers::new(self)
     }

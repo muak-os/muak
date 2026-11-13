@@ -59,7 +59,7 @@ pub struct Theme {
 
 impl Stream {
     /// Returns whether this stream is attached to a terminal.
-    #[must_use]
+    #[must_use = "callers must branch on whether output is a terminal"]
     pub fn is_terminal(self) -> bool {
         match self {
             Self::Stdout => std::io::stdout().is_terminal(),
@@ -70,19 +70,19 @@ impl Stream {
 
 impl Theme {
     /// Creates a theme that always emits color.
-    #[must_use]
+    #[must_use = "dropping it discards the theme"]
     pub const fn colored() -> Self {
         Self { enabled: true }
     }
 
     /// Creates a theme that never emits color.
-    #[must_use]
+    #[must_use = "dropping it discards the theme"]
     pub const fn plain() -> Self {
         Self { enabled: false }
     }
 
     /// Detects the color policy for `stream` from the environment.
-    #[must_use]
+    #[must_use = "dropping it discards the detected theme"]
     pub fn detect(stream: Stream) -> Self {
         let no_color = std::env::var_os("NO_COLOR");
         let clicolor = std::env::var_os("CLICOLOR");
@@ -100,7 +100,7 @@ impl Theme {
     }
 
     /// Returns the style for `role`.
-    #[must_use]
+    #[must_use = "callers need the style to paint text"]
     pub fn style(self, role: Role) -> Style {
         if self.enabled {
             role_style(role)
@@ -110,7 +110,7 @@ impl Theme {
     }
 
     /// Paints `text` with the style for `role`.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn paint(self, text: &str, role: Role) -> Styled<'_> {
         Styled {
             text,
@@ -119,73 +119,73 @@ impl Theme {
     }
 
     /// Paints `text` as a success.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn success(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Success)
     }
 
     /// Paints `text` as an error.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn error(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Error)
     }
 
     /// Paints `text` as error body text.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn error_text(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::ErrorText)
     }
 
     /// Paints `text` as a warning.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn warn(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Warn)
     }
 
     /// Paints `text` as information.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn info(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Info)
     }
 
     /// Paints `text` as muted.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn muted(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Muted)
     }
 
     /// Paints `text` as an accent.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn accent(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Accent)
     }
 
     /// Paints `text` as a header.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn header(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Header)
     }
 
     /// Paints `text` as a label.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn label(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Label)
     }
 
     /// Paints `text` as a highlighted value.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn highlight(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Highlight)
     }
 
     /// Paints `text` as a positive value.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn positive(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Positive)
     }
 
     /// Paints `text` as a negative value.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn negative(self, text: &str) -> Styled<'_> {
         self.paint(text, Role::Negative)
     }

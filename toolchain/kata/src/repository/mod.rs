@@ -25,7 +25,7 @@ pub fn require_root(root: &Path) -> Result<()> {
 }
 
 /// Path of one kind's document for `release` under the repository root.
-#[must_use]
+#[must_use = "callers need the path to read or write the document"]
 pub fn document_path(kind: Kind, root: &Path, release: &str) -> PathBuf {
     root.join(kind.dir()).join(format!("{release}.toml"))
 }

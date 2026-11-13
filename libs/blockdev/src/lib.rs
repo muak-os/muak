@@ -23,7 +23,7 @@ pub mod linux;
 
 /// Returns a handle to the kernel implementation chosen for this build.
 #[cfg(all(feature = "linux", target_os = "linux"))]
-#[must_use]
+#[must_use = "the handle is the only way to reach the kernel implementation"]
 pub fn handle() -> impl kernel::Kernel {
     linux::Linux::new()
 }

@@ -24,7 +24,7 @@ pub struct Rtnl {
 
 impl Rtnl {
     /// Wraps an existing rtnetlink handle.
-    #[must_use]
+    #[must_use = "the handle is the only way to issue netlink calls"]
     pub fn new(handle: rtnetlink::Handle) -> Self {
         Self { handle }
     }

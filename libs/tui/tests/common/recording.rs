@@ -15,7 +15,7 @@ pub struct Recorder {
 
 impl Recorder {
     /// Creates a recording screen and the channel receiving its output.
-    #[must_use]
+    #[must_use = "dropping it stops the recording"]
     pub fn new(size: Size) -> (Self, Receiver<String>) {
         let (tx, rx) = sync_channel(1024);
 
@@ -72,7 +72,7 @@ impl Screen for Recorder {
 }
 
 /// Collects every recorded span until the recording screen is dropped.
-#[must_use]
+#[must_use = "the test needs the recorded output to assert on"]
 pub fn collect(rx: &Receiver<String>) -> String {
     rx.iter().collect()
 }

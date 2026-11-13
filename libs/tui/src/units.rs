@@ -6,7 +6,7 @@ const GIB: u64 = MIB.saturating_mul(1024);
 const TIB: u64 = GIB.saturating_mul(1024);
 
 /// Formats `value` bytes with binary IEC units.
-#[must_use]
+#[must_use = "callers need the formatted size to print it"]
 pub fn bytes(value: u64) -> String {
     if value < KIB {
         return format!("{value} B");

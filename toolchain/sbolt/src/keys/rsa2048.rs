@@ -64,7 +64,7 @@ impl Signer {
     }
 
     /// Get the public key.
-    #[must_use]
+    #[must_use = "callers need the key to build the certificate"]
     pub fn public_key(&self) -> PublicKey {
         self.signing_key.as_ref().to_public_key()
     }

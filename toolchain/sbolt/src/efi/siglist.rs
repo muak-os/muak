@@ -18,7 +18,7 @@ pub struct SignatureDatabase {
 
 impl SignatureDatabase {
     /// Create a new empty signature database.
-    #[must_use]
+    #[must_use = "dropping it discards the signature database"]
     pub fn new() -> Self {
         Self::default()
     }
@@ -47,25 +47,25 @@ impl SignatureDatabase {
     }
 
     /// Serialize the database to bytes.
-    #[must_use]
+    #[must_use = "callers need the bytes to enroll the database"]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.lists.iter().flatten().copied().collect()
     }
 
     /// Get the number of signature lists.
-    #[must_use]
+    #[must_use = "callers need the count to size the variable"]
     pub fn len(&self) -> usize {
         self.lists.len()
     }
 
     /// Check if the database is empty.
-    #[must_use]
+    #[must_use = "callers must branch on an empty database"]
     pub fn is_empty(&self) -> bool {
         self.lists.is_empty()
     }
 
     /// Check whether the database contains the exact X.509 certificate bytes.
-    #[must_use]
+    #[must_use = "callers must branch on whether the key is enrolled"]
     pub fn contains_x509(&self, certificate: &[u8]) -> bool {
         self.lists
             .iter()

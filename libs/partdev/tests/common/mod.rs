@@ -25,7 +25,7 @@ impl Fixture {
     /// # Panics
     ///
     /// Panics when the temporary image cannot be created or resized.
-    #[must_use]
+    #[must_use = "dropping it deletes the temporary image"]
     pub fn new(sectors: u64) -> Self {
         let file = NamedTempFile::new().expect("fixture file");
         file.as_file()
@@ -36,7 +36,7 @@ impl Fixture {
     }
 
     /// Returns the file behind the image.
-    #[must_use]
+    #[must_use = "the test needs the file to issue reads"]
     pub fn file(&self) -> &File {
         self.file.as_file()
     }
@@ -46,13 +46,13 @@ impl Fixture {
     /// # Panics
     ///
     /// Panics when the temporary path is not valid UTF-8.
-    #[must_use]
+    #[must_use = "the test needs the path to open the image"]
     pub fn path_str(&self) -> &str {
         self.file.path().to_str().expect("utf-8 fixture path")
     }
 
     /// Returns the number of sectors in the image.
-    #[must_use]
+    #[must_use = "the test needs the geometry to size the table"]
     pub fn sectors(&self) -> u64 {
         self.sectors
     }
@@ -102,7 +102,7 @@ impl Fixture {
     /// # Panics
     ///
     /// Panics when the image cannot be read.
-    #[must_use]
+    #[must_use = "the test needs the image bytes to assert on"]
     pub fn read_all(&self) -> Vec<u8> {
         let length = usize::try_from(self.sectors.saturating_mul(SECTOR_BYTES)).unwrap_or(0);
         let mut data = vec![0_u8; length];
@@ -120,7 +120,7 @@ impl Fixture {
 /// # Panics
 ///
 /// Panics when the table cannot be created for `sectors`.
-#[must_use]
+#[must_use = "the test needs the table to write and read back"]
 pub fn gpt_table(sectors: u64, names: &[&str]) -> Table {
     let mut table = Table::create(sectors, SECTOR_BYTES, [0xCD; 16]).expect("create table");
 
@@ -148,7 +148,7 @@ pub fn gpt_table(sectors: u64, names: &[&str]) -> Table {
 /// # Panics
 ///
 /// Panics when the range cannot be read.
-#[must_use]
+#[must_use = "the test needs the range bytes to assert on"]
 pub fn read_at(file: &File, offset: u64, length: usize) -> Vec<u8> {
     let mut data = vec![0_u8; length];
     file.read_exact_at(&mut data, offset).expect("read range");

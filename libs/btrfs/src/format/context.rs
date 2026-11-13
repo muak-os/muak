@@ -117,7 +117,7 @@ impl MkfsContext {
     /// * `device` - The device file to write to
     /// * `device_size` - Size of the device in bytes
     /// * `label` - Filesystem label
-    #[must_use]
+    #[must_use = "dropping it discards the opened mkfs context"]
     pub(super) fn new(device: File, device_size: u64, label: String) -> Self {
         let device_size = device_size
             .checked_div(BTRFS_DEFAULT_SECTORSIZE_U64)

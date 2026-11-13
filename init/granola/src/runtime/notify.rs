@@ -16,7 +16,7 @@ pub enum Health {
 
 impl Health {
     /// Returns the wire representation of this health value.
-    #[must_use]
+    #[must_use = "callers need the wire string to report health"]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Healthy => "healthy",

@@ -60,7 +60,7 @@ impl Default for Config {
 
 impl Config {
     /// Returns `true` when both configs describe the same system.
-    #[must_use]
+    #[must_use = "callers must branch on whether the system changed"]
     pub fn same_as(&self, other: &Config) -> bool {
         self.api_version == other.api_version
             && self.host.same_as(&other.host)
@@ -172,7 +172,7 @@ pub fn vm() -> Result<&'static vm::Config> {
 }
 
 /// Returns the global system configuration, or `None` before [`init()`].
-#[must_use]
+#[must_use = "callers must handle the config not being initialised"]
 pub fn try_config() -> Option<&'static Config> {
     CONFIG.get()
 }
@@ -203,7 +203,7 @@ pub fn serialize(config: &Config) -> Result<String> {
 }
 
 /// Serializes the default system configuration to a string.
-#[must_use]
+#[must_use = "callers need the serialised text that gets written"]
 pub fn serialize_default() -> String {
     DEFAULT_CONFIG.to_owned()
 }

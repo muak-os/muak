@@ -318,7 +318,7 @@ fn generate_rust_code(methods: &[RpcMethod]) -> Result<String, core::fmt::Error>
 
     code.push_str(
         "/// Returns the permission requirement for a gRPC method path.\n\
-         #[must_use]\n\
+         #[must_use = \"callers must branch on the required permission\"]\n\
          pub fn method_permission(path: &str) -> MethodRequirement {\n\
          \x20   match path {\n",
     );

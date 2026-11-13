@@ -112,7 +112,7 @@ pub fn get_fs_info(mount_point: &str) -> Result<Vec<u64>> {
 }
 
 /// Build a zeroed `BtrfsIoctlScrubArgs` with the given device ID and flags.
-#[must_use]
+#[must_use = "dropping it leaves the ioctl with zeroed arguments"]
 fn new_scrub_args(devid: u64, readonly: bool) -> BtrfsIoctlScrubArgs {
     BtrfsIoctlScrubArgs {
         devid,

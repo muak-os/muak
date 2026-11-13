@@ -60,7 +60,7 @@ impl fmt::Display for State {
 
 impl Lease {
     /// Returns the absolute expiry time of this lease.
-    #[must_use]
+    #[must_use = "callers must renew the lease before it expires"]
     pub fn expiry(&self) -> SystemTime {
         self.obtained_at
             .checked_add(self.lease_time)

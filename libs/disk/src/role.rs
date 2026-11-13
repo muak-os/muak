@@ -19,7 +19,7 @@ pub enum Role {
 
 impl Role {
     /// GPT partition type GUID for this role (wire byte order).
-    #[must_use]
+    #[must_use = "callers need the GUID to write the partition entry"]
     pub const fn type_guid(self) -> [u8; 16] {
         match self {
             Self::Esp => ESP_TYPE_GUID,
@@ -28,7 +28,7 @@ impl Role {
     }
 
     /// GPT partition name for this role.
-    #[must_use]
+    #[must_use = "callers need the name to label the partition"]
     pub const fn gpt_name(self) -> &'static str {
         match self {
             Self::Esp => "EFI",
@@ -38,7 +38,7 @@ impl Role {
     }
 
     /// Role carrying `gpt_name`, or `None` when the name is not a Muak role.
-    #[must_use]
+    #[must_use = "callers must handle a partition name they do not know"]
     pub fn from_gpt_name(gpt_name: &str) -> Option<Self> {
         [Self::Esp, Self::State, Self::Ephemeral]
             .into_iter()
@@ -46,7 +46,7 @@ impl Role {
     }
 
     /// Device-mapper name for this role's encrypted volume.
-    #[must_use]
+    #[must_use = "callers need the name to map the volume"]
     pub const fn dm_name(self) -> &'static str {
         match self {
             Self::Esp => "muak-esp",

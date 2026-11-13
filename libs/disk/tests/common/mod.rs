@@ -8,7 +8,7 @@ use disk::layout::Layout;
 use disk::plan::Plan;
 
 /// Returns the frozen system plan of the UEFI layout.
-#[must_use]
+#[must_use = "the test needs the plan to compare against"]
 pub fn uefi_plan() -> Plan {
     Layout::Uefi.plan()
 }
@@ -18,7 +18,7 @@ pub fn uefi_plan() -> Plan {
 /// # Panics
 ///
 /// Panics when the UEFI plan cannot be converted to a document.
-#[must_use]
+#[must_use = "the test needs the document to compare against"]
 pub fn uefi_document() -> Document {
     convert::from_plan(&uefi_plan()).expect("doc from plan")
 }

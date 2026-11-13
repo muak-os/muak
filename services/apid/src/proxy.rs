@@ -34,7 +34,7 @@ impl Default for BackendPool {
 
 impl BackendPool {
     /// Creates a new pool with an entry for each known backend socket.
-    #[must_use]
+    #[must_use = "dropping it discards the proxy routing table"]
     pub fn new() -> Self {
         let mut senders = HashMap::new();
         senders.insert(constants::WORKLOADD_SOCKET.to_owned(), Mutex::new(None));
@@ -44,7 +44,7 @@ impl BackendPool {
     }
 
     /// Creates a pool with a single entry for the given socket path.
-    #[must_use]
+    #[must_use = "dropping it discards the proxy routing table"]
     pub fn from_socket(path: &str) -> Self {
         let mut senders = HashMap::new();
         senders.insert(path.to_owned(), Mutex::new(None));

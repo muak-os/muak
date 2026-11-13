@@ -26,7 +26,7 @@ pub struct Sink<W, T> {
 
 impl<W, T: Tracker> Sink<W, T> {
     /// Wraps `inner`, starting the byte count at `current`.
-    #[must_use]
+    #[must_use = "dropping it discards the wrapped writer"]
     pub const fn new(inner: W, tracker: T, current: u64) -> Self {
         Self {
             inner,
@@ -36,10 +36,7 @@ impl<W, T: Tracker> Sink<W, T> {
     }
 
     /// Returns the wrapped writer, dropping the tracker and the byte count.
-    ///
-    /// Call this to recover an owned writer, so buffered writers are flushed
-    /// and consumed instead of being dropped with the sink.
-    #[must_use]
+    #[must_use = "callers need the wrapped writer back"]
     pub fn into_inner(self) -> W {
         self.inner
     }

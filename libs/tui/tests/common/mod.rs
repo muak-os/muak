@@ -5,7 +5,7 @@
 pub mod recording;
 
 /// Removes ANSI escape sequences from `bytes`.
-#[must_use]
+#[must_use = "the test needs the plain text to assert on"]
 pub fn strip_ansi(bytes: &[u8]) -> String {
     let mut output = Vec::with_capacity(bytes.len());
     let mut index = 0;

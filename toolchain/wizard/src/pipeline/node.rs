@@ -15,7 +15,7 @@ pub(crate) struct PortId(pub(crate) usize);
 
 impl PortId {
     /// The port `index` positions after this one, saturating.
-    #[must_use]
+    #[must_use = "callers need the shifted port to address the next stream"]
     pub(crate) const fn offset(self, index: usize) -> Self {
         Self(self.0.saturating_add(index))
     }

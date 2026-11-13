@@ -19,6 +19,7 @@ pub(crate) mod version;
     clippy::excessive_nesting,
     clippy::impl_trait_in_params,
     clippy::inline_modules,
+    clippy::must_use_without_reason,
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::too_many_lines,

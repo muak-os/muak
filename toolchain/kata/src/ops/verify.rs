@@ -128,7 +128,7 @@ pub(crate) fn verify_document(document: &Document) -> Result<Vec<String>> {
 }
 
 /// Entries of a document as registry checks.
-#[must_use]
+#[must_use = "ignoring it skips the registry checks"]
 pub(crate) fn checks(document: &Document) -> Vec<EntryCheck> {
     match *document {
         Document::Core(ref core) => core

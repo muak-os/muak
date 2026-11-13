@@ -13,7 +13,7 @@ pub struct Image {
 
 impl Image {
     /// Parse an image reference string into an [`Image`].
-    #[must_use]
+    #[must_use = "callers need the parsed parts to build URLs"]
     pub fn parse(reference: &str) -> Self {
         let digest_ref = reference
             .rsplit_once('@')

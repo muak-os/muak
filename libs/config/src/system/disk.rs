@@ -33,7 +33,7 @@ pub struct Selector {
 
 impl Selector {
     /// Creates a selector pinned to an explicit device path.
-    #[must_use]
+    #[must_use = "dropping it discards the pinned device"]
     pub fn device<S: Into<String>>(device: S) -> Self {
         Self {
             device: Some(device.into()),
@@ -42,7 +42,7 @@ impl Selector {
     }
 
     /// Returns true when the selector constrains no disk at all.
-    #[must_use]
+    #[must_use = "callers must branch on whether any disk is constrained"]
     pub fn is_empty(&self) -> bool {
         self.device.is_none() && !self.has_matcher() && self.rotational.is_none()
     }

@@ -70,7 +70,7 @@ pub type Result<T> = core::result::Result<T, KociError>;
 
 impl KociError {
     /// Whether retrying the failed operation may still succeed.
-    #[must_use]
+    #[must_use = "callers must branch on whether to retry"]
     pub fn is_retryable(&self) -> bool {
         matches!(self, Self::Client(error) if retry::is_retryable(error))
             || matches!(self, Self::IoError(error) if is_retryable_io(error.kind()))

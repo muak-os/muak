@@ -11,7 +11,7 @@ use erofs::source::{SizedFile, TreeEntry};
 pub type CursorSet<'a> = Vec<std::io::Cursor<&'a [u8]>>;
 
 /// Returns a minimal uncompressed [`MkfsConfig`] for use in tests.
-#[must_use]
+#[must_use = "the test needs the config to build the image"]
 pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
     MkfsConfig {
         source_date_epoch: epoch,
@@ -24,7 +24,7 @@ pub(crate) fn test_config(epoch: u64) -> MkfsConfig<'static> {
 }
 
 /// Returns a minimal compressed [`MkfsConfig`] for use in tests.
-#[must_use]
+#[must_use = "the test needs the config to build the image"]
 pub(crate) fn compress_config(epoch: u64) -> MkfsConfig<'static> {
     MkfsConfig {
         source_date_epoch: epoch,
@@ -37,7 +37,7 @@ pub(crate) fn compress_config(epoch: u64) -> MkfsConfig<'static> {
 }
 
 /// Reconstructs a [`TreeEntry`] from a planned inode (test support).
-#[must_use]
+#[must_use = "the test needs the entry to build the tree"]
 pub fn entry_of(inode: &Inode) -> TreeEntry {
     TreeEntry {
         rel_path: inode.rel_path.clone(),
@@ -58,7 +58,7 @@ pub fn entry_of(inode: &Inode) -> TreeEntry {
 /// # Panics
 ///
 /// Panics when an entry size cannot be represented as `usize`.
-#[must_use]
+#[must_use = "the test needs the content to fill the entry"]
 pub fn zero_data(entry: &TreeEntry) -> Vec<u8> {
     if entry.file_type == erofs::dir::EROFS_FT_REG_FILE && entry.size > 0 {
         vec![0_u8; usize::try_from(entry.size).expect("size fits usize")]
@@ -77,7 +77,7 @@ pub fn pair_files<R: Read>(entries: Vec<TreeEntry>, readers: &mut [R]) -> Vec<Si
 }
 
 /// Builds one independent cursor set over shared content (test support).
-#[must_use]
+#[must_use = "the test needs the cursors to read the image"]
 pub fn cursor_set(data: &[Vec<u8>]) -> CursorSet<'_> {
     data.iter()
         .map(|bytes| std::io::Cursor::new(bytes.as_slice()))

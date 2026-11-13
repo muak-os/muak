@@ -33,7 +33,7 @@ pub struct Partition {
 
 impl Partition {
     /// Serializes this entry into 128 bytes.
-    #[must_use]
+    #[must_use = "callers need the bytes to write the entry"]
     pub(crate) fn encode(&self) -> [u8; 128] {
         let mut bytes = [0_u8; 128];
         put(&mut bytes, ENT_TYPE_GUID, &self.type_guid);

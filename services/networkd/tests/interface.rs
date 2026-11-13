@@ -2,19 +2,6 @@
 
 extern crate alloc;
 
-#[cfg(test)]
-mod interface {
-    pub(super) use super::*;
-
-    mod actor;
-    mod bridge;
-    mod dhcp;
-    mod link;
-    mod reconcile;
-    mod slaac;
-    mod r#static;
-}
-
 use alloc::sync::Arc;
 use core::future::Future;
 use core::net::{Ipv4Addr, Ipv6Addr};
@@ -95,7 +82,7 @@ impl Default for MockNetlinkOps {
 
 impl MockNetlinkOps {
     /// Creates an empty mock with no links.
-    #[must_use]
+    #[must_use = "dropping it discards the fake interface state"]
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(MockInner {
@@ -112,7 +99,7 @@ impl MockNetlinkOps {
     }
 
     /// Adds a pre-existing link so `discover_ethernet` will return it.
-    #[must_use]
+    #[must_use = "the test needs the index of the link it created"]
     pub fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
         let mut state = self.lock();
         let index = state.next_index;
@@ -130,7 +117,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns a snapshot of IPv4 addresses for an index.
-    #[must_use]
+    #[must_use = "the test asserts on the addresses that were added"]
     pub fn ipv4_addrs(&self, index: u32) -> HashSet<(Ipv4Addr, u8)> {
         self.lock()
             .ipv4_addrs
@@ -140,7 +127,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns a snapshot of IPv6 addresses for an index.
-    #[must_use]
+    #[must_use = "the test asserts on the addresses that were added"]
     pub fn ipv6_addrs(&self, index: u32) -> HashSet<(Ipv6Addr, u8)> {
         self.lock()
             .ipv6_addrs
@@ -150,13 +137,13 @@ impl MockNetlinkOps {
     }
 
     /// Returns true if the given IPv4 gateway is in the default route table.
-    #[must_use]
+    #[must_use = "the test asserts on the route that was installed"]
     pub fn has_default_route_v4(&self, gw: Ipv4Addr) -> bool {
         self.lock().default_routes_v4.contains(&gw)
     }
 
     /// Returns true if the given IPv6 gateway is in the default route table.
-    #[must_use]
+    #[must_use = "the test asserts on the route that was installed"]
     pub fn has_default_route_v6(&self, gw: Ipv6Addr) -> bool {
         self.lock().default_routes_v6.contains(&gw)
     }
@@ -459,4 +446,17 @@ async fn wait_for_ipv6(handle: &ActorHandle) {
         .await
         .unwrap_or(false);
     assert!(reached, "timed out waiting for ipv6 config");
+}
+
+#[cfg(test)]
+mod interface {
+    pub(super) use super::*;
+
+    mod actor;
+    mod bridge;
+    mod dhcp;
+    mod link;
+    mod reconcile;
+    mod slaac;
+    mod r#static;
 }

@@ -21,7 +21,7 @@ pub enum NodeState {
 
 impl NodeState {
     /// Human-readable verb for this state.
-    #[must_use]
+    #[must_use = "callers need the verb to label progress output"]
     pub const fn title(self) -> &'static str {
         match self {
             Self::Started => "started",

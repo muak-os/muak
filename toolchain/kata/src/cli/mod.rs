@@ -42,7 +42,7 @@ where
 }
 
 /// Runs the CLI with the given arguments and returns an exit code.
-#[must_use]
+#[must_use = "callers must propagate the process exit code"]
 pub(crate) fn run_with<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
@@ -58,7 +58,7 @@ where
 }
 
 /// Runs the CLI with `std::env::args_os()` and returns an exit code.
-#[must_use]
+#[must_use = "callers must propagate the process exit code"]
 pub(crate) fn run() -> i32 {
     run_with(std::env::args_os())
 }

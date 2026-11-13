@@ -64,7 +64,7 @@ pub struct Output {
 
 impl DetectInput {
     /// Captures detection inputs for `stream` from the process environment.
-    #[must_use]
+    #[must_use = "dropping it discards the captured stream"]
     pub fn capture(stream: Stream) -> Self {
         Self {
             terminal: stream.is_terminal(),
@@ -88,13 +88,13 @@ impl DetectInput {
 
 impl Output {
     /// Detects output capabilities for `stream` with explicit `flags`.
-    #[must_use]
+    #[must_use = "dropping it discards the detected output mode"]
     pub fn detect(stream: Stream, flags: Flags) -> Self {
         Self::from_input(stream, flags, &DetectInput::capture(stream))
     }
 
     /// Resolves output capabilities from explicit detection inputs.
-    #[must_use]
+    #[must_use = "dropping it discards the detected output mode"]
     pub fn from_input(stream: Stream, flags: Flags, input: &DetectInput) -> Self {
         let mode = if flags.quiet {
             Mode::Quiet
@@ -123,25 +123,25 @@ impl Output {
     }
 
     /// Returns whether the output is quiet.
-    #[must_use]
+    #[must_use = "callers must suppress output when quiet"]
     pub const fn is_quiet(self) -> bool {
         matches!(self.mode, Mode::Quiet)
     }
 
     /// Returns whether the output is rich.
-    #[must_use]
+    #[must_use = "callers must branch on the output mode"]
     pub const fn is_rich(self) -> bool {
         matches!(self.mode, Mode::Rich)
     }
 
     /// Returns whether the output is plain.
-    #[must_use]
+    #[must_use = "callers must branch on the output mode"]
     pub const fn is_plain(self) -> bool {
         matches!(self.mode, Mode::Plain)
     }
 
     /// Returns whether live widgets may animate.
-    #[must_use]
+    #[must_use = "callers must branch on whether to animate"]
     pub const fn animates(self) -> bool {
         self.is_rich()
     }

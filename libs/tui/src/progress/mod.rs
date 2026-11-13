@@ -41,7 +41,7 @@ pub struct State<'a> {
 }
 
 /// Builds a progress line that fits in `width` columns.
-#[must_use]
+#[must_use = "callers need the rendered line to write it"]
 pub fn line<'a>(state: &State<'a>, width: usize, theme: Theme, glyphs: Glyphs) -> Line<'a> {
     if width == 0 {
         return Line::new(0);
@@ -98,7 +98,7 @@ pub fn line<'a>(state: &State<'a>, width: usize, theme: Theme, glyphs: Glyphs) -
 }
 
 /// Formats `duration` as a compact clock value.
-#[must_use]
+#[must_use = "callers need the formatted duration to show progress"]
 pub fn clock(duration: Duration) -> String {
     let total = duration.as_secs();
     let hours = total.checked_div(3600).unwrap_or(0);

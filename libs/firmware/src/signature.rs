@@ -10,7 +10,7 @@ const SIGNATURE_LIST_HEADER_SIZE: usize = 28;
 const SIGNATURE_DATA_HEADER_SIZE: usize = 16;
 
 /// Returns whether `data` contains an X.509 signature list with `certificate`.
-#[must_use]
+#[must_use = "callers must branch on whether the key is enrolled"]
 pub fn contains_x509(data: &[u8], certificate: &[u8]) -> bool {
     if certificate.is_empty() {
         return false;

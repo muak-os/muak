@@ -3,7 +3,7 @@
 use sha2::{Digest as _, Sha256};
 
 /// Generates a deterministic locally-administered unicast MAC from an identifier.
-#[must_use]
+#[must_use = "callers need the address to configure the link"]
 pub fn generate(id: &str) -> [u8; 6] {
     let result = Sha256::digest(id.as_bytes());
 
@@ -18,7 +18,7 @@ pub fn generate(id: &str) -> [u8; 6] {
 }
 
 /// Formats a 6-byte MAC address as colon-separated lowercase hex.
-#[must_use]
+#[must_use = "callers need the text form for netlink and logs"]
 pub fn format(mac: &[u8; 6]) -> String {
     format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",

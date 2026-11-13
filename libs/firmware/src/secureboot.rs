@@ -130,7 +130,7 @@ pub fn platform_key_matches<S: VariableStore>(store: &S, certificate: &[u8]) -> 
 }
 
 /// Derives the Secure Boot posture, treating only our Platform Key as enrolled.
-#[must_use]
+#[must_use = "callers must branch on the Secure Boot posture"]
 pub fn status(state: &State, ours: bool) -> Status {
     if state.enabled {
         Status::Enabled
@@ -142,7 +142,7 @@ pub fn status(state: &State, ours: bool) -> Status {
 }
 
 /// Describes how config disagrees with our keys in firmware, if at all.
-#[must_use]
+#[must_use = "callers must handle config disagreeing with the enrolled keys"]
 pub fn mismatch(config_enabled: bool, state: &State, ours: bool) -> Option<Mismatch> {
     match (config_enabled, state.enabled, ours) {
         (true, _, false) => Some(Mismatch::NotEnrolled),

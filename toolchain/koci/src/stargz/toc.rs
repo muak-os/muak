@@ -40,7 +40,7 @@ pub struct Toc {
 impl Toc {
     /// Consumes the TOC, returning its entries in blob order.
     #[cfg(feature = "pull")]
-    #[must_use]
+    #[must_use = "callers need the entries to assemble the blob"]
     pub(crate) fn into_entries(self) -> Vec<Record> {
         self.entries
     }
@@ -88,7 +88,7 @@ pub struct Record {
 }
 
 /// Returns whether `annotations` mark a layer as eStargz.
-#[must_use]
+#[must_use = "callers must branch on whether the layer is eStargz"]
 pub fn is_estargz<S: BuildHasher>(annotations: &HashMap<String, String, S>) -> bool {
     annotations.contains_key(TOC_DIGEST_ANNOTATION)
 }
@@ -98,7 +98,7 @@ pub fn is_estargz<S: BuildHasher>(annotations: &HashMap<String, String, S>) -> b
 /// # Panics
 ///
 /// Never: the formatter always fills exactly 16 hex digits.
-#[must_use]
+#[must_use = "callers need the footer to append the TOC"]
 pub fn footer(offset: u64) -> [u8; FOOTER_SIZE] {
     let mut footer = [0_u8; FOOTER_SIZE];
     footer[..10].copy_from_slice(&FOOTER_HEAD);
@@ -114,7 +114,7 @@ pub fn footer(offset: u64) -> [u8; FOOTER_SIZE] {
 }
 
 /// Parses the TOC compressed offset out of footer bytes from a blob tail.
-#[must_use]
+#[must_use = "callers must handle a blob without a valid footer"]
 pub fn parse_footer(footer: &[u8]) -> Option<u64> {
     if footer.len() != FOOTER_SIZE || !framed(footer) {
         return None;

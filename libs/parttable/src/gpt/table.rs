@@ -70,7 +70,7 @@ impl Table {
     }
 
     /// Returns the header fields used when encoding this table.
-    #[must_use]
+    #[must_use = "callers need the header to encode the table"]
     pub(crate) fn to_header(&self) -> GptHeader {
         GptHeader {
             entries_lba: 2,
@@ -84,26 +84,26 @@ impl Table {
     }
 
     /// Returns the sector size of the disk.
-    #[must_use]
+    #[must_use = "callers need the sector size to convert LBAs to bytes"]
     pub fn sector_size(&self) -> u64 {
         self.sector_size
     }
 
     /// Returns the first usable LBA from the GPT header.
-    #[must_use]
+    #[must_use = "callers must not place partitions below it"]
     pub fn first_usable_lba(&self) -> u64 {
         self.first_usable_lba
     }
 
     /// Returns the last usable LBA from the GPT header.
-    #[must_use]
+    #[must_use = "callers must not place partitions above it"]
     pub fn last_usable_lba(&self) -> u64 {
         self.last_usable_lba
     }
 
     /// Returns the size in bytes of the primary GPT region
     /// (protective MBR + GPT header + partition entries).
-    #[must_use]
+    #[must_use = "callers need the size to place the first partition"]
     pub fn primary_gpt_size(&self) -> u64 {
         primary_gpt_region_size(self.sector_size)
     }
@@ -132,7 +132,7 @@ impl Table {
 
     /// Returns the byte offset on disk where the backup GPT
     /// (partition entries + header) should be placed.
-    #[must_use]
+    #[must_use = "callers need the offset to write the backup GPT"]
     pub fn backup_data_offset(&self, sector_count: u64) -> u64 {
         let entries_sectors = entries_sector_count(self.sector_size);
         sector_count
@@ -142,7 +142,7 @@ impl Table {
     }
 
     /// Returns all used partitions as `(number, partition)` pairs.
-    #[must_use]
+    #[must_use = "ignoring it drops the partitions already on disk"]
     pub fn used_partitions(&self) -> Vec<(u32, Partition)> {
         self.entries
             .iter()
@@ -156,13 +156,13 @@ impl Table {
     }
 
     /// Returns `true` when the table contains any used partition.
-    #[must_use]
+    #[must_use = "callers must branch on whether the disk is empty"]
     pub fn has_used_partitions(&self) -> bool {
         self.entries.iter().any(Option::is_some)
     }
 
     /// Returns the used partition at `number`, if present.
-    #[must_use]
+    #[must_use = "callers must handle an empty slot"]
     pub fn partition(&self, number: u32) -> Option<Partition> {
         self.entries
             .get(usize::try_from(number).ok()?.saturating_sub(1))?
@@ -170,13 +170,13 @@ impl Table {
     }
 
     /// Returns `true` when `number` refers to a used partition.
-    #[must_use]
+    #[must_use = "callers must branch on slot occupancy"]
     pub fn is_partition_used(&self, number: u32) -> bool {
         self.partition(number).is_some()
     }
 
     /// Returns the highest used partition number, if any.
-    #[must_use]
+    #[must_use = "callers need it to size the backup region"]
     pub fn highest_used_partition_number(&self) -> Option<u32> {
         self.entries
             .iter()
@@ -186,7 +186,7 @@ impl Table {
     }
 
     /// Returns the last used ending LBA, if any.
-    #[must_use]
+    #[must_use = "callers need it to place new partitions"]
     pub fn last_used_ending_lba(&self) -> Option<u64> {
         self.entries
             .iter()
@@ -196,7 +196,7 @@ impl Table {
     }
 
     /// Returns the next free partition number, if any.
-    #[must_use]
+    #[must_use = "callers must handle a full table"]
     pub fn next_free_slot(&self) -> Option<u32> {
         (1_u32..=u32::try_from(ENTRIES_COUNT).unwrap_or(0))
             .find(|&number| !self.is_partition_used(number))

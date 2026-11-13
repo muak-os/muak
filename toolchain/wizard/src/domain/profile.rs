@@ -17,7 +17,7 @@ pub struct Profile {
 
 impl Profile {
     /// Creates a profile from pre-validated components.
-    #[must_use]
+    #[must_use = "dropping it discards the profile"]
     pub const fn new(
         overlay: Option<OverlaySpec>,
         customization: CustomizationSpec,
@@ -44,19 +44,19 @@ impl Profile {
     }
 
     /// Returns the optional overlay spec.
-    #[must_use]
+    #[must_use = "callers must handle a profile without an overlay"]
     pub const fn overlay(&self) -> Option<&OverlaySpec> {
         self.overlay.as_ref()
     }
 
     /// Returns the customization spec.
-    #[must_use]
+    #[must_use = "callers need the spec to build the image"]
     pub const fn customization(&self) -> &CustomizationSpec {
         &self.customization
     }
 
     /// Returns the kernel spec.
-    #[must_use]
+    #[must_use = "callers need the kernel spec to build the image"]
     pub const fn kernel(&self) -> &KernelSpec {
         &self.kernel
     }
@@ -104,7 +104,7 @@ impl OverlaySpec {
     }
 
     /// Returns the overlay name.
-    #[must_use]
+    #[must_use = "callers need the name to label the overlay"]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -154,13 +154,13 @@ impl KernelSpec {
     }
 
     /// Returns the logical kernel source identity.
-    #[must_use]
+    #[must_use = "callers need the reference to pull the kernel"]
     pub fn source(&self) -> &str {
         &self.source
     }
 
     /// Returns additional parameters in command-line order, including duplicates.
-    #[must_use]
+    #[must_use = "callers need the parameters for the kernel command line"]
     pub fn parameters_append(&self) -> &[String] {
         &self.parameters_append
     }
@@ -191,7 +191,7 @@ impl CustomizationSpec {
     }
 
     /// Returns the selected extensions.
-    #[must_use]
+    #[must_use = "callers need the extensions to pull them"]
     pub fn extensions(&self) -> &[String] {
         &self.extensions
     }

@@ -12,7 +12,7 @@ use crate::stargz::LayerBlob;
 use crate::stargz::toc::{TOC_DIGEST_ANNOTATION, UNCOMPRESSED_SIZE_ANNOTATION};
 
 /// Describes a packed eStargz layer as an OCI layer descriptor.
-#[must_use]
+#[must_use = "callers need the descriptor to write the manifest"]
 pub(crate) fn layer_descriptor(layer: &LayerBlob) -> Descriptor {
     let mut annotations = HashMap::new();
     annotations.insert(TOC_DIGEST_ANNOTATION.to_owned(), layer.toc_digest.clone());

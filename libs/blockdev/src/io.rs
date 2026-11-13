@@ -14,7 +14,7 @@ pub struct Positioned<'a, Fd: AsFd> {
 
 impl<'a, Fd: AsFd> Positioned<'a, Fd> {
     /// Wraps `fd` starting at `offset`.
-    #[must_use]
+    #[must_use = "dropping it discards the read position"]
     pub fn at(fd: &'a Fd, offset: u64) -> Self {
         Self { fd, offset }
     }

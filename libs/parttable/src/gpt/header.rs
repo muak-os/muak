@@ -89,7 +89,7 @@ impl GptHeader {
     }
 
     /// Encodes a full 512-byte GPT header sector for the primary or backup copy.
-    #[must_use]
+    #[must_use = "callers need the encoded sector to write the header"]
     pub(crate) fn encode(
         &self,
         backup: bool,

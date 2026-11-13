@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::error::{KociError, Result};
 
 /// Whether a manifest media type denotes an index over child manifests.
-#[must_use]
+#[must_use = "callers must branch on whether to recurse into children"]
 pub(crate) fn is_index(media_type: &str) -> bool {
     media_type == OCI_IMAGE_INDEX_MEDIA_TYPE || media_type == DOCKER_MANIFEST_LIST_MEDIA_TYPE
 }

@@ -42,7 +42,6 @@ impl MockRegistry {
         let shutdown = Arc::new(AtomicBool::new(false));
         let connections = Arc::new(Mutex::new(Vec::new()));
 
-        let thread_routes = Arc::clone(&routes);
         let thread_requests = Arc::clone(&requests);
         let thread_shutdown = Arc::clone(&shutdown);
         let thread_connections = Arc::clone(&connections);
@@ -50,7 +49,7 @@ impl MockRegistry {
         let handle = thread::spawn(move || {
             run_registry_server(
                 &listener,
-                &thread_routes,
+                &routes,
                 &thread_requests,
                 &thread_shutdown,
                 &thread_connections,

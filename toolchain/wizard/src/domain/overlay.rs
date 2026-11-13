@@ -32,7 +32,7 @@ pub enum Asset {
 
 impl Asset {
     /// Returns the raw OCI path of the image entry backing this asset.
-    #[must_use]
+    #[must_use = "callers need the path to extract the asset"]
     pub(crate) fn entry(&self) -> &str {
         match *self {
             Asset::EspFile { ref entry, .. } | Asset::RawBlob { ref entry, .. } => entry,
@@ -40,7 +40,7 @@ impl Asset {
     }
 
     /// Returns the canonical output stream name for this asset.
-    #[must_use]
+    #[must_use = "callers need the stream name to write the asset"]
     pub(crate) fn name(&self) -> &str {
         match *self {
             Asset::EspFile { ref path, .. } => path,
@@ -49,7 +49,7 @@ impl Asset {
     }
 
     /// Returns the payload size of this asset in bytes.
-    #[must_use]
+    #[must_use = "callers need the size to place the asset"]
     pub(crate) fn size(&self) -> u64 {
         match *self {
             Asset::EspFile { size, .. } | Asset::RawBlob { size, .. } => size,

@@ -13,7 +13,7 @@ pub struct Tracked {
 
 impl Tracked {
     /// Creates a tracker over `steps` that shows detail only when `verbose`.
-    #[must_use]
+    #[must_use = "dropping it discards the tracked progress"]
     pub fn new(steps: Handle, verbose: bool) -> Self {
         Self {
             steps,

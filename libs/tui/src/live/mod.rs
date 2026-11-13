@@ -32,7 +32,7 @@ pub struct Options {
 
 impl Options {
     /// Creates options for an explicitly chosen terminal and theme.
-    #[must_use]
+    #[must_use = "dropping it discards the live reporter settings"]
     pub const fn new(tty: bool, theme: Theme) -> Self {
         if tty {
             Self {
@@ -56,13 +56,13 @@ impl Options {
     }
 
     /// Detects options for `stream`.
-    #[must_use]
+    #[must_use = "dropping it discards the detected reporter settings"]
     pub fn detect(stream: Stream) -> Self {
         Self::from_output(Output::detect(stream, Flags::default()))
     }
 
     /// Builds options from resolved `output`.
-    #[must_use]
+    #[must_use = "dropping it discards the reporter settings"]
     pub const fn from_output(output: Output) -> Self {
         Self {
             tty: output.animates(),

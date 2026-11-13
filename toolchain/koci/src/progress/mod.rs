@@ -19,7 +19,7 @@ pub enum Operation {
 
 impl Operation {
     /// Human-readable operation title.
-    #[must_use]
+    #[must_use = "callers need the title to label progress output"]
     pub const fn title(self) -> &'static str {
         match self {
             Self::Pull => "koci pull",
@@ -49,7 +49,7 @@ pub enum Phase {
 
 impl Phase {
     /// Human-readable phase title.
-    #[must_use]
+    #[must_use = "callers need the title to label progress output"]
     pub const fn title(self) -> &'static str {
         match self {
             Self::Download => "Downloading layers",

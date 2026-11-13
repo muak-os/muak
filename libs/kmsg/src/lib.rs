@@ -162,7 +162,7 @@ pub enum InitError {
 }
 
 fn kmsg_path() -> Cow<'static, str> {
-    std::env::var(KMSG_PATH_ENV).map_or_else(|_err| Cow::Borrowed("/dev/kmsg"), Cow::Owned)
+    std::env::var(KMSG_PATH_ENV).map_or(Cow::Borrowed("/dev/kmsg"), Cow::Owned)
 }
 
 fn prepare_data_to_write(data: &[u8]) -> Cow<'_, [u8]> {

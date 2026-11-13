@@ -34,7 +34,7 @@ pub(crate) struct Content {
 impl Content {
     /// Create a content store over the cache root shared with the manifest
     /// cache, and garbage collect stale ingest files.
-    #[must_use]
+    #[must_use = "dropping it discards the content store"]
     pub(crate) fn new() -> Self {
         let content = Self::at(cache::root());
         content.gc();
@@ -43,7 +43,7 @@ impl Content {
     }
 
     /// Create a content store over `root`, or a disabled store when it is `None`.
-    #[must_use]
+    #[must_use = "dropping it discards the content store"]
     pub(crate) fn at(root: Option<PathBuf>) -> Self {
         Self { root }
     }
@@ -57,7 +57,7 @@ impl Content {
     }
 
     /// The root directory backing the store, or `None` when disabled.
-    #[must_use]
+    #[must_use = "callers must handle a disabled store"]
     pub(crate) fn disk(&self) -> Option<&Path> {
         self.root.as_deref()
     }
@@ -170,7 +170,7 @@ pub(crate) struct Ingest {
 
 impl Ingest {
     /// The staged byte count a following fetch can resume from.
-    #[must_use]
+    #[must_use = "callers need the offset to resume the download"]
     pub(crate) fn resume_offset(&self) -> u64 {
         self.resume_offset
     }

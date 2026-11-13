@@ -20,13 +20,13 @@ pub struct Console {
 
 impl Console {
     /// Creates a console from already resolved `stdout` and `stderr`.
-    #[must_use]
+    #[must_use = "dropping it discards the chosen streams"]
     pub const fn new(stdout: Output, stderr: Output) -> Self {
         Self { stdout, stderr }
     }
 
     /// Detects both streams from the global output `flags`.
-    #[must_use]
+    #[must_use = "dropping it discards the detected terminal settings"]
     pub fn detect(flags: Flags) -> Self {
         Self {
             stdout: Output::detect(Stream::Stdout, flags),
@@ -35,13 +35,13 @@ impl Console {
     }
 
     /// Returns the resolved standard output.
-    #[must_use]
+    #[must_use = "callers need the stream to write output"]
     pub const fn stdout(&self) -> Output {
         self.stdout
     }
 
     /// Returns the resolved standard error.
-    #[must_use]
+    #[must_use = "callers need the stream to write output"]
     pub const fn stderr(&self) -> Output {
         self.stderr
     }
@@ -66,7 +66,7 @@ impl Console {
     }
 
     /// Formats a `Warning:` line for standard error.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn warning(&self, message: &str) -> String {
         let label = self.stderr.theme.paint("Warning:", Role::Warn);
         let text = self.stderr.theme.paint(message, Role::Warn);
@@ -80,7 +80,7 @@ impl Console {
     }
 
     /// Formats an `Error:` line for standard error.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn failure(&self, message: &str) -> String {
         let label = self.stderr.theme.paint("Error:", Role::Error);
         let text = self.stderr.theme.paint(message, Role::ErrorText);
@@ -94,13 +94,13 @@ impl Console {
     }
 
     /// Paints `text` with the standard output theme.
-    #[must_use]
+    #[must_use = "callers need the styled text to print it"]
     pub fn paint<'text>(&self, text: &'text str, role: Role) -> Styled<'text> {
         self.stdout.theme.paint(text, role)
     }
 
     /// Returns the standard output style for `role`.
-    #[must_use]
+    #[must_use = "callers need the style to paint text"]
     pub fn style(&self, role: Role) -> Style {
         self.stdout.theme.style(role)
     }

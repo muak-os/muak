@@ -30,9 +30,7 @@ pub fn generate() -> Result<Passphrase> {
 }
 
 /// Decodes a LUKS key from its unpadded Base64 transport encoding.
-///
-/// Returns `None` when the encoded key is malformed.
-#[must_use]
+#[must_use = "callers must handle a malformed key"]
 pub fn from(encoded: &str) -> Option<Passphrase> {
     Base64Unpadded::decode_vec(encoded).ok().map(Zeroizing::new)
 }

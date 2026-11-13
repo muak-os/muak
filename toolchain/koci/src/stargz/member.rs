@@ -18,7 +18,7 @@ const NO_PREFETCH_LANDMARK: &str = ".no.prefetch.landmark";
 const LANDMARK_CONTENT: [u8; 1] = [0x0f];
 
 /// Returns whether `path` is an eStargz bookkeeping entry, not real content.
-#[must_use]
+#[must_use = "callers must handle every member kind"]
 /// One member of the assembled blob: directory, regular file, or bytes.
 pub(crate) enum Member {
     Dir {

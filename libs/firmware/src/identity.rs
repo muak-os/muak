@@ -54,7 +54,7 @@ pub struct Identity {
 }
 
 /// Reads the platform firmware identity, preferring EFI variables.
-#[must_use]
+#[must_use = "callers must handle firmware that exposes no identity"]
 pub fn collect<S: VariableStore, P: Platform>(variables: &S, firmware: &P) -> Option<Identity> {
     let efi_boot = variables.is_boot();
 

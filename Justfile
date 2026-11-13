@@ -20,7 +20,7 @@ set positional-arguments
 
 # Global settings
 
-rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-09-30@sha256:28be448949719498dfad2a792b3af80ce5e3293ea3fb9c69ccbf141234ed26e7")
+rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-11@sha256:31457d716676b10f55d2ddf83b4980b61779540764e2603762bbbef5c746552e")
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 export tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:c18a288141bf4745151ae83d0d5f05d875a102c5348a12d5ab89fa94b4f1c3a0")

@@ -73,13 +73,13 @@ impl Signer {
     }
 
     /// Returns the PKCS#8 DER-encoded private key.
-    #[must_use]
+    #[must_use = "callers need the key bytes to sign"]
     pub fn pkcs8_der(&self) -> &[u8] {
         &self.pkcs8_der
     }
 
     /// Returns the public key in uncompressed point format.
-    #[must_use]
+    #[must_use = "callers need the public key to build the certificate"]
     pub fn public_key_bytes(&self) -> &[u8] {
         &self.public_key
     }

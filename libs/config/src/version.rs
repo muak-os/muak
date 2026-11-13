@@ -54,7 +54,7 @@ pub fn check_no_downgrade(new_release: &str, current_release: &str) -> Result<()
 }
 
 /// Compares CLI and server versions; unparsable versions count as compatible.
-#[must_use]
+#[must_use = "callers must branch on the CLI and server versions"]
 pub fn check_compatibility(cli: &str, server: &str) -> CompatibilityStatus {
     let (Ok(cli), Ok(server)) = (Version::parse(cli), Version::parse(server)) else {
         return CompatibilityStatus::Compatible;

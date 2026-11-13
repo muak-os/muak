@@ -25,7 +25,7 @@ pub struct Glyphs {
 
 impl Glyphs {
     /// Returns the Unicode glyph set for rich output.
-    #[must_use]
+    #[must_use = "dropping it discards the glyph set"]
     pub const fn rich() -> Self {
         Self {
             success: "\u{2713}",
@@ -44,7 +44,7 @@ impl Glyphs {
     }
 
     /// Returns the ASCII glyph set for plain output.
-    #[must_use]
+    #[must_use = "dropping it discards the glyph set"]
     pub const fn plain() -> Self {
         Self {
             success: "[ok]",

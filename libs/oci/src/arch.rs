@@ -21,7 +21,7 @@ impl Arch {
     const ALL: [Arch; 3] = [Self::Amd64, Self::Arm64, Self::Riscv64];
 
     /// Returns the OCI architecture identifier for this target.
-    #[must_use]
+    #[must_use = "callers need the identifier to select image layers"]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Amd64 => "amd64",
@@ -59,7 +59,7 @@ impl core::str::FromStr for Arch {
 }
 
 /// Returns the OCI architecture for the current host.
-#[must_use]
+#[must_use = "callers need the host architecture to pick a manifest"]
 pub fn host() -> Arch {
     match std::env::consts::ARCH {
         "aarch64" => Arch::Arm64,

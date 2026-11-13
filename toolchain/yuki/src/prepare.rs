@@ -15,7 +15,7 @@ pub struct Manifest {
 
 impl Manifest {
     /// Layout of the output UKI.
-    #[must_use]
+    #[must_use = "callers need the layout to write the UKI"]
     pub fn layout(&self) -> &Layout {
         &self.layout
     }

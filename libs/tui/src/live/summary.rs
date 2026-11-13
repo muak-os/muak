@@ -20,7 +20,7 @@ pub struct Summary<'a> {
 
 impl<'a> Summary<'a> {
     /// Creates a summary with `title` and `rows`.
-    #[must_use]
+    #[must_use = "dropping it discards the summary"]
     pub const fn new(title: &'a str, rows: &'a [(&'a str, &'a str)]) -> Self {
         Self {
             title,
@@ -30,7 +30,7 @@ impl<'a> Summary<'a> {
     }
 
     /// Prints `value` alone when the output is quiet.
-    #[must_use]
+    #[must_use = "dropping it discards the quiet text"]
     pub const fn with_quiet(self, value: &'a str) -> Self {
         Self {
             title: self.title,

@@ -20,7 +20,7 @@ pub enum Kind {
 
 impl Kind {
     /// Directory holding this kind's local catalog documents.
-    #[must_use]
+    #[must_use = "callers need the directory to locate the documents"]
     pub const fn dir(self) -> &'static str {
         match self {
             Self::Core => "core",
@@ -30,7 +30,7 @@ impl Kind {
     }
 
     /// Expected `api_version` of this kind's documents.
-    #[must_use]
+    #[must_use = "callers must validate the schema version"]
     pub const fn api_version(self) -> &'static str {
         match self {
             Self::Core => CORE_API_VERSION,
@@ -40,13 +40,13 @@ impl Kind {
     }
 
     /// Every kind.
-    #[must_use]
+    #[must_use = "ignoring it leaves kinds unprocessed"]
     pub const fn all() -> [Self; 3] {
         [Self::Core, Self::Overlays, Self::Extensions]
     }
 
     /// Publication order, with the resolver entry point last.
-    #[must_use]
+    #[must_use = "callers need the order to publish documents"]
     pub const fn publish() -> [Self; 3] {
         [Self::Overlays, Self::Extensions, Self::Core]
     }

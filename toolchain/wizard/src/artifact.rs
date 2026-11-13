@@ -32,7 +32,7 @@ impl fmt::Display for Artifact {
 
 impl Artifact {
     /// Returns the canonical on-disk filename or directory for this artifact.
-    #[must_use]
+    #[must_use = "callers need the name to write the artifact"]
     pub fn filename(self) -> &'static str {
         match self {
             Self::Kernel => "kernel",
@@ -46,7 +46,7 @@ impl Artifact {
     }
 
     /// Returns the MIME media type for this artifact.
-    #[must_use]
+    #[must_use = "callers need the media type to describe the artifact"]
     pub fn media_type(self) -> &'static str {
         match self {
             Self::Cmdline => "text/plain; charset=utf-8",
@@ -60,13 +60,13 @@ impl Artifact {
     pub(crate) const COUNT: usize = 7;
 
     /// Returns true when this artifact carries a transport codec.
-    #[must_use]
+    #[must_use = "callers must branch on whether a codec applies"]
     pub const fn supports_codec(self) -> bool {
         matches!(self, Self::Raw)
     }
 
     /// Returns the on-disk output name for this artifact under `codec`.
-    #[must_use]
+    #[must_use = "callers need the name to write the artifact"]
     pub fn output_name(self, codec: crate::codec::Codec) -> String {
         if !self.supports_codec() {
             return self.filename().to_owned();
@@ -79,7 +79,7 @@ impl Artifact {
     }
 
     /// Returns a zero-based index for use as an array index.
-    #[must_use]
+    #[must_use = "callers need the index to store the artifact"]
     pub fn to_index(self) -> usize {
         match self {
             Self::Kernel => 0,

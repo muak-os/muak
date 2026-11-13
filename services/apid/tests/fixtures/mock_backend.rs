@@ -56,7 +56,7 @@ impl MockBackend {
     }
 
     /// Returns the UNIX socket path the backend listens on.
-    #[must_use]
+    #[must_use = "the test needs the path to reach the backend"]
     pub(crate) fn socket_path(&self) -> &Path {
         &self.socket_path
     }

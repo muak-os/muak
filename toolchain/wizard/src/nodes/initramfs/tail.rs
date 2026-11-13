@@ -205,7 +205,7 @@ fn metadata_files<'data>(ctx: &BuildContext<'data, '_>) -> Result<Vec<MetadataFi
     Ok(files)
 }
 
-#[must_use]
+#[must_use = "callers need the entry to append the metadata directory"]
 fn metadata_dir_entry() -> Entry {
     Entry {
         path: METADATA_DIR.to_owned(),
@@ -214,7 +214,7 @@ fn metadata_dir_entry() -> Entry {
     }
 }
 
-#[must_use]
+#[must_use = "callers need the entry to append the metadata file"]
 fn metadata_file_entry(name: &str, len: u64) -> Entry {
     Entry {
         path: format!("{METADATA_DIR}{name}"),

@@ -18,7 +18,7 @@ struct TagList {
 }
 
 /// Build the paginated `tags/list` URL for a repository image.
-#[must_use]
+#[must_use = "callers need the URL to list the tags"]
 pub fn build_url(image: &Image) -> String {
     format!(
         "{}://{}/v2/{}/tags/list?n={PAGE_SIZE}",

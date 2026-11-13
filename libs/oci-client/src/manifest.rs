@@ -10,7 +10,7 @@ use crate::error::{ClientError, Result};
 use crate::http::{self, collect_body, get};
 
 /// Build the manifest URL for a given image reference and tag or digest.
-#[must_use]
+#[must_use = "callers need the URL to fetch the manifest"]
 pub fn build_url(image: &Image, reference: &str) -> String {
     format!(
         "{}://{}/v2/{}/manifests/{}",

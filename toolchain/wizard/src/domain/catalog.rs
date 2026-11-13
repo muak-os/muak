@@ -8,25 +8,25 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    #[must_use]
+    #[must_use = "dropping it discards the catalog reference"]
     pub(crate) fn new(image: String, digest: String) -> Self {
         Self { image, digest }
     }
 
     /// Returns the catalog repository without a tag.
-    #[must_use]
+    #[must_use = "callers need the repository to build references"]
     pub fn image(&self) -> &str {
         &self.image
     }
 
     /// Returns the digest of the catalog manifest.
-    #[must_use]
+    #[must_use = "callers need the digest to pin the catalog"]
     pub fn digest(&self) -> &str {
         &self.digest
     }
 
     /// Returns the digest-pinned catalog reference.
-    #[must_use]
+    #[must_use = "callers need the pinned reference to pull"]
     pub fn pinned(&self) -> String {
         format!("{}@{}", self.image, self.digest)
     }

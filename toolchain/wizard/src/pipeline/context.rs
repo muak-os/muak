@@ -36,7 +36,7 @@ pub(crate) struct TargetWriters<'a> {
 
 impl<'a> TargetWriters<'a> {
     /// Builds the slot array from the request's target pairs.
-    #[must_use]
+    #[must_use = "dropping it discards the target writers"]
     pub(crate) fn new(targets: Vec<(Artifact, &'a mut (dyn Write + Send))>) -> Self {
         let mut slots: [Option<&'a mut (dyn Write + Send)>; Artifact::COUNT] =
             [const { None }; Artifact::COUNT];

@@ -9,7 +9,7 @@ pub mod verify;
 const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
 
 /// Registry prefix for digest resolution: `REGISTRY`, then the default.
-#[must_use]
+#[must_use = "callers need the prefix to build image references"]
 pub(crate) fn registry() -> String {
     std::env::var("REGISTRY")
         .ok()
@@ -18,7 +18,7 @@ pub(crate) fn registry() -> String {
 }
 
 /// Fully qualified `repository:tag` reference behind the registry prefix.
-#[must_use]
+#[must_use = "callers need the reference to resolve the digest"]
 pub(crate) fn reference(repository: &str, tag: &str) -> String {
     format!("{}/{repository}:{tag}", registry())
 }

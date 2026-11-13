@@ -116,7 +116,7 @@ impl Component {
 }
 
 /// Maps a platform's raw ESRT entries into components, sorted by class.
-#[must_use]
+#[must_use = "ignoring it drops the updatable components"]
 pub fn collect<P: Platform>(platform: &P) -> Vec<Component> {
     let mut components: Vec<Component> = platform
         .esrt()

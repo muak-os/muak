@@ -16,7 +16,7 @@ pub struct Linux;
 
 impl Linux {
     /// Creates the Linux kernel handle.
-    #[must_use]
+    #[must_use = "the handle is the only way to reach the kernel"]
     pub const fn new() -> Self {
         Self
     }

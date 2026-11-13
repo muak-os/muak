@@ -58,7 +58,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns how many times `ensure_bridge` has been invoked.
-    #[must_use]
+    #[must_use = "the test asserts on how often the bridge was ensured"]
     pub(crate) fn ensure_bridge_calls(&self) -> u32 {
         self.lock().ensure_bridge_calls
     }

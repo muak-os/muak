@@ -39,7 +39,7 @@ impl Default for Policy {
 
 impl Policy {
     /// Builds a policy with the given attempt budget.
-    #[must_use]
+    #[must_use = "dropping it discards the attempt budget"]
     pub fn new(attempts: u32) -> Self {
         Self {
             attempts,
@@ -49,13 +49,13 @@ impl Policy {
     }
 
     /// Total attempt budget, counting the first try.
-    #[must_use]
+    #[must_use = "callers need the budget to bound the retry loop"]
     pub fn attempts(&self) -> u32 {
         self.attempts
     }
 
     /// Backoff delay before retry `attempt` (zero-based), doubling with jitter.
-    #[must_use]
+    #[must_use = "callers need the delay to schedule the retry"]
     pub fn delay(&self, attempt: u32) -> Duration {
         let factor = u128::from(2_u8).checked_pow(attempt).unwrap_or(u128::MAX);
         let scaled = self
@@ -70,7 +70,7 @@ impl Policy {
 }
 
 /// Whether the failure may succeed on a later attempt.
-#[must_use]
+#[must_use = "callers must branch on whether the failure can be retried"]
 pub fn is_retryable(error: &ClientError) -> bool {
     match *error {
         ClientError::Network(_) => true,

@@ -80,7 +80,7 @@ pub struct FileMeta<'a> {
 
 impl<'a> FileMeta<'a> {
     /// Creates a new `FileMeta` with the given path and size.
-    #[must_use]
+    #[must_use = "dropping it discards the file metadata"]
     pub const fn new(path: &'a str, size: u64) -> Self {
         Self { path, size }
     }

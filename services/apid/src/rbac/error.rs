@@ -44,7 +44,7 @@ pub enum RbacError {
 
 impl RbacError {
     /// Returns the appropriate gRPC status code for this error.
-    #[must_use]
+    #[must_use = "callers need the code to build the gRPC status"]
     pub const fn grpc_status_code(&self) -> u8 {
         match *self {
             Self::Unauthenticated => 16,
@@ -58,7 +58,7 @@ impl RbacError {
     }
 
     /// Returns the error message suitable for gRPC response.
-    #[must_use]
+    #[must_use = "callers need the message to build the gRPC status"]
     pub fn grpc_message(&self) -> String {
         self.to_string()
     }

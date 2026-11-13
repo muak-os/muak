@@ -45,7 +45,7 @@ impl DepDb {
     }
 
     /// Returns the relative module path for `module_name`.
-    #[must_use]
+    #[must_use = "callers must handle a module with no indexed path"]
     pub fn get_path(&self, module_name: &str) -> Option<&str> {
         let entry = self.modules.get(self.find(module_name)?)?;
 
@@ -53,7 +53,7 @@ impl DepDb {
     }
 
     /// Resolves the dependency-first module load order for `module_name`.
-    #[must_use]
+    #[must_use = "callers must handle an unknown module"]
     pub fn resolve_load_order(&self, module_name: &str) -> Option<Vec<&str>> {
         let start = self.find(module_name)?;
         let mut order = Vec::new();
@@ -64,13 +64,13 @@ impl DepDb {
     }
 
     /// Returns the number of indexed modules.
-    #[must_use]
+    #[must_use = "callers need the count to bound the load order"]
     pub fn len(&self) -> usize {
         self.modules.len()
     }
 
     /// Returns whether the dependency database is empty.
-    #[must_use]
+    #[must_use = "callers must branch on an empty database"]
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty()
     }

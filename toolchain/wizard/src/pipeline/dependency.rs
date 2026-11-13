@@ -14,7 +14,7 @@ pub(crate) struct Dependency {
 
 impl Dependency {
     /// One stream between the two ports.
-    #[must_use]
+    #[must_use = "dropping it discards the dependency"]
     pub(crate) const fn new(
         producer: NodeKind,
         producer_port: PortId,

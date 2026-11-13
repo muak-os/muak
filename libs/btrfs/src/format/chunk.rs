@@ -39,7 +39,7 @@ pub(super) struct ChunkBuilder {
 
 impl ChunkBuilder {
     /// Create a new chunk builder with the given length.
-    #[must_use]
+    #[must_use = "the builder must be used to produce the chunk"]
     pub(super) fn new(length: u64, chunk_type: u64) -> Self {
         Self {
             length,
@@ -49,7 +49,7 @@ impl ChunkBuilder {
     }
 
     /// Create a SINGLE chunk (one stripe).
-    #[must_use]
+    #[must_use = "dropping it discards the configured chunk"]
     pub(super) fn single(length: u64, chunk_type: u64, physical_offset: u64) -> Self {
         let mut builder = Self::new(length, chunk_type);
         builder.add_stripe(1, physical_offset);
@@ -57,7 +57,7 @@ impl ChunkBuilder {
     }
 
     /// Create a DUP chunk (two stripes on the same device).
-    #[must_use]
+    #[must_use = "dropping it discards the configured chunk"]
     pub(super) fn dup(
         length: u64,
         chunk_type: u64,

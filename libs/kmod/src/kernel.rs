@@ -42,7 +42,7 @@ pub struct ModuleLoader {
 
 impl ModuleLoader {
     /// Creates a new loader rooted at `mod_dir`.
-    #[must_use]
+    #[must_use = "dropping it discards the modules already loaded"]
     pub fn new(mod_dir: PathBuf) -> Self {
         Self {
             mod_dir,
@@ -86,14 +86,14 @@ impl ModuleLoader {
 
     /// Returns true if the module has already been loaded.
     #[cfg(test)]
-    #[must_use]
+    #[must_use = "callers must branch on whether the module is already loaded"]
     pub fn is_loaded(&self, module_name: &str) -> bool {
         self.loaded.contains(module_name)
     }
 
     /// Returns the number of uniquely loaded modules.
     #[cfg(test)]
-    #[must_use]
+    #[must_use = "callers assert on how many modules were loaded"]
     pub fn loaded_count(&self) -> usize {
         self.loaded.len()
     }

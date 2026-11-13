@@ -93,7 +93,7 @@ impl<'a> Sections<'a> {
 }
 
 /// Returns the canonical position of a UKI section name in [`CANONICAL_ORDER`]; unknown names sort last.
-#[must_use]
+#[must_use = "callers need the rank to order the sections"]
 pub fn canonical_rank(name: &str) -> usize {
     CANONICAL_ORDER
         .iter()

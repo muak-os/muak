@@ -14,7 +14,7 @@ pub struct Kernel {
 }
 
 impl Kernel {
-    #[must_use]
+    #[must_use = "dropping it discards the kernel spec"]
     pub(crate) fn new(image: String, source: String) -> Self {
         Self {
             image,
@@ -23,7 +23,7 @@ impl Kernel {
         }
     }
 
-    #[must_use]
+    #[must_use = "dropping it discards the appended parameters"]
     pub(crate) fn with_parameters_append(mut self, parameters: Vec<String>) -> Self {
         self.parameters_append = parameters;
 
@@ -31,19 +31,19 @@ impl Kernel {
     }
 
     /// Returns the fully-qualified kernel image path.
-    #[must_use]
+    #[must_use = "callers need the path to fetch the kernel"]
     pub fn image(&self) -> &str {
         &self.image
     }
 
     /// Returns the versioned OCI reference for this kernel image.
-    #[must_use]
+    #[must_use = "callers need the reference to pull the kernel"]
     pub fn source(&self) -> &str {
         &self.source
     }
 
     /// Returns additional parameters selected by the profile, in their original order.
-    #[must_use]
+    #[must_use = "callers need the parameters for the kernel command line"]
     pub fn parameters_append(&self) -> &[String] {
         &self.parameters_append
     }
@@ -59,19 +59,19 @@ pub struct Extension {
 }
 
 impl Extension {
-    #[must_use]
+    #[must_use = "dropping it discards the extension spec"]
     pub(crate) fn new(name: String, source: String) -> Self {
         Self { name, source }
     }
 
     /// Returns the canonical logical extension name.
-    #[must_use]
+    #[must_use = "callers need the name to label the extension"]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the versioned OCI reference for this extension.
-    #[must_use]
+    #[must_use = "callers need the reference to pull the extension"]
     pub fn source(&self) -> &str {
         &self.source
     }
@@ -91,7 +91,7 @@ pub struct Overlay {
 }
 
 impl Overlay {
-    #[must_use]
+    #[must_use = "dropping it discards the overlay spec"]
     pub(crate) fn new(name: String, image: String, source: String, arch: Arch) -> Self {
         Self {
             name,
@@ -102,19 +102,19 @@ impl Overlay {
     }
 
     /// Returns the selected overlay name inside the OCI image.
-    #[must_use]
+    #[must_use = "callers need the name to select the overlay"]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the logical overlay image name.
-    #[must_use]
+    #[must_use = "callers need the image to pull the overlay"]
     pub fn image(&self) -> &str {
         &self.image
     }
 
     /// Returns the versioned OCI reference for this overlay image.
-    #[must_use]
+    #[must_use = "callers need the reference to pull the overlay"]
     pub fn source_ref(&self) -> &str {
         &self.source
     }

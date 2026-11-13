@@ -62,7 +62,7 @@ impl FileContexts {
     }
 
     /// Look up the `SELinux` label for the given absolute `path`.
-    #[must_use]
+    #[must_use = "callers must handle paths with no label"]
     pub fn label_for(&self, path: &str) -> Option<&str> {
         self.exact
             .iter()

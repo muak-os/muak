@@ -38,7 +38,7 @@ impl Role {
     }
 
     /// Role name in a resolution identity record, frozen by the recipe.
-    #[must_use]
+    #[must_use = "callers need the role name for identity records"]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Kernel => "kernel",
@@ -62,7 +62,7 @@ pub struct EntryRef<'a> {
 }
 
 /// Every entry of `document` as a uniform borrowed view, in schema order.
-#[must_use]
+#[must_use = "ignoring it drops the document's entries"]
 pub fn entries(document: &Document) -> Vec<EntryRef<'_>> {
     match *document {
         Document::Core(ref core) => core
@@ -90,7 +90,7 @@ pub fn entries(document: &Document) -> Vec<EntryRef<'_>> {
 }
 
 /// Views a sourced core entry under `role`.
-#[must_use]
+#[must_use = "dropping it discards the entry view"]
 pub fn sourced(role: Role, entry: &SourcedEntry) -> EntryRef<'_> {
     EntryRef {
         role,
@@ -100,7 +100,7 @@ pub fn sourced(role: Role, entry: &SourcedEntry) -> EntryRef<'_> {
 }
 
 /// Views a named overlay or extension entry under `role`.
-#[must_use]
+#[must_use = "dropping it discards the entry view"]
 pub fn named(role: Role, entry: &NamedEntry) -> EntryRef<'_> {
     EntryRef {
         role,

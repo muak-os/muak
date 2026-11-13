@@ -50,7 +50,7 @@ pub struct Tpm2Token {
 
 impl Tpm2Token {
     /// Builds a token bound to the given PCR indices from raw sealed blob and policy digest bytes.
-    #[must_use]
+    #[must_use = "dropping it discards the TPM2 token"]
     pub fn new(pcrs: &[u32], blob: &[u8], policy_digest: &[u8]) -> Self {
         Self {
             r#type: String::from("tpm2"),

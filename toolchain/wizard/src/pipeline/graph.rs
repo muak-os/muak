@@ -13,7 +13,7 @@ pub(crate) struct Graph {
 
 impl Graph {
     /// Creates an empty graph.
-    #[must_use]
+    #[must_use = "dropping it discards the graph"]
     pub(crate) fn new() -> Self {
         Self::default()
     }

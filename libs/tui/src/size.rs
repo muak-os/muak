@@ -19,7 +19,7 @@ pub struct Size {
 
 impl Size {
     /// Creates a size from `cols` and `rows`.
-    #[must_use]
+    #[must_use = "dropping it discards the measured size"]
     pub const fn new(cols: u16, rows: u16) -> Self {
         Self { cols, rows }
     }
@@ -33,7 +33,7 @@ impl Default for Size {
 
 /// Returns the size of the terminal attached to `fd`.
 #[cfg(feature = "size")]
-#[must_use]
+#[must_use = "callers need the size to lay out output"]
 pub fn of<Fd: AsFd>(fd: Fd) -> Size {
     tcgetwinsize(fd).map_or_else(
         |_error| Size::default(),
@@ -60,14 +60,14 @@ fn surface_of(_stream: Stream) -> Size {
 
 /// Returns the size of the terminal attached to standard output.
 #[cfg(feature = "size")]
-#[must_use]
+#[must_use = "callers need the size to lay out output"]
 pub fn stdout() -> Size {
     of(rustix::stdio::stdout())
 }
 
 /// Returns the size of the terminal attached to standard error.
 #[cfg(feature = "size")]
-#[must_use]
+#[must_use = "callers need the size to lay out output"]
 pub fn stderr() -> Size {
     of(rustix::stdio::stderr())
 }

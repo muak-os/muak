@@ -26,7 +26,7 @@ impl<'session> Layers<'session> {
     }
 
     /// The number of layers in the image.
-    #[must_use]
+    #[must_use = "callers need the layer count to drive progress"]
     pub fn count(&self) -> usize {
         self.session.layers().len()
     }
@@ -54,13 +54,13 @@ impl<'session> Layers<'session> {
 
 impl Layer<'_> {
     /// The position of the layer in the manifest, for progress reporting.
-    #[must_use]
+    #[must_use = "callers need the index to report progress"]
     pub fn index(&self) -> usize {
         self.index
     }
 
     /// The layer descriptor (digest, size, media type).
-    #[must_use]
+    #[must_use = "callers need the descriptor to fetch the blob"]
     pub fn descriptor(&self) -> &Descriptor {
         self.descriptor
     }

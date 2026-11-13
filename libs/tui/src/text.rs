@@ -23,7 +23,7 @@ pub struct Line<'a> {
 
 impl<'a> Span<'a> {
     /// Creates a plain span.
-    #[must_use]
+    #[must_use = "dropping it discards the span"]
     pub fn plain<T: Into<Cow<'a, str>>>(text: T) -> Self {
         Self {
             text: text.into(),
@@ -32,7 +32,7 @@ impl<'a> Span<'a> {
     }
 
     /// Creates a styled span.
-    #[must_use]
+    #[must_use = "dropping it discards the span"]
     pub fn styled<T: Into<Cow<'a, str>>>(text: T, style: Style) -> Self {
         Self {
             text: text.into(),
@@ -41,19 +41,19 @@ impl<'a> Span<'a> {
     }
 
     /// Returns the span text.
-    #[must_use]
+    #[must_use = "callers need the text to render the span"]
     pub fn text(&self) -> &str {
         self.text.as_ref()
     }
 
     /// Returns the span style.
-    #[must_use]
+    #[must_use = "callers need the style to render the span"]
     pub fn style(&self) -> Style {
         self.style
     }
 
     /// Returns the display width of the span.
-    #[must_use]
+    #[must_use = "callers need the width to lay out the line"]
     pub fn width(&self) -> usize {
         width(self.text())
     }
@@ -61,7 +61,7 @@ impl<'a> Span<'a> {
 
 impl<'a> Line<'a> {
     /// Creates an empty line starting at `col`.
-    #[must_use]
+    #[must_use = "dropping it discards the line"]
     pub fn new(col: u16) -> Self {
         Self {
             col,
@@ -70,7 +70,7 @@ impl<'a> Line<'a> {
     }
 
     /// Creates a plain line with sanitized text.
-    #[must_use]
+    #[must_use = "dropping it discards the line"]
     pub fn plain<T: Into<Cow<'a, str>>>(col: u16, text: T) -> Self {
         let mut line = Self::new(col);
         line.push(Span::plain(sanitize(text.into())));
@@ -84,19 +84,19 @@ impl<'a> Line<'a> {
     }
 
     /// Returns the starting column.
-    #[must_use]
+    #[must_use = "callers need the column to place the line"]
     pub fn col(&self) -> u16 {
         self.col
     }
 
     /// Returns the line spans.
-    #[must_use]
+    #[must_use = "callers need the spans to render the line"]
     pub fn spans(&self) -> &[Span<'a>] {
         &self.spans
     }
 
     /// Returns the display width of the line.
-    #[must_use]
+    #[must_use = "callers need the width to fit the line"]
     pub fn width(&self) -> usize {
         self.spans
             .iter()
@@ -105,13 +105,13 @@ impl<'a> Line<'a> {
 }
 
 /// Returns the display width of `text`.
-#[must_use]
+#[must_use = "callers need the width to fit text"]
 pub fn width(text: &str) -> usize {
     text.width()
 }
 
 /// Truncates `text` to at most `max_width` display columns.
-#[must_use]
+#[must_use = "callers need the shortened text to fit"]
 pub fn truncate(text: &str, max_width: usize) -> &str {
     let mut used: usize = 0;
     let mut end: usize = 0;
@@ -131,7 +131,7 @@ pub fn truncate(text: &str, max_width: usize) -> &str {
 }
 
 /// Shortens `text` to `max_width` display columns by eliding its middle.
-#[must_use]
+#[must_use = "callers need the shortened text to fit"]
 pub fn elide(text: &str, max_width: usize) -> Cow<'_, str> {
     if width(text) <= max_width {
         return Cow::Borrowed(text);
@@ -153,7 +153,7 @@ pub fn elide(text: &str, max_width: usize) -> Cow<'_, str> {
 }
 
 /// Replaces tabs and control characters with printable spaces.
-#[must_use]
+#[must_use = "callers need the cleaned text to write"]
 pub fn sanitize(text: Cow<'_, str>) -> Cow<'_, str> {
     if !text
         .chars()

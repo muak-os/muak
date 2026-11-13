@@ -31,7 +31,7 @@ pub(crate) fn scan(root: &Path) -> Vec<String> {
 }
 
 /// Compare two line names, pre-releases sort below their release.
-#[must_use]
+#[must_use = "callers need the ordering to sort the lines"]
 pub(crate) fn compare(left: &str, right: &str) -> Ordering {
     let Some((left_major, left_minor, left_patch, left_pre)) = parse_version(left) else {
         return Ordering::Equal;

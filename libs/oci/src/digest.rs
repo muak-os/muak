@@ -59,13 +59,13 @@ impl Verifier {
 }
 
 /// Encode raw digest bytes as lowercase hexadecimal.
-#[must_use]
+#[must_use = "callers need the text form for image references"]
 pub fn hex(bytes: &[u8]) -> String {
     base16ct::lower::encode_string(bytes)
 }
 
 /// Compute the SHA-256 hex digest of the given bytes.
-#[must_use]
+#[must_use = "callers need the digest to address the blob"]
 pub fn sha256_hex(data: &[u8]) -> String {
     hex(Sha256::digest(data).as_ref())
 }

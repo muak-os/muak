@@ -10,7 +10,7 @@ pub(crate) type Digest = [u8; 32];
 
 /// Computes the expected PCR#11 value by simulating extend operations
 /// using pre-computed SHA-256 hashes of each section's data.
-#[must_use]
+#[must_use = "callers need the predicted PCR to seal the policy"]
 pub fn predict_pcr11(sections: &[(&str, &[u8; 32])]) -> Digest {
     let mut pcr = [0_u8; SHA256_DIGEST_SIZE];
 
@@ -23,7 +23,7 @@ pub fn predict_pcr11(sections: &[(&str, &[u8; 32])]) -> Digest {
 }
 
 /// Computes the trial policy digest for PCR#11 with a given expected value.
-#[must_use]
+#[must_use = "callers need the digest to build the sealed policy"]
 pub(crate) fn compute_policy_digest(expected_pcr: &Digest) -> Digest {
     let mut policy = [0_u8; SHA256_DIGEST_SIZE];
     let mut policy_ctx = Sha256::new();

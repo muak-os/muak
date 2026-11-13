@@ -81,7 +81,7 @@ pub fn compute_fingerprint(cert: &Certificate) -> Result<String> {
 }
 
 /// Computes SHA256 fingerprint of DER-encoded certificate bytes (lowercase hex).
-#[must_use]
+#[must_use = "callers need the fingerprint to identify the certificate"]
 pub fn compute_fingerprint_der(cert_der: &[u8]) -> String {
     let digest = Sha256::digest(cert_der);
 

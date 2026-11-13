@@ -34,7 +34,7 @@ pub(super) struct RootItemBuilder {
 
 impl RootItemBuilder {
     /// Create a new root item builder.
-    #[must_use]
+    #[must_use = "the builder must be used to produce the root item"]
     pub(super) fn new() -> Self {
         Self {
             generation: 1,
@@ -50,35 +50,35 @@ impl RootItemBuilder {
     }
 
     /// Set the generation.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn generation(mut self, value: u64) -> Self {
         self.generation = value;
         self
     }
 
     /// Set the bytenr (block number).
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn bytenr(mut self, bytenr: u64) -> Self {
         self.bytenr = bytenr;
         self
     }
 
     /// Set the root directory ID.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn root_dirid(mut self, dirid: u64) -> Self {
         self.root_dirid = dirid;
         self
     }
 
     /// Set the flags.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn flags(mut self, flags: u64) -> Self {
         self.flags = flags;
         self
     }
 
     /// Set the UUID.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn uuid(mut self, uuid: &Uuid) -> Self {
         let mut bytes = [0_u8; BTRFS_UUID_SIZE];
         bytes.copy_from_slice(uuid.as_bytes());
@@ -87,21 +87,21 @@ impl RootItemBuilder {
     }
 
     /// Set creation time.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn ctime(mut self, ctime: u64) -> Self {
         self.ctime = Some(ctime);
         self
     }
 
     /// Set origin time.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn otime(mut self, otime: u64) -> Self {
         self.otime = Some(otime);
         self
     }
 
     /// Build the `BtrfsRootItem`.
-    #[must_use]
+    #[must_use = "dropping it discards the built root item"]
     pub(super) fn build(self) -> BtrfsRootItem {
         let mut ri = BtrfsRootItem {
             inode: BtrfsInodeItem {
@@ -230,7 +230,7 @@ pub(super) struct InodeItemBuilder {
 
 impl InodeItemBuilder {
     /// Create a new inode item builder with default directory settings.
-    #[must_use]
+    #[must_use = "the builder must be used to produce the inode item"]
     pub(super) fn new() -> Self {
         Self {
             generation: 1,
@@ -245,14 +245,14 @@ impl InodeItemBuilder {
     }
 
     /// Set the generation.
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn generation(mut self, value: u64) -> Self {
         self.generation = value;
         self
     }
 
     /// Set timestamps (all four at once).
-    #[must_use]
+    #[must_use = "dropping it discards the value just set"]
     pub(super) fn timestamps(mut self, time: u64) -> Self {
         self.atime = time;
         self.ctime = time;
@@ -262,7 +262,7 @@ impl InodeItemBuilder {
     }
 
     /// Build the `BtrfsInodeItem`.
-    #[must_use]
+    #[must_use = "dropping it discards the built inode item"]
     pub(super) fn build(self) -> BtrfsInodeItem {
         let mut inode = BtrfsInodeItem {
             generation: [0; 8],

@@ -48,13 +48,13 @@ pub struct Plan {
 
 impl Plan {
     /// Total ISO image size in bytes.
-    #[must_use]
+    #[must_use = "callers need the size to lay out the ISO"]
     pub fn size(&self) -> u64 {
         u64::from(self.sectors()).saturating_mul(u64::try_from(SECTOR_SIZE).unwrap_or(u64::MAX))
     }
 
     /// Total ISO image size in logical blocks.
-    #[must_use]
+    #[must_use = "callers need the sector count to place the filesystem"]
     pub const fn sectors(&self) -> u32 {
         self.total_sectors
     }

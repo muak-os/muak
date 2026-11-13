@@ -106,7 +106,7 @@ impl Document {
     }
 
     /// Returns the named overlay or extension entry.
-    #[must_use]
+    #[must_use = "callers must handle a name the document lacks"]
     pub fn named(&self, name: &str) -> Option<&NamedEntry> {
         let entries = match *self {
             Self::Overlays(ref overlays) => &overlays.overlays,
@@ -118,7 +118,7 @@ impl Document {
     }
 
     /// Kind of this document.
-    #[must_use]
+    #[must_use = "callers need the kind to route the document"]
     pub const fn kind(&self) -> Kind {
         match *self {
             Self::Core(_) => Kind::Core,
@@ -128,7 +128,7 @@ impl Document {
     }
 
     /// Schema version declared by this document.
-    #[must_use]
+    #[must_use = "callers must validate the schema version"]
     pub fn api_version(&self) -> &str {
         match *self {
             Self::Core(ref document) => &document.api_version,
@@ -138,7 +138,7 @@ impl Document {
     }
 
     /// Release line of this document.
-    #[must_use]
+    #[must_use = "callers need the release to resolve entries"]
     pub fn release(&self) -> &str {
         match *self {
             Self::Core(ref document) => &document.release,

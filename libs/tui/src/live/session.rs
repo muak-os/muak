@@ -46,7 +46,7 @@ impl<R> Session<R> {
     }
 
     /// Returns the domain progress reporter.
-    #[must_use]
+    #[must_use = "callers need the reporter to emit progress"]
     pub const fn reporter(&self) -> &R {
         &self.live
     }

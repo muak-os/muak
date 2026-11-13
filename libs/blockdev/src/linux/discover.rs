@@ -6,7 +6,7 @@ use std::path::Path;
 use super::{Roots, attrs};
 
 /// Finds the partition device paths carrying `partname` below injectable roots.
-#[must_use]
+#[must_use = "ignoring it hides every matching device node"]
 pub(crate) fn find_by_partname_in(roots: &Roots, partname: &str) -> Vec<String> {
     let Ok(entries) = fs::read_dir(&roots.class_block) else {
         return Vec::new();
@@ -42,7 +42,7 @@ pub(crate) fn find_by_partname_in(roots: &Roots, partname: &str) -> Vec<String> 
 }
 
 /// Returns the name of the disk carrying `partition_device` below injectable roots.
-#[must_use]
+#[must_use = "ignoring it hides which disk owns the partition"]
 pub(crate) fn parent_disk_in(roots: &Roots, partition_device: &str) -> Option<String> {
     let name = Path::new(partition_device).file_name()?;
     let resolved = fs::canonicalize(roots.class_block.join(name)).ok()?;

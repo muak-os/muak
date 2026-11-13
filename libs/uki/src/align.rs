@@ -3,7 +3,7 @@ use crate::error::{Result, UkiError};
 /// Rounds `value` up to the nearest multiple of `alignment`.
 ///
 /// `alignment` must be a power of two, or 0 (which is treated as 1).
-#[must_use]
+#[must_use = "callers need the aligned offset to place the section"]
 pub const fn to(value: u32, alignment: u32) -> u32 {
     let alignment = if alignment == 0 { 1 } else { alignment };
     let mask = alignment.wrapping_sub(1);

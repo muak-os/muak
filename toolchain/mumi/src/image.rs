@@ -150,13 +150,13 @@ impl Image {
     }
 
     /// Returns the exact image size in bytes.
-    #[must_use]
+    #[must_use = "callers need the size to place the payloads"]
     pub fn len(&self) -> u64 {
         self.len
     }
 
     /// Returns `true` when the image contains no bytes.
-    #[must_use]
+    #[must_use = "callers must branch on an empty image"]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }

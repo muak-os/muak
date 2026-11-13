@@ -87,7 +87,7 @@ impl Steps {
     }
 
     /// Returns a cloneable handle for updating steps.
-    #[must_use]
+    #[must_use = "callers need the handle to update steps"]
     pub fn handle(&self) -> Handle {
         self.handle.clone()
     }

@@ -19,7 +19,7 @@ const SMALL_BLOB_LIMIT: usize = 4 * 1024 * 1024;
 const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
 /// Build the blob URL for a given image reference and digest.
-#[must_use]
+#[must_use = "callers need the URL to request the blob"]
 pub fn build_url(image: &Image, digest: &str) -> String {
     format!(
         "{}://{}/v2/{}/blobs/{}",

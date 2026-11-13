@@ -8,7 +8,7 @@ pub(crate) struct CommandBuffer {
 }
 
 impl CommandBuffer {
-    #[must_use]
+    #[must_use = "callers need the buffer to accumulate the command"]
     pub(crate) fn new(tag: u16, command_code: u32) -> Self {
         let mut buf = Vec::with_capacity(256);
         buf.extend_from_slice(&tag.to_be_bytes());

@@ -28,21 +28,21 @@ impl AuthenticatedUser {
     /// Checks if the user has a specific permission.
     ///
     /// Admin users automatically bypass permission checks.
-    #[must_use]
+    #[must_use = "callers must branch on whether the request is allowed"]
     pub(super) fn has_permission(&self, permission: Permission) -> bool {
         self.permissions.contains(&permission) || self.permissions.contains(&Permission::Admin)
     }
 
     /// Checks if the user has the admin permission.
     #[cfg(test)]
-    #[must_use]
+    #[must_use = "callers must branch on whether the user bypasses checks"]
     pub(super) fn is_admin(&self) -> bool {
         self.permissions.contains(&Permission::Admin)
     }
 
     /// Returns the number of permissions this user has.
     #[cfg(test)]
-    #[must_use]
+    #[must_use = "callers need the count to report the user's scope"]
     pub(super) fn permission_count(&self) -> usize {
         self.permissions.len()
     }

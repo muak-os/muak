@@ -17,7 +17,7 @@ impl Layout {
     pub const ALL: &'static [Layout] = &[Layout::Uefi];
 
     /// Canonical name of this layout, used by the `dev.muak.disk` annotation.
-    #[must_use]
+    #[must_use = "callers need the name to label the layout"]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Uefi => "uefi",
@@ -46,7 +46,7 @@ impl Layout {
     }
 
     /// System plan of this layout: ESP, STATE and EPHEMERAL filling the disk.
-    #[must_use]
+    #[must_use = "dropping it discards the planned layout"]
     pub fn plan(self) -> Plan {
         match self {
             Self::Uefi => Plan::wiped(vec![

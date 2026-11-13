@@ -63,7 +63,7 @@ impl Decoder {
     }
 
     /// Returns whether a partial sequence is buffered.
-    #[must_use]
+    #[must_use = "callers must branch on whether input is waiting"]
     pub fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }

@@ -7,7 +7,7 @@ const MIN_WIDTH: usize = 3;
 
 /// Returns column widths that fit `cols` display columns, eliding the widest
 /// shrinkable columns down to their floors when the natural widths overflow.
-#[must_use]
+#[must_use = "callers need the widths to lay out the table"]
 pub(crate) fn widths(headers: &[Cell], natural: &[usize], cols: usize) -> Vec<usize> {
     if minimum(headers, natural) > cols {
         return natural.to_vec();

@@ -41,7 +41,7 @@ pub struct PartitionEntry {
 
 impl PartitionEntry {
     /// Serializes this entry into a 16-byte MBR partition entry.
-    #[must_use]
+    #[must_use = "callers need the bytes to write the entry"]
     pub fn to_bytes(self) -> [u8; MBR_ENTRY_SIZE] {
         let mut entry = [0_u8; MBR_ENTRY_SIZE];
         put(&mut entry, 0..1, &[u8::from(self.bootable)]);
@@ -71,7 +71,7 @@ impl PartitionEntry {
 }
 
 /// Returns a complete 512-byte MBR sector embedding `entry` at the partition slot and the boot signature at the end.
-#[must_use]
+#[must_use = "callers need the sector bytes to write the MBR"]
 pub fn bytes(entry: &PartitionEntry) -> [u8; MBR_BYTES] {
     let mut mbr = [0_u8; MBR_BYTES];
     put(
@@ -89,7 +89,7 @@ pub fn bytes(entry: &PartitionEntry) -> [u8; MBR_BYTES] {
 }
 
 /// Returns the protective MBR partition size in LBAs.
-#[must_use]
+#[must_use = "callers need the size to cover the whole disk"]
 pub fn protective_size_lba(disk_size: u64, sector_size: u64) -> u32 {
     let Some(sectors) = disk_size.checked_div(sector_size) else {
         return 0;
@@ -99,7 +99,7 @@ pub fn protective_size_lba(disk_size: u64, sector_size: u64) -> u32 {
 }
 
 /// Returns a complete 512-byte protective MBR as a fixed-size array.
-#[must_use]
+#[must_use = "callers need the sector bytes to write the protective MBR"]
 pub fn protective_bytes(disk_size: u64, sector_size: u64) -> [u8; MBR_BYTES] {
     let entry = PartitionEntry {
         bootable: false,

@@ -35,7 +35,7 @@ pub struct Document {
 
 impl Document {
     /// Creates a plan document for the given partitions.
-    #[must_use]
+    #[must_use = "dropping it discards the parsed disk document"]
     pub fn new(wipe: bool, partitions: Vec<Partition>) -> Self {
         Self {
             api_version: API_VERSION.to_owned(),
@@ -45,7 +45,7 @@ impl Document {
     }
 
     /// Returns the first partition with the given role.
-    #[must_use]
+    #[must_use = "callers must handle a role the document does not declare"]
     pub fn find(&self, role: Role) -> Option<&Partition> {
         self.partitions
             .iter()
@@ -53,13 +53,13 @@ impl Document {
     }
 
     /// Returns whether the install wipes the disk before placing partitions.
-    #[must_use]
+    #[must_use = "callers must branch on whether the disk is wiped"]
     pub const fn wipe(&self) -> bool {
         self.wipe
     }
 
     /// Returns all planned partitions, in placement order.
-    #[must_use]
+    #[must_use = "callers need the partitions to plan the layout"]
     pub fn partitions(&self) -> &[Partition] {
         &self.partitions
     }
@@ -99,7 +99,7 @@ impl Document {
 }
 
 /// Formats raw GPT GUID bytes as a hyphenated UUID string.
-#[must_use]
+#[must_use = "callers need the formatted GUID for the partition table"]
 pub fn guid(bytes: &[u8; 16]) -> String {
     uuid::Uuid::from_bytes(*bytes).hyphenated().to_string()
 }

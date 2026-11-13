@@ -36,7 +36,7 @@ impl AliasDb {
     }
 
     /// Finds the first module whose alias pattern matches `modalias`.
-    #[must_use]
+    #[must_use = "callers must handle a modalias with no module"]
     pub fn find_module(&self, modalias: &str) -> Option<&str> {
         self.entries.iter().find_map(|alias| {
             glob_match_bytes(
@@ -48,13 +48,13 @@ impl AliasDb {
     }
 
     /// Returns the number of alias entries.
-    #[must_use]
+    #[must_use = "callers need the count to size their scans"]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Returns whether the alias database is empty.
-    #[must_use]
+    #[must_use = "callers must branch on an empty database"]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

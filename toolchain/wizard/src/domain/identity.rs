@@ -39,7 +39,7 @@ impl ProfileId {
     }
 
     /// Returns the raw identity bytes.
-    #[must_use]
+    #[must_use = "callers need the bytes to hash the identity"]
     pub(crate) const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
@@ -49,7 +49,7 @@ id_type!(ResolutionId, "Identity of one exact resolved build.");
 
 impl ResolutionId {
     /// Computes the resolution identity over the frozen recipe.
-    #[must_use]
+    #[must_use = "callers need the identity to key the build"]
     pub fn compute(
         profile: &ProfileId,
         inputs: &[ResolvedInput],
@@ -105,7 +105,7 @@ impl From<EntryRef<'_>> for ResolvedInput {
 }
 
 /// Returns the leading hex characters of an identity or digest.
-#[must_use]
+#[must_use = "callers need the short form for logs"]
 pub fn abbreviated(value: &str) -> &str {
     let value = value.trim_prefix("sha256:");
 

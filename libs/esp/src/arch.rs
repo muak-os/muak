@@ -13,7 +13,7 @@ pub enum Arch {
 
 impl Arch {
     /// Returns the current compilation target architecture.
-    #[must_use]
+    #[must_use = "callers need the target architecture to pick paths"]
     pub const fn current() -> Self {
         #[cfg(target_arch = "x86_64")]
         {
@@ -36,7 +36,7 @@ impl Arch {
     }
 
     /// Returns the UEFI fallback boot path for this architecture.
-    #[must_use]
+    #[must_use = "callers need the path to place the bootloader"]
     pub const fn boot_path(self) -> &'static str {
         match self {
             Self::X86_64 => "EFI/BOOT/BOOTX64.EFI",

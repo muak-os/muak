@@ -41,7 +41,7 @@ pub fn select_platform<'a>(
 }
 
 /// Whether `platform` targets the Linux `target_arch` platform.
-#[must_use]
+#[must_use = "callers must branch on whether the layer fits the target"]
 pub fn platform_matches(platform: &Platform, target_arch: &str) -> bool {
     platform.architecture.as_deref() == Some(target_arch) && platform.os.as_deref() == Some("linux")
 }

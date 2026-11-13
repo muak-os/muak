@@ -25,7 +25,7 @@ pub mod linux;
 pub type System = linux::Linux;
 
 /// Returns a handle to the active platform implementation.
-#[must_use]
+#[must_use = "the handle is the only way to reach the platform"]
 pub fn system() -> System {
     System::new()
 }

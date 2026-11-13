@@ -29,7 +29,7 @@ pub type Transport = Client<Connector, Full<Bytes>>;
 
 /// Build a reusable client supporting both HTTPS and plain HTTP.
 #[cfg(feature = "https")]
-#[must_use]
+#[must_use = "the client is the only way to issue requests"]
 pub fn build_client() -> Transport {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -54,7 +54,7 @@ pub fn build_client() -> Transport {
 
 /// Build a reusable plain-HTTP client.
 #[cfg(not(feature = "https"))]
-#[must_use]
+#[must_use = "the client is the only way to issue requests"]
 pub fn build_client() -> Transport {
     let mut http_connector = HttpConnector::new();
     http_connector.set_connect_timeout(Some(CONNECT_TIMEOUT));
@@ -63,7 +63,7 @@ pub fn build_client() -> Transport {
 }
 
 /// Return the process-shared transport for a registry host, creating it once.
-#[must_use]
+#[must_use = "the client is the only way to issue requests"]
 pub fn for_host(host: &str) -> Transport {
     let transports = TRANSPORTS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut transports = transports.lock().unwrap_or_else(PoisonError::into_inner);

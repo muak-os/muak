@@ -5,7 +5,7 @@ use core::net::Ipv6Addr;
 const BITS_PER_PREFIX_BYTE: u8 = 8;
 
 /// Converts a 6-byte MAC address into an 8-byte EUI-64 interface identifier.
-#[must_use]
+#[must_use = "callers need the identifier to form the address"]
 pub fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
     [
         mac[0] ^ 0x02,
@@ -20,7 +20,7 @@ pub fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
 }
 
 /// Generates a SLAAC address by combining a network prefix with an EUI-64 host identifier.
-#[must_use]
+#[must_use = "callers must handle a prefix that cannot carry EUI-64"]
 pub fn generate(prefix: Ipv6Addr, prefix_len: u8, mac: &[u8; 6]) -> Option<Ipv6Addr> {
     if prefix_len > 64 || !prefix_len.is_multiple_of(BITS_PER_PREFIX_BYTE) {
         return None;

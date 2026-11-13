@@ -9,7 +9,7 @@ use crate::error::Result;
 use crate::kernel::Kernel as _;
 
 /// Returns true when `path` is a block device node.
-#[must_use]
+#[must_use = "callers must branch on the device type"]
 pub fn is_block(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_block_device())
 }
@@ -25,7 +25,7 @@ pub fn size<Fd: AsFd>(fd: &Fd) -> Result<u64> {
 }
 
 /// Formats the kernel device path of partition `number` on `disk`.
-#[must_use]
+#[must_use = "callers need the node path to open the partition"]
 pub fn partition_path(disk: &str, number: u32) -> String {
     if uses_p_separator(disk) {
         format!("{disk}p{number}")
@@ -35,7 +35,7 @@ pub fn partition_path(disk: &str, number: u32) -> String {
 }
 
 /// Returns true when `device` is `disk` itself or a partition of that disk.
-#[must_use]
+#[must_use = "callers must branch on the disk relation"]
 pub fn belongs_to(device: &str, disk: &str) -> bool {
     if device == disk {
         return true;

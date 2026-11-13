@@ -48,7 +48,7 @@ impl<R: BufRead, W: Write> Prompter<R, W> {
     }
 
     /// Returns the underlying reader and writer.
-    #[must_use]
+    #[must_use = "callers need the reader and writer back"]
     pub fn into_inner(self) -> (R, W) {
         (self.reader, self.writer)
     }
@@ -66,7 +66,7 @@ impl<R: BufRead, W: Write> Prompter<R, W> {
 
 impl Prompter<io::StdinLock<'static>, io::StdoutLock<'static>> {
     /// Creates a prompter on standard input and output when stdout is a terminal.
-    #[must_use]
+    #[must_use = "callers must handle a prompt that cannot open stdio"]
     pub fn stdio() -> Option<Self> {
         if !Stream::Stdout.is_terminal() {
             return None;

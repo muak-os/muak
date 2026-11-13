@@ -25,7 +25,7 @@ pub struct Table {
 
 impl Cell {
     /// Creates a plain cell with sanitized text.
-    #[must_use]
+    #[must_use = "dropping it discards the cell"]
     pub fn plain<T: Into<String>>(text: T) -> Self {
         let text = text::sanitize(Cow::Owned(text.into())).into_owned();
 
@@ -33,7 +33,7 @@ impl Cell {
     }
 
     /// Creates a styled cell with sanitized text.
-    #[must_use]
+    #[must_use = "dropping it discards the cell"]
     pub fn styled<T: Into<String>>(text: T, style: Style) -> Self {
         let text = text::sanitize(Cow::Owned(text.into())).into_owned();
 
@@ -41,13 +41,13 @@ impl Cell {
     }
 
     /// Creates a cell from existing spans.
-    #[must_use]
+    #[must_use = "dropping it discards the cell"]
     pub fn from_spans(spans: Vec<Span<'static>>) -> Self {
         Self { spans }
     }
 
     /// Returns the display width of the cell.
-    #[must_use]
+    #[must_use = "callers need the width to fit the column"]
     pub fn width(&self) -> usize {
         self.spans
             .iter()
@@ -63,7 +63,7 @@ impl Default for Table {
 
 impl Table {
     /// Creates an empty table.
-    #[must_use]
+    #[must_use = "dropping it discards the table rows"]
     pub fn new() -> Self {
         Self {
             headers: Vec::new(),
@@ -73,7 +73,7 @@ impl Table {
     }
 
     /// Sets the header row.
-    #[must_use]
+    #[must_use = "dropping it discards the header just added"]
     pub fn header(mut self, columns: &[&str]) -> Self {
         self.headers = columns.iter().map(|column| Cell::plain(*column)).collect();
         self.widths = self.headers.iter().map(Cell::width).collect();
@@ -82,7 +82,7 @@ impl Table {
     }
 
     /// Adds a data row.
-    #[must_use]
+    #[must_use = "dropping it discards the row just added"]
     pub fn row(mut self, columns: &[&str]) -> Self {
         let cells: Vec<Cell> = columns.iter().map(|column| Cell::plain(*column)).collect();
         self.include(&cells);
@@ -92,7 +92,7 @@ impl Table {
     }
 
     /// Adds a data row from owned cells.
-    #[must_use]
+    #[must_use = "dropping it discards the row just added"]
     pub fn row_cells(mut self, cells: Vec<Cell>) -> Self {
         self.include(&cells);
         self.rows.push(cells);
@@ -101,7 +101,7 @@ impl Table {
     }
 
     /// Adds a row whose first cell is prefixed with `prefix`.
-    #[must_use]
+    #[must_use = "dropping it discards the row just added"]
     pub fn sub_row(mut self, prefix: &str, columns: &[&str]) -> Self {
         let mut cells: Vec<Cell> = columns.iter().map(|column| Cell::plain(*column)).collect();
 

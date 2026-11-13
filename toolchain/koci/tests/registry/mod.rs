@@ -92,7 +92,6 @@ impl MockRegistry {
 
         let thread_routes = Arc::clone(&routes);
         let thread_requests = Arc::clone(&requests);
-        let thread_pushed = Arc::clone(&pushed);
         let thread_shutdown = Arc::clone(&shutdown);
         let thread_connections = Arc::clone(&connections);
         let thread_gauge = Arc::clone(&gauge);
@@ -101,7 +100,7 @@ impl MockRegistry {
             run_registry_server(
                 &listener,
                 &thread_routes,
-                &thread_pushed,
+                &pushed,
                 &thread_requests,
                 &thread_shutdown,
                 &thread_connections,
@@ -121,7 +120,7 @@ impl MockRegistry {
     }
 
     /// Peak number of requests the server processed at the same time.
-    #[must_use]
+    #[must_use = "the test asserts on the request concurrency"]
     pub(crate) fn max_concurrent(&self) -> usize {
         self.gauge.peak()
     }
@@ -143,12 +142,12 @@ impl MockRegistry {
         }
     }
 
-    #[must_use]
+    #[must_use = "the test needs the reference to pull the image"]
     pub(crate) fn reference(&self, repository: &str, tag: &str) -> String {
         format!("{}/{repository}:{tag}", self.address)
     }
 
-    #[must_use]
+    #[must_use = "the test needs the reference to pull the image"]
     pub(crate) fn digest_reference(&self, repository: &str, digest: &str) -> String {
         format!("{}/{repository}@{digest}", self.address)
     }
@@ -226,7 +225,7 @@ pub(crate) struct HttpResponse {
 }
 
 impl HttpResponse {
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn json(body: Vec<u8>) -> Self {
         Self {
             status: 200,
@@ -237,7 +236,7 @@ impl HttpResponse {
         }
     }
 
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn index(body: Vec<u8>) -> Self {
         Self {
             status: 200,
@@ -248,7 +247,7 @@ impl HttpResponse {
         }
     }
 
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn octet_stream(body: Vec<u8>) -> Self {
         Self {
             status: 200,
@@ -259,7 +258,7 @@ impl HttpResponse {
         }
     }
 
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn ok() -> Self {
         Self {
             status: 200,
@@ -271,7 +270,7 @@ impl HttpResponse {
     }
 
     /// `202 Accepted` upload-session response pointing at `location`.
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn accepted(location: &'static str) -> Self {
         Self {
             status: 202,
@@ -282,7 +281,7 @@ impl HttpResponse {
         }
     }
 
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn bad_request() -> Self {
         Self {
             status: 400,
@@ -293,7 +292,7 @@ impl HttpResponse {
         }
     }
 
-    #[must_use]
+    #[must_use = "the test needs the response to serve"]
     pub(crate) fn server_error() -> Self {
         Self {
             status: 500,
@@ -304,7 +303,7 @@ impl HttpResponse {
         }
     }
 
-    #[must_use]
+    #[must_use = "dropping it discards the injected delay"]
     pub(crate) fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
 

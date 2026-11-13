@@ -14,7 +14,7 @@ pub struct Inventory {
 }
 
 /// Collects firmware inventory from a platform implementation.
-#[must_use]
+#[must_use = "dropping it discards the collected inventory"]
 pub fn collect<S: VariableStore + Platform>(system: &S) -> Inventory {
     Inventory {
         platform: identity::collect(system, system),

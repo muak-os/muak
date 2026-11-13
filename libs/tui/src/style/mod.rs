@@ -27,31 +27,31 @@ pub type Stream = semantic::Stream;
 pub type Styled<'a> = semantic::Styled<'a>;
 
 /// Creates a foreground color style.
-#[must_use]
+#[must_use = "dropping it discards the style"]
 pub const fn fg(color: AnsiColor) -> Style {
     Style::new().fg_color(Some(Color::Ansi(color)))
 }
 
 /// Creates a bold foreground color style.
-#[must_use]
+#[must_use = "dropping it discards the style"]
 pub const fn bold_fg(color: AnsiColor) -> Style {
     fg(color).bold()
 }
 
 /// Creates a bold style.
-#[must_use]
+#[must_use = "dropping it discards the style"]
 pub const fn bold() -> Style {
     Style::new().bold()
 }
 
 /// Creates a dim style.
-#[must_use]
+#[must_use = "dropping it discards the style"]
 pub const fn dim() -> Style {
     Style::new().dimmed()
 }
 
 /// Returns the standard output theme.
-#[must_use]
+#[must_use = "callers need the theme to paint output"]
 pub fn stdout() -> Theme {
     static THEME: OnceLock<Theme> = OnceLock::new();
 
@@ -59,7 +59,7 @@ pub fn stdout() -> Theme {
 }
 
 /// Returns the standard error theme.
-#[must_use]
+#[must_use = "callers need the theme to paint output"]
 pub fn stderr() -> Theme {
     static THEME: OnceLock<Theme> = OnceLock::new();
 
@@ -67,73 +67,73 @@ pub fn stderr() -> Theme {
 }
 
 /// Paints `text` as a success on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn success(text: &str) -> Styled<'_> {
     stdout().success(text)
 }
 
 /// Paints `text` as an error on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn error(text: &str) -> Styled<'_> {
     stdout().error(text)
 }
 
 /// Paints `text` as error body text on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn error_text(text: &str) -> Styled<'_> {
     stdout().error_text(text)
 }
 
 /// Paints `text` as a warning on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn warn(text: &str) -> Styled<'_> {
     stdout().warn(text)
 }
 
 /// Paints `text` as information on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn info(text: &str) -> Styled<'_> {
     stdout().info(text)
 }
 
 /// Paints `text` as muted on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn muted(text: &str) -> Styled<'_> {
     stdout().muted(text)
 }
 
 /// Paints `text` as an accent on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn accent(text: &str) -> Styled<'_> {
     stdout().accent(text)
 }
 
 /// Paints `text` as a header on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn header(text: &str) -> Styled<'_> {
     stdout().header(text)
 }
 
 /// Paints `text` as a label on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn label(text: &str) -> Styled<'_> {
     stdout().label(text)
 }
 
 /// Paints `text` as a highlighted value on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn highlight(text: &str) -> Styled<'_> {
     stdout().highlight(text)
 }
 
 /// Paints `text` as a positive value on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn positive(text: &str) -> Styled<'_> {
     stdout().positive(text)
 }
 
 /// Paints `text` as a negative value on standard output.
-#[must_use]
+#[must_use = "callers need the styled text to print it"]
 pub fn negative(text: &str) -> Styled<'_> {
     stdout().negative(text)
 }

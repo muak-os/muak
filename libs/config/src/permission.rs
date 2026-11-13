@@ -109,7 +109,7 @@ impl FromStr for Permission {
 
 impl Permission {
     /// Returns all permissions in a category.
-    #[must_use]
+    #[must_use = "callers need the list to expand a category wildcard"]
     pub fn all_in_category(category: &str) -> &'static [Permission] {
         match category {
             "vm" => &[
@@ -151,7 +151,7 @@ impl Permission {
     }
 
     /// Returns the category prefix for this permission (e.g., "vm" for `VmRead`).
-    #[must_use]
+    #[must_use = "callers need the prefix to collapse permissions into wildcards"]
     pub fn category(&self) -> Option<&'static str> {
         match *self {
             Self::Admin => None,
@@ -170,7 +170,7 @@ impl Permission {
 }
 
 /// Collapses a list of permissions, replacing complete categories with wildcards.
-#[must_use]
+#[must_use = "ignoring it sends one permission per entry instead of a wildcard"]
 pub fn collapse(permissions: &[Permission]) -> Vec<String> {
     let perm_set: HashSet<Permission> = permissions.iter().copied().collect();
     let mut result = Vec::new();

@@ -3,7 +3,7 @@
 use crate::EFI_GUID;
 
 /// Returns `true` when the partition type GUID is the EFI System Partition type.
-#[must_use]
+#[must_use = "callers must branch on the partition type"]
 pub fn is_esp(type_guid: &str) -> bool {
     type_guid.eq_ignore_ascii_case(&canonical_text())
 }

@@ -57,7 +57,7 @@ pub struct Plan {
 
 impl Plan {
     /// Total raw disk image size in bytes, before any transport codec.
-    #[must_use]
+    #[must_use = "callers need the size to lay out the image"]
     pub const fn size(&self) -> u64 {
         self.disk_sectors.saturating_mul(SECTOR_SIZE)
     }

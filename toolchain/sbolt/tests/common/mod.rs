@@ -21,7 +21,7 @@ pub(crate) struct Firmware {
 
 impl Firmware {
     /// Builds a booted, available, ready store that persists every write.
-    #[must_use]
+    #[must_use = "dropping it discards the fake firmware state"]
     pub(crate) fn ready() -> Self {
         Self {
             booted: true,
@@ -37,14 +37,14 @@ impl Firmware {
     }
 
     /// Seeds a variable as if firmware had already committed it.
-    #[must_use]
+    #[must_use = "dropping it discards the seeded variable"]
     pub(crate) fn with_variable(self, id: Id, payload: Vec<u8>) -> Self {
         self.variables.borrow_mut().push((id, payload));
         self
     }
 
     /// Reports that preparing variable storage is not ready.
-    #[must_use]
+    #[must_use = "dropping it discards the injected readiness"]
     pub(crate) fn not_ready(self) -> Self {
         Self {
             ready: false,
@@ -53,7 +53,7 @@ impl Firmware {
     }
 
     /// Accepts writes without committing them to the variable store.
-    #[must_use]
+    #[must_use = "dropping it discards the injected write behaviour"]
     pub(crate) fn dropping_writes(self) -> Self {
         Self {
             stores_writes: false,
@@ -62,7 +62,7 @@ impl Firmware {
     }
 
     /// Accepts writes to `id` without committing them to the variable store.
-    #[must_use]
+    #[must_use = "dropping it discards the injected write behaviour"]
     pub(crate) fn ignoring_writes_on(self, id: Id) -> Self {
         Self {
             ignored_write: Some(id),
@@ -71,7 +71,7 @@ impl Firmware {
     }
 
     /// Rejects writes to `id` without persisting them.
-    #[must_use]
+    #[must_use = "dropping it discards the injected failure"]
     pub(crate) fn failing_on(self, id: Id) -> Self {
         Self {
             failing_write: Some(id),
@@ -80,7 +80,7 @@ impl Firmware {
     }
 
     /// Reports deleted variables as still present.
-    #[must_use]
+    #[must_use = "dropping it discards the injected delete behaviour"]
     pub(crate) fn keeping_deletes(self) -> Self {
         Self {
             honors_deletes: false,
@@ -89,7 +89,7 @@ impl Firmware {
     }
 
     /// Every write attempted through the store, in order.
-    #[must_use]
+    #[must_use = "the test asserts on the writes that were attempted"]
     pub(crate) fn writes(&self) -> Vec<(Id, Vec<u8>)> {
         self.writes.borrow().clone()
     }

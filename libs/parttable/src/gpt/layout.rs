@@ -103,7 +103,7 @@ impl PlacementRequest {
     }
 
     /// Creates a placement request with the project defaults.
-    #[must_use]
+    #[must_use = "dropping it discards the placement request"]
     pub fn new(type_guid: [u8; 16], unique_guid: [u8; 16], name: &str, size: Size) -> Self {
         Self {
             slot: Slot::Auto,
@@ -118,7 +118,7 @@ impl PlacementRequest {
     }
 
     /// Overrides the partition slot selection.
-    #[must_use]
+    #[must_use = "dropping it discards the slot override"]
     pub fn slot(mut self, slot: Slot) -> Self {
         self.slot = slot;
 
@@ -126,7 +126,7 @@ impl PlacementRequest {
     }
 
     /// Overrides the partition start selection.
-    #[must_use]
+    #[must_use = "dropping it discards the start override"]
     pub fn start(mut self, start: Start) -> Self {
         self.start = start;
 

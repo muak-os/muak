@@ -34,7 +34,7 @@ pub struct Roots {
 
 impl Roots {
     /// Returns the roots of the running system.
-    #[must_use]
+    #[must_use = "dropping it loses the located system roots"]
     pub fn system() -> Self {
         Self {
             block: PathBuf::from("/sys/block"),
@@ -54,13 +54,13 @@ pub struct Linux {
 
 impl Linux {
     /// Creates an implementation rooted at the system sysfs and procfs.
-    #[must_use]
+    #[must_use = "the handle is the only way to reach the kernel"]
     pub fn new() -> Self {
         Self::rooted(&Roots::system())
     }
 
     /// Creates an implementation rooted at `roots`, for tests and alternate mounts.
-    #[must_use]
+    #[must_use = "the handle is the only way to reach the kernel"]
     pub fn rooted(roots: &Roots) -> Self {
         Self {
             roots: roots.clone(),

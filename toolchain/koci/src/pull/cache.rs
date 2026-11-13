@@ -50,7 +50,7 @@ impl Store {
     }
 
     /// Create a cache over `root`, or a disabled cache when it is `None`.
-    #[must_use]
+    #[must_use = "dropping it discards the cache root"]
     pub(crate) fn at(root: Option<PathBuf>) -> Self {
         Self { root }
     }
@@ -139,7 +139,7 @@ impl Store {
 }
 
 /// Every digest reachable from the tag references under `root`.
-#[must_use]
+#[must_use = "ignoring it deletes digests other images still use"]
 pub fn shared_digests(root: &Path) -> HashSet<String> {
     let mut digests = HashSet::new();
     let mut pending = Vec::new();
@@ -157,13 +157,13 @@ pub fn shared_digests(root: &Path) -> HashSet<String> {
 }
 
 /// Whether `path` holds cache metadata that every cached image depends on.
-#[must_use]
+#[must_use = "callers must keep the metadata every image depends on"]
 pub fn is_metadata(root: &Path, path: &Path) -> bool {
     matches!(subtree(root, path), Some(REFS_DIR | INDEX_DIR))
 }
 
 /// Whether `path` is still referenced by something kept in the cache.
-#[must_use]
+#[must_use = "callers must keep entries the cache still references"]
 pub fn is_shared<S: BuildHasher>(root: &Path, path: &Path, shared: &HashSet<String, S>) -> bool {
     if matches!(subtree(root, path), Some(REFS_DIR)) {
         return true;
@@ -184,7 +184,7 @@ pub fn is_shared<S: BuildHasher>(root: &Path, path: &Path, shared: &HashSet<Stri
 }
 
 /// The recorded use count of a cache entry, or `0` when it carries none.
-#[must_use]
+#[must_use = "callers must keep entries that are still in use"]
 pub fn use_count(path: &Path) -> u64 {
     if unsupported() {
         return 0;
@@ -234,7 +234,7 @@ pub fn bump_use_count(path: &Path) {
 }
 
 /// The resolved cache root, or `None` when both caches are disabled.
-#[must_use]
+#[must_use = "callers must handle the cache being disabled"]
 pub fn root() -> Option<PathBuf> {
     std::env::var("MUAK_KOCI_CACHE")
         .ok()

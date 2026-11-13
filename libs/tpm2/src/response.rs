@@ -11,7 +11,7 @@ pub(crate) struct ResponseReader<'a> {
 }
 
 impl<'a> ResponseReader<'a> {
-    #[must_use]
+    #[must_use = "dropping it discards the parsed response"]
     pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }

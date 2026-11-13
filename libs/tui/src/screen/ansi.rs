@@ -14,13 +14,13 @@ pub struct Ansi<W> {
 
 impl<W> Ansi<W> {
     /// Wraps `writer` with a known surface size.
-    #[must_use]
+    #[must_use = "dropping it discards the wrapped writer"]
     pub const fn new(writer: W, size: Size) -> Self {
         Self { writer, size }
     }
 
     /// Returns the wrapped writer.
-    #[must_use]
+    #[must_use = "callers need the wrapped writer back"]
     pub fn into_inner(self) -> W {
         self.writer
     }

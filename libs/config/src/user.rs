@@ -105,7 +105,7 @@ impl ClientConfig {
     }
 
     /// Get the currently active context name and data.
-    #[must_use]
+    #[must_use = "callers must handle having no active context"]
     pub fn current_context(&self) -> Option<(&str, &ServerContext)> {
         let name = self.context.as_ref()?;
 
@@ -113,7 +113,7 @@ impl ClientConfig {
     }
 
     /// Get a context by name.
-    #[must_use]
+    #[must_use = "callers must handle an unknown context name"]
     pub fn get_context(&self, name: &str) -> Option<&ServerContext> {
         self.contexts.get(name)
     }
@@ -170,7 +170,7 @@ impl ClientConfig {
     }
 
     /// Check if credentials exist for the given endpoint.
-    #[must_use]
+    #[must_use = "callers must branch on whether credentials exist"]
     pub fn has_credentials_for_endpoint(&self, endpoint: &str) -> bool {
         self.contexts
             .values()
@@ -196,7 +196,7 @@ impl ClientConfig {
     }
 
     /// Gets a pending enrollment for the given endpoint.
-    #[must_use]
+    #[must_use = "callers must handle an endpoint with no pending enrollment"]
     pub fn get_pending(&self, endpoint: &str) -> Option<&PendingEnrollment> {
         self.pending.get(endpoint)
     }
@@ -226,7 +226,7 @@ impl ClientConfig {
 
 impl ServerContext {
     /// Create a new context from PEM strings.
-    #[must_use]
+    #[must_use = "dropping it discards the decoded credentials"]
     pub fn from_pem(endpoint: &str, ca: &str, crt: &str, key: &[u8]) -> Self {
         Self {
             endpoint: endpoint.to_owned(),
@@ -256,7 +256,7 @@ impl ServerContext {
     }
 
     /// Check if this context has credentials.
-    #[must_use]
+    #[must_use = "callers must branch on whether the context is enrolled"]
     pub fn has_credentials(&self) -> bool {
         self.ca.is_some() && self.crt.is_some() && self.key.is_some()
     }

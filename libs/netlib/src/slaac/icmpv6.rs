@@ -72,7 +72,7 @@ pub enum Failure {
 pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Constructs an `ICMPv6` Router Solicitation packet with a source link-layer address option.
-#[must_use]
+#[must_use = "dropping it means no solicitation is sent"]
 pub fn build_router_solicitation(mac: &[u8; 6]) -> Vec<u8> {
     let mut pkt = Vec::with_capacity(16);
 

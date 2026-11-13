@@ -25,7 +25,7 @@ pub struct Entry {
 }
 
 /// Compute the actual directory data size in bytes (dirent array + packed names).
-#[must_use]
+#[must_use = "callers need the size to place the dirent array"]
 pub fn data_size(entries: &[Entry]) -> usize {
     let block_size = 4096_usize;
     let mut size = 0_usize;
@@ -42,7 +42,7 @@ pub fn data_size(entries: &[Entry]) -> usize {
 }
 
 /// Serialize directory entries into EROFS directory blocks.
-#[must_use]
+#[must_use = "dropping it leaves the directory blocks unwritten"]
 pub fn serialize_entries(entries: &[Entry]) -> Vec<u8> {
     let block_size = 4096_usize;
     let total_size = data_size(entries);

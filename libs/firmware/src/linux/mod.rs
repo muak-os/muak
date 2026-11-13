@@ -15,13 +15,13 @@ pub struct Linux {
 
 impl Linux {
     /// Creates an implementation rooted at the system `/sys`.
-    #[must_use]
+    #[must_use = "the handle is the only way to reach the platform"]
     pub fn new() -> Self {
         Self::rooted(Path::new("/sys"))
     }
 
     /// Creates an implementation rooted at `sysroot`, for tests and alternate mounts.
-    #[must_use]
+    #[must_use = "the handle is the only way to reach the platform"]
     pub fn rooted(sysroot: &Path) -> Self {
         let firmware = sysroot.join("firmware").join("efi");
 

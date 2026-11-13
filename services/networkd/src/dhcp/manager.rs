@@ -50,7 +50,7 @@ impl Manager {
     }
 
     /// Returns a reference to the underlying raw socket for reuse in rebind operations.
-    #[must_use]
+    #[must_use = "callers need the socket to send DHCP packets"]
     pub fn socket(&self) -> &Socket {
         &self.socket
     }

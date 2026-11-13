@@ -52,19 +52,19 @@ pub struct Id {
 
 impl Id {
     /// Creates a firmware variable identifier.
-    #[must_use]
+    #[must_use = "dropping it discards the variable identifier"]
     pub const fn new(name: &'static str, vendor_guid: Guid) -> Self {
         Self { name, vendor_guid }
     }
 
     /// Returns the firmware variable name.
-    #[must_use]
+    #[must_use = "callers need the name to address the variable"]
     pub const fn name(&self) -> &'static str {
         self.name
     }
 
     /// Returns the firmware variable vendor GUID.
-    #[must_use]
+    #[must_use = "callers need the GUID to address the variable"]
     pub const fn vendor_guid(&self) -> &Guid {
         &self.vendor_guid
     }
@@ -79,7 +79,7 @@ pub struct Update<'a> {
 
 impl<'a> Update<'a> {
     /// Creates a firmware variable update.
-    #[must_use]
+    #[must_use = "dropping it discards the variable contents"]
     pub const fn new(id: Id, attributes: u32, data: &'a [u8]) -> Self {
         Self {
             id,
@@ -89,19 +89,19 @@ impl<'a> Update<'a> {
     }
 
     /// Returns the target firmware variable identifier.
-    #[must_use]
+    #[must_use = "callers need the identifier to address the variable"]
     pub const fn id(&self) -> &Id {
         &self.id
     }
 
     /// Returns the EFI variable attribute bits.
-    #[must_use]
+    #[must_use = "callers must branch on the variable attributes"]
     pub const fn attributes(&self) -> u32 {
         self.attributes
     }
 
     /// Returns the variable data without the `efivarfs` attribute header.
-    #[must_use]
+    #[must_use = "callers need the payload to parse the variable"]
     pub const fn data(&self) -> &'a [u8] {
         self.data
     }

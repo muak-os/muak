@@ -11,7 +11,7 @@ pub struct Challenge {
 
 impl Challenge {
     /// Parse one `WWW-Authenticate` header value into a [`Challenge`].
-    #[must_use]
+    #[must_use = "callers must handle a header they cannot parse"]
     pub fn parse(value: &str) -> Option<Self> {
         let (scheme, params) = value.trim().split_once(char::is_whitespace)?;
         let scheme = scheme.trim().to_ascii_lowercase();
@@ -25,7 +25,7 @@ impl Challenge {
     }
 
     /// Look up a challenge parameter by key.
-    #[must_use]
+    #[must_use = "callers must handle a missing challenge parameter"]
     pub fn param(&self, key: &str) -> Option<&str> {
         self.params
             .iter()

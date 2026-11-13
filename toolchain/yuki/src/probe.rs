@@ -23,7 +23,7 @@ impl Probe {
     /// Bytes consumed from the stub reader (== `size_of_headers`).
     /// The same reader, positioned after this point, is passed to
     /// [`crate::write::write`].
-    #[must_use]
+    #[must_use = "callers must skip the stub bytes before writing"]
     pub fn consumed(&self) -> u64 {
         self.consumed
     }

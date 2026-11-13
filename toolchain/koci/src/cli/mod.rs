@@ -54,7 +54,7 @@ enum Command {
 }
 
 /// Runs the CLI with `std::env::args_os()` and returns an exit code.
-#[must_use]
+#[must_use = "callers must propagate the process exit code"]
 pub fn run() -> i32 {
     run_with(std::env::args_os())
 }

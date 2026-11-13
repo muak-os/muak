@@ -43,7 +43,7 @@ pub struct Credentials {
 
 impl Credentials {
     /// Create credentials from a username and a password or token.
-    #[must_use]
+    #[must_use = "dropping it discards the credentials"]
     pub fn new<U: Into<String>, P: Into<String>>(username: U, password: P) -> Self {
         Self {
             username: username.into(),
@@ -52,7 +52,7 @@ impl Credentials {
     }
 
     /// Read credentials from `KOCI_REGISTRY_USERNAME` and `KOCI_REGISTRY_PASSWORD`.
-    #[must_use]
+    #[must_use = "callers must handle the environment providing no credentials"]
     pub fn from_env() -> Option<Self> {
         Self::from_parts(
             std::env::var(USERNAME_ENV).ok().as_deref(),

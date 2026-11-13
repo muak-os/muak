@@ -13,7 +13,7 @@ pub struct Terminal {
 
 impl Terminal {
     /// Creates a terminal reporter over `steps`.
-    #[must_use]
+    #[must_use = "dropping it discards the reporter state"]
     pub fn new(steps: Handle, verbose: bool) -> Self {
         Self {
             tracked: Tracked::new(steps, verbose),

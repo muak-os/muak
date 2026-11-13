@@ -33,7 +33,7 @@ pub(crate) trait TpmDevice: Read + Write {
 }
 
 /// Returns true if the TPM2 resource manager device exists.
-#[must_use]
+#[must_use = "callers must branch on whether a TPM is present"]
 pub fn is_available(path: Option<&Path>) -> bool {
     path.unwrap_or_else(|| Path::new(TPM_DEVICE)).exists()
 }

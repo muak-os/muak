@@ -26,7 +26,7 @@ pub struct Config {
 
 impl Config {
     /// Returns `true` when both host configuration are semantically equivalent.
-    #[must_use]
+    #[must_use = "callers must branch on whether the host changed"]
     pub fn same_as(&self, other: &Config) -> bool {
         let mut normalized = self.clone();
         let mut other_normalized = other.clone();

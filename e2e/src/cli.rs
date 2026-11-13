@@ -68,7 +68,7 @@ impl Cli {
     }
 
     /// Returns the path to the isolated `MUAK_CONFIG` file.
-    #[must_use]
+    #[must_use = "callers need the path to point the CLI at its config"]
     pub fn config_path(&self) -> PathBuf {
         self.config_dir
             .path()

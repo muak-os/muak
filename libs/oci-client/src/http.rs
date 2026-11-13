@@ -31,13 +31,13 @@ pub struct Range {
 
 impl Range {
     /// A range from `start` to the end of the body.
-    #[must_use]
+    #[must_use = "dropping it discards the requested range"]
     pub fn from_start(start: u64) -> Self {
         Self { start, end: None }
     }
 
     /// The `Range` header value for this range.
-    #[must_use]
+    #[must_use = "callers need the header to resume the download"]
     pub(crate) fn header_value(&self) -> String {
         match self.end {
             Some(end) => format!("bytes={}-{}", self.start, end),
@@ -204,7 +204,7 @@ pub fn confirmed_range(response: &Response<Incoming>) -> Result<(u64, u64)> {
 }
 
 /// Whether the response is a partial body (`206 Partial Content`).
-#[must_use]
+#[must_use = "callers must branch on whether the body is partial"]
 pub fn is_partial<B>(response: &Response<B>) -> bool {
     response.status() == StatusCode::PARTIAL_CONTENT
 }

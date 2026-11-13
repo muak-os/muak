@@ -22,6 +22,7 @@ mod persistence;
     clippy::inline_modules,
     clippy::module_name_repetitions,
     clippy::must_use_candidate,
+    clippy::must_use_without_reason,
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,
     clippy::too_many_lines,

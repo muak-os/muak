@@ -50,7 +50,7 @@ impl fmt::Debug for Request<'_> {
 
 impl<'a> Request<'a> {
     /// Creates a new request for the given version and registry prefix.
-    #[must_use]
+    #[must_use = "dropping it discards the request"]
     pub fn new<V: Into<String>>(version: V, registry: &'a str) -> Self {
         Self {
             version: version.into(),
@@ -65,7 +65,7 @@ impl<'a> Request<'a> {
     }
 
     /// Sets the target CPU architecture (`None` defaults to host arch).
-    #[must_use]
+    #[must_use = "dropping it discards the requested architecture"]
     pub fn arch(mut self, arch: Arch) -> Self {
         self.arch = Some(arch);
 
@@ -76,7 +76,7 @@ impl<'a> Request<'a> {
     ///
     /// When unset, [`Codec::default`] (zstd) applies. An explicitly requested
     /// compressing codec must apply to at least one requested artifact.
-    #[must_use]
+    #[must_use = "dropping it discards the requested codec"]
     pub fn codec(mut self, codec: Codec) -> Self {
         self.codec = Some(codec);
 
@@ -100,25 +100,25 @@ impl<'a> Request<'a> {
     }
 
     /// Returns the requested version.
-    #[must_use]
+    #[must_use = "callers need the version to resolve the release"]
     pub fn version(&self) -> &str {
         &self.version
     }
 
     /// Returns the registry prefix used to resolve sources.
-    #[must_use]
+    #[must_use = "callers need the prefix to build image references"]
     pub(crate) fn registry(&self) -> &str {
         self.registry
     }
 
     /// Returns the target CPU architecture (`None` when host arch should be used).
-    #[must_use]
+    #[must_use = "callers must handle the host default"]
     pub const fn target_arch(&self) -> Option<Arch> {
         self.arch
     }
 
     /// Sets the optional signing key for Authenticode PE signing of the UKI.
-    #[must_use]
+    #[must_use = "dropping it discards the signing key"]
     pub fn sign(mut self, key: &'a SigningPair<'a>) -> Self {
         self.signing = Some(key);
 
@@ -126,7 +126,7 @@ impl<'a> Request<'a> {
     }
 
     /// Reports pipeline progress to `reporter`.
-    #[must_use]
+    #[must_use = "dropping it discards the reporter"]
     pub fn progress(mut self, reporter: &'a dyn Reporter) -> Self {
         self.progress = Some(reporter);
 
@@ -134,7 +134,7 @@ impl<'a> Request<'a> {
     }
 
     /// Sets the cache access strategy for every pull performed by the build (default `Network`).
-    #[must_use]
+    #[must_use = "dropping it discards the cache strategy"]
     pub fn strategy(mut self, strategy: pull::Strategy) -> Self {
         self.strategy = strategy;
 

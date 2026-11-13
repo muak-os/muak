@@ -120,7 +120,7 @@ impl Socket {
     }
 
     /// Returns the interface index this socket is bound to.
-    #[must_use]
+    #[must_use = "callers need the index to route netlink messages"]
     pub fn if_index(&self) -> i32 {
         self.if_index
     }

@@ -20,7 +20,7 @@ pub struct Swap {
 }
 
 /// Reads the mount table at `path`, returning nothing when it cannot be read.
-#[must_use]
+#[must_use = "ignoring it treats every device as unmounted"]
 pub fn read(path: &Path) -> Vec<Mount> {
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
@@ -30,7 +30,7 @@ pub fn read(path: &Path) -> Vec<Mount> {
 }
 
 /// Returns the mount point of `device`, empty when it is not mounted.
-#[must_use]
+#[must_use = "callers need the mount point to decide where to write"]
 pub fn of<'a>(mounts: &'a [Mount], device: &str) -> &'a str {
     mounts
         .iter()

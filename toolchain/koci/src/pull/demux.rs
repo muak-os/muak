@@ -18,7 +18,7 @@ struct Target<W> {
 
 impl<W: Write> Demux<W> {
     /// Build a router from expected entry names to their writers.
-    #[must_use]
+    #[must_use = "dropping it discards the writers it was given"]
     pub fn by_name(map: HashMap<String, W>) -> Self {
         Self {
             targets: map
@@ -37,7 +37,7 @@ impl<W: Write> Demux<W> {
     }
 
     /// Record the expected size of each routed entry, for fail-fast size guards.
-    #[must_use]
+    #[must_use = "dropping it discards the expected sizes"]
     pub fn with_sizes<I: IntoIterator<Item = (String, u64)>>(mut self, sizes: I) -> Self {
         for (name, expected) in sizes {
             self.set_expected(&name, expected);
@@ -69,7 +69,7 @@ impl<W: Write> Demux<W> {
     }
 
     /// Consume the router, returning its writers keyed by entry name.
-    #[must_use]
+    #[must_use = "callers need the writers back to finish the entries"]
     pub fn into_writers(self) -> HashMap<String, W> {
         self.targets
             .into_iter()

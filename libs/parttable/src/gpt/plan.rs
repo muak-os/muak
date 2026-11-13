@@ -11,7 +11,7 @@ pub const SECTOR_SIZE: u64 = 512;
 pub const ALIGN_1_MIB_BYTES: u64 = ALIGN_1_MIB_SECTORS.saturating_mul(SECTOR_SIZE);
 
 /// Returns the size in bytes of the primary GPT region for the given sector size.
-#[must_use]
+#[must_use = "callers need the size to place the first partition"]
 pub fn primary_gpt_size(sector_size: u64) -> u64 {
     primary_gpt_region_size(sector_size)
 }

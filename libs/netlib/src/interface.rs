@@ -41,7 +41,7 @@ impl Name {
     }
 
     /// Returns the name as a string slice.
-    #[must_use]
+    #[must_use = "callers need the name to match interfaces"]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -119,7 +119,7 @@ pub struct Ethernet {
 
 impl Ethernet {
     /// Constructs a new interface descriptor.
-    #[must_use]
+    #[must_use = "dropping it discards the interface descriptor"]
     pub fn new(name: Name, index: u32, mac_address: [u8; 6], link_state: State) -> Self {
         Self {
             name,
@@ -130,7 +130,7 @@ impl Ethernet {
     }
 
     /// Returns true when the underlying link has an active carrier signal.
-    #[must_use]
+    #[must_use = "callers must skip links without a carrier"]
     pub fn has_carrier(&self) -> bool {
         self.link_state.has_carrier()
     }
@@ -153,7 +153,7 @@ pub struct Selector;
 
 impl Selector {
     /// Selects the highest-priority interface as the primary.
-    #[must_use]
+    #[must_use = "callers must handle having no usable interface"]
     pub fn select_primary(interfaces: &[Ethernet]) -> Option<&Ethernet> {
         if interfaces.is_empty() {
             return None;
@@ -165,7 +165,7 @@ impl Selector {
     }
 
     /// Returns all non-primary interfaces sorted by descending priority.
-    #[must_use]
+    #[must_use = "callers need the remaining interfaces to build the bond"]
     pub fn select_backups<'a>(
         interfaces: &'a [Ethernet],
         primary_name: &Name,
@@ -290,7 +290,7 @@ fn get_link_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) 
 }
 
 /// Returns true if the name matches a physical Ethernet naming convention.
-#[must_use]
+#[must_use = "callers must skip links that are not Ethernet"]
 pub fn is_ethernet(name: &str) -> bool {
     if name == "lo" || name.starts_with("wlan") || name.starts_with("wlp") {
         return false;

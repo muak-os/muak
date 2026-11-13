@@ -274,7 +274,7 @@ pub(crate) fn linked_layer_archive() -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(encoder.finish()?)
 }
 
-#[must_use]
+#[must_use = "the test needs the digest to address the blob"]
 pub(crate) fn sha256_digest(bytes: &[u8]) -> String {
     format!("sha256:{}", oci::digest::sha256_hex(bytes))
 }

@@ -79,7 +79,7 @@ pub fn compressed<W: Write>(
 }
 
 /// Returns the exact byte length of a raw CPIO `newc` archive.
-#[must_use]
+#[must_use = "callers need the length to place the archive"]
 pub fn size(entries: &[Entry]) -> u64 {
     if entries.is_empty() {
         return 0;

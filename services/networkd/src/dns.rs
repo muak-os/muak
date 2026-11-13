@@ -25,7 +25,7 @@ impl Default for Resolver {
 
 impl Resolver {
     /// Creates a `Resolver` that writes to `path` instead of the default.
-    #[must_use]
+    #[must_use = "dropping it discards the writer for the given path"]
     pub fn with_path(path: PathBuf) -> Self {
         let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
         Self {
@@ -48,7 +48,7 @@ impl Resolver {
     }
 
     /// Returns `true` if `v4` and `v6` are identical to the cached lists.
-    #[must_use]
+    #[must_use = "callers must skip rewriting unchanged resolvers"]
     pub fn is_unchanged(&self, v4: &[Ipv4Addr], v6: &[Ipv6Addr]) -> bool {
         self.v4 == v4 && self.v6 == v6
     }

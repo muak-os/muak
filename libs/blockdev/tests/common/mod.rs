@@ -25,7 +25,7 @@ impl Fixture {
     /// # Panics
     ///
     /// Panics when the temporary trees cannot be created.
-    #[must_use]
+    #[must_use = "dropping it deletes the fixture directory"]
     pub fn new() -> Self {
         let dir = tempfile::tempdir().expect("fixture directory");
         create_roots(dir.path());
@@ -34,7 +34,7 @@ impl Fixture {
     }
 
     /// Returns the roots pointing at this fixture.
-    #[must_use]
+    #[must_use = "callers need the roots to point the code at the fixture"]
     pub fn roots(&self) -> Roots {
         Roots {
             block: self.dir.path().join("sys/block"),
@@ -111,7 +111,7 @@ impl Fixture {
     /// # Panics
     ///
     /// Panics when the device node cannot be written.
-    #[must_use]
+    #[must_use = "callers need the path to open the node just created"]
     pub fn dev_node(&self, name: &str) -> PathBuf {
         let node = self.roots().dev.join(name);
         fs::write(&node, b"").expect("device node");

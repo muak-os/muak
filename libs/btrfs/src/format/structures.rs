@@ -68,7 +68,7 @@ pub(super) struct BtrfsHeader {
 }
 
 impl BtrfsHeader {
-    #[must_use]
+    #[must_use = "dropping it discards the initialised header"]
     pub(super) fn new() -> Self {
         Self {
             csum: [0; BTRFS_CSUM_SIZE],
@@ -113,7 +113,7 @@ pub(super) struct BtrfsDevItem {
 }
 
 impl BtrfsDevItem {
-    #[must_use]
+    #[must_use = "dropping it discards the initialised dev item"]
     pub(super) fn new() -> Self {
         Self {
             devid: [0; 8],
@@ -358,7 +358,7 @@ pub(super) struct BtrfsSuperBlock {
 }
 
 impl BtrfsSuperBlock {
-    #[must_use]
+    #[must_use = "dropping it discards the initialised superblock"]
     pub(super) fn new() -> Self {
         Self {
             csum: [0; BTRFS_CSUM_SIZE],

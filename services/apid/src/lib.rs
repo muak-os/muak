@@ -37,7 +37,7 @@ pub struct Args {
 
 impl Args {
     /// Creates new command line arguments struct.
-    #[must_use]
+    #[must_use = "dropping it discards the server configuration"]
     pub fn new(listen_addr: String, maintenance_mode: bool) -> Self {
         Self {
             listen_addr,
@@ -47,7 +47,7 @@ impl Args {
 }
 
 /// Parses command line arguments into an Args struct.
-#[must_use]
+#[must_use = "dropping it discards the parsed arguments"]
 pub fn parse_args(args: &[String]) -> Args {
     let default_listen =
         resolve_listen_addr(config::system::config().ok().map(|cfg| cfg.host.port));

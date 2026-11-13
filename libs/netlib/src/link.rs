@@ -55,7 +55,7 @@ pub enum State {
 
 impl State {
     /// Returns true when the link has an active carrier signal.
-    #[must_use]
+    #[must_use = "callers must skip links without a carrier"]
     pub fn has_carrier(&self) -> bool {
         *self == Self::Up
     }

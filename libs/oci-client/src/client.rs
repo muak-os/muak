@@ -35,7 +35,7 @@ impl Client {
     }
 
     /// Build a non-authenticating client for cache-only operation.
-    #[must_use]
+    #[must_use = "the client is the only way to reach the registry"]
     pub fn local(reference: &str) -> Self {
         let image = Image::parse(reference);
         let http = for_host(&image.registry);
@@ -80,19 +80,19 @@ impl Client {
     }
 
     /// Shared HTTP/HTTPS client for raw registry requests.
-    #[must_use]
+    #[must_use = "callers need the shared client to issue requests"]
     pub fn http(&self) -> &Transport {
         &self.http
     }
 
     /// Parsed image reference.
-    #[must_use]
+    #[must_use = "callers need the parsed reference to build URLs"]
     pub fn image(&self) -> &Image {
         &self.image
     }
 
     /// `Authorization` header value for registry requests, when authenticated.
-    #[must_use]
+    #[must_use = "callers must handle requests that carry no credentials"]
     pub fn authorization(&self) -> Option<&str> {
         self.authorization.as_deref()
     }

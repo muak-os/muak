@@ -25,7 +25,7 @@ pub enum Codec {
 
 impl Codec {
     /// Returns the filename extension for this codec, without the dot.
-    #[must_use]
+    #[must_use = "callers need the extension to name the output file"]
     pub const fn extension(self) -> &'static str {
         match self {
             Self::None => "",
@@ -35,7 +35,7 @@ impl Codec {
     }
 
     /// Returns the URL/CLI token for this codec (`none`, `zst`, or `gz`).
-    #[must_use]
+    #[must_use = "callers need the token to parse and print the codec"]
     pub const fn token(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -45,7 +45,7 @@ impl Codec {
     }
 
     /// Returns true when this codec transforms bytes.
-    #[must_use]
+    #[must_use = "callers must branch on whether to compress"]
     pub const fn compresses(&self) -> bool {
         !matches!(self, Self::None)
     }

@@ -27,7 +27,7 @@ impl Sealed {
     }
 
     /// Serializes into wire format.
-    #[must_use]
+    #[must_use = "callers need the wire bytes to store the blob"]
     pub fn serialize(&self) -> Vec<u8> {
         let capacity = 4_usize
             .checked_add(self.pub_data.len())
@@ -64,12 +64,12 @@ impl Sealed {
         Self::try_new(pub_data.to_vec(), priv_data.to_vec())
     }
 
-    #[must_use]
+    #[must_use = "callers need the public area to load the object"]
     pub(crate) fn public(&self) -> &[u8] {
         &self.pub_data
     }
 
-    #[must_use]
+    #[must_use = "callers need the private area to unseal the object"]
     pub(crate) fn private(&self) -> &[u8] {
         &self.priv_data
     }
