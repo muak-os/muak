@@ -40,10 +40,7 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line<'static>> {
     };
 
     let mismatch = state.secure_boot_mismatch;
-    let (sb_label, sb_color) = match mismatch {
-        Some(_) => (short_status(state.secure_boot), AnsiColor::Yellow),
-        None => firmware_label(state.secure_boot),
-    };
+    let (sb_label, sb_color) = secure_boot_label(state.secure_boot, mismatch);
     let sb_style = if mismatch.is_some() {
         fg(sb_color)
     } else {
@@ -69,19 +66,16 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line<'static>> {
     lines
 }
 
-fn firmware_label(status: Status) -> (&'static str, AnsiColor) {
-    match status {
-        Status::Enabled => ("Enabled", AnsiColor::Green),
-        Status::Pending => ("Pending (firmware reboot required)", AnsiColor::Yellow),
-        Status::Disabled => ("Disabled", AnsiColor::Red),
-    }
-}
-
-fn short_status(status: Status) -> &'static str {
-    match status {
-        Status::Enabled => "Enabled",
-        Status::Pending => "Pending",
-        Status::Disabled => "Disabled",
+fn secure_boot_label(status: Status, mismatch: Option<Mismatch>) -> (&'static str, AnsiColor) {
+    match (status, mismatch) {
+        (Status::Disabled, Some(Mismatch::NotEnrolled)) | (Status::Pending, Some(_)) => {
+            ("Pending", AnsiColor::Yellow)
+        }
+        (Status::Disabled, Some(_)) => ("Disabled", AnsiColor::Yellow),
+        (Status::Disabled, None) => ("Disabled", AnsiColor::Red),
+        (Status::Pending, None) => ("Pending (firmware reboot required)", AnsiColor::Yellow),
+        (Status::Enabled, Some(_)) => ("Enabled", AnsiColor::Yellow),
+        (Status::Enabled, None) => ("Enabled", AnsiColor::Green),
     }
 }
 
@@ -207,6 +201,65 @@ mod tests {
             pending,
             "expected pending label, got: {:?}",
             sb_line.spans()
+        );
+    }
+
+    #[test]
+    fn build_left_secureboot_not_enrolled_shows_pending() {
+        // ARRANGE
+        let mut state = test_state();
+        state.secure_boot = Status::Disabled;
+        state.secure_boot_mismatch = Some(Mismatch::NotEnrolled);
+
+        // ACT
+        let lines = build_left(&state, 0);
+
+        // ASSERT
+        let Some(sb_line) = lines.get(1) else {
+            panic!("expected SECUREBOOT line, got: {lines:?}");
+        };
+        let label = sb_line
+            .spans()
+            .iter()
+            .find(|span| span.text() == "Pending")
+            .expect("pending label");
+        let note = sb_line
+            .spans()
+            .iter()
+            .find(|span| span.text() == " (no keys)")
+            .expect("mismatch note");
+        assert_eq!(
+            label.style(),
+            note.style(),
+            "label and note must use the same color"
+        );
+        assert!(
+            !sb_line.spans().iter().any(|span| span.text() == "Disabled"),
+            "not enrolled must not be shown as disabled"
+        );
+    }
+
+    #[test]
+    fn build_left_secureboot_enabled_without_our_keys_stays_enabled() {
+        // ARRANGE
+        let mut state = test_state();
+        state.secure_boot = Status::Enabled;
+        state.secure_boot_mismatch = Some(Mismatch::NotEnrolled);
+
+        // ACT
+        let lines = build_left(&state, 0);
+
+        // ASSERT
+        let Some(sb_line) = lines.get(1) else {
+            panic!("expected SECUREBOOT line, got: {lines:?}");
+        };
+        assert!(
+            sb_line.spans().iter().any(|span| span.text() == "Enabled"),
+            "enforcing firmware must stay enabled"
+        );
+        assert!(
+            !sb_line.spans().iter().any(|span| span.text() == "Pending"),
+            "enforcing firmware must not be shown as pending"
         );
     }
 
