@@ -240,7 +240,7 @@ mod tests {
             .expect("parse public key point");
         let parsed = EcdsaSignature::from_der(&signature.0).expect("parse ASN.1 DER signature");
         let tampered = EcdsaSignature::from_der(&{
-            let mut bytes = signature.0.clone();
+            let mut bytes = signature.0;
             let last = bytes.last_mut().expect("non-empty signature");
             *last ^= 0x01;
             bytes

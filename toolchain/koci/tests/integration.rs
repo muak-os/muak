@@ -780,17 +780,14 @@ mod tests {
         }))
         .expect("manifest json");
         let registry = MockRegistry::start(HashMap::from([
-            get(
-                "/v2/repo/manifests/v1",
-                HttpResponse::json(manifest.clone()),
-            ),
+            get("/v2/repo/manifests/v1", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{config_digest}"),
-                HttpResponse::octet_stream(config.clone()),
+                HttpResponse::octet_stream(config),
             ),
             get(
                 format!("/v2/repo/blobs/{layer_digest}"),
-                HttpResponse::octet_stream(layer.clone()),
+                HttpResponse::octet_stream(layer),
             ),
             post(
                 "/v2/repo/blobs/uploads/",
@@ -1961,13 +1958,10 @@ mod tests {
         let cache = TempDir::new().expect("create cache dir");
         cache::Store::set_dir(cache.path().to_path_buf());
         let registry = MockRegistry::start(HashMap::from([
-            get(
-                "/v2/repo/manifests/warm",
-                HttpResponse::json(manifest.clone()),
-            ),
+            get("/v2/repo/manifests/warm", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{digest}"),
-                HttpResponse::octet_stream(layer.clone()),
+                HttpResponse::octet_stream(layer),
             ),
         ]))
         .expect("start mock registry");
@@ -2007,13 +2001,10 @@ mod tests {
         let cache = TempDir::new().expect("create cache dir");
         cache::Store::set_dir(cache.path().to_path_buf());
         let mut registry = MockRegistry::start(HashMap::from([
-            get(
-                "/v2/repo/manifests/offline",
-                HttpResponse::json(manifest.clone()),
-            ),
+            get("/v2/repo/manifests/offline", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{digest}"),
-                HttpResponse::octet_stream(layer.clone()),
+                HttpResponse::octet_stream(layer),
             ),
         ]))
         .expect("start mock registry");
@@ -2203,7 +2194,7 @@ mod tests {
             get("/v2/repo/manifests/demux", HttpResponse::json(manifest)),
             get(
                 format!("/v2/repo/blobs/{digest}"),
-                HttpResponse::octet_stream(layer.clone()),
+                HttpResponse::octet_stream(layer),
             ),
         ]))
         .expect("start mock registry");

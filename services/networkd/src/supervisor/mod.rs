@@ -246,7 +246,7 @@ pub fn start() -> Result<NetworkActorHandle> {
     let (connection, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(connection);
 
-    let ops = Rtnl::new(handle.clone());
+    let ops = Rtnl::new(handle);
     let event_rx = start_events_monitor();
     let config = Arc::new(network()?.clone());
 

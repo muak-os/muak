@@ -224,7 +224,7 @@ impl TreeBuilder for ChunkTreeBuilder {
             BTRFS_FIRST_CHUNK_TREE_OBJECTID,
             BTRFS_CHUNK_ITEM_KEY,
             ctx.layout.sys_logical(),
-            sys_chunk.clone(),
+            sys_chunk,
         );
 
         // Metadata chunk (DUP)

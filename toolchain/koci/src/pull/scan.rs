@@ -377,7 +377,7 @@ mod tests {
 
         // ACT
         handle_file_entry(entry, info, &mut |file| {
-            seen = Some((file.kind, file.link.clone()));
+            seen = Some((file.kind, file.link));
 
             Ok(())
         })

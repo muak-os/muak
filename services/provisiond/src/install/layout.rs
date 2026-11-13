@@ -112,7 +112,7 @@ mod tests {
         // ARRANGE
         let mut doc = standard_doc();
         let state = doc.find(Role::State).cloned().expect("state");
-        let mut renamed = state.clone();
+        let mut renamed = state;
         renamed.name = "SYSTEMVOL".to_owned();
         doc = replace(&doc, &renamed);
 

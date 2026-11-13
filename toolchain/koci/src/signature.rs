@@ -406,7 +406,7 @@ mod tests {
             .expect("compute manifest signing payload");
         let sig_b64 = sign_test_digest(&key, &digest);
 
-        let mut manifest_signed = manifest_bare.clone();
+        let mut manifest_signed = manifest_bare;
         manifest_signed
             .as_object_mut()
             .expect("test manifest is an object")
@@ -441,7 +441,7 @@ mod tests {
             .expect("compute manifest signing payload");
         let sig_b64 = sign_test_digest(&key, &digest);
 
-        let mut tampered = manifest_bare.clone();
+        let mut tampered = manifest_bare;
         let tampered_object = tampered
             .as_object_mut()
             .expect("test manifest is an object");

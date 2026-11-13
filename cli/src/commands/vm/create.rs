@@ -167,7 +167,7 @@ async fn create_vm(
         return Err(anyhow::anyhow!("{msg}"));
     }
 
-    let vm_id = resp.vm_id.clone();
+    let vm_id = resp.vm_id;
     let msg = format!("Created VM: {name} (ID: {vm_id})");
     steps.complete(&msg);
 

@@ -426,7 +426,7 @@ mod tests {
 
         // ACT
         let first = build(content.clone());
-        let second = build(content.clone());
+        let second = build(content);
 
         // ASSERT
         let size1 = first.first().expect("one").size();

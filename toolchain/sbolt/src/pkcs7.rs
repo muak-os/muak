@@ -113,7 +113,7 @@ fn build_signed_data_with_cms(
     };
     let mut digest_algs = SetOfVec::new();
     digest_algs
-        .insert(digest_alg.clone())
+        .insert(digest_alg)
         .map_err(|e| SboltError::Signing(format!("digest alg set: {e}")))?;
 
     let sequence_tag = 0x30;

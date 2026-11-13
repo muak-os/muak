@@ -54,7 +54,7 @@ pub fn sign(
     verify_signature(&csr)?;
 
     let subject = csr.info.subject.clone();
-    let spki = csr.info.public_key.clone();
+    let spki = csr.info.public_key;
     let issuer = ca_cert.tbs_certificate().subject().clone();
     let ca_signer = load_signer(ca_key_pem)?;
     let serial = generate_serial()?;

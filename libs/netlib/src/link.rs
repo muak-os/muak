@@ -256,7 +256,7 @@ pub(crate) fn extract_mac(link: &LinkMessage) -> Option<[u8; 6]> {
 pub(crate) fn extract_name(link: &LinkMessage) -> Option<String> {
     for attr in link.attributes.iter().cloned() {
         if let LinkAttribute::IfName(name) = attr {
-            return Some(name.clone());
+            return Some(name);
         }
     }
     None
