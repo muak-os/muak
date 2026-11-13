@@ -1,12 +1,5 @@
 # TODO
 
-- Harden CI with supply chain security of the CI itself
-  - cargo-vet
-
-- Remove duplicated tracker.rs, writer.rs & console.rs in wizard, koci & cli and consolidate in tui.
-
-- Nighly/edge images ready for usage, leveraging channels
-
 - Support RISC-V architecture
   - https://github.com/rust-lang/rust/issues/148920
   - https://github.com/llvm/llvm-project/pull/148045
@@ -14,17 +7,17 @@
 
 - Automatically bump toolchain in all organization on release
 
-- Fix secureboot not enrolling properly in edk2 on real hardware.
-
 - Enhance `e2e` tests
   - Support ARM & RISC-V architecture
   - Test true networking with IPv6
 
+- Better logs and errors using opentelemetry
 - Increase audit of the system:
   - Allow forwarding kernel logs to external monitoring systems
   - Audit every API call and allow user to review them
 
 - Better `cli`:
+  - Fix cli not saving & polling correct endpoint
   - Create install script for users to easily install the CLI regardless of OS
   - Add extensions to the CLI itself?
   - Allow for `muakctl update --overlays` to update overlays files (full reboot instead of kexec?)
@@ -44,13 +37,11 @@
 - Enhance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
+  - Add a new libs/sandbox to create `koci build` allowing us to replace `docker` and `podman` in our build chain
 
 - Sign all images in catalog (stub, kernel, sbcs etc)
   - Sign extensions and verify them for better supply chain security
 - Allow for "community extensions" that are still usable with a warning about security risks
-
-- Chaos engineering tests for networking failures, disk failures, service failures etc. (cargo-mutants)
-- Deterministic simulation tests?
 
 - Enhance `workloadd`:
   - Allow ISO images for VMS
