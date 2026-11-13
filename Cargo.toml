@@ -202,6 +202,8 @@ multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencie
 
 # Nursey
 redundant_clone = "warn"
+debug_assert_with_mut_call = "warn"
+unused_peekable = "warn"
 
 # Restriction
 big_endian_bytes = "allow"
