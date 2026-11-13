@@ -78,7 +78,7 @@ pub fn validate_release(release: &str) -> error::DocumentResult<()> {
 ///
 /// Returns an error when `release` is not a valid semantic version.
 pub fn release_version(release: &str) -> error::DocumentResult<Version> {
-    let core = release.strip_prefix('v').unwrap_or(release);
+    let core = release.trim_prefix('v');
 
     Version::parse(core).map_err(|error| {
         error::DocumentError::Document(format!("invalid release '{release}': {error}"))

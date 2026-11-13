@@ -34,7 +34,7 @@ pub(crate) fn newest(tags: &[String]) -> Result<String> {
 }
 
 fn version(tag: &str) -> Option<Version> {
-    let core = tag.strip_prefix('v').unwrap_or(tag);
+    let core = tag.trim_prefix('v');
     if let Ok(version) = Version::parse(core) {
         return Some(version);
     }

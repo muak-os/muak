@@ -91,7 +91,7 @@ pub fn build_readers(dir: &Path, entries: &[TreeEntry]) -> Result<FileReaders> {
             files.push(None);
             continue;
         }
-        let path = dir.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
+        let path = dir.join(ent.rel_path.trim_prefix('/'));
         let file = std::fs::File::open(&path).map_err(|source| {
             MumiError::Io(std::io::Error::other(format!(
                 "Failed to open {}: {source}",

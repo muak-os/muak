@@ -100,7 +100,7 @@ impl Content {
         })?;
         let staging_dir = root.join(cache::INGEST_DIR);
         std::fs::create_dir_all(&staging_dir).map_err(KociError::IoError)?;
-        let hash = digest.strip_prefix("sha256:").unwrap_or(digest);
+        let hash = digest.trim_prefix("sha256:");
         let canonical = staging_dir.join(format!("{hash}.part"));
 
         if !claim_staging(&canonical) {
@@ -125,7 +125,7 @@ impl Content {
 
     fn detached_ingest(staging_dir: &Path, target: PathBuf, digest: &str) -> Result<Ingest> {
         let seq = INGEST_SEQ.fetch_add(1, Ordering::Relaxed);
-        let hash = digest.strip_prefix("sha256:").unwrap_or(digest);
+        let hash = digest.trim_prefix("sha256:");
         let staging = staging_dir.join(format!("{hash}.{seq}.part"));
         let file = OpenOptions::new()
             .append(true)

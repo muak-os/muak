@@ -46,7 +46,7 @@ impl Member {
     }
 
     fn toc_name(&self) -> &str {
-        self.name().strip_suffix('/').unwrap_or(self.name())
+        self.name().trim_suffix('/')
     }
 
     fn entry_type(&self) -> tar::EntryType {

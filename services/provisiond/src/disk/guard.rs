@@ -39,7 +39,7 @@ pub(crate) fn validate_in<K: Kernel>(
     allow_system_disk: bool,
     kernel: &K,
 ) -> Result<Verdict> {
-    let name = id.strip_prefix("/dev/").unwrap_or(id);
+    let name = id.trim_prefix("/dev/");
     let disk = find(disks, name)?;
     let checks = checks(
         disk,

@@ -195,7 +195,7 @@ mod tests {
         if ent.file_type == EROFS_FT_DIR || ent.file_type == EROFS_FT_SYMLINK || ent.size == 0 {
             return Box::new(std::io::empty());
         }
-        let full = dir_path.join(ent.rel_path.strip_prefix('/').unwrap_or(&ent.rel_path));
+        let full = dir_path.join(ent.rel_path.trim_prefix('/'));
         Box::new(std::fs::File::open(&full).expect("open"))
     }
 

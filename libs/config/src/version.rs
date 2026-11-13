@@ -27,7 +27,7 @@ pub enum CompatibilityStatus {
 ///
 /// Returns an error when `release` is not a valid semantic version.
 pub fn parse_release(release: &str) -> Result<Version> {
-    let core = release.strip_prefix('v').unwrap_or(release);
+    let core = release.trim_prefix('v');
 
     Version::parse(core).map_err(|error| {
         ConfigError::ValidationError(format!("invalid release '{release}': {error}"))

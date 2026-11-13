@@ -107,7 +107,7 @@ impl From<EntryRef<'_>> for ResolvedInput {
 /// Returns the leading hex characters of an identity or digest.
 #[must_use]
 pub fn abbreviated(value: &str) -> &str {
-    let value = value.strip_prefix("sha256:").unwrap_or(value);
+    let value = value.trim_prefix("sha256:");
 
     value.get(..12).unwrap_or(value)
 }
