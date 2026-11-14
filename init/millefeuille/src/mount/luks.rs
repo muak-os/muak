@@ -1,6 +1,6 @@
 //! LUKS key resolution.
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use blockdev::discover;
 use disk::role::Role;
 use luks2::key::Passphrase;
@@ -99,19 +99,7 @@ fn read_key_file() -> Result<Passphrase> {
     let path = format!("{ESP_MOUNT}/{ESP_KEY_NAME}");
     let bytes = std::fs::read(&path).with_context(|| format!("Failed to read {path}"))?;
 
-    decode_key_file(bytes)
-}
-
-fn decode_key_file(bytes: Vec<u8>) -> Result<Passphrase> {
-    if bytes.len() != luks2::key::VOLUME_KEY_SIZE {
-        bail!(
-            "ESP LUKS key file has {} bytes, expected {}",
-            bytes.len(),
-            luks2::key::VOLUME_KEY_SIZE
-        );
-    }
-
-    Ok(Passphrase::new(bytes))
+    Ok(luks2::key::from_raw(bytes)?)
 }
 
 fn remove_mountpoint() {
@@ -119,37 +107,5 @@ fn remove_mountpoint() {
         && error != Errno::NOENT
     {
         kmsg::warn!("Failed to remove {}: {}", ESP_MOUNT, error);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decode_key_file_accepts_key_of_expected_length() {
-        // ARRANGE
-        let bytes = vec![7_u8; luks2::key::VOLUME_KEY_SIZE];
-
-        // ACT
-        let result = decode_key_file(bytes);
-
-        // ASSERT
-        assert_eq!(
-            result.as_ref().map(|value| value.as_slice()).ok(),
-            Some([7_u8; luks2::key::VOLUME_KEY_SIZE].as_ref())
-        );
-    }
-
-    #[test]
-    fn decode_key_file_rejects_empty_key() {
-        // ARRANGE
-        let bytes = Vec::new();
-
-        // ACT
-        let result = decode_key_file(bytes);
-
-        // ASSERT
-        assert!(result.unwrap_err().to_string().contains("expected 64"));
     }
 }

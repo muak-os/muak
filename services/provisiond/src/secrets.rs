@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use luks2::key::{Passphrase, VOLUME_KEY_SIZE};
+use luks2::key::Passphrase;
 use luks2::metadata::Tpm2Token;
 use uki::measure::MeasuredSection;
 use uki::section::canonical_rank;
@@ -102,73 +102,11 @@ fn read_esp_key(efi_device: &str) -> Option<Passphrase> {
     };
     efi::unmount();
 
-    decode(bytes)
-}
-
-fn decode(bytes: Vec<u8>) -> Option<Passphrase> {
-    let key = Passphrase::new(bytes);
-
-    if key.len() != VOLUME_KEY_SIZE {
-        eprintln!(
-            "LUKS key from the ESP has {} bytes, expected {VOLUME_KEY_SIZE}",
-            key.len()
-        );
-        return None;
-    }
-
-    Some(key)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decode_accepts_volume_key_size() {
-        // ARRANGE
-        let bytes = vec![0xAB; VOLUME_KEY_SIZE];
-        let expected = bytes.clone();
-
-        // ACT
-        let key = decode(bytes);
-
-        // ASSERT
-        assert_eq!(key.as_deref().map(Vec::as_slice), Some(expected.as_slice()));
-    }
-
-    #[test]
-    fn decode_rejects_empty_buffer() {
-        // ARRANGE
-        let bytes = Vec::new();
-
-        // ACT
-        let key = decode(bytes);
-
-        // ASSERT
-        assert!(key.is_none(), "an empty buffer must be rejected");
-    }
-
-    #[test]
-    fn decode_rejects_truncated_buffer() {
-        // ARRANGE
-        let bytes = vec![0xAB; VOLUME_KEY_SIZE - 1];
-
-        // ACT
-        let key = decode(bytes);
-
-        // ASSERT
-        assert!(key.is_none(), "a truncated buffer must be rejected");
-    }
-
-    #[test]
-    fn decode_rejects_oversized_buffer() {
-        // ARRANGE
-        let bytes = vec![0xAB; VOLUME_KEY_SIZE + 1];
-
-        // ACT
-        let key = decode(bytes);
-
-        // ASSERT
-        assert!(key.is_none(), "an oversized buffer must be rejected");
+    match luks2::key::from_raw(bytes) {
+        Ok(key) => Some(key),
+        Err(error) => {
+            eprintln!("Rejected LUKS key from the ESP: {error}");
+            None
+        }
     }
 }

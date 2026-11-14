@@ -35,6 +35,25 @@ pub fn from(encoded: &str) -> Option<Passphrase> {
     Base64Unpadded::decode_vec(encoded).ok().map(Zeroizing::new)
 }
 
+/// Wraps raw key bytes, validating them against the volume key size.
+///
+/// # Errors
+///
+/// Returns [`Luks2Error::InvalidKeyLength`] when `bytes` is not
+/// [`VOLUME_KEY_SIZE`] long. The rejected buffer is zeroized on drop.
+pub fn from_raw(bytes: Vec<u8>) -> Result<Passphrase> {
+    let key = Passphrase::new(bytes);
+
+    if key.len() != VOLUME_KEY_SIZE {
+        return Err(Luks2Error::InvalidKeyLength {
+            actual: key.len(),
+            expected: VOLUME_KEY_SIZE,
+        });
+    }
+
+    Ok(key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,6 +89,66 @@ mod tests {
 
         // ACT & ASSERT
         assert!(from(encoded).is_none());
+    }
+
+    #[test]
+    fn from_raw_accepts_volume_key_size() {
+        // ARRANGE
+        let bytes = vec![0xAB; VOLUME_KEY_SIZE];
+
+        // ACT
+        let key = from_raw(bytes);
+
+        // ASSERT
+        assert_eq!(
+            key.as_ref().map(|value| value.as_slice()).ok(),
+            Some([0xAB; VOLUME_KEY_SIZE].as_ref())
+        );
+    }
+
+    #[test]
+    fn from_raw_rejects_empty_buffer() {
+        // ARRANGE
+        let bytes = Vec::new();
+
+        // ACT
+        let error = from_raw(bytes).unwrap_err();
+
+        // ASSERT
+        assert_eq!(
+            error.to_string(),
+            "invalid LUKS key length: 0 bytes, expected 64"
+        );
+    }
+
+    #[test]
+    fn from_raw_rejects_truncated_buffer() {
+        // ARRANGE
+        let bytes = vec![0xAB; VOLUME_KEY_SIZE - 1];
+
+        // ACT
+        let error = from_raw(bytes).unwrap_err();
+
+        // ASSERT
+        assert_eq!(
+            error.to_string(),
+            "invalid LUKS key length: 63 bytes, expected 64"
+        );
+    }
+
+    #[test]
+    fn from_raw_rejects_oversized_buffer() {
+        // ARRANGE
+        let bytes = vec![0xAB; VOLUME_KEY_SIZE + 1];
+
+        // ACT
+        let error = from_raw(bytes).unwrap_err();
+
+        // ASSERT
+        assert_eq!(
+            error.to_string(),
+            "invalid LUKS key length: 65 bytes, expected 64"
+        );
     }
 
     #[test]

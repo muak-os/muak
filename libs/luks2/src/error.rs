@@ -41,6 +41,15 @@ pub enum Luks2Error {
     #[error("digest verification failed")]
     DigestMismatch,
 
+    /// Key length does not match the volume key size.
+    #[error("invalid LUKS key length: {actual} bytes, expected {expected}")]
+    InvalidKeyLength {
+        /// Observed key length in bytes.
+        actual: usize,
+        /// Required key length in bytes.
+        expected: usize,
+    },
+
     /// Device-mapper operation failed.
     #[error("device-mapper operation failed: {0}")]
     DeviceMapper(String),
