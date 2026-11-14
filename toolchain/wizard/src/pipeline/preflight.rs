@@ -16,14 +16,23 @@ use crate::progress::Event;
 pub(crate) fn preflight(graph: Graph, ctx: &BuildContext<'_, '_>) -> Result<Graph> {
     let mut graph = graph;
 
+    ctx.progress.report(Event::Started {
+        label: "Preparing artifacts",
+    });
     for index in 0..graph.nodes().len() {
         let kind = graph.node(NodeId(index))?.kind;
         let node = nodes::descriptor(kind);
         let label = format!("Preparing {}", kind.title());
-        ctx.progress.report(Event::Started { label: &label });
+        ctx.progress.report(Event::Note {
+            node: None,
+            message: &label,
+            detail: true,
+        });
         (node.preflight)(&mut graph, NodeId(index), ctx)?;
-        ctx.progress.report(Event::Completed { label: &label });
     }
+    ctx.progress.report(Event::Completed {
+        label: "Preparing artifacts",
+    });
 
     graph.assert_named()?;
 

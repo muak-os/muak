@@ -17,10 +17,6 @@ impl Tracked {
             progress: Progress::new(steps, verbose),
         }
     }
-
-    fn sized(&self, artifacts: usize, bytes: Option<u64>) {
-        self.progress.sized(building(artifacts), bytes);
-    }
 }
 
 impl Reporter for Tracked {
@@ -28,7 +24,7 @@ impl Reporter for Tracked {
         match event {
             Event::Started { label } => self.progress.start(label),
             Event::Completed { label } => self.progress.complete(label),
-            Event::Sized { artifacts, bytes } => self.sized(artifacts, bytes),
+            Event::Sized { artifacts, bytes } => self.progress.sized_artifacts(artifacts, bytes),
             Event::ArtifactBytes { artifact, current } => {
                 let index = artifact.to_index().saturating_add(1);
                 self.progress.bytes(Some(index), current, current);
@@ -64,14 +60,6 @@ impl Tracker for ArtifactTracker<'_> {
             artifact: self.artifact,
             current,
         });
-    }
-}
-
-fn building(artifacts: usize) -> String {
-    if artifacts == 1 {
-        "Building 1 artifact".to_owned()
-    } else {
-        format!("Building {artifacts} artifacts")
     }
 }
 

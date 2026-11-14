@@ -2,6 +2,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use crate::live::lines::artifacts_message;
 use crate::live::steps::Handle;
 
 /// Live step display that aggregates per-item bytes and gates detail notes.
@@ -65,6 +66,11 @@ impl Tracked {
 
         self.reset();
         self.steps.start(message);
+    }
+
+    /// Begins a step labelled after the `count` artifacts being built.
+    pub fn sized_artifacts(&self, count: usize, bytes: Option<u64>) {
+        self.sized(artifacts_message(count), bytes);
     }
 
     /// Records the final size of the 1-based item at `index`.

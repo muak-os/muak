@@ -1,14 +1,15 @@
 //! Forwards wizard build progress to the update preparation stream.
 
 use tokio::sync::mpsc;
-use wizard::progress::{Event, Reporter};
+use wizard::progress::{Event, NodeState, Reporter};
 
-use crate::ipc::proto::provision::PrepareUpdateProgress;
+use crate::ipc::proto::provision::prepare_update_progress::Event as ProtoEvent;
+use crate::ipc::proto::provision::{
+    PrepareArtifactBytes, PrepareNode, PrepareNodeState, PrepareNote, PrepareSized,
+    PrepareStageCompleted, PrepareStageStarted, PrepareUpdateProgress,
+};
 
-// Bytes in one mebibyte.
-const BYTES_PER_MIB: u64 = 1024 * 1024;
-
-/// Reporter that turns wizard events into update preparation messages.
+/// Reporter that turns wizard events into structured update preparation messages.
 pub(crate) struct Forwarder {
     sender: mpsc::Sender<PrepareUpdateProgress>,
 }
@@ -18,64 +19,87 @@ impl Forwarder {
     pub(crate) const fn new(sender: mpsc::Sender<PrepareUpdateProgress>) -> Self {
         Self { sender }
     }
+}
 
-    fn send(&self, message: &str) {
+impl Reporter for Forwarder {
+    fn report(&self, event: Event<'_>) {
         let _sent = self.sender.try_send(PrepareUpdateProgress {
-            message: message.to_owned(),
+            event: Some(convert(event)),
             ..Default::default()
         });
     }
 }
 
-impl Reporter for Forwarder {
-    fn report(&self, event: Event<'_>) {
-        match event {
-            Event::Started { label } | Event::Completed { label } => self.send(label),
-            Event::Sized { artifacts, bytes } => self.send(&sized_message(artifacts, bytes)),
-            Event::ArtifactBytes { .. } | Event::Note { detail: true, .. } => {}
-            Event::Node { node, state } => self.send(&format!("{node} {}", state.title())),
-            Event::Note {
-                message,
-                detail: false,
-                ..
-            } => self.send(message),
+fn convert(event: Event<'_>) -> ProtoEvent {
+    match event {
+        Event::Started { label } => ProtoEvent::Started(PrepareStageStarted {
+            label: label.to_owned(),
+        }),
+        Event::Completed { label } => ProtoEvent::Completed(PrepareStageCompleted {
+            label: label.to_owned(),
+        }),
+        Event::Sized { artifacts, bytes } => ProtoEvent::Sized(PrepareSized {
+            artifacts: u32::try_from(artifacts).unwrap_or(u32::MAX),
+            bytes,
+        }),
+        Event::ArtifactBytes { artifact, current } => {
+            ProtoEvent::ArtifactBytes(PrepareArtifactBytes {
+                artifact_index: u32::try_from(artifact.to_index()).unwrap_or(u32::MAX),
+                current,
+            })
         }
+        Event::Node { node, state } => ProtoEvent::Node(PrepareNode {
+            node: node.to_owned(),
+            state: node_state(state).into(),
+        }),
+        Event::Note {
+            node,
+            message,
+            detail,
+        } => ProtoEvent::Note(PrepareNote {
+            node: node.map(str::to_owned),
+            message: message.to_owned(),
+            detail,
+        }),
     }
 }
 
-fn sized_message(artifacts: usize, bytes: Option<u64>) -> String {
-    match bytes {
-        Some(bytes) => format!("{artifacts} artifacts, {} MiB total", mib(bytes)),
-        None => format!("{artifacts} artifacts"),
+fn node_state(state: NodeState) -> PrepareNodeState {
+    match state {
+        NodeState::Started => PrepareNodeState::Started,
+        NodeState::Completed => PrepareNodeState::Completed,
+        NodeState::Failed => PrepareNodeState::Failed,
     }
-}
-
-fn mib(bytes: u64) -> u64 {
-    bytes.checked_div(BYTES_PER_MIB).unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use tokio::sync::mpsc;
+    use wizard::artifact::Artifact;
     use wizard::progress::{Event, NodeState, Reporter as _};
 
     use super::Forwarder;
+    use crate::ipc::proto::provision::prepare_update_progress::Event as ProtoEvent;
+    use crate::ipc::proto::provision::{
+        PrepareArtifactBytes, PrepareNode, PrepareNodeState, PrepareNote, PrepareSized,
+        PrepareStageCompleted, PrepareStageStarted, PrepareUpdateProgress,
+    };
 
-    type Channel = (
-        mpsc::Sender<super::PrepareUpdateProgress>,
-        mpsc::Receiver<super::PrepareUpdateProgress>,
-    );
-
-    fn channel() -> Channel {
+    fn channel() -> (
+        mpsc::Sender<PrepareUpdateProgress>,
+        mpsc::Receiver<PrepareUpdateProgress>,
+    ) {
         mpsc::channel(4)
     }
 
-    fn next_message(receiver: &mut mpsc::Receiver<super::PrepareUpdateProgress>) -> Option<String> {
-        receiver.try_recv().ok().map(|progress| progress.message)
+    fn next_event(receiver: &mut mpsc::Receiver<PrepareUpdateProgress>) -> Option<ProtoEvent> {
+        let progress = receiver.try_recv().ok()?;
+
+        progress.event
     }
 
     #[test]
-    fn started_label_becomes_message() {
+    fn started_label_becomes_started_event() {
         // ARRANGE
         let (sender, mut receiver) = channel();
         let forwarder = Forwarder::new(sender);
@@ -87,13 +111,35 @@ mod tests {
 
         // ASSERT
         assert_eq!(
-            next_message(&mut receiver).as_deref(),
-            Some("Resolving sources")
+            next_event(&mut receiver),
+            Some(ProtoEvent::Started(PrepareStageStarted {
+                label: "Resolving sources".to_owned(),
+            }))
         );
     }
 
     #[test]
-    fn sized_event_names_artifacts_and_total_size() {
+    fn completed_label_becomes_completed_event() {
+        // ARRANGE
+        let (sender, mut receiver) = channel();
+        let forwarder = Forwarder::new(sender);
+
+        // ACT
+        forwarder.report(Event::Completed {
+            label: "Preparing artifacts",
+        });
+
+        // ASSERT
+        assert_eq!(
+            next_event(&mut receiver),
+            Some(ProtoEvent::Completed(PrepareStageCompleted {
+                label: "Preparing artifacts".to_owned(),
+            }))
+        );
+    }
+
+    #[test]
+    fn sized_event_carries_artifacts_and_bytes() {
         // ARRANGE
         let (sender, mut receiver) = channel();
         let forwarder = Forwarder::new(sender);
@@ -101,7 +147,7 @@ mod tests {
         // ACT
         forwarder.report(Event::Sized {
             artifacts: 3,
-            bytes: Some(5 * super::BYTES_PER_MIB),
+            bytes: Some(2048),
         });
         forwarder.report(Event::Sized {
             artifacts: 2,
@@ -110,14 +156,23 @@ mod tests {
 
         // ASSERT
         assert_eq!(
-            next_message(&mut receiver).as_deref(),
-            Some("3 artifacts, 5 MiB total")
+            next_event(&mut receiver),
+            Some(ProtoEvent::Sized(PrepareSized {
+                artifacts: 3,
+                bytes: Some(2048),
+            }))
         );
-        assert_eq!(next_message(&mut receiver).as_deref(), Some("2 artifacts"));
+        assert_eq!(
+            next_event(&mut receiver),
+            Some(ProtoEvent::Sized(PrepareSized {
+                artifacts: 2,
+                bytes: None,
+            }))
+        );
     }
 
     #[test]
-    fn node_event_combines_name_and_state() {
+    fn node_event_carries_state() {
         // ARRANGE
         let (sender, mut receiver) = channel();
         let forwarder = Forwarder::new(sender);
@@ -125,15 +180,21 @@ mod tests {
         // ACT
         forwarder.report(Event::Node {
             node: "kernel",
-            state: NodeState::Completed,
+            state: NodeState::Failed,
         });
 
         // ASSERT
-        assert_eq!(next_message(&mut receiver).as_deref(), Some("kernel done"));
+        assert_eq!(
+            next_event(&mut receiver),
+            Some(ProtoEvent::Node(PrepareNode {
+                node: "kernel".to_owned(),
+                state: PrepareNodeState::Failed.into(),
+            }))
+        );
     }
 
     #[test]
-    fn detail_note_is_dropped_and_plain_note_is_forwarded() {
+    fn detail_note_is_forwarded() {
         // ARRANGE
         let (sender, mut receiver) = channel();
         let forwarder = Forwarder::new(sender);
@@ -144,22 +205,43 @@ mod tests {
             message: "sha256:abc 2048 bytes",
             detail: true,
         });
-        forwarder.report(Event::Note {
-            node: None,
-            message: "Downloading layers",
-            detail: false,
-        });
 
         // ASSERT
         assert_eq!(
-            next_message(&mut receiver).as_deref(),
-            Some("Downloading layers")
+            next_event(&mut receiver),
+            Some(ProtoEvent::Note(PrepareNote {
+                node: Some("kernel".to_owned()),
+                message: "sha256:abc 2048 bytes".to_owned(),
+                detail: true,
+            }))
         );
-        assert_eq!(next_message(&mut receiver), None);
     }
 
     #[test]
-    fn report_inside_runtime_block_on_forwards_message() {
+    fn artifact_bytes_uses_zero_based_index() {
+        // ARRANGE
+        let (sender, mut receiver) = channel();
+        let forwarder = Forwarder::new(sender);
+
+        // ACT
+        forwarder.report(Event::ArtifactBytes {
+            artifact: Artifact::Iso,
+            current: 1024,
+        });
+
+        // ASSERT
+        let index = u32::try_from(Artifact::Iso.to_index()).expect("index fits in u32");
+        assert_eq!(
+            next_event(&mut receiver),
+            Some(ProtoEvent::ArtifactBytes(PrepareArtifactBytes {
+                artifact_index: index,
+                current: 1024,
+            }))
+        );
+    }
+
+    #[test]
+    fn report_inside_runtime_block_on_forwards_event() {
         // ARRANGE
         let (sender, mut receiver) = channel();
         let forwarder = Forwarder::new(sender);
@@ -175,8 +257,11 @@ mod tests {
 
         // ASSERT
         assert_eq!(
-            next_message(&mut receiver).as_deref(),
-            Some("kernel started")
+            next_event(&mut receiver),
+            Some(ProtoEvent::Node(PrepareNode {
+                node: "kernel".to_owned(),
+                state: PrepareNodeState::Started.into(),
+            }))
         );
     }
 
@@ -198,10 +283,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(
-            next_message(&mut receiver).as_deref(),
-            Some("kernel started")
+            next_event(&mut receiver),
+            Some(ProtoEvent::Node(PrepareNode {
+                node: "kernel".to_owned(),
+                state: PrepareNodeState::Started.into(),
+            }))
         );
-        assert_eq!(next_message(&mut receiver), None);
+        assert_eq!(next_event(&mut receiver), None);
     }
 
     #[test]

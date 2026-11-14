@@ -14,11 +14,19 @@ impl<'a> Adapter<'a> {
         Self { reporter, node }
     }
 
-    fn note(&self, message: &str, detail: bool) {
+    fn note(&self, message: &str) {
         self.reporter.report(Event::Note {
             node: Some(self.node),
             message,
-            detail,
+            detail: true,
+        });
+    }
+
+    fn note_always(&self, message: &str) {
+        self.reporter.report(Event::Note {
+            node: Some(self.node),
+            message,
+            detail: false,
         });
     }
 }
@@ -27,42 +35,39 @@ impl koci::progress::Reporter for Adapter<'_> {
     fn report(&self, event: koci::progress::Event<'_>) {
         match event {
             koci::progress::Event::Started { operation, subject } => {
-                self.note(&format!("{} {subject}", operation.title()), true);
+                self.note(&format!("{} {subject}", operation.title()));
             }
             koci::progress::Event::Resolved { layers, .. } => {
-                self.note(&format!("resolved {layers} layers"), true);
+                self.note(&format!("resolved {layers} layers"));
             }
             koci::progress::Event::Collected { manifests, blobs } => {
-                self.note(
-                    &format!("collected {manifests} manifests, {blobs} blobs"),
-                    true,
-                );
+                self.note(&format!("collected {manifests} manifests, {blobs} blobs"));
             }
             koci::progress::Event::Packed { entries, bytes } => {
-                self.note(&format!("packed {entries} entries ({bytes} bytes)"), true);
+                self.note(&format!("packed {entries} entries ({bytes} bytes)"));
             }
             koci::progress::Event::IndexFetched { platforms } => {
-                self.note(&format!("fetched index ({platforms} platforms)"), true);
+                self.note(&format!("fetched index ({platforms} platforms)"));
             }
             koci::progress::Event::PhaseStarted { label, .. }
-            | koci::progress::Event::PhaseCompleted { label, .. } => self.note(label, false),
+            | koci::progress::Event::PhaseCompleted { label, .. } => self.note(label),
             koci::progress::Event::Progress { .. }
             | koci::progress::Event::Bytes { .. }
             | koci::progress::Event::ItemQueued { .. }
             | koci::progress::Event::Done { .. } => {}
             koci::progress::Event::ItemSkipped { digest, .. } => {
-                self.note(&format!("skipped existing {digest}"), true);
+                self.note(&format!("skipped existing {digest}"));
             }
             koci::progress::Event::ItemDone { size, digest, .. } => {
-                self.note(&format!("{digest} {size} bytes"), true);
+                self.note(&format!("{digest} {size} bytes"));
             }
             koci::progress::Event::ManifestPushed { reference } => {
-                self.note(&format!("pushed manifest {reference}"), true);
+                self.note(&format!("pushed manifest {reference}"));
             }
             koci::progress::Event::Verified { digest } => {
-                self.note(&format!("verified destination digest {digest}"), false);
+                self.note_always(&format!("verified destination digest {digest}"));
             }
-            koci::progress::Event::Note { message } => self.note(message, true),
+            koci::progress::Event::Note { message } => self.note(message),
         }
     }
 }
@@ -123,12 +128,12 @@ mod tests {
                 (
                     Some("kernel".to_owned()),
                     "Downloading layers".to_owned(),
-                    false
+                    true
                 ),
                 (
                     Some("kernel".to_owned()),
                     "Downloaded 2/2 layers".to_owned(),
-                    false
+                    true
                 ),
             ]
         );
@@ -160,6 +165,29 @@ mod tests {
         let note = notes.first().expect("one item note");
         assert_eq!(note.1, "sha256:abc 2048 bytes");
         assert!(note.2, "item detail must be verbose-only");
+    }
+
+    #[test]
+    fn verified_digests_stay_visible_without_verbose() {
+        // ARRANGE
+        let recorded = Recorded::default();
+        let adapter = Adapter::new(&recorded, "iso");
+
+        // ACT
+        adapter.report(koci::progress::Event::Verified {
+            digest: "sha256:abc",
+        });
+
+        // ASSERT
+        let notes = recorded.0.lock().expect("unpoisoned");
+        assert_eq!(
+            *notes,
+            vec![(
+                Some("iso".to_owned()),
+                "verified destination digest sha256:abc".to_owned(),
+                false
+            )]
+        );
     }
 
     #[test]

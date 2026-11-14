@@ -1,3 +1,4 @@
+mod progress;
 mod trigger;
 
 use core::time::Duration;
@@ -13,6 +14,7 @@ use tonic::transport::Channel;
 use tui::console::Console;
 use tui::live::steps::Steps;
 
+use self::progress::Progress;
 use self::trigger::{Outcome, classify, failure_message, reboot_notice};
 use crate::client::connect;
 use crate::client::provision_service::provision_service_client::ProvisionServiceClient;
@@ -100,6 +102,7 @@ pub(crate) async fn handle(
     }
 
     let steps = console.steps()?;
+    let reporter = Progress::new(&steps, console.stderr().verbose);
 
     let response = client
         .prepare_update(tonic::Request::new(PrepareUpdateRequest {
@@ -131,7 +134,10 @@ pub(crate) async fn handle(
         }
 
         if progress.update_id.is_empty() {
-            steps.start(&progress.message);
+            match progress.event {
+                Some(event) => reporter.report(event),
+                None => steps.start(&progress.message),
+            }
         } else {
             update_id = progress.update_id;
         }

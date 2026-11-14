@@ -679,6 +679,14 @@ extensions = []
             "events: {rendered}"
         );
         assert!(rendered.contains("Preparing kernel"), "events: {rendered}");
+        assert!(
+            rendered.contains("Started { label: \"Preparing artifacts\" }"),
+            "events: {rendered}"
+        );
+        assert!(
+            rendered.contains("Completed { label: \"Preparing artifacts\" }"),
+            "events: {rendered}"
+        );
         assert!(rendered.contains("node: \"kernel\""), "events: {rendered}");
         assert!(
             rendered.contains("Downloading layers"),

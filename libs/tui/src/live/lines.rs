@@ -102,6 +102,15 @@ pub(crate) fn status_line(
     line
 }
 
+/// Builds the label of a step building `count` artifacts.
+pub(crate) fn artifacts_message(count: usize) -> String {
+    if count == 1 {
+        "Building 1 artifact".to_owned()
+    } else {
+        format!("Building {count} artifacts")
+    }
+}
+
 fn fitted(message: &str, width: usize) -> String {
     let sanitized = text::sanitize(Cow::Borrowed(message));
 

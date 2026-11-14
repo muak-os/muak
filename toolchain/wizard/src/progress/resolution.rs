@@ -5,37 +5,45 @@ use crate::domain::identity::abbreviated;
 use crate::domain::resolution::Resolution;
 use crate::progress::{Event, Reporter};
 
-/// Reports the resolution identities as completed stages.
+/// Reports the resolution identities as detail notes.
 pub(crate) fn report(progress: &dyn Reporter, resolution: &Resolution) {
     let profile = resolution.profile_id().to_string();
     let resolution_id = resolution.resolution_id().to_string();
     let catalog = resolution.catalog();
 
-    progress.report(Event::Completed {
-        label: &format!(
+    progress.report(Event::Note {
+        node: None,
+        message: &format!(
             "profile id {} ({})",
             abbreviated(&profile),
             resolution.build().arch()
         ),
+        detail: true,
     });
     progress.report(Event::Note {
         node: None,
         message: &format!("profile id: {profile}"),
         detail: true,
     });
-    progress.report(Event::Completed {
-        label: &format!("release {}", resolution.build().version()),
+    progress.report(Event::Note {
+        node: None,
+        message: &format!("release {}", resolution.build().version()),
+        detail: true,
     });
-    progress.report(Event::Completed {
-        label: &format!("catalog {}", short_catalog(catalog)),
+    progress.report(Event::Note {
+        node: None,
+        message: &format!("catalog {}", short_catalog(catalog)),
+        detail: true,
     });
     progress.report(Event::Note {
         node: None,
         message: &format!("catalog: {}", catalog.pinned()),
         detail: true,
     });
-    progress.report(Event::Completed {
-        label: &format!("resolution {}", abbreviated(&resolution_id)),
+    progress.report(Event::Note {
+        node: None,
+        message: &format!("resolution {}", abbreviated(&resolution_id)),
+        detail: true,
     });
     progress.report(Event::Note {
         node: None,

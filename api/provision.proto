@@ -114,11 +114,55 @@ message PrepareUpdateRequest {
     bool offline = 4;
 }
 
+message PrepareStageStarted {
+    string label = 1;
+}
+
+message PrepareStageCompleted {
+    string label = 1;
+}
+
+message PrepareSized {
+    uint32 artifacts = 1;
+    optional uint64 bytes = 2;
+}
+
+enum PrepareNodeState {
+    PREPARE_NODE_STATE_UNSPECIFIED = 0;
+    PREPARE_NODE_STATE_STARTED = 1;
+    PREPARE_NODE_STATE_COMPLETED = 2;
+    PREPARE_NODE_STATE_FAILED = 3;
+}
+
+message PrepareNode {
+    string node = 1;
+    PrepareNodeState state = 2;
+}
+
+message PrepareNote {
+    optional string node = 1;
+    string message = 2;
+    bool detail = 3;
+}
+
+message PrepareArtifactBytes {
+    uint32 artifact_index = 1;
+    uint64 current = 2;
+}
+
 message PrepareUpdateProgress {
     string message = 1;
     string update_id = 2;
     string error = 3;
     bool already_current = 4;
+    oneof event {
+        PrepareStageStarted started = 5;
+        PrepareStageCompleted completed = 6;
+        PrepareSized sized = 7;
+        PrepareNode node = 8;
+        PrepareNote note = 9;
+        PrepareArtifactBytes artifact_bytes = 10;
+    }
 }
 
 message UpdateRequest {

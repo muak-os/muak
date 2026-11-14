@@ -71,6 +71,21 @@ mod tests {
     }
 
     #[test]
+    fn sized_artifacts_labels_the_step_by_count() {
+        // ARRANGE
+        let (tracked, steps, rx) = tracked(false);
+
+        // ACT
+        tracked.sized_artifacts(1, Some(10));
+        tracked.sized_artifacts(3, None);
+        let text = output(&rx, steps);
+
+        // ASSERT
+        assert!(text.contains("Building 1 artifact"), "output: {text}");
+        assert!(text.contains("Building 3 artifacts"), "output: {text}");
+    }
+
+    #[test]
     fn sized_resets_previous_byte_samples() {
         // ARRANGE
         let (tracked, steps, rx) = tracked(false);
