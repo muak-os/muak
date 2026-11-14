@@ -92,6 +92,23 @@ pub async fn get_any_status(
     send(client, url, req).await
 }
 
+/// Execute an authorized HEAD carrying the given `Accept` headers, retrying
+/// transient failures and rejecting non-success statuses.
+///
+/// # Errors
+///
+/// Returns an error when the request fails or the registry answers non-2xx.
+pub async fn head(
+    client: &Transport,
+    url: &str,
+    authorization: Option<&str>,
+    accept_headers: &[&str],
+) -> Result<Response<Incoming>> {
+    let response = head_any_status_with_accept(client, url, authorization, accept_headers).await?;
+
+    ensure_success(url, response)
+}
+
 /// Execute a HEAD and return the response whatever its status, retrying
 /// transient failures.
 ///
@@ -103,21 +120,7 @@ pub async fn head_any_status(
     url: &str,
     authorization: Option<&str>,
 ) -> Result<Response<Incoming>> {
-    let policy = retry::Policy::default();
-    let mut attempt = 0;
-    loop {
-        let req = request::head_request(url, authorization)?;
-        match send(client, url, req).await {
-            Ok(response) => return Ok(response),
-            Err(error) => match retry::next_retry(&policy, &error, attempt) {
-                Some(delay) => {
-                    tokio::time::sleep(delay).await;
-                    attempt = attempt.saturating_add(1);
-                }
-                None => return Err(error),
-            },
-        }
-    }
+    head_any_status_with_accept(client, url, authorization, &[]).await
 }
 
 /// Execute a POST with an empty body and return the response whatever its status.
@@ -272,6 +275,29 @@ async fn get_with_range(
             Err(error) => Err(error),
         };
         match result {
+            Ok(response) => return Ok(response),
+            Err(error) => match retry::next_retry(&policy, &error, attempt) {
+                Some(delay) => {
+                    tokio::time::sleep(delay).await;
+                    attempt = attempt.saturating_add(1);
+                }
+                None => return Err(error),
+            },
+        }
+    }
+}
+
+async fn head_any_status_with_accept(
+    client: &Transport,
+    url: &str,
+    authorization: Option<&str>,
+    accept_headers: &[&str],
+) -> Result<Response<Incoming>> {
+    let policy = retry::Policy::default();
+    let mut attempt = 0;
+    loop {
+        let req = request::head(url, authorization, accept_headers)?;
+        match send(client, url, req).await {
             Ok(response) => return Ok(response),
             Err(error) => match retry::next_retry(&policy, &error, attempt) {
                 Some(delay) => {

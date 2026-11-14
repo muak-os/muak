@@ -27,13 +27,17 @@ pub(crate) fn get_request(
     finish_request(url, builder, authorization, Full::new(Bytes::new()))
 }
 
-pub(crate) fn head_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
-    finish_request(
-        url,
-        base_request(Method::HEAD, url),
-        authorization,
-        Full::new(Bytes::new()),
-    )
+pub(crate) fn head(
+    url: &str,
+    authorization: Option<&str>,
+    accept_headers: &[&str],
+) -> Result<Request<Full<Bytes>>> {
+    let mut builder = base_request(Method::HEAD, url);
+    for accept in accept_headers {
+        builder = builder.header("Accept", *accept);
+    }
+
+    finish_request(url, builder, authorization, Full::new(Bytes::new()))
 }
 
 pub(crate) fn post_request(url: &str, authorization: Option<&str>) -> Result<Request<Full<Bytes>>> {
@@ -127,6 +131,35 @@ mod tests {
                 .get(hyper::header::RANGE)
                 .map(|value| value.to_str().expect("utf8")),
             Some("bytes=2048-")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get(hyper::header::AUTHORIZATION)
+                .map(|value| value.to_str().expect("utf8")),
+            Some("token")
+        );
+    }
+
+    #[test]
+    fn head_requests_carry_the_accept_headers() {
+        // ARRANGE
+
+        // ACT
+        let request = head(
+            "http://registry/v2/x/manifests/tag",
+            Some("token"),
+            &["application/json"],
+        )
+        .expect("build request");
+
+        // ASSERT
+        assert_eq!(
+            request
+                .headers()
+                .get("Accept")
+                .map(|value| value.to_str().expect("utf8")),
+            Some("application/json")
         );
         assert_eq!(
             request

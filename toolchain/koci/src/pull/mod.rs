@@ -29,7 +29,7 @@ use crate::signature::Verification;
 /// Where pull data may be read from.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Strategy {
-    /// Cache first, registry on a miss.
+    /// Digest references use the cache first, with the registry on a miss.
     #[default]
     Network,
     /// Registry for tag references, cache for everything else.

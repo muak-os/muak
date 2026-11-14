@@ -1989,6 +1989,199 @@ mod tests {
     }
 
     #[test]
+    fn network_pull_refetches_a_republished_tag() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let old_layer = plain_tar_layer("hello.txt", b"old tag payload").expect("build old layer");
+        let old_digest = sha256_digest(&old_layer);
+        let old_manifest = manifest_with_layers_json(&[(
+            old_digest.as_str(),
+            old_layer.len(),
+            PLAIN_LAYER_MEDIA_TYPE,
+        )])
+        .expect("build old manifest");
+        let new_layer =
+            plain_tar_layer("hello.txt", b"republished tag payload").expect("build new layer");
+        let new_digest = sha256_digest(&new_layer);
+        let new_manifest = manifest_with_layers_json(&[(
+            new_digest.as_str(),
+            new_layer.len(),
+            PLAIN_LAYER_MEDIA_TYPE,
+        )])
+        .expect("build new manifest");
+        let new_manifest_digest = sha256_digest(&new_manifest);
+        let tag_path = "/v2/repo/manifests/republished";
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get(tag_path, HttpResponse::json(old_manifest)),
+            get(
+                format!("/v2/repo/blobs/{old_digest}"),
+                HttpResponse::octet_stream(old_layer),
+            ),
+            get(
+                format!("/v2/repo/blobs/{new_digest}"),
+                HttpResponse::octet_stream(new_layer),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "republished");
+
+        // ACT
+        let first = collect_files(&reference, Arch::Amd64);
+        registry.set_response("GET", tag_path, HttpResponse::json(new_manifest));
+        registry.set_response(
+            "HEAD",
+            tag_path,
+            HttpResponse::ok().with_header("Docker-Content-Digest", new_manifest_digest),
+        );
+        let second = collect_files(&reference, Arch::Amd64);
+
+        // ASSERT
+        assert_eq!(&first.first().unwrap().contents, b"old tag payload");
+        assert_eq!(
+            &second.first().unwrap().contents,
+            b"republished tag payload"
+        );
+        assert_eq!(
+            registry.count("HEAD", tag_path).expect("count"),
+            1,
+            "the warmed tag pull must revalidate the tag once"
+        );
+        assert_eq!(
+            registry.count("GET", tag_path).expect("count"),
+            2,
+            "the re-published tag must be fetched again"
+        );
+    }
+
+    #[test]
+    fn network_pull_serves_an_unchanged_tag_from_the_cache() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer = plain_tar_layer("hello.txt", b"unchanged tag payload").expect("build layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest");
+        let manifest_digest = sha256_digest(&manifest);
+        let tag_path = "/v2/repo/manifests/unchanged";
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get(tag_path, HttpResponse::json(manifest)),
+            head(
+                tag_path,
+                HttpResponse::ok().with_header("Docker-Content-Digest", manifest_digest),
+            ),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "unchanged");
+
+        // ACT
+        let first = collect_files(&reference, Arch::Amd64);
+        let second = collect_files(&reference, Arch::Amd64);
+
+        // ASSERT
+        assert_eq!(first, second, "the unchanged tag must serve the same files");
+        assert_eq!(
+            registry.count("GET", tag_path).expect("count"),
+            1,
+            "an unchanged tag must not be fetched again"
+        );
+        assert_eq!(
+            registry.count("HEAD", tag_path).expect("count"),
+            1,
+            "only the warmed tag pull must revalidate the tag"
+        );
+    }
+
+    #[test]
+    fn network_pull_falls_back_when_head_has_no_digest() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer = plain_tar_layer("hello.txt", b"no digest payload").expect("build layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest");
+        let tag_path = "/v2/repo/manifests/nodigest";
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get(tag_path, HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "nodigest");
+
+        // ACT
+        let first = collect_files(&reference, Arch::Amd64);
+        registry.set_response("HEAD", tag_path, HttpResponse::ok());
+        let second = collect_files(&reference, Arch::Amd64);
+
+        // ASSERT
+        assert_eq!(first, second, "the fallback pull must serve the same files");
+        assert_eq!(
+            registry.count("GET", tag_path).expect("count"),
+            2,
+            "a HEAD without a digest must fall back to a manifest GET"
+        );
+        assert_eq!(
+            registry.count("HEAD", tag_path).expect("count"),
+            1,
+            "only the warmed tag pull must probe the registry"
+        );
+    }
+
+    #[test]
+    fn network_pull_fails_when_head_returns_server_error() {
+        // ARRANGE
+        let _serialized = CACHE_LOCK.lock().expect("cache test lock");
+        let layer = plain_tar_layer("hello.txt", b"failed head payload").expect("build layer");
+        let digest = sha256_digest(&layer);
+        let manifest =
+            manifest_with_layers_json(&[(digest.as_str(), layer.len(), PLAIN_LAYER_MEDIA_TYPE)])
+                .expect("build manifest");
+        let tag_path = "/v2/repo/manifests/headfail";
+        let cache = TempDir::new().expect("create cache dir");
+        cache::Store::set_dir(cache.path().to_path_buf());
+        let registry = MockRegistry::start(HashMap::from([
+            get(tag_path, HttpResponse::json(manifest)),
+            get(
+                format!("/v2/repo/blobs/{digest}"),
+                HttpResponse::octet_stream(layer),
+            ),
+        ]))
+        .expect("start mock registry");
+        let reference = registry.reference("repo", "headfail");
+        collect_files(&reference, Arch::Amd64);
+        let gets_before = registry.count("GET", tag_path).expect("count");
+        registry.set_response("HEAD", tag_path, HttpResponse::server_error());
+
+        // ACT
+        let error = expect_stream_error(&reference);
+
+        // ASSERT
+        assert!(matches!(
+            error,
+            KociError::Client(ClientError::Status { status: 500, .. })
+        ));
+        assert_eq!(
+            registry.count("GET", tag_path).expect("count"),
+            gets_before,
+            "a failed HEAD must not fall back to a GET"
+        );
+    }
+
+    #[test]
     fn offline_pull_serves_a_warm_cache_without_the_registry() {
         // ARRANGE
         let _serialized = CACHE_LOCK.lock().expect("cache test lock");

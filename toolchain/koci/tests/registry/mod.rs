@@ -220,7 +220,7 @@ pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
     body: Vec<u8>,
-    headers: Vec<(&'static str, &'static str)>,
+    headers: Vec<(&'static str, String)>,
     delay: Duration,
 }
 
@@ -276,7 +276,7 @@ impl HttpResponse {
             status: 202,
             content_type: "text/plain",
             body: Vec::new(),
-            headers: vec![("Location", location)],
+            headers: vec![("Location", location.to_owned())],
             delay: Duration::ZERO,
         }
     }
@@ -306,6 +306,13 @@ impl HttpResponse {
     #[must_use = "dropping it discards the injected delay"]
     pub(crate) fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
+
+        self
+    }
+
+    #[must_use = "the test needs the response header to be served"]
+    pub(crate) fn with_header(mut self, name: &'static str, value: impl Into<String>) -> Self {
+        self.headers.push((name, value.into()));
 
         self
     }
@@ -384,14 +391,19 @@ fn handle_connection(
     let request = read_request(&mut stream)?;
 
     let route_key = (request.method.clone(), request.path.clone());
-    let mut response = routes
+    let route = routes
         .overrides
         .lock()
         .map_err(|_error| IoError::other("override mutex poisoned"))?
         .get(&route_key)
         .cloned()
-        .or_else(|| routes.fixed.get(&route_key).cloned())
-        .unwrap_or_else(|| default_response(&request));
+        .or_else(|| routes.fixed.get(&route_key).cloned());
+    let mut response = match route {
+        Some(response) => response,
+        None => {
+            head_manifest_response(routes, &request).unwrap_or_else(|| default_response(&request))
+        }
+    };
 
     if request.method == "PUT"
         && response.status == 200
@@ -561,7 +573,7 @@ fn write_stream(stream: &mut TcpStream, response: &HttpResponse) -> Result<(), I
         response.body.len(),
         response.content_type,
     );
-    for &(name, value) in &response.headers {
+    for &(name, ref value) in &response.headers {
         headers.push_str(name);
         headers.push_str(": ");
         headers.push_str(value);
@@ -581,6 +593,39 @@ fn not_found_response() -> HttpResponse {
         body: b"not found".to_vec(),
         headers: Vec::new(),
         delay: Duration::ZERO,
+    }
+}
+
+// Synthesize a manifest HEAD from its GET route, digest header included.
+fn head_manifest_response(routes: &Routes, request: &RecordedRequest) -> Option<HttpResponse> {
+    if request.method != "HEAD" || !request.path.contains("/manifests/") {
+        return None;
+    }
+    let key = ("GET".to_owned(), request.path.clone());
+    let response = routes
+        .overrides
+        .lock()
+        .ok()?
+        .get(&key)
+        .cloned()
+        .or_else(|| routes.fixed.get(&key).cloned())?;
+
+    Some(head_from(response))
+}
+
+fn head_from(response: HttpResponse) -> HttpResponse {
+    if response.status != 200 {
+        return HttpResponse {
+            body: Vec::new(),
+            ..response
+        };
+    }
+    let digest = format!("sha256:{}", hex(&response.body));
+
+    HttpResponse {
+        body: Vec::new(),
+        headers: vec![("Docker-Content-Digest", digest)],
+        ..response
     }
 }
 

@@ -46,6 +46,36 @@ pub async fn fetch(client: &Client, manifest_ref: &str) -> Result<String> {
     }
 }
 
+/// Read the registry digest of a manifest or tag via HEAD.
+///
+/// # Errors
+///
+/// Returns an error when the request fails or the registry answers 4xx or 5xx.
+pub async fn digest(client: &Client, manifest_ref: &str) -> Result<Option<String>> {
+    let url = build_url(client.image(), manifest_ref);
+    let response = match http::head(
+        client.http(),
+        &url,
+        client.authorization(),
+        OCI_MANIFEST_ACCEPT_HEADERS,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(ClientError::Status {
+            status: 300..=399, ..
+        }) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let digest = response
+        .headers()
+        .get("docker-content-digest")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+
+    Ok(digest)
+}
+
 /// Push a manifest to the registry via PUT.
 ///
 /// # Errors

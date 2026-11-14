@@ -157,7 +157,6 @@ async fn fetch_cached_manifest(
     manifest_ref: &str,
     strategy: Strategy,
 ) -> Result<String> {
-    let is_tag = !manifest_ref.starts_with("sha256:");
     if strategy == Strategy::CacheOnly {
         return cache
             .get_manifest(client.image(), manifest_ref)
@@ -165,17 +164,34 @@ async fn fetch_cached_manifest(
                 missing: format!("manifest {manifest_ref}"),
             });
     }
-    if (strategy == Strategy::Network || !is_tag)
-        && let Some(cached) = cache.get_manifest(client.image(), manifest_ref)
-    {
+    let is_tag = !manifest_ref.starts_with("sha256:");
+    if !is_tag && let Some(cached) = cache.get_manifest(client.image(), manifest_ref) {
         return Ok(cached);
     }
 
     let client = client.authenticate(Access::Pull).await?;
-    let json = manifest::fetch(&client, manifest_ref).await?;
+    if is_tag
+        && strategy == Strategy::Network
+        && let Some(cached) = cache.get_manifest(client.image(), manifest_ref)
+        && let Some(digest) = manifest::digest(&client, manifest_ref).await?
+        && digest_matches(&digest, &cached)
+    {
+        return Ok(cached);
+    }
+
+    fetch_and_store(&client, cache, manifest_ref).await
+}
+
+async fn fetch_and_store(client: &Client, cache: &Store, manifest_ref: &str) -> Result<String> {
+    let json = manifest::fetch(client, manifest_ref).await?;
     cache.put_manifest(client.image(), manifest_ref, &json);
 
     Ok(json)
+}
+
+// Digests that are not sha256:<lowercase hex> intentionally cause a refetch.
+fn digest_matches(digest: &str, manifest: &str) -> bool {
+    digest == format!("sha256:{}", sha256_hex(manifest.as_bytes()))
 }
 
 #[cfg(test)]
@@ -189,6 +205,33 @@ mod tests {
             architecture: Some(architecture.to_owned()),
             os: Some(os.to_owned()),
         }
+    }
+
+    #[test]
+    fn digest_matches_accepts_the_cached_manifest_digest() {
+        // ARRANGE
+        let manifest = r#"{"schemaVersion":2,"layers":[]}"#;
+        let digest = format!("sha256:{}", sha256_hex(manifest.as_bytes()));
+
+        // ACT
+        let matches = digest_matches(&digest, manifest);
+
+        // ASSERT
+        assert!(matches);
+    }
+
+    #[test]
+    fn digest_matches_rejects_a_republished_manifest() {
+        // ARRANGE
+        let cached = r#"{"schemaVersion":2,"layers":[]}"#;
+        let republished = r#"{"schemaVersion":2,"layers":[{"digest":"sha256:abc"}]}"#;
+        let digest = format!("sha256:{}", sha256_hex(republished.as_bytes()));
+
+        // ACT
+        let matches = digest_matches(&digest, cached);
+
+        // ASSERT
+        assert!(!matches);
     }
 
     #[test]
