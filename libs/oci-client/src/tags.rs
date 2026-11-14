@@ -57,7 +57,7 @@ pub async fn list(client: &Client) -> Result<Vec<String>> {
 
 fn parse_tags(body: &[u8], url: &str) -> Result<Vec<String>> {
     let list: TagList = serde_json::from_slice(body)
-        .map_err(|error| ClientError::network(url, "Invalid tags list response", error))?;
+        .map_err(|error| ClientError::network(url, "Invalid tags list response", &error))?;
 
     Ok(list.tags.unwrap_or_default())
 }

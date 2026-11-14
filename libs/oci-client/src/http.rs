@@ -220,9 +220,9 @@ pub fn is_partial<B>(response: &Response<B>) -> bool {
 pub async fn collect_body(resp: Response<Incoming>, url: &str) -> Result<Bytes> {
     timeout(HTTP_TIMEOUT, resp.into_body().collect())
         .await
-        .map_err(|error| ClientError::body_timeout(url, HTTP_TIMEOUT, error))?
+        .map_err(|error| ClientError::body_timeout(url, HTTP_TIMEOUT, &error))?
         .map(http_body_util::Collected::to_bytes)
-        .map_err(|error| ClientError::network(url, "Failed to read response body", error))
+        .map_err(|error| ClientError::network(url, "Failed to read response body", &error))
 }
 
 /// Stream an HTTP response body into a writer while computing a digest.
@@ -240,10 +240,10 @@ pub async fn stream_body_to_sink<W: std::io::Write>(
 
     while let Some(frame) = timeout(BODY_TIMEOUT, body.frame())
         .await
-        .map_err(|error| ClientError::body_timeout(url, BODY_TIMEOUT, error))?
+        .map_err(|error| ClientError::body_timeout(url, BODY_TIMEOUT, &error))?
     {
         let frame = frame
-            .map_err(|error| ClientError::network(url, "Failed to read response body", error))?;
+            .map_err(|error| ClientError::network(url, "Failed to read response body", &error))?;
 
         if let Some(data) = frame.data_ref() {
             digest.update(data);
@@ -256,7 +256,7 @@ pub async fn stream_body_to_sink<W: std::io::Write>(
 
 fn write_frame<W: std::io::Write>(url: &str, sink: &mut W, data: &[u8]) -> Result<()> {
     sink.write_all(data)
-        .map_err(|error| ClientError::network(url, "Failed to write response body", error))
+        .map_err(|error| ClientError::network(url, "Failed to write response body", &error))
 }
 
 async fn get_with_range(
@@ -321,10 +321,10 @@ async fn send(
             ClientError::network(
                 url,
                 &format!("HTTP request timed out after {HTTP_TIMEOUT:?}"),
-                error,
+                &error,
             )
         })?
-        .map_err(|error| ClientError::network(url, "HTTP request failed", error))
+        .map_err(|error| ClientError::network(url, "HTTP request failed", &error))
 }
 
 fn ensure_success(url: &str, response: Response<Incoming>) -> Result<Response<Incoming>> {

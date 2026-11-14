@@ -43,13 +43,21 @@ pub enum ClientError {
 }
 
 impl ClientError {
-    /// Builds a network failure naming the URL and the cause.
-    pub(crate) fn network(url: &str, context: &str, cause: impl core::fmt::Display) -> Self {
-        Self::Network(format!("{context} for URL: {url}: {cause}"))
+    /// Builds a network failure naming the URL and the full source chain.
+    pub(crate) fn network(
+        url: &str,
+        context: &str,
+        cause: &(dyn std::error::Error + 'static),
+    ) -> Self {
+        Self::Network(format!("{context} for URL: {url}: {}", chain(cause)))
     }
 
     /// Builds a response body timeout naming the URL and the deadline.
-    pub(crate) fn body_timeout(url: &str, limit: Duration, cause: impl core::fmt::Display) -> Self {
+    pub(crate) fn body_timeout(
+        url: &str,
+        limit: Duration,
+        cause: &(dyn std::error::Error + 'static),
+    ) -> Self {
         Self::network(
             url,
             &format!("HTTP response body timed out after {limit:?}"),
@@ -60,6 +68,18 @@ impl ClientError {
 
 /// Result type alias for distribution-spec client operations.
 pub type Result<T> = core::result::Result<T, ClientError>;
+
+fn chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut rendered = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        rendered.push_str(": ");
+        rendered.push_str(&cause.to_string());
+        source = cause.source();
+    }
+
+    rendered
+}
 
 #[cfg(test)]
 mod tests {
@@ -75,6 +95,34 @@ mod tests {
         ("request.rs", include_str!("request.rs")),
         ("tags.rs", include_str!("tags.rs")),
     ];
+
+    #[derive(Debug)]
+    struct Outer {
+        inner: Inner,
+    }
+
+    impl core::fmt::Display for Outer {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("client error (Connect)")
+        }
+    }
+
+    impl std::error::Error for Outer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.inner)
+        }
+    }
+
+    #[derive(Debug)]
+    struct Inner(&'static str);
+
+    impl core::fmt::Display for Inner {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for Inner {}
 
     fn production(source: &str) -> &str {
         source.split("#[cfg(test)]").next().unwrap_or(source)
@@ -108,8 +156,12 @@ mod tests {
         let url = "https://registry.example/v2/foo/blobs/sha256:abc";
 
         // ACT
-        let message =
-            ClientError::network(url, "HTTP request failed", "connection refused").to_string();
+        let message = ClientError::network(
+            url,
+            "HTTP request failed",
+            &std::io::Error::other("connection refused"),
+        )
+        .to_string();
 
         // ASSERT
         assert_eq!(
@@ -124,7 +176,12 @@ mod tests {
         let url = "https://registry.example/v2/foo/blobs/sha256:abc";
 
         // ACT
-        let message = ClientError::body_timeout(url, Duration::from_secs(7), "elapsed").to_string();
+        let message = ClientError::body_timeout(
+            url,
+            Duration::from_secs(7),
+            &std::io::Error::other("elapsed"),
+        )
+        .to_string();
 
         // ASSERT
         assert!(
@@ -134,6 +191,24 @@ mod tests {
         assert!(
             message.contains("7s"),
             "body timeout must name the deadline: {message}"
+        );
+    }
+
+    #[test]
+    fn network_error_renders_the_source_chain() {
+        // ARRANGE
+        let url = "https://ghcr.io/v2/";
+        let cause = Outer {
+            inner: Inner("invalid peer certificate"),
+        };
+
+        // ACT
+        let message = ClientError::network(url, "HTTP request failed", &cause).to_string();
+
+        // ASSERT
+        assert!(
+            message.contains("client error (Connect): invalid peer certificate"),
+            "network error must render the whole chain: {message}"
         );
     }
 }

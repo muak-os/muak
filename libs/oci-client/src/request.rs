@@ -96,7 +96,7 @@ fn finish_request(
 
     builder
         .body(body)
-        .map_err(|error| ClientError::network(url, "Failed to build request", error))
+        .map_err(|error| ClientError::network(url, "Failed to build request", &error))
 }
 
 #[cfg(test)]

@@ -41,7 +41,7 @@ pub async fn fetch(client: &Client, manifest_ref: &str) -> Result<String> {
         Err(error) => Err(ClientError::network(
             &url,
             "Manifest response is not UTF-8",
-            error,
+            &error,
         )),
     }
 }
