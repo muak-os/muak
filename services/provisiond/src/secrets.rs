@@ -1,10 +1,14 @@
 //! LUKS key protection: TPM2 sealing, token management, and fallback to ESP file.
 
+use std::path::Path;
+
 use anyhow::{Context as _, Result};
-use luks2::key::Passphrase;
+use luks2::key::{Passphrase, VOLUME_KEY_SIZE};
 use luks2::metadata::Tpm2Token;
 use uki::measure::MeasuredSection;
 use uki::section::canonical_rank;
+
+use crate::efi;
 
 /// Base directory for secrets.
 pub(crate) const SECRETS_DIR: &str = "/run/state/secrets";
@@ -43,15 +47,14 @@ pub(crate) fn unseal_luks_key(state_device: Option<&str>) -> Option<Passphrase> 
     }
 }
 
-/// Resolves the LUKS key for an update by unsealing it from TPM2.
-pub(crate) fn resolve_luks_key(state_device: Option<&str>) -> Option<Passphrase> {
-    if tpm2::device::is_available(None)
-        && let Some(key) = unseal_luks_key(state_device)
-    {
-        return Some(key);
+/// Resolves the LUKS key for an update by unsealing it from TPM2 when available,
+/// and by reading the ESP key file otherwise.
+pub(crate) fn resolve_luks_key(state_device: Option<&str>, efi_device: &str) -> Option<Passphrase> {
+    if tpm2::device::is_available(None) {
+        return unseal_luks_key(state_device);
     }
 
-    None
+    read_esp_key(efi_device)
 }
 
 /// Writes a LUKS2 TPM2 token to each of the given device paths.
@@ -80,4 +83,92 @@ fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2To
         &sealed.blob.serialize(),
         &sealed.policy_digest,
     ))
+}
+
+fn read_esp_key(efi_device: &str) -> Option<Passphrase> {
+    if let Err(e) = efi::mount(efi_device) {
+        eprintln!("Failed to mount EFI partition {efi_device} for the LUKS key: {e}");
+        return None;
+    }
+
+    let path = Path::new(efi::MOUNT_POINT).join("luks");
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("Failed to read the LUKS key from {}: {e}", path.display());
+            efi::unmount();
+            return None;
+        }
+    };
+    efi::unmount();
+
+    decode(bytes)
+}
+
+fn decode(bytes: Vec<u8>) -> Option<Passphrase> {
+    let key = Passphrase::new(bytes);
+
+    if key.len() != VOLUME_KEY_SIZE {
+        eprintln!(
+            "LUKS key from the ESP has {} bytes, expected {VOLUME_KEY_SIZE}",
+            key.len()
+        );
+        return None;
+    }
+
+    Some(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_accepts_volume_key_size() {
+        // ARRANGE
+        let bytes = vec![0xAB; VOLUME_KEY_SIZE];
+        let expected = bytes.clone();
+
+        // ACT
+        let key = decode(bytes);
+
+        // ASSERT
+        assert_eq!(key.as_deref().map(Vec::as_slice), Some(expected.as_slice()));
+    }
+
+    #[test]
+    fn decode_rejects_empty_buffer() {
+        // ARRANGE
+        let bytes = Vec::new();
+
+        // ACT
+        let key = decode(bytes);
+
+        // ASSERT
+        assert!(key.is_none(), "an empty buffer must be rejected");
+    }
+
+    #[test]
+    fn decode_rejects_truncated_buffer() {
+        // ARRANGE
+        let bytes = vec![0xAB; VOLUME_KEY_SIZE - 1];
+
+        // ACT
+        let key = decode(bytes);
+
+        // ASSERT
+        assert!(key.is_none(), "a truncated buffer must be rejected");
+    }
+
+    #[test]
+    fn decode_rejects_oversized_buffer() {
+        // ARRANGE
+        let bytes = vec![0xAB; VOLUME_KEY_SIZE + 1];
+
+        // ACT
+        let key = decode(bytes);
+
+        // ASSERT
+        assert!(key.is_none(), "an oversized buffer must be rejected");
+    }
 }

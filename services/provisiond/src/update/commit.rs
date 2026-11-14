@@ -4,6 +4,7 @@ use std::path::Path;
 
 use ::disk::role::Role;
 use anyhow::{Context as _, Result, bail};
+use luks2::key::Passphrase;
 use uki::measure::{self, MeasuredSection};
 
 use super::{UPDATE_DIR, secureboot, snapshot};
@@ -36,9 +37,9 @@ pub(super) async fn apply() -> Result<()> {
     let sections: Vec<MeasuredSection> =
         measure::from_file(&staged).context("Failed to read UKI sections from the staged image")?;
 
-    let luks_key = match secrets::resolve_luks_key(state_device.as_deref()) {
+    let luks_key = match secrets::resolve_luks_key(state_device.as_deref(), &efi_device) {
         Some(key) => reseal_luks_key(
-            &key,
+            key,
             state_device.as_deref(),
             ephemeral_device.as_deref(),
             &sections,
@@ -118,16 +119,16 @@ fn warn_on_version_mismatch() {
 }
 
 fn reseal_luks_key(
-    key: &[u8],
+    key: Passphrase,
     state_device: Option<&str>,
     ephemeral_device: Option<&str>,
     sections: &[MeasuredSection],
-) -> Result<Option<Vec<u8>>> {
+) -> Result<Option<Passphrase>> {
     if !tpm2::device::is_available(None) {
-        return Ok(Some(key.to_vec()));
+        return Ok(Some(key));
     }
 
-    let secrets::SealResult::Sealed(token) = secrets::seal_luks_key(key, sections)? else {
+    let secrets::SealResult::Sealed(token) = secrets::seal_luks_key(&key, sections)? else {
         bail!("TPM2 sealing unexpectedly returned an ESP key")
     };
     if ephemeral_device.is_none() {
