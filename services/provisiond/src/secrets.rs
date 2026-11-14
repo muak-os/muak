@@ -30,31 +30,42 @@ pub(crate) fn seal_luks_key(key: &[u8], sections: &[MeasuredSection]) -> Result<
 }
 
 /// Unseals the LUKS key from a TPM2 token stored in the LUKS2 header.
-pub(crate) fn unseal_luks_key(state_device: Option<&str>) -> Option<Passphrase> {
-    let token = luks2::read_tpm2_token(state_device?).ok()?;
-    let blob_bytes = token.sealed_blob().ok()?;
-    let blob = tpm2::blob::Sealed::deserialize(&blob_bytes).ok()?;
+///
+/// # Errors
+///
+/// Returns an error when the STATE device is missing, the token or sealed blob
+/// cannot be read, or TPM2 unsealing fails.
+pub(crate) fn unseal_luks_key(state_device: Option<&str>) -> Result<Passphrase> {
+    let state_device = state_device.context("STATE partition not found")?;
+    let token = luks2::read_tpm2_token(state_device).context("Failed to read the TPM2 token")?;
+    let blob_bytes = token
+        .sealed_blob()
+        .context("Failed to decode the TPM2 blob")?;
+    let blob = tpm2::blob::Sealed::deserialize(&blob_bytes)
+        .context("Failed to deserialize the TPM2 blob")?;
+    let key = tpm2::operations::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")?;
 
-    match tpm2::operations::unseal(&blob) {
-        Ok(key) => {
-            println!("LUKS key unsealed from TPM2 for re-seal");
-            Some(key)
-        }
-        Err(e) => {
-            eprintln!("TPM2 unseal failed during update: {e}");
-            None
-        }
-    }
+    println!("LUKS key unsealed from TPM2 for re-seal");
+
+    Ok(key)
 }
 
 /// Resolves the LUKS key for an update by unsealing it from TPM2 when available,
 /// and by reading the ESP key file otherwise.
-pub(crate) fn resolve_luks_key(state_device: Option<&str>, efi_device: &str) -> Option<Passphrase> {
+///
+/// # Errors
+///
+/// Returns an error when a TPM2 is available but the LUKS key cannot be unsealed.
+/// A TPM2 unseal failure is fatal to the update.
+pub(crate) fn resolve_luks_key(
+    state_device: Option<&str>,
+    efi_device: &str,
+) -> Result<Option<Passphrase>> {
     if tpm2::device::is_available(None) {
-        return unseal_luks_key(state_device);
+        return unseal_luks_key(state_device).map(Some);
     }
 
-    read_esp_key(efi_device)
+    Ok(read_esp_key(efi_device))
 }
 
 /// Writes a LUKS2 TPM2 token to each of the given device paths.
