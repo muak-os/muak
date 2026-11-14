@@ -9,7 +9,7 @@ use crate::error::{Luks2Error, Result};
 const GENERATE_LEN: usize = 64;
 
 /// Length in bytes of a LUKS2 volume key.
-pub(crate) const VOLUME_KEY_SIZE: usize = 64;
+pub const VOLUME_KEY_SIZE: usize = 64;
 
 /// Length in bytes of a LUKS2 volume key, typed for JSON `key_size` fields.
 pub(crate) const VOLUME_KEY_SIZE_U32: u32 = 64;

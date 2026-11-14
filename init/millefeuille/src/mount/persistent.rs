@@ -41,7 +41,7 @@ fn try_mount_persistent_candidate(state_dev: &str) -> Result<()> {
 
     let Some(key) = luks_key else {
         bail!(
-            "No LUKS key available for installed STATE partition {state_dev}; TPM2 recovery unavailable and cmdline fallback missing or invalid"
+            "No LUKS key available for installed STATE partition {state_dev}; TPM2 unseal unavailable and no ESP key file found"
         );
     };
 

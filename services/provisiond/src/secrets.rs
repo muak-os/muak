@@ -43,7 +43,7 @@ pub(crate) fn unseal_luks_key(state_device: Option<&str>) -> Option<Passphrase> 
     }
 }
 
-/// Resolves the LUKS key for an update: unseal from TPM2 or read from cmdline.
+/// Resolves the LUKS key for an update by unsealing it from TPM2.
 pub(crate) fn resolve_luks_key(state_device: Option<&str>) -> Option<Passphrase> {
     if tpm2::device::is_available(None)
         && let Some(key) = unseal_luks_key(state_device)
@@ -51,7 +51,7 @@ pub(crate) fn resolve_luks_key(state_device: Option<&str>) -> Option<Passphrase>
         return Some(key);
     }
 
-    read_luks_key_from_cmdline()
+    None
 }
 
 /// Writes a LUKS2 TPM2 token to each of the given device paths.
@@ -62,17 +62,6 @@ pub(crate) fn write_token_to_devices(token: &Tpm2Token, devices: &[&str]) -> Res
     }
 
     Ok(())
-}
-
-/// Reads the LUKS key from the current `/proc/cmdline`.
-pub(crate) fn read_luks_key_from_cmdline() -> Option<Passphrase> {
-    let cmdline = std::fs::read_to_string("/proc/cmdline").ok()?;
-    let token = cmdline
-        .split_whitespace()
-        .find(|arg| arg.starts_with("luks.key="))?;
-    let encoded = token.strip_prefix("luks.key=")?;
-
-    luks2::key::from(encoded)
 }
 
 /// Seals a LUKS key to TPM2 PCR#11 predicted from the UKI and returns a LUKS2 token.
