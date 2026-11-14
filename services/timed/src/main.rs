@@ -17,10 +17,13 @@ use source::Source;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::time::timeout;
 
-/// Retry interval before the first successful NTP synchronization.
-const INITIAL_RETRY_INTERVAL: Duration = Duration::from_secs(64);
+// First retry interval before the first successful NTP synchronization.
+const INITIAL_RETRY_START: Duration = Duration::from_secs(1);
 
-/// Poll interval after the first successful NTP synchronization.
+// Maximum retry interval before the first successful NTP synchronization.
+const INITIAL_RETRY_MAX: Duration = Duration::from_secs(30);
+
+// Poll interval after the first successful NTP synchronization.
 const STEADY_STATE_INTERVAL: Duration = Duration::from_hours(1);
 
 #[granola::service("timed")]
@@ -40,6 +43,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     notifier.status("Initializing", Health::Healthy)?;
 
     let mut synced_once = false;
+    let mut retry = INITIAL_RETRY_START;
 
     match source::sync(source, server).await {
         Ok((used, offset)) => {
@@ -61,7 +65,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         let delay = if synced_once {
             STEADY_STATE_INTERVAL
         } else {
-            INITIAL_RETRY_INTERVAL
+            retry
         };
 
         let shutdown = async {
@@ -84,9 +88,57 @@ async fn main(notifier: NotifyClient) -> Result<()> {
             Err(e) => {
                 eprintln!("Time sync failed: {e:#}");
                 notifier.status("Sync failed", Health::Degraded)?;
+                retry = next_retry(retry);
             }
         }
     }
 
     Ok(())
+}
+
+fn next_retry(current: Duration) -> Duration {
+    current.saturating_mul(2).min(INITIAL_RETRY_MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use core::time::Duration;
+
+    use super::next_retry;
+
+    #[test]
+    fn retry_doubles_the_current_delay() {
+        // ARRANGE
+        let current = Duration::from_secs(1);
+
+        // ACT
+        let next = next_retry(current);
+
+        // ASSERT
+        assert_eq!(next, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn retry_caps_the_doubled_delay() {
+        // ARRANGE
+        let current = Duration::from_secs(16);
+
+        // ACT
+        let next = next_retry(current);
+
+        // ASSERT
+        assert_eq!(next, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn retry_stays_at_the_cap() {
+        // ARRANGE
+        let current = Duration::from_secs(30);
+
+        // ACT
+        let next = next_retry(current);
+
+        // ASSERT
+        assert_eq!(next, Duration::from_secs(30));
+    }
 }
