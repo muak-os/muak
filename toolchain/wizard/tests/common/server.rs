@@ -12,7 +12,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::thread;
 
-use crate::common::fixtures::{config_blob, config_digest};
+use crate::common::fixtures::{config_blob, config_digest, sha256_digest};
 
 pub(crate) type RouteKey = (String, String);
 pub(crate) type Routes = HashMap<RouteKey, HttpResponse>;
@@ -110,6 +110,7 @@ pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
     body: Vec<u8>,
+    headers: Vec<(&'static str, String)>,
     delay: Duration,
 }
 
@@ -119,6 +120,7 @@ impl HttpResponse {
             status: 200,
             content_type: "application/vnd.oci.image.manifest.v1+json",
             body,
+            headers: Vec::new(),
             delay: Duration::ZERO,
         }
     }
@@ -128,8 +130,16 @@ impl HttpResponse {
             status: 200,
             content_type: "application/octet-stream",
             body,
+            headers: Vec::new(),
             delay: Duration::ZERO,
         }
+    }
+
+    #[must_use = "the test needs the response header to be served"]
+    pub(crate) fn with_header(mut self, name: &'static str, value: impl Into<String>) -> Self {
+        self.headers.push((name, value.into()));
+
+        self
     }
 }
 
@@ -187,6 +197,7 @@ fn handle_connection(
     let response = routes
         .get(&(request.method.clone(), request.path.clone()))
         .cloned()
+        .or_else(|| head_manifest_response(routes, &request))
         .unwrap_or_else(|| default_response(&request.path));
 
     requests
@@ -309,17 +320,51 @@ fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> Result<(),
         _ => "Error",
     };
 
-    let headers = format!(
-        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n",
+    let mut headers = format!(
+        "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n",
         response.status,
         reason,
         response.body.len(),
         response.content_type,
     );
+    for &(name, ref value) in &response.headers {
+        headers.push_str(name);
+        headers.push_str(": ");
+        headers.push_str(value);
+        headers.push_str("\r\n");
+    }
+    headers.push_str("\r\n");
 
     stream.write_all(headers.as_bytes())?;
     stream.write_all(&response.body)?;
     stream.flush()
+}
+
+// Synthesize a manifest HEAD from its GET route, digest header included.
+fn head_manifest_response(routes: &Routes, request: &RecordedRequest) -> Option<HttpResponse> {
+    if request.method != "HEAD" || !request.path.contains("/manifests/") {
+        return None;
+    }
+    let response = routes
+        .get(&("GET".to_owned(), request.path.clone()))
+        .cloned()?;
+
+    Some(head_from(response))
+}
+
+fn head_from(response: HttpResponse) -> HttpResponse {
+    if response.status != 200 {
+        return HttpResponse {
+            body: Vec::new(),
+            ..response
+        };
+    }
+    let digest = sha256_digest(&response.body);
+
+    HttpResponse {
+        body: Vec::new(),
+        ..response.with_header("Docker-Content-Digest", digest)
+    }
 }
 
 fn default_response(path: &str) -> HttpResponse {
@@ -336,6 +381,7 @@ fn not_found_response() -> HttpResponse {
         status: 404,
         content_type: "text/plain",
         body: b"not found".to_vec(),
+        headers: Vec::new(),
         delay: Duration::ZERO,
     }
 }

@@ -1223,6 +1223,15 @@ extensions = []
             .request_count("GET", "/v2/linux/manifests/latest")
             .expect("read registry log");
         assert_eq!(manifest_gets, 1, "manifest must be fetched once");
+        let catalog_heads = env
+            .harness
+            .registry
+            .request_count("HEAD", "/v2/core/manifests/v1.2.3")
+            .expect("read registry log");
+        assert!(
+            catalog_heads >= 1,
+            "the cached catalog tag must be revalidated against the registry"
+        );
         let blob_gets = env
             .harness
             .registry
