@@ -21,6 +21,7 @@ set positional-arguments
 # Global settings
 
 rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-11@sha256:31457d716676b10f55d2ddf83b4980b61779540764e2603762bbbef5c746552e")
+rustflags := "-Zthreads=8 " + env_var_or_default("RUSTFLAGS", "")
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 export tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:675909c8c1624c8e85aa9f41cf743b139cd3286c5cfd11515b1e75a88e809275")
@@ -65,6 +66,7 @@ dev: (build "--release" "") installer sign catalog (artifacts "iso")
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [group('build')]
+[env("RUSTFLAGS", rustflags)]
 [arg("release", long="release", value="--release")]
 [script]
 build release="" *pkgs:
@@ -282,12 +284,14 @@ extract image arch=oci_arch output=(out + "/extract"):
 
 # Apply rustfmt changes.
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 format:
     @printf "{{ cyan }}Formatting{{ reset }}\n"
     cargo fmt --all
 
 # Check formatting and run clippy (e.g., just lint or just lint yuki koci).
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 lint *pkgs:
     printf "{{ cyan }}Checking formatting{{ reset }}\n"
@@ -309,9 +313,9 @@ spell:
 
 # Run tests and doctests (e.g., just test or just test yuki koci).
 [group('test')]
+[env("RUSTFLAGS", rustflags + " -D warnings")]
 [script]
 test *pkgs:
-    export RUSTFLAGS="${RUSTFLAGS:-} -D warnings"
     printf "{{ cyan }}Running tests{{ reset }}\n"
     just _test-run "cargo nextest run --locked --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
     doc_args=$(cargo metadata --locked --no-deps --format-version 1 \
@@ -325,6 +329,7 @@ test *pkgs:
 
 # Build documentation and deny rustdoc warnings.
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 docs:
     printf "{{ cyan }}Building documentation{{ reset }}\n"
@@ -338,6 +343,7 @@ deny *checks="advisories bans licenses sources":
 
 # Check every feature combination compiles (e.g., just features or just features yuki).
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 features *pkgs:
     printf "{{ cyan }}Checking feature matrix{{ reset }}\n"
@@ -359,6 +365,7 @@ features *pkgs:
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [arg("missing", long="missing", value="--show-missing-lines")]
 [script]
 coverage missing="" *pkgs:
@@ -367,6 +374,7 @@ coverage missing="" *pkgs:
 
 # Run E2E tests suite (requires: qemu, built artifacts)
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 e2e: (build "--release" "muakctl") _ensure-fw
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
@@ -416,6 +424,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
 
 # Profile a Rust binary with perf and render a CPU flamegraph
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 flame pkg *args: _ensure-out
     flame=$(command -v cargo-flamegraph || echo "$HOME/.cargo/bin/cargo-flamegraph")
@@ -437,7 +446,7 @@ flame pkg *args: _ensure-out
             *) args="$args $a" ;;
         esac
     done
-    RUSTFLAGS="-C force-frame-pointers=yes -Clink-arg=-Wl,--no-rosegment" \
+    RUSTFLAGS="$RUSTFLAGS -C force-frame-pointers=yes -Clink-arg=-Wl,--no-rosegment" \
         "$flame" flamegraph --profile profiling --no-inline -c "record -F 997 --call-graph dwarf -o {{ out }}/flame.data" -o {{ out }}/flamegraph.svg -p {{ pkg }} -- $args -o {{ out }}
     printf "{{ green }}Flamegraph written to {{ out }}/flamegraph.svg{{ reset }}\n"
 
