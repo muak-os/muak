@@ -2,12 +2,19 @@
 //!
 //! Every flag describes kernel truth: it says the running kernel offers a
 //! facility. The flags are never filtered by cargo features, so a caller always
-//! sees what the machine offers, whatever this build was compiled with. Phase 1
-//! compares the two in a `resolve` step.
+//! sees what the machine offers, whatever this build was compiled with. The
+//! `resolve` step in [`crate::resolve`] compares the two.
+
+#[cfg(feature = "probe")]
+pub mod detect;
 
 use core::fmt;
+#[cfg(feature = "probe")]
+use std::path::Path;
 
-const NAMED: [(Capabilities, &str); 30] = [
+use crate::error::Mechanism;
+
+const NAMED: [(Capabilities, &str); 27] = [
     (Capabilities::MOUNT_NS, "MOUNT_NS"),
     (Capabilities::PID_NS, "PID_NS"),
     (Capabilities::NET_NS, "NET_NS"),
@@ -17,8 +24,6 @@ const NAMED: [(Capabilities, &str); 30] = [
     (Capabilities::CGROUP_NS, "CGROUP_NS"),
     (Capabilities::TIME_NS, "TIME_NS"),
     (Capabilities::CGROUP_V2, "CGROUP_V2"),
-    (Capabilities::CGROUP_KILL, "CGROUP_KILL"),
-    (Capabilities::CGROUP_FREEZER, "CGROUP_FREEZER"),
     (Capabilities::OVERLAYFS, "OVERLAYFS"),
     (Capabilities::TMPFS, "TMPFS"),
     (Capabilities::DEVPTS, "DEVPTS"),
@@ -36,7 +41,6 @@ const NAMED: [(Capabilities, &str); 30] = [
     (Capabilities::PIDFD, "PIDFD"),
     (Capabilities::CLONE3, "CLONE3"),
     (Capabilities::CLONE_INTO_CGROUP, "CLONE_INTO_CGROUP"),
-    (Capabilities::LANDLOCK, "LANDLOCK"),
     (Capabilities::UNPRIV_USER_NS, "UNPRIV_USER_NS"),
 ];
 
@@ -63,10 +67,6 @@ impl Capabilities {
     pub const TIME_NS: Self = Self(0x0000_0080);
     /// Kernel offers the cgroup v2 unified hierarchy.
     pub const CGROUP_V2: Self = Self(0x0000_0100);
-    /// Kernel offers the cgroup v2 kill file.
-    pub const CGROUP_KILL: Self = Self(0x0000_0200);
-    /// Kernel offers the cgroup v2 freezer controller.
-    pub const CGROUP_FREEZER: Self = Self(0x0000_0400);
     /// Kernel offers the overlay filesystem.
     pub const OVERLAYFS: Self = Self(0x0000_0800);
     /// Kernel offers the tmpfs filesystem.
@@ -101,8 +101,6 @@ impl Capabilities {
     pub const CLONE3: Self = Self(0x0400_0000);
     /// Kernel offers the clone into cgroup clone3 flag.
     pub const CLONE_INTO_CGROUP: Self = Self(0x0800_0000);
-    /// Kernel offers the landlock security module.
-    pub const LANDLOCK: Self = Self(0x1000_0000);
     /// Kernel offers unprivileged user namespace creation.
     pub const UNPRIV_USER_NS: Self = Self(0x2000_0000);
 
@@ -141,6 +139,50 @@ impl Capabilities {
     pub const fn bits(self) -> u32 {
         self.0
     }
+
+    /// Returns the name of a single flag, or `None` for any other set.
+    #[must_use = "the name is what a failure reports"]
+    pub const fn name(self) -> Option<&'static str> {
+        name_in(&NAMED, self)
+    }
+
+    /// Returns the mechanism of a single flag, or `None` for any other set.
+    #[must_use = "the mechanism decides whether a requirement can be met"]
+    pub const fn mechanism(self) -> Option<Mechanism> {
+        match self {
+            Self::MOUNT_NS
+            | Self::PID_NS
+            | Self::NET_NS
+            | Self::IPC_NS
+            | Self::UTS_NS
+            | Self::CGROUP_NS
+            | Self::TIME_NS
+            | Self::USER_NS
+            | Self::UNPRIV_USER_NS => Some(Mechanism::Namespaces),
+            Self::CGROUP_V2 => Some(Mechanism::Cgroup),
+            Self::OVERLAYFS => Some(Mechanism::Overlay),
+            Self::TMPFS
+            | Self::DEVPTS
+            | Self::PROC
+            | Self::SYSFS
+            | Self::OPEN_TREE
+            | Self::MOUNT_SETATTR
+            | Self::IDMAPPED_MOUNTS => Some(Mechanism::Mounts),
+            Self::EROFS | Self::PIVOT_ROOT => Some(Mechanism::Rootfs),
+            Self::SECCOMP | Self::SECCOMP_NOTIF => Some(Mechanism::Seccomp),
+            Self::CAPSET | Self::CAP_BOUNDING => Some(Mechanism::Caps),
+            Self::PIDFD | Self::CLONE3 | Self::CLONE_INTO_CGROUP => Some(Mechanism::Spawn),
+            _ => None,
+        }
+    }
+
+    /// Yields one single flag per set bit, in bit order.
+    pub fn flags(self) -> impl Iterator<Item = Self> {
+        NAMED
+            .into_iter()
+            .filter(move |entry| self.contains(entry.0))
+            .map(|entry| entry.0)
+    }
 }
 
 impl fmt::Display for Capabilities {
@@ -156,5 +198,31 @@ impl fmt::Display for Capabilities {
         }
 
         Ok(())
+    }
+}
+
+/// Returns the capabilities detectable on the running machine.
+#[cfg(feature = "probe")]
+#[must_use = "probing has no effect beyond the answer"]
+pub fn current() -> Capabilities {
+    at(Path::new("/"))
+}
+
+/// Returns the capabilities inferred from the tree at `root` plus the
+/// capabilities of the running kernel.
+#[cfg(feature = "probe")]
+#[must_use = "probing has no effect beyond the answer"]
+pub fn at(root: &Path) -> Capabilities {
+    detect::files(root).insert(detect::syscalls())
+}
+
+const fn name_in(
+    entries: &[(Capabilities, &'static str)],
+    flag: Capabilities,
+) -> Option<&'static str> {
+    match *entries {
+        [(candidate, name), ref rest @ ..] if flag.0 == candidate.0 => Some(name),
+        [_, ref rest @ ..] => name_in(rest, flag),
+        [] => None,
     }
 }

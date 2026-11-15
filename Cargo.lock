@@ -2047,6 +2047,7 @@ dependencies = [
 name = "sandbox"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "rustix",
  "tempfile",
  "thiserror 2.0.21",

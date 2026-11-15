@@ -3,9 +3,8 @@
 //! This crate owns the vocabulary a workload needs before it is allowed to
 //! touch the host: which kernel facilities exist, which of them this build can
 //! drive, which of them the machine refuses, and what a child process must do
-//! between fork and exec. Phase 0 ships only that vocabulary, meaning the error
-//! type, the stage codes and the capability set. Nothing in this crate issues a
-//! syscall yet.
+//! between fork and exec. Phase 1 adds detection: the crate now probes the
+//! machine for those facilities, but nothing here changes process state yet.
 //!
 //! # Features
 //!
@@ -16,7 +15,7 @@
 //! | Feature | Module or step it gats | Phase |
 //! | --- | --- | --- |
 //! | `linux` | `sys::linux` | 0 |
-//! | `probe` | none yet, `probe` is unconditional Phase 0 vocabulary and only the Phase 1 resolve step will be gated | 1 |
+//! | `probe` | `probe::detect`, `sys::linux::probe` | 1 |
 //! | `caps` | none yet | 2 |
 //! | `limits` | none yet | 2 |
 //! | `namespaces` | none yet | 3 |
@@ -43,5 +42,6 @@
 
 pub mod error;
 pub mod probe;
+pub mod resolve;
 pub mod stage;
 pub mod sys;

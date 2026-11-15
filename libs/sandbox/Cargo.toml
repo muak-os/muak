@@ -13,7 +13,7 @@ categories.workspace = true
 default = ["linux", "probe", "spawn"]
 linux = ["dep:rustix"]
 mock = []
-probe = ["linux"]
+probe = ["linux", "dep:libc"]
 namespaces = ["linux"]
 mounts = ["linux"]
 rootfs = ["linux", "mounts"]
@@ -29,6 +29,7 @@ spawn = ["linux"]
 thiserror = { workspace = true }
 
 # System/platform APIs
+libc = { workspace = true, optional = true }
 rustix = { workspace = true, optional = true, features = [
     "fs",
     "mount",

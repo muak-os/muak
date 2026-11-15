@@ -1,7 +1,10 @@
 //! Linux syscall backend.
 //!
 //! Phase 0 only carries the error conversion. The rest of the syscall surface
-//! arrives in Phases 3 and 5.
+//! arrives in the later phases, except the availability probes detection needs.
+
+#[cfg(feature = "probe")]
+pub(crate) mod probe;
 
 use rustix::io;
 

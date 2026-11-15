@@ -115,6 +115,23 @@ impl Mechanism {
             Self::Spawn => "spawn",
         }
     }
+
+    /// Returns whether this build compiled the mechanism in.
+    #[must_use = "the answer separates a build problem from a kernel problem"]
+    pub const fn compiled(self) -> bool {
+        match self {
+            Self::Probe => cfg!(feature = "probe"),
+            Self::Namespaces => cfg!(feature = "namespaces"),
+            Self::Mounts => cfg!(feature = "mounts"),
+            Self::Rootfs => cfg!(feature = "rootfs"),
+            Self::Cgroup => cfg!(feature = "cgroup"),
+            Self::Overlay => cfg!(feature = "overlay"),
+            Self::Caps => cfg!(feature = "caps"),
+            Self::Seccomp => cfg!(feature = "seccomp"),
+            Self::Limits => cfg!(feature = "limits"),
+            Self::Spawn => cfg!(feature = "spawn"),
+        }
+    }
 }
 
 impl fmt::Display for Mechanism {
