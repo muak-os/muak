@@ -4,7 +4,7 @@
 mod tests {
     use sandbox::stage::Stage;
 
-    const ALL: [Stage; 8] = [
+    const ALL: [Stage; 11] = [
         Stage::Namespaces,
         Stage::Mounts,
         Stage::Rootfs,
@@ -13,12 +13,15 @@ mod tests {
         Stage::Seccomp,
         Stage::Limits,
         Stage::Exec,
+        Stage::Signals,
+        Stage::Caps,
+        Stage::NoNewPrivs,
     ];
 
     #[test]
     fn codes_are_unique_and_non_zero() {
         // ARRANGE
-        let mut codes = [0_u16; 8];
+        let mut codes = [0_u16; 11];
 
         // ACT
         for (position, stage) in ALL.into_iter().enumerate() {
@@ -64,7 +67,7 @@ mod tests {
     #[test]
     fn names_are_non_empty_and_distinct() {
         // ARRANGE
-        let mut names = [""; 8];
+        let mut names = [""; 11];
 
         // ACT
         for (position, stage) in ALL.into_iter().enumerate() {

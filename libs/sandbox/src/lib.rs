@@ -3,8 +3,8 @@
 //! This crate owns the vocabulary a workload needs before it is allowed to
 //! touch the host: which kernel facilities exist, which of them this build can
 //! drive, which of them the machine refuses, and what a child process must do
-//! between fork and exec. Phase 1 adds detection: the crate now probes the
-//! machine for those facilities, but nothing here changes process state yet.
+//! between fork and exec. Phase 2 adds credentials, resource limits and the
+//! first spawn that applies them in a child before exec.
 //!
 //! # Features
 //!
@@ -16,14 +16,14 @@
 //! | --- | --- | --- |
 //! | `linux` | `sys::linux` | 0 |
 //! | `probe` | `probe::detect`, `sys::linux::probe` | 1 |
-//! | `caps` | none yet | 2 |
-//! | `limits` | none yet | 2 |
+//! | `caps` | the capability calls in `sys::linux::credentials` (also needs `spawn`) | 2 |
+//! | `limits` | `sys::linux::limits` (also needs `spawn`) | 2 |
 //! | `namespaces` | none yet | 3 |
 //! | `mounts` | none yet | 3 |
 //! | `rootfs` | none yet | 3 |
 //! | `mock` | none yet | 3 |
 //! | `cgroup` | none yet | 4 |
-//! | `spawn` | none yet | 5 |
+//! | `spawn` | `resolve::Resolved`, `Policy::resolve`, `child`, `spawn`, `sys::linux::spawn` | 2 |
 //! | `seccomp` | none yet | 6 |
 //! | `overlay` | none yet | 7 |
 //!
@@ -40,8 +40,17 @@
 
 #![warn(missing_docs)]
 
+pub mod cap;
+pub mod credentials;
 pub mod error;
+pub mod limits;
+pub mod policy;
 pub mod probe;
 pub mod resolve;
+#[cfg(feature = "spawn")]
+pub mod spawn;
 pub mod stage;
 pub mod sys;
+
+#[cfg(feature = "spawn")]
+pub(crate) mod child;

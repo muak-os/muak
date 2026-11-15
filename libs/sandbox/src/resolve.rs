@@ -4,10 +4,20 @@
 //! capabilities the machine reported. A build problem is reported before a
 //! kernel problem, so a missing mechanism is never mistaken for an unsupported
 //! kernel. Refusal, the `Denied` variant, is not produced here: it comes from
-//! setup in a later phase.
+//! the child path through [`crate::spawn`].
 
 use crate::error::{Mechanism, Result, SandboxError};
+#[cfg(feature = "spawn")]
+use crate::policy::Policy;
 use crate::probe::Capabilities;
+
+/// A policy that passed resolution and can be spawned.
+#[cfg(feature = "spawn")]
+#[derive(Clone, Copy, Debug)]
+pub struct Resolved<'a> {
+    pub(crate) policy: &'a Policy<'a>,
+    pub(crate) pidfd: bool,
+}
 
 /// Kernel facilities a caller requires before a sandbox can be built.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -56,6 +66,44 @@ impl Requirements {
             .flags()
             .filter(|flag| absent_from(*flag, *caps))
             .fold(Capabilities::empty(), Capabilities::insert)
+    }
+}
+
+#[cfg(feature = "spawn")]
+impl Policy<'_> {
+    /// Resolves this policy against the capabilities of the running machine.
+    ///
+    /// Requirements are resolved first, so a mechanism this build left out is
+    /// reported before a kernel limitation. The checks that only a policy can
+    /// fail follow: a non-root identity cannot keep capabilities without
+    /// ambient capabilities, and a requested limit needs the limits mechanism.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SandboxError::NotCompiled`] when a requested mechanism is
+    /// absent from this build, [`SandboxError::Unsupported`] when the kernel
+    /// lacks a needed facility or the policy asks for a combination this phase
+    /// cannot honour.
+    pub fn resolve(&self, caps: &Capabilities) -> Result<Resolved<'_>> {
+        self.requirements().resolve(caps)?;
+        let ambient = self
+            .caps
+            .is_some_and(|kept| self.id.uid != 0 && !kept.is_empty());
+        if ambient {
+            return Err(SandboxError::Unsupported {
+                mechanism: Mechanism::Caps,
+                detail: "non-root capabilities need ambient capabilities",
+            });
+        }
+        if self.limits.requested() && !Mechanism::Limits.compiled() {
+            return Err(SandboxError::NotCompiled {
+                mechanism: Mechanism::Limits,
+            });
+        }
+        Ok(Resolved {
+            policy: self,
+            pidfd: caps.contains(Capabilities::PIDFD),
+        })
     }
 }
 

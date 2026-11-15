@@ -4,6 +4,10 @@
 //! the way the parent side does. A failure is reported as a fixed
 //! `(Stage, Errno)` pair written to a CLOEXEC pipe, and `Stage` is the compact
 //! value that says which step of the child path failed.
+//!
+//! A code is a stable wire value, not the execution order. The child runs the
+//! signal reset first and that stage carries code 9, so a code names the step
+//! that failed and says nothing about when it ran.
 
 /// Step of the child path a failure is attributed to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,7 +20,7 @@ pub enum Stage {
     Rootfs = 3,
     /// Control group placement.
     Cgroup = 4,
-    /// Credential and capability drop.
+    /// UID and GID drop.
     Credentials = 5,
     /// Seccomp filter installation.
     Seccomp = 6,
@@ -24,6 +28,12 @@ pub enum Stage {
     Limits = 7,
     /// Final exec of the workload.
     Exec = 8,
+    /// Signal mask and disposition reset.
+    Signals = 9,
+    /// Capability bounding and effective set drop.
+    Caps = 10,
+    /// No-new-privileges flag.
+    NoNewPrivs = 11,
 }
 
 impl Stage {
@@ -39,6 +49,9 @@ impl Stage {
             Self::Seccomp => 6,
             Self::Limits => 7,
             Self::Exec => 8,
+            Self::Signals => 9,
+            Self::Caps => 10,
+            Self::NoNewPrivs => 11,
         }
     }
 
@@ -54,6 +67,9 @@ impl Stage {
             Self::Seccomp => "seccomp",
             Self::Limits => "limits",
             Self::Exec => "exec",
+            Self::Signals => "signals",
+            Self::Caps => "caps",
+            Self::NoNewPrivs => "no-new-privs",
         }
     }
 
@@ -69,6 +85,9 @@ impl Stage {
             6 => Some(Self::Seccomp),
             7 => Some(Self::Limits),
             8 => Some(Self::Exec),
+            9 => Some(Self::Signals),
+            10 => Some(Self::Caps),
+            11 => Some(Self::NoNewPrivs),
             _ => None,
         }
     }

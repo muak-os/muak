@@ -22,7 +22,7 @@ overlay = ["mounts"]
 caps = ["linux"]
 seccomp = ["linux"]
 limits = ["linux"]
-spawn = ["linux"]
+spawn = ["linux", "dep:libc"]
 
 [dependencies]
 # Error handling
@@ -40,6 +40,7 @@ rustix = { workspace = true, optional = true, features = [
 ] }
 
 [dev-dependencies]
+libc = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]
