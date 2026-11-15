@@ -1,12 +1,16 @@
-# Multi-host coordination for Muak
+# ADR 0001: Optional multi-host coordination
 
-**Status:** Draft proposal for maintainer discussion. No runtime behavior or API
-is introduced by this document.
+**Status:** Proposed
+
+**Date:** 2026-11-15
+
+**Decision scope:** Optional fleet management and its path to management HA.
+This ADR records a proposed direction; acceptance by maintainers is pending.
 
 **Repository baseline:** [`41543f45`](https://github.com/muak-os/muak/commit/41543f45fb88a311285be4312a1c9b63ab7a5e49),
 reviewed on 2026-11-15.
 
-## Summary
+## Proposed decision
 
 Introduce optional fleet management through authenticated, host-initiated
 connections to one logical management service. Start with a single durable
@@ -24,7 +28,7 @@ failover is required in the first release, qualify replicated authority before
 enabling remote mutations. Controller placement, transport and storage remain
 open decisions.
 
-## 1. Motivation and use cases
+## Context and use cases
 
 Muak already provides declarative configuration and a local gRPC/mTLS API. A
 management service would give operators a common view and a reliable way to act
@@ -44,7 +48,7 @@ Disk replication, live migration, automatic placement and a general-purpose
 overlay network are outside the first milestone. Their storage, networking and
 hypervisor requirements need separate designs.
 
-## 2. Initial architecture
+## Architecture
 
 The **manager** owns desired state and accepted operations. A **host agent** reports
 observations and executes authorized operations through Muak's service boundaries.
@@ -82,7 +86,7 @@ Use WireGuard if generic IP access to existing management protocols is needed.
 That choice adds address allocation, routing, key lifecycle, UDP restrictions and
 gateway failover. A management tunnel does not imply a disk-replication network.
 
-## 3. Identity, authorization and state ownership
+## Identity, authorization and state ownership
 
 Assign a durable node identity and an explicit management-domain identity.
 Certificate rotation, changing IP addresses and tunnel reconnects must preserve
@@ -115,7 +119,7 @@ fresh snapshot with desired revisions and operation results. Bound queues and
 history, use retry backoff with jitter, and expose observation timestamps.
 Silence indicates lost contact, not proof that the host or its VMs have stopped.
 
-## 4. Reliable operations before automatic retries
+## Reliable operations before automatic retries
 
 An interrupted response leaves an unknown outcome. The caller must be able to
 retrieve or retry the same operation without requesting a new VM. Explicit caller
@@ -159,7 +163,7 @@ those effects atomic. The implementation must specify recovery at each boundary,
 including a crash after resource creation but before result persistence. Do not
 claim exactly-once execution for arbitrary host actions.
 
-## 5. Election and management failover
+## Election and management failover
 
 With one designated manager, no election is necessary. Its failure pauses central
 operations until restart or explicit recovery. Local VM execution is independent.
@@ -207,7 +211,7 @@ The assumed consensus fault model includes crashes, restarts and delayed or lost
 messages. It does not protect against authenticated controllers deliberately
 violating the protocol [4].
 
-## 6. Partitions, workload ownership and recovery
+## Partitions, workload ownership and recovery
 
 | Event | Required behavior to validate |
 | --- | --- |
@@ -242,7 +246,7 @@ etcd documents analogous revision and observer-cache issues during restoration
 supersede sessions, collect host execution records, and reconcile before dispatch.
 Absence from a restored backup is not evidence that a command never ran.
 
-## 7. Implications for the current Muak code
+## Implications for the current Muak code
 
 The following are source observations at the baseline above, not tested failures.
 
@@ -258,7 +262,7 @@ The following are source observations at the baseline above, not tested failures
 Preserve Muak's minimal standalone deployment. Management packaging should be
 optional; a worker should not require a controller database merely to run VMs.
 
-## 8. Implementation choices still to evaluate
+## Alternatives considered
 
 | Option | Fit | Work still required |
 | --- | --- | --- |
@@ -271,7 +275,21 @@ No backend or library version is selected. Compare real deployment complexity,
 storage durability, resource use, musl support and upgrade behavior before choosing.
 Neither etcd nor a Raft library solves host-side operation recovery or VM fencing.
 
-## 9. Delivery stages and acceptance evidence
+## Consequences
+
+- A single manager is useful for small installations and remote hosts, with an
+  explicit central-management outage during manager failure.
+- Local VM operation remains independent of management connectivity in the initial
+  scope. Automatic cross-host recovery requires a separate storage/fencing design.
+- Stable identities and recoverable operations must precede transparent retries.
+  This adds durable-state and reconciliation work before broad remote control.
+- Transport-independent inventory logic can be tested without an OS image, while
+  certificate handling, persistence and real connectivity need integration tests.
+- Starting with one manager reduces initial deployment requirements but does not
+  make later HA integration or migration free. A three-voter deployment adds
+  storage, membership, discovery and recovery obligations.
+
+## Delivery stages and acceptance evidence
 
 | Stage | Deliverable | Evidence required before expanding scope |
 | --- | --- | --- |
@@ -291,7 +309,33 @@ partitions, NAT/tunnel behavior, hypervisor execution and storage fencing need
 their own integration checks. Availability targets must name the operation,
 tolerated failures and outage bound; none has been measured by this proposal.
 
-## 10. Decisions requested from maintainers
+## Draft implementation status
+
+The `coordination` workspace library is an initial, in-memory implementation of
+inventory semantics. It binds approved node UUIDs to credential fingerprints,
+issues manager-scoped session generations, rejects obsolete sessions and reordered
+reports, and retains bounded full snapshots with manager-local freshness. Rotation
+and revocation invalidate active sessions. A runnable example simulates three
+hosts; regression tests cover reconnect, rejection and resource limits.
+
+The library trusts an authenticated identity supplied by its caller. It does not
+verify certificates or add an API endpoint. Its administrative methods must be
+protected by the future adapter. Enrollment storage, transport, process packaging,
+restart recovery and VM mutations are not implemented. A new registry has a fresh
+random session scope; restoring approvals must never restore old sessions.
+
+Run the current prototype with:
+
+```sh
+cargo run --locked -p coordination --example inventory
+just test coordination
+just lint coordination
+```
+
+This is partial progress on stage 1, not evidence that the complete stage or any
+HA guarantee has been delivered.
+
+## Open questions for maintainers
 
 1. Is the first target a small installation, remote fleet, or autonomous HA site?
    Is automatic management failover required immediately?
