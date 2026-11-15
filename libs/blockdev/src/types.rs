@@ -42,7 +42,7 @@ pub struct Partition {
     pub name: String,
     /// Kernel device path, for example `/dev/sda1`.
     pub path: String,
-    /// Filesystem detected on the partition, empty when none is recognised.
+    /// Filesystem detected on the partition or, for an encrypted container.
     pub fstype: String,
     /// GPT partition name, empty when the table carries none.
     pub gpt_name: String,

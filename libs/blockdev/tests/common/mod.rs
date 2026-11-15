@@ -119,6 +119,21 @@ impl Fixture {
         node
     }
 
+    /// Creates an empty device node for the device-mapper mapping `name`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the mapping directory or node cannot be created.
+    #[must_use = "callers need the path to write the mapped filesystem"]
+    pub fn mapped_node(&self, name: &str) -> PathBuf {
+        let mapper = self.roots().dev.join("mapper");
+        fs::create_dir_all(&mapper).expect("mapper directory");
+        let node = mapper.join(name);
+        fs::write(&node, b"").expect("mapped node");
+
+        node
+    }
+
     /// Replaces the kernel mount table.
     ///
     /// # Panics
