@@ -119,6 +119,14 @@ pub(crate) async fn run(cli: Cli, console: &Console) -> Result<()> {
         600
     } else if matches!(
         &cli.command,
+        Commands::Vm {
+            action: vm::Action::Create { .. },
+            ..
+        }
+    ) {
+        3600
+    } else if matches!(
+        &cli.command,
         Commands::Logs { follow: true, .. } | Commands::Dmesg { follow: true }
     ) {
         86400
