@@ -80,6 +80,11 @@
 ; STATE partition mount (btrfs on /dev/mapper/muak-state -> fs_t filesystem).
 (allow granola_t fs_t (files (mount)))
 
+; ESP mount and LUKS key read from the initramfs (vfat -> esp_t filesystem).
+(allow granola_t esp_t (files (mount)))
+(allow granola_t esp_t (dir  (read search)))
+(allow granola_t esp_t (file (read open getattr)))
+
 ; Rootfs traversal (overlay/erofs post-pivot).
 (allow granola_t file_t        (dir      (read search open getattr)))
 (allow granola_t file_t        (file     (read open getattr execute execute_no_trans map)))

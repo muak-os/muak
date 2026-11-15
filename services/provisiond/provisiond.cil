@@ -33,6 +33,11 @@
 (allow system_t fs_t (dir  (read write search create add_name remove_name getattr mounton)))
 (allow system_t fs_t (file (read write create open getattr setattr unlink rename)))
 
+(allow system_t esp_t (filesystem (mount unmount getattr)))
+
+(allow system_t esp_t (dir  (read write search create add_name remove_name getattr mounton)))
+(allow system_t esp_t (file (read write create open getattr setattr unlink rename)))
+
 (allow system_t self (tcp_socket (create connect read write getattr setopt getopt shutdown)))
 (allow system_t unlabeled_t (tcp_socket (name_connect node_bind)))
 

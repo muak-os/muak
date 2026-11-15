@@ -85,7 +85,7 @@
 ; All object types in the system. 
 (typeattribute all_o)
 (typeattributeset all_o (
-    security_t unlabeled_t fs_t file_t dir_t
+    security_t unlabeled_t fs_t esp_t file_t dir_t
     muak_run_t muak_state_t muak_data_t
     proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
     modules_t))
@@ -107,6 +107,9 @@
 
 (type fs_t)
 (roletype object_r fs_t)
+
+(type esp_t)
+(roletype object_r esp_t)
 
 (type file_t)
 (roletype object_r file_t)
@@ -171,7 +174,7 @@
 ; Exec types added via declare_exec are placed in sqsh_file_type and
 ; therefore land here automatically.
 (typeattributeset unconstrained_o (
-    security_t unlabeled_t fs_t file_t dir_t
+    security_t unlabeled_t fs_t esp_t file_t dir_t
     muak_run_t muak_state_t
     proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
     modules_t))

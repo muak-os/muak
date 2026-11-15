@@ -7,6 +7,9 @@
 ; btrfs: xattr-based; new files without a typetransition get fs_t.
 (fsuse xattr btrfs    (system_u object_r fs_t       s0))
 
+; vfat: no xattrs; the ESP holds the boot artifacts and the LUKS key.
+(fsuse xattr vfat     (system_u object_r esp_t      s0))
+
 ; pipefs/sockfs: labeled per-creating-task.
 (fsuse task  pipefs   (system_u object_r fs_t       s0))
 (fsuse task  sockfs   (system_u object_r fs_t       s0))
@@ -34,6 +37,12 @@
 
 ; Allow unlabeled objects on fs_t filesystems.
 (allow unlabeled_t fs_t (filesystem (associate)))
+
+; Allow esp_t and unlabeled objects on the esp_t filesystem (vfat ESP).
+; vfat has no xattrs, so inodes fall back to unlabeled_t while the
+; filesystem itself takes the fsuse context.
+(allow esp_t       esp_t (filesystem (associate)))
+(allow unlabeled_t esp_t (filesystem (associate)))
 
 ; Allow efivarfs_t objects on efivarfs_t (Secure Boot key enrollment).
 (allow efivarfs_t efivarfs_t (filesystem (associate)))
