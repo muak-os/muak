@@ -26,6 +26,7 @@ members = [
     "libs/blockdev",
     "libs/btrfs",
     "libs/config",
+    "libs/coordination",
     "libs/disk",
     "libs/esp",
     "libs/partdev",

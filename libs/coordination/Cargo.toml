@@ -1,0 +1,17 @@
+[package]
+name = "coordination"
+description = "Transport-independent host inventory and session tracking"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true
