@@ -43,6 +43,7 @@ members = [
     "libs/netlib",
     "libs/oci",
     "libs/oci-client",
+    "libs/sandbox",
     "libs/uki",
 ]
 resolver = "3"
@@ -89,6 +90,7 @@ partdev = { path = "libs/partdev", default-features = false }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
+sandbox = { path = "libs/sandbox", default-features = false }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 uki = { path = "libs/uki" }

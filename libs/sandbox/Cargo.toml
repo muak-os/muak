@@ -1,0 +1,45 @@
+[package]
+name = "sandbox"
+description = "Confinement primitives for untrusted workloads"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["linux", "probe", "spawn"]
+linux = ["dep:rustix"]
+mock = []
+probe = ["linux"]
+namespaces = ["linux"]
+mounts = ["linux"]
+rootfs = ["linux", "mounts"]
+cgroup = []
+overlay = ["mounts"]
+caps = ["linux"]
+seccomp = ["linux"]
+limits = ["linux"]
+spawn = ["linux"]
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, optional = true, features = [
+    "fs",
+    "mount",
+    "param",
+    "process",
+    "system",
+    "thread",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
