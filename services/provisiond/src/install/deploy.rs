@@ -11,7 +11,7 @@ use sbolt::keys::SigningPair;
 use sbolt::keys::hierarchy::Bundle;
 use uki::measure::MeasuredSection;
 use wizard::artifact::Artifact;
-use wizard::domain::profile::{CustomizationSpec, Profile};
+use wizard::domain::profile::Profile;
 use wizard::request::Request;
 
 use crate::efi;
@@ -20,7 +20,7 @@ use crate::efi;
 pub(super) async fn spawn(
     efi_part: String,
     host: host::Config,
-    booted_profile: Profile,
+    install_profile: Profile,
     luks_key: Passphrase,
     tpm_available: bool,
     sb_hierarchy: Option<Bundle>,
@@ -29,7 +29,7 @@ pub(super) async fn spawn(
         run(
             &efi_part,
             &host,
-            &booted_profile,
+            &install_profile,
             &luks_key,
             tpm_available,
             sb_hierarchy,
@@ -42,21 +42,13 @@ pub(super) async fn spawn(
 fn run(
     efi_part: &str,
     host: &host::Config,
-    booted_profile: &Profile,
+    install_profile: &Profile,
     luks_key: &[u8],
     tpm_available: bool,
     sb_hierarchy: Option<Bundle>,
 ) -> Result<(Vec<MeasuredSection>, Option<Bundle>)> {
-    let install_profile = derive_install_profile(booted_profile, &host.extensions)?;
-
     efi::mount(efi_part)?;
-    let deployed = deploy(
-        &install_profile,
-        host,
-        luks_key,
-        tpm_available,
-        sb_hierarchy,
-    );
+    let deployed = deploy(install_profile, host, luks_key, tpm_available, sb_hierarchy);
     efi::unmount();
 
     deployed
@@ -137,15 +129,4 @@ fn build(
         .context("wizard install build")?;
 
     Ok((metadata, sb_hierarchy))
-}
-
-fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Profile> {
-    let customization =
-        CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
-
-    Ok(Profile::new(
-        booted.overlay().cloned(),
-        customization,
-        booted.kernel().clone(),
-    ))
 }

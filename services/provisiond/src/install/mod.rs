@@ -1,6 +1,7 @@
 //! Installation workflow orchestration.
 
 mod deploy;
+mod keys;
 mod layout;
 pub(crate) mod pki;
 pub(crate) mod plan;
@@ -12,22 +13,16 @@ mod volumes;
 use anyhow::{Context as _, Result, bail};
 use blockdev::types::Disk;
 use config::system;
+use keys::PkiResult;
 use luks2::key::Passphrase;
 use pki::InstallResult;
 use sbolt::efi::enrollment;
 use sbolt::keys::hierarchy::Bundle;
 use tokio::sync::mpsc;
-use uki::measure::MeasuredSection;
-use wizard::domain::profile::Profile;
+use wizard::domain::profile::{CustomizationSpec, Profile};
 
 use crate::ipc::proto::provision::InstallProgress;
-use crate::{cache, check, disk, medium, secrets, streaming};
-
-struct PkiResult {
-    client_result: InstallResult,
-    auth_config: config::auth::State,
-    server_pki: pki::Server,
-}
+use crate::{cache, check, disk, medium, streaming};
 
 /// Installs Muak to the disks assigned in `config`, with the given configuration.
 pub(crate) async fn run(
@@ -49,8 +44,10 @@ pub(crate) async fn run(
     )
     .await?;
     let enroll_secureboot = verify_secureboot(config)?;
-    let (luks_key, pki_result) = generate_keys(admin_csr_pem, &progress).await?;
     let booted_profile = medium::profile().context("failed to load booted profile")?;
+    let install_profile = derive_install_profile(&booted_profile, &config.host.extensions)?;
+    preflight::verify_registry(&install_profile, config, &progress).await?;
+    let (luks_key, pki_result) = keys::generate_keys(admin_csr_pem, &progress).await?;
 
     let partitions = volumes::partition(&targets, &progress).await?;
     volumes::format_luks(&partitions, &luks_key, &progress).await?;
@@ -60,7 +57,7 @@ pub(crate) async fn run(
         &luks_key,
         pki_result,
         config,
-        booted_profile,
+        install_profile,
         enroll_secureboot,
         &progress,
     )
@@ -80,7 +77,7 @@ async fn install_volumes(
     luks_key: &Passphrase,
     pki_result: PkiResult,
     config: &system::Config,
-    booted_profile: Profile,
+    install_profile: Profile,
     enroll_secureboot: bool,
     progress: &mpsc::Sender<InstallProgress>,
 ) -> Result<InstallResult> {
@@ -103,14 +100,14 @@ async fn install_volumes(
     let (sections, sb_hierarchy) = deploy::spawn(
         partitions.efi.clone(),
         config.host.clone(),
-        booted_profile,
+        install_profile,
         luks_key.clone(),
         tpm_available,
         sb_hierarchy,
     )
     .await?;
 
-    seal_luks_key(luks_key, tpm_available, partitions, &sections)?;
+    keys::seal_luks_key(luks_key, tpm_available, partitions, &sections)?;
 
     initialize_state(
         &mapped.state,
@@ -126,27 +123,6 @@ async fn install_volumes(
     enroll_secureboot_keys(sb_hierarchy.as_ref(), progress).await?;
 
     Ok(pki_result.client_result)
-}
-
-fn seal_luks_key(
-    luks_key: &[u8],
-    tpm_available: bool,
-    partitions: &volumes::PartitionInfo,
-    sections: &[MeasuredSection],
-) -> Result<()> {
-    if !tpm_available {
-        println!("TPM2 unavailable, LUKS key written to ESP");
-        return Ok(());
-    }
-
-    match secrets::seal_luks_key(luks_key, sections)? {
-        secrets::SealResult::Sealed(token) => {
-            secrets::write_token_to_devices(&token, &[&partitions.state, &partitions.ephemeral])?;
-            println!("LUKS key sealed to TPM2 with PCR#11 values");
-            Ok(())
-        }
-        secrets::SealResult::EspKey => bail!("TPM available but seal returned EspKey"),
-    }
 }
 
 async fn validate_disks(
@@ -169,6 +145,17 @@ async fn validate_disks(
     .await??;
 
     Ok(())
+}
+
+fn derive_install_profile(booted: &Profile, extensions: &[String]) -> Result<Profile> {
+    let customization =
+        CustomizationSpec::new(extensions.to_vec()).context("invalid extensions")?;
+
+    Ok(Profile::new(
+        booted.overlay().cloned(),
+        customization,
+        booted.kernel().clone(),
+    ))
 }
 
 fn verify_secureboot(config: &system::Config) -> Result<bool> {
@@ -195,28 +182,6 @@ async fn enroll_secureboot_keys(
     enrollment::enroll(&firmware::system(), hierarchy).context("Failed to enroll Secure Boot keys")
 }
 
-async fn generate_keys(
-    admin_csr_pem: &str,
-    progress: &mpsc::Sender<InstallProgress>,
-) -> Result<(Passphrase, PkiResult)> {
-    send_progress(progress, "Generating encryption keys").await;
-    let luks_key = luks2::key::generate()?;
-
-    send_progress(progress, "Generating PKI and signing CSR").await;
-    let ca = pki::generate_ca()?;
-    let server_pki = pki::generate_server_cert(&ca)?;
-    let (client_result, auth_config) = pki::sign_admin_csr(admin_csr_pem, &ca)?;
-
-    Ok((
-        luks_key,
-        PkiResult {
-            client_result,
-            auth_config,
-            server_pki,
-        },
-    ))
-}
-
 async fn initialize_state(
     dm_state: &str,
     config: &system::Config,
@@ -236,7 +201,7 @@ async fn initialize_state(
     Ok(())
 }
 
-async fn send_progress(progress: &mpsc::Sender<InstallProgress>, message: &str) {
+pub(super) async fn send_progress(progress: &mpsc::Sender<InstallProgress>, message: &str) {
     streaming::send_progress(
         progress,
         InstallProgress {
