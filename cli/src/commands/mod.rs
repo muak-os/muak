@@ -121,7 +121,6 @@ pub(crate) async fn run(cli: Cli, console: &Console) -> Result<()> {
         &cli.command,
         Commands::Vm {
             action: vm::Action::Create { .. },
-            ..
         }
     ) {
         3600
