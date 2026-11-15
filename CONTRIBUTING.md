@@ -38,8 +38,8 @@ EOF
 ```
 
 ```sh
-REGISTRY="localhost:5000" just mirror linux v7.2.11
-REGISTRY="localhost:5000" just mirror stub v1.0.1-beta
+REGISTRY="localhost:5000" just mirror linux v7.3.4
+REGISTRY="localhost:5000" just mirror stub v1.0.3-beta
 REGISTRY="localhost:5000" just build --release
 REGISTRY="localhost:5000" just installer
 REGISTRY="localhost:5000" just catalog \
