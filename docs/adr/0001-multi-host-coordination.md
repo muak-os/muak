@@ -30,6 +30,12 @@ open decisions.
 
 ## Context and use cases
 
+This proposal addresses the [multi-node orchestrator item in `TODO.md`](../../TODO.md),
+which mentions VM cluster management, a possible WireGuard tunnel and service
+accounts based on existing authentication. The item is an opportunity statement;
+it does not prescribe this architecture or establish maintainer acceptance. This
+draft implements only part of the inventory foundation, not the full TODO item.
+
 Muak already provides declarative configuration and a local gRPC/mTLS API. A
 management service would give operators a common view and a reliable way to act
 on several hosts, including hosts behind NAT or intermittent site connections.
@@ -262,6 +268,39 @@ The following are source observations at the baseline above, not tested failures
 Preserve Muak's minimal standalone deployment. Management packaging should be
 optional; a worker should not require a controller database merely to run VMs.
 
+## Relationship to wizard and provisioning
+
+Wizard builds boot artifacts; runtime services own enrollment, connections and
+observed inventory. There is currently no dependency from wizard, a daemon or
+`muakctl` to the `coordination` library, and no fleet configuration in the system
+schema. The existing strict system-config decoder rejects unsupported fields.
+
+The intended integration has three boundaries:
+
+1. **Image composition:** a wizard profile selects the optional agent package or
+   extension once packaging is designed. Profiles currently select kernel,
+   overlay and extension inputs; see [the profile model](../../toolchain/wizard/src/domain/profile.rs).
+   Existing profiles must retain standalone behavior.
+2. **Provisioning:** an optional, versioned runtime configuration declares the
+   trusted management endpoint and enrollment policy. Installation and update use
+   [provisiond](../../services/provisiond/src/install/mod.rs) and
+   [system configuration](../../libs/config/src/system/mod.rs). Exact fields,
+   storage paths and credential delivery are not selected by this ADR.
+3. **Runtime:** an agent creates or loads a per-node identity in persistent STATE,
+   authenticates, reconnects and reports local VM observations. The manager stores
+   enrollment decisions separately from rebuildable observations.
+
+The same image may boot several machines: a node UUID or private key must not be
+shared through that image or its embedded profile metadata. Generate identity per
+installation, preserve it across ordinary updates, and define reset/replacement
+semantics. Kernel-command-line customization does not currently implement fleet
+bootstrap; credentials should not be carried through that command line.
+
+Artifact tests must verify optional package selection and unchanged standalone
+profiles. Install/update tests must verify preservation of configuration and
+identity. A booted integration test must establish that the packaged agent really
+starts and enrolls; artifact inspection alone cannot establish that behavior.
+
 ## Alternatives considered
 
 | Option | Fit | Work still required |
@@ -334,6 +373,50 @@ just lint coordination
 
 This is partial progress on stage 1, not evidence that the complete stage or any
 HA guarantee has been delivered.
+
+## Operator workflow and first functional merge gate
+
+**Available now:** developers can read this ADR and run the in-process example
+above. Its UUIDs and credential fingerprints are synthetic. It opens no network
+connection, discovers no installed hosts, and does not read live VM inventory.
+There is no fleet command in `muakctl`, fleet daemon, or web interface in this MR.
+The existing CLI's single-host operations remain the way to manage real hosts.
+
+**Proposed first operator workflow:**
+
+1. Deploy a management service and establish its persistent domain and trust.
+2. Opt a host into management using supported runtime configuration, during
+   provisioning or an explicitly supported update path.
+3. Review and approve the host's enrollment using narrowly scoped authorization.
+4. Consult a CLI inventory showing node identity, hostname, VMs, last observation
+   and whether the observation is stale. A lost connection must be distinguishable
+   from evidence that a VM stopped.
+5. Reconnect or reboot a host without duplicate registration; rotate or revoke its
+   credential while retaining an auditable administrative history.
+
+This workflow is a product contract for the next increment, not available command
+syntax. CLI names and configuration fields must be designed with their adapters.
+VM creation, election and cross-host recovery are subsequent capabilities.
+
+The current MR is suitable for architecture and prototype feedback. To present it
+as an operator-usable inventory feature, finish one vertical slice: durable
+enrollment, authenticated RPCs, an outbound agent reading actual `workloadd`
+inventory, CLI consultation, optional packaging and user documentation. If only
+the library is proposed for merge, agree that narrower scope and its intended
+consumer with maintainers; passing CI does not demonstrate operator usefulness.
+
+| Acceptance claim | Test and observable result | Current evidence |
+| --- | --- | --- |
+| Registry ordering and isolation | Reconnect, delayed report/close callback, rotation, revocation and rejected snapshots preserve the correct current observation. | Sixteen in-process tests cover this layer. No certificate handshake is performed. |
+| Durable enrollment | Terminate and restart the manager and agent; preserve identities and revocations, reject obsolete sessions, and fail closed on corrupt state. | Not implemented. Reconstructing a registry in a test is not a disk-recovery test. |
+| Authenticated connectivity | Use real test certificates over the selected RPC transport; reject foreign, revoked and mismatched identities; enforce administrative permissions. | Not implemented. Caller-supplied fingerprints are not proof of authentication. |
+| Real inventory and CLI | Run one manager and at least two agents; discover actual workload state through the selected service boundary; sever a connection, observe stale CLI output, reconnect and recover without duplicate nodes. Verify context/endpoint selection. | Not implemented. The example synthesizes observations in one process. |
+| Provisioning and lifecycle | Build one reusable image; boot two installations with distinct identities; update one without changing its identity or opting an unmanaged host into fleet management. | Not implemented. Requires artifact checks and booted integration evidence. |
+
+Network tests can initially run as local processes with test PKI, deterministic
+disconnects and temporary storage. That proves the adapters within that harness.
+OS packaging, granola supervision, SELinux and installed-state behavior still
+require Muak integration tests; no booted result is claimed by this draft.
 
 ## Open questions for maintainers
 
