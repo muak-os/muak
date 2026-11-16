@@ -4,9 +4,13 @@
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use sandbox::credentials::Caps;
     use sandbox::error::{Mechanism, SandboxError};
     use sandbox::limits::{Limit, Limits};
+    use sandbox::mount::{Entry, Flags, Source};
+    use sandbox::namespace::Set;
     use sandbox::policy::Policy;
     use sandbox::probe::Capabilities;
 
@@ -93,6 +97,102 @@ mod tests {
                 })
             ));
         }
+    }
+
+    #[test]
+    fn namespaces_require_the_flag_that_names_them() {
+        // ARRANGE
+        let policy = Policy::new().namespaces(Set::MOUNT.insert(Set::NETWORK).insert(Set::IPC));
+
+        // ACT
+        let needs = policy.requirements().needs();
+
+        // ASSERT
+        assert!(needs.contains(Capabilities::MOUNT_NS));
+        assert!(needs.contains(Capabilities::NET_NS));
+        assert!(needs.contains(Capabilities::IPC_NS));
+        assert!(!needs.contains(Capabilities::UTS_NS));
+        assert!(!needs.contains(Capabilities::CGROUP_NS));
+    }
+
+    #[test]
+    fn mounts_require_the_mount_namespace_and_their_filesystems() {
+        // ARRANGE
+        let entries = [
+            Entry {
+                source: Source::Tmpfs,
+                target: Path::new("/root"),
+                data: None,
+                flags: Flags::new(),
+            },
+            Entry {
+                source: Source::Proc,
+                target: Path::new("/root/proc"),
+                data: None,
+                flags: Flags::new(),
+            },
+            Entry {
+                source: Source::Bind(Path::new("/usr")),
+                target: Path::new("/root/usr"),
+                data: None,
+                flags: Flags::new(),
+            },
+        ];
+        let policy = Policy::new().mounts(&entries);
+
+        // ACT
+        let needs = policy.requirements().needs();
+
+        // ASSERT
+        assert!(needs.contains(Capabilities::MOUNT_NS));
+        assert!(needs.contains(Capabilities::TMPFS));
+        assert!(needs.contains(Capabilities::PROC));
+        assert!(!needs.contains(Capabilities::SYSFS));
+        assert!(!needs.contains(Capabilities::DEVPTS));
+    }
+
+    #[test]
+    fn an_invalid_policy_is_unsupported_before_it_is_not_compiled() {
+        // ARRANGE
+        // A mount without the mount namespace is refused by the policy check,
+        // and this build is asked for the mount namespace requirement right
+        // after it. The requirements resolve first would report the missing
+        // namespace mechanism instead.
+        let entries = [Entry {
+            source: Source::Tmpfs,
+            target: Path::new("/root"),
+            data: None,
+            flags: Flags::new(),
+        }];
+        let policy = Policy::new().mounts(&entries);
+
+        // ACT
+        let result = policy.resolve(&Capabilities::empty());
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Mounts,
+                    ..
+                })
+            ),
+            "the policy check must run before the requirement: {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_root_filesystem_requires_the_mount_namespace_and_pivot_root() {
+        // ARRANGE
+        let policy = Policy::new().rootfs(Path::new("/srv/root"));
+
+        // ACT
+        let needs = policy.requirements().needs();
+
+        // ASSERT
+        assert!(needs.contains(Capabilities::MOUNT_NS));
+        assert!(needs.contains(Capabilities::PIVOT_ROOT));
     }
 
     #[test]

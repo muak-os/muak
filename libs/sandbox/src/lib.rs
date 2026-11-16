@@ -3,8 +3,8 @@
 //! This crate owns the vocabulary a workload needs before it is allowed to
 //! touch the host: which kernel facilities exist, which of them this build can
 //! drive, which of them the machine refuses, and what a child process must do
-//! between fork and exec. Phase 2 adds credentials, resource limits and the
-//! first spawn that applies them in a child before exec.
+//! between fork and exec. Phase 4 adds namespaces, mounts and the root
+//! filesystem switch that the child performs before the capability drop.
 //!
 //! # Features
 //!
@@ -18,9 +18,9 @@
 //! | `probe` | `probe::detect`, `sys::linux::probe` | 1 |
 //! | `caps` | the capability calls in `sys::linux::credentials` (also needs `spawn`) | 2 |
 //! | `limits` | `sys::linux::limits` (also needs `spawn`) | 2 |
-//! | `namespaces` | none yet | 3 |
-//! | `mounts` | none yet | 3 |
-//! | `rootfs` | none yet | 3 |
+//! | `namespaces` | `namespace::apply`, `sys::linux::namespace` | 4 |
+//! | `mounts` | `mount::apply`, `sys::linux::mount` | 4 |
+//! | `rootfs` | `rootfs::apply`, `sys::linux::rootfs` | 4 |
 //! | `mock` | none yet | 3 |
 //! | `cgroup` | none yet | 4 |
 //! | `spawn` | `resolve::Resolved`, `Policy::resolve`, `child`, `spawn`, `sys::linux::spawn` | 2 |
@@ -44,9 +44,12 @@ pub mod cap;
 pub mod credentials;
 pub mod error;
 pub mod limits;
+pub mod mount;
+pub mod namespace;
 pub mod policy;
 pub mod probe;
 pub mod resolve;
+pub mod rootfs;
 #[cfg(feature = "spawn")]
 pub mod spawn;
 pub mod stage;

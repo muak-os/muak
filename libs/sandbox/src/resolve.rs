@@ -3,13 +3,26 @@
 //! A caller builds a requirement set, then asks it to resolve against the
 //! capabilities the machine reported. A build problem is reported before a
 //! kernel problem, so a missing mechanism is never mistaken for an unsupported
-//! kernel. Refusal, the `Denied` variant, is not produced here: it comes from
-//! the child path through [`crate::spawn`].
+//! kernel, and a policy that cannot describe a working sandbox at all is
+//! reported before either. Refusal, the `Denied` variant, is not produced here:
+//! it comes from the child path through [`crate::spawn`].
+
+#[cfg(feature = "spawn")]
+use std::path::Path;
 
 use crate::error::{Mechanism, Result, SandboxError};
 #[cfg(feature = "spawn")]
+use crate::mount;
+#[cfg(feature = "spawn")]
+use crate::namespace;
+#[cfg(feature = "spawn")]
 use crate::policy::Policy;
 use crate::probe::Capabilities;
+
+// rustix converts a path through a stack buffer below this length and allocates
+// above it, and the child path must not allocate, so a longer path is refused.
+#[cfg(feature = "spawn")]
+const PATH_LIMIT: usize = 256;
 
 /// A policy that passed resolution and can be spawned.
 #[cfg(feature = "spawn")]
@@ -73,10 +86,16 @@ impl Requirements {
 impl Policy<'_> {
     /// Resolves this policy against the capabilities of the running machine.
     ///
-    /// Requirements are resolved first, so a mechanism this build left out is
-    /// reported before a kernel limitation. The checks that only a policy can
-    /// fail follow: a non-root identity cannot keep capabilities without
-    /// ambient capabilities, and a requested limit needs the limits mechanism.
+    /// The checks run in this order: the policy's own shape first, the
+    /// requirements second, and the two checks only a policy can fail last. The
+    /// shape goes before the requirements even though a requirement is what a
+    /// mechanism is resolved from, because an invalid policy is invalid
+    /// whatever this build carries and whatever the kernel offers, and because
+    /// a refusal that names the policy is what a caller can act on. The
+    /// consequence is that an invalid policy reports `Unsupported` rather than
+    /// `NotCompiled` in a build without the mechanism it asks for. The last two
+    /// checks are: a non-root identity cannot keep capabilities without ambient
+    /// capabilities, and a requested limit needs the limits mechanism.
     ///
     /// # Errors
     ///
@@ -85,6 +104,7 @@ impl Policy<'_> {
     /// lacks a needed facility or the policy asks for a combination this phase
     /// cannot honour.
     pub fn resolve(&self, caps: &Capabilities) -> Result<Resolved<'_>> {
+        semantics(self)?;
         self.requirements().resolve(caps)?;
         let ambient = self
             .caps
@@ -105,6 +125,58 @@ impl Policy<'_> {
             pidfd: caps.contains(Capabilities::PIDFD),
         })
     }
+}
+
+// Every rule a policy has to follow on its own, before the machine is
+// consulted. Each failure names what to change, because the caller can only fix
+// the policy, not the kernel.
+#[cfg(feature = "spawn")]
+fn semantics(policy: &Policy<'_>) -> Result<()> {
+    let mounted = !policy.mounts.is_empty();
+    if mounted && !policy.namespaces.contains(namespace::Set::MOUNT) {
+        return Err(SandboxError::Unsupported {
+            mechanism: Mechanism::Mounts,
+            detail: "add MOUNT to the namespace set, a mount without it reaches the host",
+        });
+    }
+    if policy.rootfs.is_some() && !policy.namespaces.contains(namespace::Set::MOUNT) {
+        return Err(SandboxError::Unsupported {
+            mechanism: Mechanism::Rootfs,
+            detail: "add MOUNT to the namespace set, a root switch without it reaches the host",
+        });
+    }
+    if let Some(root) = policy.rootfs {
+        usable(Mechanism::Rootfs, root)?;
+    }
+    policy.mounts.iter().try_for_each(|entry| {
+        usable(Mechanism::Mounts, entry.target)?;
+        match entry.source {
+            mount::Source::Bind(source) | mount::Source::BindReadOnly(source) => {
+                usable(Mechanism::Mounts, source)
+            }
+            mount::Source::Tmpfs
+            | mount::Source::Proc
+            | mount::Source::Sysfs
+            | mount::Source::Devpts => Ok(()),
+        }
+    })
+}
+
+#[cfg(feature = "spawn")]
+fn usable(mechanism: Mechanism, path: &Path) -> Result<()> {
+    if !path.is_absolute() {
+        return Err(SandboxError::Unsupported {
+            mechanism,
+            detail: "use an absolute path, the child resolves it after the switch",
+        });
+    }
+    if path.as_os_str().len() >= PATH_LIMIT {
+        return Err(SandboxError::Unsupported {
+            mechanism,
+            detail: "use a path shorter than 256 bytes, the child path cannot allocate",
+        });
+    }
+    Ok(())
 }
 
 fn check(flag: Capabilities, caps: Capabilities) -> Result<()> {
@@ -131,4 +203,177 @@ fn check(flag: Capabilities, caps: Capabilities) -> Result<()> {
 
 fn absent_from(flag: Capabilities, caps: Capabilities) -> bool {
     flag.mechanism().is_some_and(Mechanism::compiled) && !caps.contains(flag)
+}
+
+#[cfg(test)]
+#[cfg(feature = "spawn")]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::mount::{Entry, Flags, Source};
+    use crate::namespace::Set;
+    use crate::policy::Policy;
+
+    #[test]
+    fn mounts_without_the_mount_namespace_are_refused() {
+        // ARRANGE
+        let entries = [tmpfs(Path::new("/root"))];
+        let policy = Policy::new().mounts(&entries);
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Mounts,
+                    detail
+                }) if detail.contains("MOUNT")
+            ),
+            "expected a mount namespace complaint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_root_filesystem_without_the_mount_namespace_is_refused() {
+        // ARRANGE
+        let policy = Policy::new().rootfs(Path::new("/srv/root"));
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Rootfs,
+                    detail
+                }) if detail.contains("MOUNT")
+            ),
+            "expected a mount namespace complaint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_root_filesystem_without_extra_mounts_is_accepted() {
+        // ARRANGE
+        let policy = Policy::new()
+            .namespaces(Set::MOUNT)
+            .rootfs(Path::new("/srv/root"));
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(result.is_ok(), "a bare root filesystem failed: {result:?}");
+    }
+
+    #[test]
+    fn a_mount_target_of_the_path_limit_is_refused() {
+        // ARRANGE
+        let long = format!("/{}", "a".repeat(PATH_LIMIT - 1));
+        assert_eq!(long.len(), PATH_LIMIT);
+        let entries = [tmpfs(Path::new(&long))];
+        let policy = Policy::new().namespaces(Set::MOUNT).mounts(&entries);
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Mounts,
+                    detail
+                }) if detail.contains("256")
+            ),
+            "expected a path length complaint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_relative_mount_target_is_refused() {
+        // ARRANGE
+        let entries = [tmpfs(Path::new("relative"))];
+        let policy = Policy::new().namespaces(Set::MOUNT).mounts(&entries);
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Mounts,
+                    detail
+                }) if detail.contains("absolute")
+            ),
+            "expected an absolute path complaint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_relative_bind_source_is_refused() {
+        // ARRANGE
+        let entries = [Entry {
+            source: Source::BindReadOnly(Path::new("relative")),
+            target: Path::new("/root/host"),
+            data: None,
+            flags: Flags::new(),
+        }];
+        let policy = Policy::new().namespaces(Set::MOUNT).mounts(&entries);
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Mounts,
+                    detail
+                }) if detail.contains("absolute")
+            ),
+            "expected an absolute path complaint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_relative_root_filesystem_is_refused() {
+        // ARRANGE
+        let policy = Policy::new()
+            .namespaces(Set::MOUNT)
+            .rootfs(Path::new("relative"));
+
+        // ACT
+        let result = semantics(&policy);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(SandboxError::Unsupported {
+                    mechanism: Mechanism::Rootfs,
+                    detail
+                }) if detail.contains("absolute")
+            ),
+            "expected an absolute path complaint, got {result:?}"
+        );
+    }
+
+    fn tmpfs(target: &Path) -> Entry<'_> {
+        Entry {
+            source: Source::Tmpfs,
+            target,
+            data: None,
+            flags: Flags::new(),
+        }
+    }
 }
