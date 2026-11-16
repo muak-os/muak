@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+mod confinement;
 mod ipc;
 mod loader;
 mod supervisor;

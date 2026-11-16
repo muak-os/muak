@@ -28,19 +28,13 @@ pub(crate) fn pipe() -> Result<(OwnedFd, OwnedFd), Errno> {
     Ok((read, write))
 }
 
-pub(crate) fn above_stdio(fd: OwnedFd) -> Result<OwnedFd, Errno> {
-    if fd.as_raw_fd() > libc::STDERR_FILENO {
+pub(crate) fn at_least(fd: OwnedFd, floor: c_int) -> Result<OwnedFd, Errno> {
+    if fd.as_raw_fd() >= floor {
         return Ok(fd);
     }
     // SAFETY: `fcntl` reads the scalar descriptor and the scalar minimum, so
     // no pointer is involved and nothing can be invalidated.
-    let result = unsafe {
-        libc::fcntl(
-            fd.as_raw_fd(),
-            libc::F_DUPFD_CLOEXEC,
-            libc::STDERR_FILENO + 1,
-        )
-    };
+    let result = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, floor) };
     check(result)?;
     // SAFETY: a successful `F_DUPFD_CLOEXEC` returns a descriptor that no other
     // value owns, so it can be adopted exactly once. Dropping `fd` then closes
@@ -83,6 +77,19 @@ pub(crate) fn redirect(source: c_int, target: c_int) -> Result<(), Errno> {
     // SAFETY: dup2 reads only the two scalar descriptor numbers and installs
     // `source` as `target`; no pointer is involved.
     let result = unsafe { libc::dup2(source, target) };
+    check(result)
+}
+
+pub(crate) fn clear_cloexec(fd: c_int) -> Result<(), Errno> {
+    // SAFETY: `fcntl` reads the scalar descriptor and returns the descriptor
+    // flags as a number, so no pointer is involved.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags == -1_i32 {
+        return Err(last());
+    }
+    // SAFETY: `fcntl` takes the descriptor and the scalar flag mask, and the
+    // masked value keeps every flag the descriptor already carried.
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) };
     check(result)
 }
 

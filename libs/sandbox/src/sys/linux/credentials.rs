@@ -67,9 +67,9 @@ pub(crate) fn bounding(kept: Caps) -> Result<(), Errno> {
         if kept.contains(cap) {
             continue;
         }
+        let number = libc::c_ulong::from(cap.number());
         // SAFETY: dropping a bounding capability reads only the scalar
         // capability number and never dereferences a pointer.
-        let number = libc::c_ulong::from(cap.number());
         let result = unsafe { libc::prctl(libc::PR_CAPBSET_DROP, number, 0, 0, 0) };
         check(result)?;
     }
@@ -80,7 +80,7 @@ pub(crate) fn bounding(kept: Caps) -> Result<(), Errno> {
 pub(crate) fn effective(kept: Caps) -> Result<(), Errno> {
     let bits = kept.bits();
     let low = u32::try_from(bits & u64::from(u32::MAX)).unwrap_or(u32::MAX);
-    let high = u32::try_from(bits >> 32).unwrap_or(u32::MAX);
+    let high = u32::try_from(bits >> 32_i32).unwrap_or(u32::MAX);
     let header = CapHeader {
         version: CAPABILITY_VERSION_3,
         pid: 0,

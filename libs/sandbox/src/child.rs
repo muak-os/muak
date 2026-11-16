@@ -12,7 +12,7 @@
 //! parent turns that pair into a [`crate::error::SandboxError`].
 
 use core::ffi::c_char;
-use std::os::fd::RawFd;
+use std::os::fd::{AsRawFd as _, BorrowedFd, RawFd};
 
 use crate::error::Errno;
 use crate::policy::Policy;
@@ -34,6 +34,7 @@ pub(crate) unsafe fn exec(
     argv: *const *const c_char,
     envp: *const *const c_char,
     files: [RawFd; 3],
+    pass: &[(BorrowedFd<'_>, RawFd)],
     report: RawFd,
 ) -> ! {
     if let Err((stage, errno)) = apply(policy) {
@@ -46,6 +47,20 @@ pub(crate) unsafe fn exec(
         if source >= 0_i32
             && let Err(errno) = spawn::redirect(source, target)
         {
+            fail(report, Stage::Exec, errno);
+        }
+    }
+
+    // Descriptors the caller wants the child to inherit are installed after
+    // stdio, so stdio never clobbers a passed descriptor, and before the
+    // exec, which is the only step that needs them. The duplication
+    // drops the close-on-exec flag of the copy, but a descriptor already
+    // sitting at its target was not copied, so the flag is cleared explicitly.
+    for &(source, target) in pass {
+        if let Err(errno) = spawn::redirect(source.as_raw_fd(), target) {
+            fail(report, Stage::Exec, errno);
+        }
+        if let Err(errno) = spawn::clear_cloexec(target) {
             fail(report, Stage::Exec, errno);
         }
     }
@@ -151,7 +166,6 @@ mod tests {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::fs::File;
     use std::io::Read as _;
-    use std::os::fd::AsRawFd as _;
 
     use super::*;
     use crate::credentials::{Caps, Id};

@@ -45,7 +45,7 @@ impl Supervisor<Spawner, Reaper> {
             service_defs,
             logger,
             status,
-            Spawner,
+            Spawner::new(sandbox::probe::current()),
             Reaper::new()?,
             Path::new(DEFAULT_SERVICES_DIR),
         )
@@ -387,6 +387,7 @@ mod tests {
             name: name.to_owned(),
             command: String::new(),
             depends_on: depends_on.iter().copied().map(str::to_owned).collect(),
+            sandbox: None,
         }
     }
 

@@ -18,6 +18,7 @@ mod tests {
     use crate::common;
 
     const ENOENT: i32 = 2;
+    const EBADF: i32 = 9;
 
     fn spawn_under(policy: &Policy<'_>, cmd: &Cmd<'_>) -> Result<Child> {
         let resolved = policy.resolve(&Capabilities::empty())?;
@@ -83,6 +84,51 @@ mod tests {
         // ASSERT
         assert_eq!(status.code(), Some(0_i32));
         assert_eq!(output, "captured");
+    }
+
+    #[test]
+    fn passed_descriptor_reaches_the_child() {
+        // ARRANGE
+        let policy = identity();
+        let argv = [c"/bin/sh", c"-c", c"printf passed >&3"];
+        let (mut reader, writer) = std::io::pipe().unwrap();
+        let pass = [(writer.as_fd(), 3_i32)];
+        let mut output = String::new();
+
+        // ACT
+        let status = {
+            let cmd = Cmd::new(c"/bin/sh", &argv, &[]).pass(&pass);
+            let child = spawn_under(&policy, &cmd).unwrap();
+            child.wait().unwrap()
+        };
+        drop(writer);
+        reader.read_to_string(&mut output).unwrap();
+
+        // ASSERT
+        assert_eq!(status.code(), Some(0_i32));
+        assert_eq!(output, "passed");
+    }
+
+    #[test]
+    fn failing_pass_is_denied_at_exec() {
+        // ARRANGE
+        let policy = identity();
+        let argv = [c"/bin/true"];
+        let (_reader, writer) = std::io::pipe().unwrap();
+        let pass = [(writer.as_fd(), -1_i32)];
+        let cmd = Cmd::new(c"/bin/true", &argv, &[]).pass(&pass);
+
+        // ACT
+        let result = spawn_under(&policy, &cmd);
+
+        // ASSERT
+        match result {
+            Err(SandboxError::Denied {
+                mechanism: Mechanism::Spawn,
+                source,
+            }) => assert_eq!(source.raw(), EBADF),
+            other => panic!("expected a denied exec, got {other:?}"),
+        }
     }
 
     #[test]

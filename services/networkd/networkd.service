@@ -1,3 +1,13 @@
 name       = "networkd"
 command    = "/sbin/networkd"
 depends_on = []
+
+# all is the conservative default; narrowing per service needs a boot test.
+[sandbox]
+profile = "strict"
+capabilities = "all"
+no_new_privs = true
+
+[sandbox.limits]
+nofile = 4096
+nproc = 256

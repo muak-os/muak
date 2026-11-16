@@ -1,7 +1,11 @@
 //! Linux capabilities and the bit each one occupies in a capability set.
 //!
 //! The numbering and the bit values are the ones the kernel documents, so the
-//! table is written out in full instead of derived.
+//! table is written out in full instead of derived. The text names live in
+//! [`names`]: a configuration file names a capability in words, and the name
+//! table is separate so each file stays small.
+
+pub mod names;
 
 /// A single Linux capability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +100,18 @@ impl Cap {
     #[must_use = "the number is what the kernel syscall takes"]
     pub const fn number(self) -> u32 {
         bit(self).trailing_zeros()
+    }
+
+    /// Returns the name a service file uses for this capability.
+    #[must_use = "the name is what a caller writes and reports"]
+    pub const fn name(self) -> &'static str {
+        names::named(self)
+    }
+
+    /// Returns the capability `name` refers to, or `None` when it names none.
+    #[must_use = "an unknown name must fail the caller instead of being ignored"]
+    pub const fn from_name(name: &str) -> Option<Self> {
+        names::lookup(name)
     }
 
     /// Every Linux capability, in kernel number order.

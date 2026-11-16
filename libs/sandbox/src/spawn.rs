@@ -49,6 +49,7 @@ pub struct Cmd<'a> {
     stdin: Option<BorrowedFd<'a>>,
     stdout: Option<BorrowedFd<'a>>,
     stderr: Option<BorrowedFd<'a>>,
+    pass: &'a [(BorrowedFd<'a>, RawFd)],
 }
 
 /// A child process spawned under a policy.
@@ -69,6 +70,7 @@ impl<'a> Cmd<'a> {
             stdin: None,
             stdout: None,
             stderr: None,
+            pass: &[],
         }
     }
 
@@ -90,6 +92,19 @@ impl<'a> Cmd<'a> {
     #[must_use = "the command is the value the caller asked for"]
     pub const fn stderr(mut self, fd: BorrowedFd<'a>) -> Self {
         self.stderr = Some(fd);
+        self
+    }
+
+    /// Returns this command with every `(fd, target)` pair duplicated onto
+    /// `target` in the child before exec.
+    ///
+    /// This is how a descriptor the child must inherit survives the exec, for
+    /// example a socket the parent already bound: the child cannot inherit the
+    /// parent descriptor number, so the pair names the source it should be
+    /// reachable from and the fixed number the child expects.
+    #[must_use = "the command is the value the caller asked for"]
+    pub const fn pass(mut self, pass: &'a [(BorrowedFd<'a>, RawFd)]) -> Self {
+        self.pass = pass;
         self
     }
 }
@@ -139,11 +154,11 @@ impl Child {
 /// Spawns `cmd` in a child configured by the resolved policy.
 ///
 /// The parent creates a close-on-exec report pipe, moves the write end above
-/// the standard descriptors and forks. A child that cannot apply the policy
-/// writes a fixed stage and errno pair and exits with 127; a child that execs
-/// closes the pipe on the way to the new image. No report therefore means the
-/// exec succeeded, and a report becomes a [`SandboxError::Denied`] owned by the
-/// mechanism of that stage.
+/// the standard descriptors and above every passed descriptor, then forks. A
+/// child that cannot apply the policy writes a fixed stage and errno pair and
+/// exits with 127; a child that execs closes the pipe on the way to the new
+/// image. No report therefore means the exec succeeded, and a report becomes a
+/// [`SandboxError::Denied`] owned by the mechanism of that stage.
 ///
 /// # Errors
 ///
@@ -152,10 +167,11 @@ impl Child {
 #[must_use = "the child must be waited on, otherwise it becomes a zombie"]
 pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
     let (read, write) = spawn::pipe().map_err(SandboxError::Io)?;
-    // The write end must sit above the standard descriptors, otherwise a caller
-    // that closed its stdio gets the report on fd 0, 1 or 2 and the child
-    // redirects over it before it can report a later failure.
-    let write = spawn::above_stdio(write).map_err(SandboxError::Io)?;
+    // The write end must sit above the standard descriptors and above every
+    // descriptor the child installs, otherwise a caller that closed its stdio
+    // gets the report on fd 0, 1 or 2, or a passed descriptor lands on the
+    // report, and the child redirects over it before it can report a failure.
+    let write = spawn::at_least(write, report_floor(cmd.pass)).map_err(SandboxError::Io)?;
     let argv = pointers(cmd.argv);
     let envp = pointers(cmd.envp);
     let program = cmd.program.as_ptr();
@@ -165,8 +181,9 @@ pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
     let raw_pid = spawn::fork().map_err(SandboxError::Io)?;
     if raw_pid == 0_i32 {
         // SAFETY: this branch is the child of the fork above. The command
-        // pointers and the report descriptor were built by the parent and are
-        // valid in this copy of the address space, and `exec` never returns.
+        // pointers, the passed descriptors and the report descriptor were
+        // built by the parent and are valid in this copy of the address space,
+        // and `exec` never returns.
         unsafe {
             child::exec(
                 resolved.policy,
@@ -174,6 +191,7 @@ pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
                 argv.as_ptr(),
                 envp.as_ptr(),
                 files,
+                cmd.pass,
                 report_fd,
             )
         }
@@ -225,6 +243,17 @@ fn pointers(items: &[&CStr]) -> Vec<*const c_char> {
 
 fn raw(fd: Option<BorrowedFd<'_>>) -> RawFd {
     fd.map_or(-1, |fd| fd.as_raw_fd())
+}
+
+// The lowest number the report pipe may occupy: one above the standard
+// descriptors and one above the highest descriptor the child installs.
+fn report_floor(pass: &[(BorrowedFd<'_>, RawFd)]) -> RawFd {
+    let highest = pass
+        .iter()
+        .map(|&(_, target)| target)
+        .max()
+        .unwrap_or(libc::STDERR_FILENO);
+    highest.max(libc::STDERR_FILENO).saturating_add(1)
 }
 
 fn reported(read: OwnedFd) -> Result<Option<(Stage, Errno)>> {

@@ -782,6 +782,7 @@ dependencies = [
  "prost",
  "protox",
  "rustix",
+ "sandbox",
  "serde",
  "tempfile",
  "tokio",

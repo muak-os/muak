@@ -180,6 +180,7 @@ mod tests {
             name: "test-svc".to_owned(),
             command: String::new(),
             depends_on: vec![],
+            sandbox: None,
         };
         let mut state = ServiceState::new(svc);
         state.status = status;
