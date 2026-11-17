@@ -37,8 +37,8 @@ oci_arch := if arch == "aarch64" { "arm64" } else if arch == "x86_64" { "amd64" 
 
 # Rust
 
-rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-11@sha256:31457d716676b10f55d2ddf83b4980b61779540764e2603762bbbef5c746552e")
-rustflags := "-Zthreads=8 -C linker=rust-lld " + env_var_or_default("RUSTFLAGS", "")
+rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-17@sha256:48f59934c1c7c8bf5279509219bb44a63025b4c38386dca08d73d173d5f9418b")
+rustflags := "-C linker=rust-lld -Zunstable-options --jobs-frontend=8" + env_var_or_default("RUSTFLAGS", "")
 triple := arch + "-unknown-linux-musl"
 target := "--target " + triple
 release_dir := "target" / triple / "release"
