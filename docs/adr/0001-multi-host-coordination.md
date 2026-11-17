@@ -271,24 +271,34 @@ optional; a worker should not require a controller database merely to run VMs.
 ## Relationship to wizard and provisioning
 
 Wizard builds boot artifacts; runtime services own enrollment, connections and
-observed inventory. There is currently no dependency from wizard, a daemon or
-`muakctl` to the `coordination` library, and no fleet configuration in the system
-schema. The existing strict system-config decoder rejects unsupported fields.
+observed inventory. The first slice adds an optional `[fleet]` runtime role to the
+existing system schema. Omitting it preserves standalone behavior. The
+`coordination` library is consumed by `fleetd`; wizard does not depend on it.
 
-The intended integration has three boundaries:
+The integration has three boundaries:
 
-1. **Image composition:** a wizard profile selects the optional agent package or
-   extension once packaging is designed. Profiles currently select kernel,
-   overlay and extension inputs; see [the profile model](../../toolchain/wizard/src/domain/profile.rs).
-   Existing profiles must retain standalone behavior.
-2. **Provisioning:** an optional, versioned runtime configuration declares the
-   trusted management endpoint and enrollment policy. Installation and update use
-   [provisiond](../../services/provisiond/src/install/mod.rs) and
-   [system configuration](../../libs/config/src/system/mod.rs). Exact fields,
-   storage paths and credential delivery are not selected by this ADR.
-3. **Runtime:** an agent creates or loads a per-node identity in persistent STATE,
-   authenticates, reconnects and reports local VM observations. The manager stores
-   enrollment decisions separately from rebuildable observations.
+1. **Image composition:** the [fleetd OCI recipe](../../services/fleetd/Dockerfile)
+   supplies `/sbin/fleetd` and its granola service as an optional extension. Wizard
+   resolves and seals it through its existing extension pipeline. Optional
+   `/.muak/file_contexts` metadata supplies bounded labeling rules, consumed during
+   assembly so the immutable executable carries the type required by its SELinux
+   domain transition [11].
+   Extensions without this metadata retain their behavior. Its service
+   descriptor is outside the base installer's wildcard, so base images do not
+   start fleetd. The base policy knows its labels even when the extension is absent.
+2. **Provisioning:** `[fleet]` declares either a manager or an agent role. Install
+   and update carry this configuration through provisiond's existing path. The
+   matching base image supplies apid routes, permissions and the optional workload
+   publisher; installing the extension onto an older base is insufficient.
+3. **Runtime:** fleetd creates per-installation identity in persistent STATE. Agents
+   connect outward to apid using its existing CSR, mTLS and permission mechanisms.
+   Workloadd publishes minimal observations to a separate local socket; fleetd
+   cannot write to the socket used to command workloadd. The manager persists
+   enrollment separately from reconstructible observations.
+
+See the [operator guide](../fleet-inventory.md) for exact configuration, enrollment,
+consultation and key-renewal commands. A release/catalog entry and booted lifecycle
+qualification are still required before making the extension generally available.
 
 The same image may boot several machines: a node UUID or private key must not be
 shared through that image or its embedded profile metadata. Generate identity per
@@ -350,73 +360,65 @@ tolerated failures and outage bound; none has been measured by this proposal.
 
 ## Draft implementation status
 
-The `coordination` workspace library is an initial, in-memory implementation of
-inventory semantics. It binds approved node UUIDs to credential fingerprints,
-issues manager-scoped session generations, rejects obsolete sessions and reordered
-reports, and retains bounded full snapshots with manager-local freshness. Rotation
-and revocation invalidate active sessions. A runnable example simulates three
-hosts; regression tests cover reconnect, rejection and resource limits.
+The `coordination` library implements bounded inventory, credential binding,
+manager-scoped sessions, ordering and local freshness. The optional `fleetd`
+adapter now provides a durable single manager and an outbound agent. The existing
+apid gateway authenticates peers, applies fleet permissions and overwrites identity
+metadata before forwarding to the protected management socket.
 
-The library trusts an authenticated identity supplied by its caller. It does not
-verify certificates or add an API endpoint. Its administrative methods must be
-protected by the future adapter. Enrollment storage, transport, process packaging,
-restart recovery and VM mutations are not implemented. A new registry has a fresh
-random session scope; restoring approvals must never restore old sessions.
+Approval, revocation, credential replacement, the domain UUID and a bounded
+administrative history survive restart. Atomic replacement synchronizes both the
+file and its containing directory [9]. Corrupt or unsupported state is not silently
+replaced; an uncertain write disables further operations until explicit recovery.
+Live sessions and VM observations are not restored from disk. They become visible
+again only after a newly authenticated full report.
 
-Run the current prototype with:
+The agent reuses Muak's CSR workflow with a pinned CA and server identity. Signing
+a certificate and approving its node binding are separate administrator actions,
+consistent with explicit certificate-request approval [10]. It persists its own
+key before requesting enrollment and acknowledges delivery after persisting the
+certificate. Key renewal preserves the node UUID and requires an explicit new
+certificate binding. It has no insecure fallback.
+
+Workloadd publishes its actor's VM list only when an agent role is configured.
+The publisher carries UUID, name and lifecycle state, without VM disks or boot
+configuration. Separate SELinux socket types restrict the publication and
+administrative paths. This extends Muak's existing local trust model; it does not
+claim isolation from a compromised kernel or privileged supervisor.
+
+Operators use `muakctl fleet info`, `nodes`, `vms`, `agent-status`, `approve`,
+`revoke`, `renew-agent-credential` and `rotate-credential` with their existing
+contexts. There is no web interface. Local single-host VM commands retain their
+existing ownership and behavior. Remote VM mutation, L3 tunneling, automatic
+coordinator election and workload HA remain subsequent work.
+
+## Acceptance evidence and remaining merge gate
+
+| Claim | Evidence in this draft | Remaining qualification |
+| --- | --- | --- |
+| Inventory ordering and isolation | Sixteen core tests cover reconnect, delayed callbacks, reordering, credential changes and rejected snapshots. | Booted network-failure scenarios. |
+| Durable authority | Temporary-file tests reopen real state, preserve domain and revocation, reject obsolete sessions, retain unsupported state, enforce a writer lock and fail closed after a write failure. | Power-loss and filesystem fault injection on installed STATE; operational backup/restore procedure. |
+| Authenticated connectivity | Local mTLS tests use Muak PKI and apid TLS, permission evaluation, identity replacement and HTTP/2 proxy code. Two agents enroll and report through Unix backends. Forged identity, foreign CA, revoked certificate and insufficient permission are rejected. | Tests inject the backend path and authorization snapshot; production configuration reload, granola activation and SELinux enforcement require a booted system. The CSR service in this harness is a controlled fixture. |
+| Identity and credential lifecycle | The agent reopens its persisted identity without duplicate registration; network tests renew a key while retaining the UUID and require explicit rebinding. | Reboot two installations from the same image; update one and verify its identity and credential remain unchanged. |
+| Workload inventory and CLI | Runtime publisher and fleet CLI commands are wired to existing service/context boundaries. The network harness exercises publication and inventory RPCs with VM summaries. | Drive the real CLI against booted workloadd; observe actual VM transitions and disconnection staleness. Synthetic VM summaries do not prove hypervisor execution. |
+| Optional deployment | Extension OCI recipe and service descriptor are supplied; omitted configuration round-trips without enabling fleet management. SELinux policy compiles with explicit socket neverallow checks. A synthetic OCI fixture verifies extension labels in EROFS and unchanged standalone selection. | Build and publish the actual digest-pinned package in a test catalog, inspect its artifacts, then boot managed and standalone images. |
+
+This draft is ready for code and architecture review once its local checks pass.
+It must remain a draft until the booted operator workflow and lifecycle boundaries
+above are qualified, or maintainers explicitly accept a narrower foundational
+merge. CI and process-level transport tests do not establish OS bootability,
+production availability or completion of the orchestrator TODO.
+
+Reproduce focused checks with:
 
 ```sh
-cargo run --locked -p coordination --example inventory
-just test coordination
-just lint coordination
+just lint coordination config fleet-api fleetd apid workloadd muakctl
+just test coordination config fleetd apid workloadd muakctl
+just policy
 ```
 
-This is partial progress on stage 1, not evidence that the complete stage or any
-HA guarantee has been delivered.
-
-## Operator workflow and first functional merge gate
-
-**Available now:** developers can read this ADR and run the in-process example
-above. Its UUIDs and credential fingerprints are synthetic. It opens no network
-connection, discovers no installed hosts, and does not read live VM inventory.
-There is no fleet command in `muakctl`, fleet daemon, or web interface in this MR.
-The existing CLI's single-host operations remain the way to manage real hosts.
-
-**Proposed first operator workflow:**
-
-1. Deploy a management service and establish its persistent domain and trust.
-2. Opt a host into management using supported runtime configuration, during
-   provisioning or an explicitly supported update path.
-3. Review and approve the host's enrollment using narrowly scoped authorization.
-4. Consult a CLI inventory showing node identity, hostname, VMs, last observation
-   and whether the observation is stale. A lost connection must be distinguishable
-   from evidence that a VM stopped.
-5. Reconnect or reboot a host without duplicate registration; rotate or revoke its
-   credential while retaining an auditable administrative history.
-
-This workflow is a product contract for the next increment, not available command
-syntax. CLI names and configuration fields must be designed with their adapters.
-VM creation, election and cross-host recovery are subsequent capabilities.
-
-The current MR is suitable for architecture and prototype feedback. To present it
-as an operator-usable inventory feature, finish one vertical slice: durable
-enrollment, authenticated RPCs, an outbound agent reading actual `workloadd`
-inventory, CLI consultation, optional packaging and user documentation. If only
-the library is proposed for merge, agree that narrower scope and its intended
-consumer with maintainers; passing CI does not demonstrate operator usefulness.
-
-| Acceptance claim | Test and observable result | Current evidence |
-| --- | --- | --- |
-| Registry ordering and isolation | Reconnect, delayed report/close callback, rotation, revocation and rejected snapshots preserve the correct current observation. | Sixteen in-process tests cover this layer. No certificate handshake is performed. |
-| Durable enrollment | Terminate and restart the manager and agent; preserve identities and revocations, reject obsolete sessions, and fail closed on corrupt state. | Not implemented. Reconstructing a registry in a test is not a disk-recovery test. |
-| Authenticated connectivity | Use real test certificates over the selected RPC transport; reject foreign, revoked and mismatched identities; enforce administrative permissions. | Not implemented. Caller-supplied fingerprints are not proof of authentication. |
-| Real inventory and CLI | Run one manager and at least two agents; discover actual workload state through the selected service boundary; sever a connection, observe stale CLI output, reconnect and recover without duplicate nodes. Verify context/endpoint selection. | Not implemented. The example synthesizes observations in one process. |
-| Provisioning and lifecycle | Build one reusable image; boot two installations with distinct identities; update one without changing its identity or opting an unmanaged host into fleet management. | Not implemented. Requires artifact checks and booted integration evidence. |
-
-Network tests can initially run as local processes with test PKI, deterministic
-disconnects and temporary storage. That proves the adapters within that harness.
-OS packaging, granola supervision, SELinux and installed-state behavior still
-require Muak integration tests; no booted result is claimed by this draft.
+The full workspace checks remain required. On a KVM-capable host, also run
+`just e2e` and the [fleet acceptance procedure](../fleet-inventory.md#booted-acceptance).
 
 ## Open questions for maintainers
 
@@ -456,3 +458,10 @@ selection and application to Muak in this proposal are engineering recommendatio
 8. **OpenRaft maintainers:** [Integration guide](https://docs.rs/openraft/latest/openraft/docs/getting_started/index.html);
    **Siddon Tang, TiKV:** [Implement Raft in Rust](https://tikv.org/blog/implement-raft-in-rust/), 2020.
    Integration responsibilities beyond the consensus core.
+9. **Linux man-pages maintainers:** [fsync(2)](https://man7.org/linux/man-pages/man2/fsync.2.html).
+   Durable replacement must synchronize the containing directory as well as file data.
+10. **Kubernetes maintainers:** [Certificates and Certificate Signing Requests](https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/).
+    Explicit request approval and separation of authentication from authorization.
+11. **SELinux maintainers:** [CIL type transitions](https://github.com/SELinuxProject/selinux/blob/main/secilc/docs/cil_type_statements.md#typetransition).
+    Executable file types participate in process-domain transitions; path rules
+    alone do not place an unlabeled extension executable in its intended domain.
