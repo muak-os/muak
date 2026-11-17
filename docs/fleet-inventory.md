@@ -163,6 +163,7 @@ muakctl --context manager fleet nodes
 muakctl --context manager fleet vms
 muakctl --context worker fleet agent-status
 muakctl --context manager logs --service fleetd
+muakctl --context manager dmesg
 ```
 
 `nodes` shows registration status, freshness, observation age and the certificate
@@ -170,6 +171,10 @@ binding. `vms` shows node-qualified VM UUIDs, names, lifecycle states and freshn
 Reported state comes from workloadd's actor; fleetd receives a minimal read-only
 publication through a separate local socket. No manager connection reaches the
 worker's VM command socket.
+
+For display, an empty VM name falls back to its UUID and an overlong name is
+shortened at a UTF-8 boundary with `...`. The local VM name, identity and state
+are unchanged. Hostnames in the inventory follow the latest accepted observation.
 
 Treat stale VM records as last observations. They are not evidence that a VM
 stopped. A new session remains stale until a new complete snapshot is accepted.
@@ -225,6 +230,8 @@ explicit replacement/enrollment operation; revoked identities are not silently
 approved again. Administrative decisions are logged with the operator certificate
 fingerprint, operation and node UUID. A bounded tail of 256 decisions is also
 persisted with manager policy; this is not an external tamper-proof audit system.
+Decisions use Muak's kernel logger and are available through `dmesg`; service
+stdout/stderr and supervisor diagnostics remain available through `logs`.
 
 ## Storage, limits and recovery
 

@@ -342,7 +342,7 @@ Neither etcd nor a Raft library solves host-side operation recovery or VM fencin
 
 | Stage | Deliverable | Evidence required before expanding scope |
 | --- | --- | --- |
-| 1. Identity and inventory | One durable manager; three test agents; scoped enrollment; visible staleness. | Reconnect and reboot preserve identity; foreign/revoked peers and obsolete sessions are rejected; restart and old-backup restore reconcile observations. |
+| 1. Identity and inventory | One durable manager; multiple test agents; scoped enrollment; visible staleness. | Reconnect and reboot preserve identity; foreign/revoked peers and obsolete sessions are rejected; restart and old-backup restore reconcile observations. |
 | 2. Reliable VM creation | Create on an explicitly chosen host with recoverable operation identity. | Inject crashes around persistence, dispatch, creation and response; recover one VM and one result; reject reused IDs with different intent. |
 | 3. Declarative management | Desired/applied revisions and maintenance policy. | Reordering, reconnect and local-edit conflicts converge under documented authority; queues and history remain bounded. |
 | 4. Optional management HA | Persistent three-voter backend and alternate management paths. | Exercise 2–1 partitions, suspended leaders, obsolete-leader return, all-controller restart, disk-full, snapshots and member replacement. |
@@ -383,8 +383,10 @@ certificate binding. It has no insecure fallback.
 Workloadd publishes its actor's VM list only when an agent role is configured.
 The publisher carries UUID, name and lifecycle state, without VM disks or boot
 configuration. Separate SELinux socket types restrict the publication and
-administrative paths. This extends Muak's existing local trust model; it does not
-claim isolation from a compromised kernel or privileged supervisor.
+administrative paths. This extends Muak's existing local trust model. The existing
+[system-wide read grants](../../policy/rules.cil) remain: these additions constrain
+writes and executable entrypoints, rather than providing cross-service secret
+confidentiality or isolation from a compromised kernel or privileged supervisor.
 
 Operators use `muakctl fleet info`, `nodes`, `vms`, `agent-status`, `approve`,
 `revoke`, `renew-agent-credential` and `rotate-credential` with their existing

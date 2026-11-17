@@ -202,6 +202,32 @@ fn unsupported_state_is_preserved_for_explicit_recovery() {
 }
 
 #[test]
+fn current_observation_supplies_the_hostname_after_a_local_rename() {
+    // ARRANGE
+    let dir = tempdir().unwrap();
+    let mut manager = Manager::open(&dir.path().join("state"), 1, 60, String::new()).unwrap();
+    let credential = "01".repeat(32);
+    let node = Uuid::new_v4().to_string();
+    manager
+        .register(&credential, request(&manager, &node))
+        .unwrap();
+    manager.approve(&credential, &node, &credential).unwrap();
+    let session = manager
+        .register(&credential, request(&manager, &node))
+        .unwrap()
+        .session_id;
+    let mut report = report(&session, 0);
+    report.snapshot.as_mut().unwrap().hostname = "renamed-worker".to_owned();
+    // ACT
+    manager.report(&credential, report).unwrap();
+    // ASSERT
+    assert_eq!(
+        manager.list().unwrap().first().unwrap().hostname,
+        "renamed-worker"
+    );
+}
+
+#[test]
 fn aggregate_inventory_limit_preserves_previously_accepted_reports() {
     // ARRANGE
     let dir = tempdir().unwrap();

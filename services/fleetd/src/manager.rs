@@ -245,7 +245,10 @@ impl Manager {
         Ok(NodeRecord {
             node_id: record.node.clone(),
             fingerprint: record.fingerprint.clone(),
-            hostname: record.hostname.clone(),
+            hostname: observation.map_or_else(
+                || record.hostname.clone(),
+                |observation| observation.snapshot().hostname.clone(),
+            ),
             status: match record.approval {
                 Approval::Pending => "pending",
                 Approval::Approved => "approved",
