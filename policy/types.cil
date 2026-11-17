@@ -44,7 +44,7 @@
 
 ; Every type with an xattr label on the erofs rootfs. overlayfs calls
 ; vfs_getxattr() on lower-layer inodes during path lookup (trusted.overlay.redirect),
-; which triggers a getattr check against the mounter's credentials (kernel_t).
+; which triggers a getattr check against the mounter's credentials (granola_t).
 (typeattribute sqsh_file_type)
 
 ; ── Subject attributes ────────────────────────────────────────────────────────
