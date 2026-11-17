@@ -1,5 +1,6 @@
 //! Layer payload nodes for the kernel modules and extension initramfs layers.
 
+use std::io::Read as _;
 use std::sync::{Mutex, PoisonError};
 
 use koci::arch::Arch;
@@ -20,6 +21,9 @@ use crate::pipeline::node::{NodeId, PortId};
 use crate::pipeline::runtime::{NodePorts, OutputStream};
 
 pub(crate) const FIRST_OUTPUT: PortId = PortId(0);
+
+const EXTENSION_CONTEXTS: &str = ".muak/file_contexts";
+const MAX_CONTEXTS_BYTES: u64 = 64 * 1024;
 
 pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
     dependencies,
@@ -56,8 +60,8 @@ fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifa
 /// Pulls and measures every layer payload once, recording stream size and name.
 pub(crate) fn preflight(graph: &mut Graph, id: NodeId, ctx: &BuildContext<'_, '_>) -> Result<()> {
     let kind = graph.node(id)?.kind;
-    let layers = layer_specs(ctx)?;
-    let mut payloads = pull_payloads(&layers, &ctx.reporter(kind), ctx.strategy)?;
+    let mut layers = layer_specs(ctx)?;
+    let mut payloads = pull_payloads(&mut layers, &ctx.reporter(kind), ctx.strategy)?;
     let planned = measure(&mut payloads, &layers)?;
     let staged = payloads.into_iter().zip(planned).collect::<Staged>();
 
@@ -92,10 +96,10 @@ pub(crate) fn run(
     ports: &mut NodePorts<'_, '_>,
     ctx: &BuildContext<'_, '_>,
 ) -> Result<NodeReport> {
-    let layers = layer_specs(ctx)?;
+    let mut layers = layer_specs(ctx)?;
     let mut staged = match STAGED.lock().unwrap_or_else(PoisonError::into_inner).take() {
         Some(staged) if matches(&staged, &layers) => staged,
-        _ => pull_and_measure(&layers, &ctx.reporter(kind), ctx.strategy)?,
+        _ => pull_and_measure(&mut layers, &ctx.reporter(kind), ctx.strategy)?,
     };
 
     let mut outputs = ports.outputs_from(FIRST_OUTPUT, Some(staged.len()))?;
@@ -148,7 +152,7 @@ fn matches(staged: &Staged, layers: &[Layer]) -> bool {
 }
 
 fn pull_and_measure(
-    layers: &[Layer],
+    layers: &mut [Layer],
     progress: &dyn Reporter,
     strategy: pull::Strategy,
 ) -> Result<Staged> {
@@ -200,26 +204,73 @@ fn measure(
 }
 
 fn pull_payloads(
-    layers: &[Layer],
+    layers: &mut [Layer],
     progress: &dyn Reporter,
     strategy: pull::Strategy,
 ) -> Result<Vec<mumi::payload::Payload>> {
     let mut payloads = Vec::with_capacity(layers.len());
     for layer in layers {
         let mut payload = mumi::payload::Payload::new(layer.name.clone());
+        let extension = layer.output_prefix == "extensions/";
         pull::files(
             &layer.source,
             &layer.arch,
             None,
             strategy,
             progress,
-            |entry| add_entry(&mut payload, entry, layer.entry),
+            |entry| {
+                add_layer_entry(
+                    &mut payload,
+                    entry,
+                    layer.entry,
+                    extension,
+                    &mut layer.file_contexts,
+                )
+            },
         )
         .map_err(|e| WizardError::pull(&format!("pull layer {}", layer.name), &layer.source, &e))?;
         payloads.push(payload);
     }
 
     Ok(payloads)
+}
+
+fn add_layer_entry(
+    payload: &mut mumi::payload::Payload,
+    mut entry: FileEntry<'_>,
+    include: fn(&FileEntry<'_>) -> bool,
+    extension: bool,
+    contexts: &mut Option<mumi::image::FileContexts>,
+) -> koci::error::Result<()> {
+    if extension && entry.path == EXTENSION_CONTEXTS {
+        return read_contexts(&mut entry, contexts);
+    }
+    add_entry(payload, entry, include)
+}
+
+fn read_contexts(
+    entry: &mut FileEntry<'_>,
+    contexts: &mut Option<mumi::image::FileContexts>,
+) -> koci::error::Result<()> {
+    if entry.kind != Kind::File || entry.size > MAX_CONTEXTS_BYTES || contexts.is_some() {
+        return Err(KociError::LayerExtractionError(
+            "invalid or duplicate extension file contexts metadata".to_owned(),
+        ));
+    }
+    let mut bytes = Vec::new();
+    (&mut *entry.reader)
+        .take(MAX_CONTEXTS_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(KociError::IoError)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) != entry.size {
+        return Err(KociError::LayerExtractionError(
+            "extension file contexts size mismatch".to_owned(),
+        ));
+    }
+    *contexts = Some(mumi::image::FileContexts::parse(&bytes).map_err(|error| {
+        KociError::LayerExtractionError(format!("invalid extension file contexts: {error}"))
+    })?);
+    Ok(())
 }
 
 fn add_entry(
@@ -258,9 +309,79 @@ fn build_config(file_contexts: Option<mumi::image::FileContexts>) -> mumi::image
 
 #[cfg(test)]
 mod tests {
+    use koci::pull::entries::Meta;
+
     use super::*;
     use crate::pipeline::runtime::{OutputStream, OutputWriter};
     use crate::progress::NOOP;
+
+    fn metadata<'a>(bytes: &'a mut &[u8]) -> FileEntry<'a> {
+        FileEntry {
+            path: EXTENSION_CONTEXTS.to_owned(),
+            kind: Kind::File,
+            size: u64::try_from(bytes.len()).unwrap(),
+            link: None,
+            meta: Meta::default(),
+            reader: bytes,
+        }
+    }
+
+    #[test]
+    fn extension_context_metadata_is_bounded_and_fail_closed() {
+        // ARRANGE
+        let mut contexts = None;
+        let mut bytes: &[u8] = b"/sbin/example -- system_u:object_r:example_exec_t:s0\n";
+        // ACT
+        read_contexts(&mut metadata(&mut bytes), &mut contexts).expect("valid metadata");
+        let mut duplicate: &[u8] = b"";
+        let duplicate_error =
+            read_contexts(&mut metadata(&mut duplicate), &mut contexts).unwrap_err();
+        let mut invalid: &[u8] = b"\xff";
+        let invalid_error = read_contexts(&mut metadata(&mut invalid), &mut None).unwrap_err();
+        let mut oversized: &[u8] = b"";
+        let mut entry = metadata(&mut oversized);
+        entry.size = MAX_CONTEXTS_BYTES.saturating_add(1);
+        let size_error = read_contexts(&mut entry, &mut None).unwrap_err();
+        // ASSERT
+        assert!(contexts.is_some());
+        assert!(duplicate_error.to_string().contains("duplicate"));
+        assert!(invalid_error.to_string().contains("invalid"));
+        assert!(size_error.to_string().contains("invalid"));
+    }
+
+    #[test]
+    fn extension_context_metadata_is_consumed_without_adding_a_payload_file() {
+        // ARRANGE
+        let mut payload = mumi::payload::Payload::new("extension");
+        let mut contexts = None;
+        let mut bytes: &[u8] = b"/sbin/example -- system_u:object_r:example_exec_t:s0\n";
+        // ACT
+        add_layer_entry(
+            &mut payload,
+            metadata(&mut bytes),
+            include_all,
+            true,
+            &mut contexts,
+        )
+        .unwrap();
+        let config = build_config(contexts);
+        let mut actual = vec![payload];
+        let mut expected = vec![mumi::payload::Payload::new("extension")];
+        let actual_plan = mumi::payload::plan(&mut actual, &config).unwrap().remove(0);
+        let expected_plan = mumi::payload::plan(&mut expected, &config)
+            .unwrap()
+            .remove(0);
+        let mut actual_image = Vec::new();
+        let mut expected_image = Vec::new();
+        actual_plan
+            .write(&mut actual_image, actual.first().unwrap())
+            .unwrap();
+        expected_plan
+            .write(&mut expected_image, expected.first().unwrap())
+            .unwrap();
+        // ASSERT: no hidden metadata directory/file was serialized.
+        assert_eq!(actual_image, expected_image);
+    }
 
     fn planned(size: u64) -> mumi::payload::Planned {
         let mut payload = mumi::payload::Payload::new("muak-test/layer");

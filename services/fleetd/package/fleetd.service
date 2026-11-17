@@ -1,0 +1,3 @@
+name       = "fleetd"
+command    = "/sbin/fleetd"
+depends_on = ["networkd", "provisiond"]
