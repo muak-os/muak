@@ -38,6 +38,7 @@ hyper-util = { workspace = true }
 # Internal
 pki = { workspace = true }
 config = { workspace = true }
+fleet-api = { workspace = true }
 tui = { workspace = true, features = ["live", "prompt", "size"] }
 
 [dev-dependencies]

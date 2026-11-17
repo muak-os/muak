@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package muak.fleet.v1;
+
+// Optional inventory management. Authentication and RBAC terminate at apid.
+service FleetService {
+  // @rbac: fleet:read
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+  // @rbac: fleet:report
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  // @rbac: fleet:report
+  rpc ReportInventory(ReportInventoryRequest) returns (ReportInventoryResponse);
+  // @rbac: fleet:read
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  // @rbac: fleet:manage
+  rpc ApproveNode(ApproveNodeRequest) returns (NodeRecord);
+  // @rbac: fleet:manage
+  rpc RevokeNode(RevokeNodeRequest) returns (NodeRecord);
+  // @rbac: fleet:manage
+  rpc RotateCredential(RotateCredentialRequest) returns (NodeRecord);
+  // @rbac: fleet:manage
+  rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
+  // @rbac: fleet:manage
+  rpc RenewAgentCredential(GetAgentStatusRequest) returns (GetAgentStatusResponse);
+}
+
+// Local-only publisher. apid deliberately has no route for this service.
+service LocalInventoryService {
+  // @rbac: vm:read
+  rpc Publish(NodeSnapshot) returns (ReportInventoryResponse);
+}
+
+message GetInfoRequest {}
+message GetInfoResponse {
+  string domain_id = 1;
+  string ca_pem = 2;
+  string server_name = 3;
+  uint64 stale_after_secs = 4;
+}
+message RegisterNodeRequest {
+  string domain_id = 1;
+  string node_id = 2;
+  string hostname = 3;
+}
+message RegisterNodeResponse {
+  bool pending = 1;
+  string session_id = 2;
+  uint64 stale_after_secs = 3;
+}
+message VmSummary {
+  string vm_id = 1;
+  string name = 2;
+  // Corresponds to muak.vm.v1.VmState; unknown future values map to Unknown.
+  int32 state = 3;
+}
+message NodeSnapshot {
+  string hostname = 1;
+  repeated VmSummary vms = 2;
+}
+message ReportInventoryRequest {
+  string session_id = 1;
+  uint64 sequence = 2;
+  NodeSnapshot snapshot = 3;
+}
+message ReportInventoryResponse {}
+message ListNodesRequest {}
+message ListNodesResponse { repeated NodeRecord nodes = 1; }
+message NodeRecord {
+  string node_id = 1;
+  string fingerprint = 2;
+  string hostname = 3;
+  string status = 4;
+  bool stale = 5;
+  optional uint64 observation_age_secs = 6;
+  NodeSnapshot snapshot = 7;
+}
+message ApproveNodeRequest {
+  string node_id = 1;
+  // Full fingerprint, checked against the authenticated registration request.
+  string fingerprint = 2;
+}
+message RevokeNodeRequest { string node_id = 1; }
+message RotateCredentialRequest {
+  string node_id = 1;
+  string fingerprint = 2;
+}
+message GetAgentStatusRequest {}
+message GetAgentStatusResponse {
+  string node_id = 1;
+  string csr_fingerprint = 2;
+  string phase = 3;
+  string detail = 4;
+  string certificate_fingerprint = 5;
+}

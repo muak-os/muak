@@ -1,6 +1,7 @@
 //! Immutable host system configuration.
 
 pub mod disk;
+pub mod fleet;
 pub mod host;
 pub mod network;
 pub mod vm;
@@ -44,6 +45,9 @@ pub struct Config {
     /// Virtual machine configuration.
     #[serde(default)]
     pub vm: vm::Config,
+    /// Optional fleet role; omitted on standalone installations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fleet: Option<fleet::Config>,
 }
 
 impl Default for Config {
@@ -54,6 +58,7 @@ impl Default for Config {
             disk: disk::Selector::default(),
             network: network::Config::default(),
             vm: vm::Config::default(),
+            fleet: None,
         })
     }
 }
@@ -67,6 +72,7 @@ impl Config {
             && self.disk == other.disk
             && self.network == other.network
             && self.vm == other.vm
+            && self.fleet == other.fleet
     }
 
     /// Validates that required fields are present and sensible.
@@ -76,6 +82,9 @@ impl Config {
     /// Returns [`ConfigError::ValidationError`] when a required field is
     /// missing or has an unsupported value.
     pub fn validate(&self) -> Result<()> {
+        if let Some(fleet) = self.fleet.as_ref() {
+            fleet.validate()?;
+        }
         if self.host.name.is_empty() {
             return Err(ConfigError::ValidationError(
                 "host.name must be specified".to_owned(),

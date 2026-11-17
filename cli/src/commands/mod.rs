@@ -5,6 +5,7 @@ pub mod context;
 pub mod disks;
 pub mod dmesg;
 mod failure;
+pub mod fleet;
 pub mod install;
 pub mod logs;
 pub mod power;
@@ -177,6 +178,7 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
             Ok(true)
         }
         Commands::Config { .. }
+        | Commands::Fleet { .. }
         | Commands::Auth { action: Some(_) }
         | Commands::Install { .. }
         | Commands::Process { .. }
@@ -215,6 +217,7 @@ async fn handle_cmd(
     console: &Console,
 ) -> Result<()> {
     match cli.command {
+        Commands::Fleet { action } => fleet::handle(channel, action).await,
         Commands::Auth { action } => {
             let action =
                 action.ok_or_else(|| anyhow::anyhow!("Auth action missing in online handler"))?;

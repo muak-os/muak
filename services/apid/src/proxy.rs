@@ -37,6 +37,7 @@ impl BackendPool {
     #[must_use = "dropping it discards the proxy routing table"]
     pub fn new() -> Self {
         let mut senders = HashMap::new();
+        senders.insert(constants::FLEETD_SOCKET.to_owned(), Mutex::new(None));
         senders.insert(constants::WORKLOADD_SOCKET.to_owned(), Mutex::new(None));
         senders.insert(constants::GRANOLA_SOCKET.to_owned(), Mutex::new(None));
         senders.insert(constants::PROVISIOND_SOCKET.to_owned(), Mutex::new(None));

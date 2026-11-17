@@ -79,7 +79,12 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub(crate) fn validate(&self, limits: Limits) -> Result<(), Failure> {
+    /// Checks snapshot identities, names, duplicate VMs and configured limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation failure without changing any registry state.
+    pub fn validate(&self, limits: Limits) -> Result<(), Failure> {
         if self.vms.len() > limits.vms_per_node {
             return Err(Failure::SnapshotTooLarge);
         }

@@ -29,6 +29,7 @@ tonic-prost = { workspace = true }
 # Internal
 btrfs = { workspace = true }
 config = { workspace = true }
+fleet-api = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 netlib = { workspace = true }

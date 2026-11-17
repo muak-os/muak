@@ -35,25 +35,55 @@ pub fn check_access(path: &str, client_fingerprint: Option<&str>) -> Result<(), 
 
             let auth = config::auth::current().map_err(|_config| RbacError::Internal)?;
 
-            if auth.revoked.contains(&fingerprint.to_owned()) {
-                return Err(RbacError::CertificateRevoked);
-            }
-
-            let auth_user = auth
-                .users
-                .iter()
-                .find(|user| user.fingerprint == fingerprint)
-                .ok_or(RbacError::UnknownCertificate)?;
-
-            let user = AuthenticatedUser::from(auth_user);
-
-            if !user.has_permission(required) {
-                return Err(RbacError::PermissionDenied { required });
-            }
-
-            Ok(())
+            check_user(&auth, fingerprint, required)
         }
     }
+}
+
+/// Evaluates an immutable authorization snapshot using the gateway's rules.
+///
+/// # Errors
+///
+/// Returns the same authentication and permission errors as [`check_access`].
+pub fn check_access_with_state(
+    path: &str,
+    fingerprint: Option<&str>,
+    auth: &config::auth::State,
+) -> Result<(), RbacError> {
+    match method_permission(path) {
+        MethodRequirement::Unauthenticated => Ok(()),
+        MethodRequirement::Unknown => Err(RbacError::UnknownMethod),
+        MethodRequirement::RequiresPermission(required)
+        | MethodRequirement::MaintenanceOrPermission(required) => check_user(
+            auth,
+            fingerprint.ok_or(RbacError::Unauthenticated)?,
+            required,
+        ),
+    }
+}
+
+fn check_user(
+    auth: &config::auth::State,
+    fingerprint: &str,
+    required: config::permission::Permission,
+) -> Result<(), RbacError> {
+    if auth.revoked.contains(&fingerprint.to_owned()) {
+        return Err(RbacError::CertificateRevoked);
+    }
+
+    let auth_user = auth
+        .users
+        .iter()
+        .find(|user| user.fingerprint == fingerprint)
+        .ok_or(RbacError::UnknownCertificate)?;
+
+    let user = AuthenticatedUser::from(auth_user);
+
+    if !user.has_permission(required) {
+        return Err(RbacError::PermissionDenied { required });
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
