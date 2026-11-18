@@ -26,6 +26,7 @@ mod tests {
     use std::os::unix::ffi::OsStrExt as _;
     use std::path::{Path, PathBuf};
 
+    use rustix::{mount, thread};
     use sandbox::error::{Mechanism, SandboxError};
     use sandbox::mount::{Entry, Flags, Source};
     use sandbox::namespace::Set;
@@ -41,6 +42,12 @@ mod tests {
         // ARRANGE
         if !root() {
             println!("skipping: mounts need CAP_SYS_ADMIN");
+            return;
+        }
+        // A propagation test needs a shared peer group to propagate into, and
+        // the inherited `/` may be private, so the test makes its own group
+        // instead of trusting the environment for one.
+        if !in_shared_namespace() {
             return;
         }
         let target = tempfile::tempdir().unwrap();
@@ -76,15 +83,27 @@ mod tests {
         assert_eq!(status.code(), Some(0_i32), "the child failed: {status:?}");
         // The child prints its own mount table, so a step that returns `Ok`
         // without mounting anything is caught here rather than by the parent
-        // comparison below, which holds for an empty child table too.
+        // scan below, which holds for an empty child table too.
         let mount_point = target.path().to_str().unwrap();
         assert!(
             line_at(&output, mount_point).is_some(),
             "the child mounted nothing at {mount_point}: {output}"
         );
+        // Propagation keeps the path of the mount inside the shared subtree, so
+        // a leak can only surface at the path the child mounted at. The whole
+        // parent table is not compared because a test running beside this one
+        // mounts at a path of its own and would fail this assertion.
         assert!(
-            before == after,
-            "the mount of the child propagated into the parent mount table"
+            line_at(&before, mount_point).is_none(),
+            "{mount_point} was already mounted before the child ran"
+        );
+        let leaked: Vec<&str> = after
+            .lines()
+            .filter(|line| at_or_below(mount_point_of(line), mount_point))
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "the mount of the child propagated into the parent mount table: {leaked:?}"
         );
     }
 
@@ -95,6 +114,14 @@ mod tests {
             println!("skipping: the root switch needs CAP_SYS_ADMIN");
             return;
         }
+        // This test mounts a tmpfs in the parent namespace, so it first moves
+        // the process into a private mount namespace: on a shared `/` those
+        // mounts would reach the host table and every test running beside this
+        // one. The propagation test shares `/` afterwards, for the opposite
+        // reason.
+        if !in_private_namespace() {
+            return;
+        }
         let work = tempfile::tempdir().unwrap();
         let root = work.path().join("root");
         fs::create_dir_all(&root).unwrap();
@@ -103,8 +130,9 @@ mod tests {
         // yet and the child path never creates directories, so the tree has to
         // be built before the child runs.
         assert!(mount_tmpfs(&root), "cannot mount the test tmpfs");
-        // The mount belongs to the host namespace, so it is detached when this
-        // test returns whether it passes or panics.
+        // The mount belongs to this namespace, which dies with the process, and
+        // the guard detaches it anyway so the failure path leaves nothing
+        // behind.
         let _teardown = Teardown(&root);
         let names: Vec<&str> = ["bin", "sbin", "usr", "lib", "lib64", "lib32"]
             .into_iter()
@@ -224,15 +252,83 @@ mod tests {
         )
     }
 
-    fn mountinfo() -> Vec<u8> {
-        fs::read("/proc/self/mountinfo").unwrap()
+    // Moves the calling thread into a private mount namespace, so nothing this
+    // test mounts reaches the table of the namespace it started in, and returns
+    // whether the kernel allowed it. The caller skips the test when it did not,
+    // because only a capable process owns a mount namespace it may unshare.
+    fn in_private_namespace() -> bool {
+        // SAFETY: the mount namespace alone is unshared, so no file descriptor
+        // table is unshared under a thread that may still use it.
+        let created =
+            unsafe { thread::unshare_unsafe(thread::UnshareFlags::NEWNS) }.and_then(|()| {
+                mount::mount_change(
+                    "/",
+                    mount::MountPropagationFlags::REC | mount::MountPropagationFlags::PRIVATE,
+                )
+            });
+        match created {
+            Ok(()) => true,
+            Err(error) => {
+                println!("skipping: the mount namespace cannot be made private: {error}");
+                false
+            }
+        }
+    }
+
+    // Moves the calling thread into a mount namespace whose `/` is a shared
+    // peer group of its own, so a mount the child makes propagates into this
+    // table and nowhere else, and returns whether the kernel allowed it. The
+    // caller skips the test when it did not.
+    fn in_shared_namespace() -> bool {
+        if !in_private_namespace() {
+            return false;
+        }
+        // Private first, shared second, never the other way round. Sharing the
+        // host `/` would hand the host's peer group a new peer, which is the
+        // leak this crate exists to prevent; sharing after the namespace is
+        // already private gives the peer group exactly one member, this
+        // namespace, and leaves the host with none.
+        match mount::mount_change(
+            "/",
+            mount::MountPropagationFlags::REC | mount::MountPropagationFlags::SHARED,
+        ) {
+            Ok(()) => true,
+            Err(error) => {
+                println!("skipping: the mount namespace cannot be made shared: {error}");
+                false
+            }
+        }
+    }
+
+    // Reads the mount table of the calling thread, with any non UTF-8 path
+    // turned into replacement characters. Mount points are bytes, and one
+    // undecodable entry anywhere in the table must not fail a test about
+    // propagation. The thread and not the process, because a test runs on a
+    // thread of its own: the namespace a test unshares belongs to that thread,
+    // the child forked from it inherits that namespace, and `/proc/self` points
+    // at the thread group leader, whose table never changes and so could never
+    // show a leak.
+    fn mountinfo() -> String {
+        String::from_utf8_lossy(&fs::read("/proc/thread-self/mountinfo").unwrap()).into_owned()
+    }
+
+    // Returns the mount point, the fifth field, of a mountinfo line.
+    fn mount_point_of(line: &str) -> &str {
+        line.split_whitespace().nth(4).unwrap_or_default()
     }
 
     // Returns the mountinfo line whose mount point is `mount_point`.
     fn line_at<'a>(table: &'a str, mount_point: &str) -> Option<&'a str> {
         table
             .lines()
-            .find(|line| line.split_whitespace().nth(4) == Some(mount_point))
+            .find(|line| mount_point_of(line) == mount_point)
+    }
+
+    // Returns whether `point` is `target` or a path below it.
+    fn at_or_below(point: &str, target: &str) -> bool {
+        point
+            .strip_prefix(target)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     }
 
     // Returns whether the per mount options of a mountinfo line carry every
@@ -276,8 +372,8 @@ mod tests {
         CString::new(path.as_os_str().as_bytes()).unwrap()
     }
 
-    // Detaches the tmpfs a test mounted in the host namespace when the test
-    // returns, so a panicking assertion cannot leave it in the host table.
+    // Detaches the tmpfs a test mounted when the test returns, so a panicking
+    // assertion cannot leave it in the table of the namespace it ran in.
     struct Teardown<'a>(&'a Path);
 
     impl Drop for Teardown<'_> {
