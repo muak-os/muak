@@ -30,7 +30,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             status.code(),
-            Some(0),
+            Some(0_i32),
             "the child did not observe the open file limit"
         );
     }
