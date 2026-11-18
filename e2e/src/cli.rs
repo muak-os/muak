@@ -87,7 +87,8 @@ impl Cli {
         S: AsRef<OsStr>,
     {
         let mut cmd = Command::new(&self.bin);
-        cmd.env("MUAK_CONFIG", self.config_path())
+        cmd.kill_on_drop(true)
+            .env("MUAK_CONFIG", self.config_path())
             .env("HOME", self.config_dir.path())
             .env("NO_COLOR", "1")
             .arg("--endpoint")

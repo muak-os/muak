@@ -398,12 +398,22 @@ coordinator election and workload HA remain subsequent work.
 
 | Claim | Evidence in this draft | Remaining qualification |
 | --- | --- | --- |
-| Inventory ordering and isolation | Sixteen core tests cover reconnect, delayed callbacks, reordering, credential changes and rejected snapshots. | Booted network-failure scenarios. |
+| Inventory ordering and isolation | Core tests cover reconnect, delayed callbacks, reordering, credential changes, rejected snapshots and explicit reclamation of revoked observations. The manager saturation regression fills the byte budget, revokes one node and accepts another node's report without a restart; the revoked binding still rejects its old session and survives reopening. | Booted network-failure scenarios. |
 | Durable authority | Temporary-file tests reopen real state, preserve domain and revocation, reject obsolete sessions, retain unsupported state, enforce a writer lock and fail closed after a write failure. | Power-loss and filesystem fault injection on installed STATE; operational backup/restore procedure. |
 | Authenticated connectivity | Local mTLS tests use Muak PKI and apid TLS, permission evaluation, identity replacement and HTTP/2 proxy code. Two agents enroll and report through Unix backends. Forged identity, foreign CA, revoked certificate and insufficient permission are rejected. | Tests inject the backend path and authorization snapshot; production configuration reload, granola activation and SELinux enforcement require a booted system. The CSR service in this harness is a controlled fixture. |
 | Identity and credential lifecycle | The agent reopens its persisted identity without duplicate registration; network tests renew a key while retaining the UUID and require explicit rebinding. | Reboot two installations from the same image; update one and verify its identity and credential remain unchanged. |
 | Workload inventory and CLI | Runtime publisher and fleet CLI commands are wired to existing service/context boundaries. The network harness exercises publication and inventory RPCs with VM summaries. | Drive the real CLI against booted workloadd; observe actual VM transitions and disconnection staleness. Synthetic VM summaries do not prove hypervisor execution. |
 | Optional deployment | Extension OCI recipe and service descriptor are supplied; omitted configuration round-trips without enabling fleet management. SELinux policy compiles with explicit socket neverallow checks. A synthetic OCI fixture verifies extension labels in EROFS and unchanged standalone selection. | Build and publish the actual digest-pinned package in a test catalog, inspect its artifacts, then boot managed and standalone images. |
+
+The dedicated `just e2e-fleet` scenario now automates the three-host operator path
+using the real CLI, installed services and a real nested workload. It checks
+enrollment, inventory transitions, reboot/update identity preservation, manager
+recovery and credential renewal/revocation. It is explicitly selected because it
+requires the optional development catalog and nested KVM. It has not been executed
+here: `/dev/kvm` is unavailable. See the [operator guide](../fleet-inventory.md#automated-fleet-scenario)
+for inputs, assertions and the distinction between this automation and pending
+execution evidence. Network partitions, disk faults and enforcing socket-denial
+checks remain additional qualification work.
 
 This draft is ready for code and architecture review once its local checks pass.
 It must remain a draft until the booted operator workflow and lifecycle boundaries

@@ -274,3 +274,83 @@ fn aggregate_inventory_limit_preserves_previously_accepted_reports() {
     );
     assert!(nodes.iter().any(|node| !node.stale));
 }
+
+#[test]
+fn revocation_reclaims_inventory_capacity_without_restoring_access() {
+    // ARRANGE
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("state");
+    let mut manager = Manager::open(&path, 10, 60, String::new()).unwrap();
+    let mut enrolled = Vec::new();
+    for number in 1_u128..=7 {
+        let node = Uuid::from_u128(number).to_string();
+        let credential = format!("{number:064x}");
+        manager
+            .register(&credential, request(&manager, &node))
+            .unwrap();
+        manager.approve(&credential, &node, &credential).unwrap();
+        let session = manager
+            .register(&credential, request(&manager, &node))
+            .unwrap()
+            .session_id;
+        enrolled.push((node, credential, session));
+    }
+    let vms: Vec<VmSummary> = (1_u128..=1024)
+        .map(|number| VmSummary {
+            vm_id: Uuid::from_u128(number).to_string(),
+            name: "x".repeat(255),
+            state: 3,
+        })
+        .collect();
+    let large_report = |session: &str| ReportInventoryRequest {
+        session_id: session.to_owned(),
+        sequence: 0,
+        snapshot: Some(NodeSnapshot {
+            hostname: "worker".to_owned(),
+            vms: vms.clone(),
+        }),
+    };
+    for entry in enrolled.iter().take(6) {
+        manager.report(&entry.1, large_report(&entry.2)).unwrap();
+    }
+    let replacement = enrolled.last().unwrap();
+    let _error = manager
+        .report(&replacement.1, large_report(&replacement.2))
+        .unwrap_err();
+
+    // ACT: one revocation must free real memory as well as byte accounting.
+    let revoked = enrolled.first().unwrap();
+    let record = manager.revoke("administrator", &revoked.0).unwrap();
+    manager
+        .report(&replacement.1, large_report(&replacement.2))
+        .unwrap();
+    manager.revoke("administrator", &revoked.0).unwrap();
+
+    // ASSERT: no restart is needed and unrelated observations remain intact.
+    assert_eq!(record.status, "revoked");
+    assert!(record.stale);
+    assert!(record.snapshot.is_none());
+    assert!(record.observation_age_secs.is_none());
+    let nodes = manager.list().unwrap();
+    assert_eq!(
+        nodes.iter().filter(|node| node.snapshot.is_some()).count(),
+        6
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.node_id == replacement.0 && !node.stale)
+    );
+    let _error = manager
+        .report(&revoked.1, large_report(&revoked.2))
+        .unwrap_err();
+    let _error = manager
+        .register(&revoked.1, request(&manager, &revoked.0))
+        .unwrap_err();
+    drop(manager);
+    let mut manager = Manager::open(&path, 10, 60, String::new()).unwrap();
+    let _error = manager
+        .register(&revoked.1, request(&manager, &revoked.0))
+        .unwrap_err();
+    assert_eq!(manager.list().unwrap().len(), 7);
+}

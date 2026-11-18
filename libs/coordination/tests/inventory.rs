@@ -314,6 +314,47 @@ mod tests {
     }
 
     #[test]
+    fn reclaiming_revoked_observations_preserves_other_nodes_and_revocation() {
+        // ARRANGE
+        let (mut registry, peer) = setup();
+        let other = AuthenticatedPeer {
+            node: Uuid::from_u128(3),
+            fingerprint: [3; 32],
+            ..peer
+        };
+        registry.approve(other.node, other.fingerprint).unwrap();
+        let revoked = registry.connect(peer).unwrap();
+        let disconnected = registry.connect(other).unwrap();
+        registry.report(revoked, 0, snapshot()).unwrap();
+        registry.report(disconnected, 0, snapshot()).unwrap();
+        registry.disconnect(disconnected).unwrap();
+        registry.revoke(peer.node).unwrap();
+
+        // ACT
+        registry.discard_revoked_observations();
+        registry.discard_revoked_observations();
+
+        // ASSERT
+        let node = registry.node(peer.node).unwrap();
+        assert!(node.is_revoked());
+        assert!(node.observation().is_none());
+        assert_eq!(registry.connect(peer), Err(Failure::RevokedNode));
+        assert_eq!(
+            registry.report(revoked, 1, snapshot()),
+            Err(Failure::StaleSession)
+        );
+        assert_eq!(
+            registry
+                .node(other.node)
+                .unwrap()
+                .observation()
+                .unwrap()
+                .snapshot(),
+            &snapshot()
+        );
+    }
+
+    #[test]
     fn credential_rotation_preserves_identity_and_rejects_the_old_session() {
         // ARRANGE
         let (mut registry, peer) = setup();

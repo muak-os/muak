@@ -198,6 +198,8 @@ impl Manager {
         if approved {
             self.registry.revoke(id)?;
         }
+        self.registry.discard_revoked_observations();
+        self.observation_bytes.remove(&id);
         self.sessions.remove(&id);
         self.find(node)
     }

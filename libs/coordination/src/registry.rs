@@ -168,6 +168,16 @@ impl Registry {
         Ok(())
     }
 
+    /// Releases observations of revoked nodes while retaining their bindings.
+    ///
+    /// Adapters may reclaim this memory after persisting revocation. Approved
+    /// nodes, including disconnected or stale nodes, keep their observations.
+    pub fn discard_revoked_observations(&mut self) {
+        for entry in self.nodes.values_mut().filter(|entry| entry.revoked) {
+            entry.observation = None;
+        }
+    }
+
     /// Opens a session for a verified peer, replacing any earlier session.
     /// A new session must supply its own full snapshot before becoming fresh.
     ///

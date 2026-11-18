@@ -227,7 +227,11 @@ muakctl --context manager auth revoke FULL_CERTIFICATE_FINGERPRINT
 
 The revoked registration remains visible and consumes a record slot. Reuse is an
 explicit replacement/enrollment operation; revoked identities are not silently
-approved again. Administrative decisions are logged with the operator certificate
+approved again. Once revocation is durable, the manager discards that node's VM
+observation and releases its inventory byte budget. Its registration, certificate
+binding and revocation remain intact; reconnecting with the old credential still
+fails. Other nodes keep their observations, including stale observations.
+Administrative decisions are logged with the operator certificate
 fingerprint, operation and node UUID. A bounded tail of 256 decisions is also
 persisted with manager policy; this is not an external tamper-proof audit system.
 Decisions use Muak's kernel logger and are available through `dmesg`; service
@@ -263,12 +267,62 @@ proxy primitives, temporary durable state and two agents. Its CSR service and VM
 summaries are fixtures. It proves those adapters within the harness; it does not
 prove boot, a live hypervisor, granola supervision or enforced SELinux behavior.
 
+### Automated fleet scenario
+
+`e2e/tests/fleet.rs` drives the real CLI against three installed Muak guests:
+one manager and two workers, each installed from the same ISO with separate STATE
+and operator credentials. It exercises production CSR and node approvals,
+distinct identities, real workloadd observations, workload create/start/stop/delete,
+worker reboot and forced update, manager reboot, key renewal and revocation.
+The nested workload must emit a Linux boot banner through the real serial-log API;
+application readiness inside that workload is outside this inventory test.
+Revocation must remove the observed VMs without preventing local workload access
+or interrupting the other worker's reporting. The test also requires an enforcing
+SELinux boot marker on all three hosts.
+
+Run it explicitly after preparing the matching development catalog:
+
+```sh
+MUAK_FLEET_VM_KERNEL=/absolute/path/to/workload-kernel \
+MUAK_FLEET_VM_INITRD=/absolute/path/to/workload-initrd \
+REGISTRY=10.0.2.2:5000 just e2e-fleet
+```
+
+Prerequisites:
+
+- A matching ISO and catalog containing the rebuilt base, the `qemu` extension
+  and the `fleetd` extension, including their selected kernel and module packages.
+  Rebuild the toolchain first when testing the wizard changes. Enforcing SELinux
+  must be enabled in the selected kernel command line.
+- QEMU, OVMF, accessible KVM, at least 6 GiB available for the three 2 GiB hosts
+  plus host and nested workload overhead, and sufficient sparse disk storage.
+- Nested KVM available inside the workers. A real x86_64 kernel and initrd that
+  keep a small guest alive with 256 MiB RAM and `console=ttyS0`; the test supplies
+  no root filesystem or network setup to that workload. These are workload inputs,
+  not synthetic boot fixtures.
+- The test registry reachable from guests at `10.0.2.2:5000`. Workers reach the
+  manager through `10.0.2.2` and its host-forwarded API port; each CLI has its own
+  temporary operator configuration.
+
+The fleet test is ignored by the ordinary `just e2e` invocation because the
+default development catalog need not contain fleetd. `just e2e-fleet` explicitly
+selects and runs it, with no successful skip for missing prerequisites. CLI polling
+and lifecycle operations have deadlines, and timed-out CLI processes are killed.
+Compilation and linting include the test even when it is not run.
+
+**Execution status:** this scenario has not been run on a booted Muak here because
+`/dev/kvm` is unavailable. Adding the scenario does not satisfy its acceptance gate.
+It also does not inject WAN partitions, filesystem faults or forbidden socket
+access; those remain separate qualification steps below.
+
+### Qualification checklist
+
 Before promoting this draft:
 
 1. Build matching base and fleet extension artifacts, publish them to a local test
    catalog and inspect wizard's selected and standalone outputs.
-2. Run `just e2e` on a KVM-capable host. Boot a manager and two workers from the same
-   reusable image and verify distinct generated identities.
+2. Run `just e2e` for the existing standalone scenarios and `just e2e-fleet` on a
+   KVM-capable host. Record the exact commit, artifact digests and results.
 3. Complete both approvals using the CLI. Create/start/stop a VM through its usual
    worker context; verify the manager inventory reflects actual workload changes.
 4. Disconnect a worker, observe stale CLI output, reconnect, then reboot and update
