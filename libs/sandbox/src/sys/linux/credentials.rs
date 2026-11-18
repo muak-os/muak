@@ -31,27 +31,34 @@ struct CapData {
     inheritable: u32,
 }
 
+// The identity calls go through `libc::syscall` rather than the C wrappers on
+// purpose. A C library is free to make `setresuid` and its siblings more than
+// a syscall: glibc routes them through the NPTL setxid machinery, which waits
+// on a futex for acknowledgements from every sibling thread. A child of a raw
+// `clone3` carries a copy of that thread list but has no schedulable siblings,
+// so the wrapper waits forever. The raw call changes only this process.
+
 pub(crate) fn groups(groups: &[u32]) -> Result<(), Errno> {
     // SAFETY: the slice owns `groups.len()` readable `gid_t` values and stays
     // borrowed for the duration of the call, so the kernel cannot read past it
     // or observe a freed buffer. An empty slice is passed with a zero count,
     // which clears every supplementary group without reading the pointer.
-    let result = unsafe { libc::setgroups(groups.len(), groups.as_ptr()) };
-    check(result)
+    let result = unsafe { libc::syscall(libc::SYS_setgroups, groups.len(), groups.as_ptr()) };
+    check_i64(result)
 }
 
 pub(crate) fn gid(gid: u32) -> Result<(), Errno> {
-    // SAFETY: `setresgid` only reads its scalar arguments and never dereferences
-    // a pointer, so there is nothing to keep alive or validate.
-    let result = unsafe { libc::setresgid(gid, gid, gid) };
-    check(result)
+    // SAFETY: the raw call reads only its scalar arguments and never
+    // dereferences a pointer, so there is nothing to keep alive or validate.
+    let result = unsafe { libc::syscall(libc::SYS_setresgid, gid, gid, gid) };
+    check_i64(result)
 }
 
 pub(crate) fn uid(uid: u32) -> Result<(), Errno> {
-    // SAFETY: `setresuid` only reads its scalar arguments and never dereferences
-    // a pointer, so there is nothing to keep alive or validate.
-    let result = unsafe { libc::setresuid(uid, uid, uid) };
-    check(result)
+    // SAFETY: the raw call reads only its scalar arguments and never
+    // dereferences a pointer, so there is nothing to keep alive or validate.
+    let result = unsafe { libc::syscall(libc::SYS_setresuid, uid, uid, uid) };
+    check_i64(result)
 }
 
 pub(crate) fn no_new_privs() -> Result<(), Errno> {
@@ -108,7 +115,6 @@ fn check(result: c_int) -> Result<(), Errno> {
     if result == 0 { Ok(()) } else { Err(last()) }
 }
 
-#[cfg(feature = "caps")]
 fn check_i64(result: libc::c_long) -> Result<(), Errno> {
     if result == 0 { Ok(()) } else { Err(last()) }
 }

@@ -92,7 +92,7 @@ impl Spawn for Spawner {
                 .stdout(stdout_writer.as_fd())
                 .stderr(stderr_writer.as_fd())
                 .pass(pass);
-            spawn::run(&resolved, &cmd).context("Failed to spawn service")?
+            spawn::run(&resolved, &cmd, None).context("Failed to spawn service")?
         };
         // The parent must not hold the write ends: the log reader would never
         // see the end of the output of a service that exited.

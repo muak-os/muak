@@ -1,15 +1,29 @@
-//! The child path between fork and exec.
+//! The child path between creation and exec.
 //!
-//! Everything here runs in a process forked from a parent that may be
+//! Everything here runs in a child created by `clone3` from a parent that may be
 //! multithreaded. The parent may have owned an allocator lock, a panic lock or
-//! a stdio lock at the instant of fork, and the thread that held it does not
-//! exist in the child, so taking any of those locks would deadlock. The code
+//! a stdio lock at the instant of the clone, and the thread that held it does
+//! not exist in the child, so taking any of those locks would deadlock. The code
 //! therefore allocates nothing, locks nothing, formats nothing, never panics
 //! and only borrows what the parent already built.
 //!
 //! A failure cannot be formatted here. [`exec`] writes a fixed
 //! `(stage code, errno)` pair to the report pipe and calls `_exit(127)`, and the
 //! parent turns that pair into a [`crate::error::SandboxError`].
+//!
+//! # No wrapper that takes a process wide lock
+//!
+//! The C library is free to make a syscall more than a syscall. glibc routes
+//! the whole `setuid` family through `__nptl_setxid`, which takes the dynamic
+//! loader lock and signals every sibling thread before it changes the identity.
+//! A raw `clone3` child carries a copy of the thread list and of any lock a
+//! sibling held at the clone instant, and the holder cannot release it in the
+//! child's address space, so the child can wait on that lock forever. The
+//! credential calls therefore reach their raw syscalls directly in
+//! [`crate::sys::linux::credentials`] instead of calling the C wrappers. Full
+//! RELRO does not help here, because the wrapper takes the lock itself. The
+//! rest of the child path stays allocation free and lock free as described
+//! above.
 
 use core::ffi::c_char;
 use std::os::fd::{AsRawFd as _, BorrowedFd, RawFd};
@@ -31,7 +45,7 @@ type Failure = (Stage, Errno);
 
 /// # Safety
 ///
-/// Must be called in the child of a successful fork whose parent built
+/// Must be called in the child of a successful `clone3` whose parent built
 /// `program`, `argv` and `envp` and whose descriptors are still open. The
 /// function never returns.
 pub(crate) unsafe fn exec(

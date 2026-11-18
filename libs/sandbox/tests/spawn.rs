@@ -7,7 +7,7 @@ mod common;
 #[cfg(test)]
 mod tests {
     use std::io::Read as _;
-    use std::os::fd::AsFd as _;
+    use std::os::fd::{AsFd as _, AsRawFd as _};
     use std::os::unix::process::ExitStatusExt as _;
 
     use sandbox::error::{Mechanism, Result, SandboxError};
@@ -22,7 +22,7 @@ mod tests {
 
     fn spawn_under(policy: &Policy<'_>, cmd: &Cmd<'_>) -> Result<Child> {
         let resolved = policy.resolve(&Capabilities::empty())?;
-        spawn::run(&resolved, cmd)
+        spawn::run(&resolved, cmd, None)
     }
 
     fn identity() -> Policy<'static> {
@@ -132,20 +132,43 @@ mod tests {
     }
 
     #[test]
-    fn pidfd_is_opened_when_the_kernel_reports_it() {
+    fn the_child_pidfd_names_the_child() {
         // ARRANGE
         let policy = identity();
-        let argv = [c"/bin/sh", c"-c", c"exit 0"];
+        let argv = [c"/bin/sh", c"-c", c"sleep 30"];
         let cmd = Cmd::new(c"/bin/sh", &argv, &[]);
-        let resolved = policy.resolve(&Capabilities::PIDFD).unwrap();
+        // The pidfd comes from `clone3`, so it does not depend on a probed
+        // capability the way `pidfd_open` did.
+        let resolved = policy.resolve(&Capabilities::empty()).unwrap();
+        let child = spawn::run(&resolved, &cmd, None).unwrap();
+        let descriptor = child.pidfd().as_raw_fd();
 
         // ACT
-        let child = spawn::run(&resolved, &cmd).unwrap();
+        // SAFETY: `fcntl` reads the scalar descriptor and returns its flags as a
+        // number, so no pointer is involved and nothing can be invalidated.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        // SAFETY: the call reads the scalar descriptor and signal, and a null
+        // siginfo pointer asks the kernel to deliver the default signal, which
+        // is what a plain kill does.
+        let sent = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                descriptor,
+                libc::SIGTERM,
+                core::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
         let status = child.wait().unwrap();
 
         // ASSERT
-        assert_eq!(status.code(), Some(0_i32));
-        assert!(child.pidfd().is_some(), "the child has no pidfd");
+        assert_ne!(flags, -1_i32, "the child pidfd is not a live descriptor");
+        assert_ne!(sent, -1_i64, "the pidfd could not signal the child");
+        assert_eq!(
+            status.signal(),
+            Some(libc::SIGTERM),
+            "the signal went somewhere other than the child"
+        );
     }
 
     #[test]

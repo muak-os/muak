@@ -28,7 +28,7 @@ mod tests {
         let resolved = policy.resolve(&Capabilities::empty()).unwrap();
 
         // ACT
-        let child = spawn::run(&resolved, &cmd).unwrap();
+        let child = spawn::run(&resolved, &cmd, None).unwrap();
         let status = child.wait().unwrap();
 
         // ASSERT
@@ -55,7 +55,7 @@ mod tests {
         let resolved = policy.resolve(&Capabilities::empty()).unwrap();
 
         // ACT
-        let child = spawn::run(&resolved, &cmd).unwrap();
+        let child = spawn::run(&resolved, &cmd, None).unwrap();
         let status = child.wait().unwrap();
 
         // ASSERT

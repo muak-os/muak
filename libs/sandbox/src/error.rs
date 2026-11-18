@@ -22,7 +22,7 @@ pub enum Mechanism {
     Mounts,
     /// Root filesystem assembly.
     Rootfs,
-    /// Control group placement.
+    /// Control group placement, on the unified v2 hierarchy only.
     Cgroup,
     /// Overlay layer assembly.
     Overlay,
@@ -124,7 +124,7 @@ impl Mechanism {
             Self::Namespaces => cfg!(feature = "namespaces"),
             Self::Mounts => cfg!(feature = "mounts"),
             Self::Rootfs => cfg!(feature = "rootfs"),
-            Self::Cgroup => cfg!(feature = "cgroup"),
+            Self::Cgroup => cfg!(feature = "cgroupv2"),
             Self::Overlay => cfg!(feature = "overlay"),
             Self::Caps => cfg!(feature = "caps"),
             Self::Seccomp => cfg!(feature = "seccomp"),

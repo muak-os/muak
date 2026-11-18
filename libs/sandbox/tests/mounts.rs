@@ -63,7 +63,7 @@ mod tests {
         let before = mountinfo();
 
         // ACT
-        let Some(child) = run_or_skip(&resolved, &cmd) else {
+        let Some(child) = run_or_skip(resolved, &cmd) else {
             return;
         };
         let status = child.wait().expect("the child must be waited on");
@@ -162,7 +162,7 @@ mod tests {
         let cmd = Cmd::new(c"/bin/cat", &argv, &[]).stdout(writer.as_fd());
 
         // ACT
-        let Some(child) = run_or_skip(&resolved, &cmd) else {
+        let Some(child) = run_or_skip(resolved, &cmd) else {
             return;
         };
         let status = child.wait().expect("the child must be waited on");
@@ -201,8 +201,8 @@ mod tests {
     // the kernel refuses the namespace or mount step. Running as root is not
     // enough to carry `CAP_SYS_ADMIN`, so a refusal there is a skip and not a
     // failure.
-    fn run_or_skip(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Option<Child> {
-        match spawn::run(resolved, cmd) {
+    fn run_or_skip(resolved: Resolved<'_>, cmd: &Cmd<'_>) -> Option<Child> {
+        match spawn::run(&resolved, cmd, None) {
             Ok(child) => Some(child),
             Err(error) if refused(&error) => {
                 println!("skipping: the kernel refused the sandbox: {error}");

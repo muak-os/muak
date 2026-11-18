@@ -57,13 +57,13 @@ mod tests {
         // ARRANGE
         let caps = Capabilities::CGROUP_V2;
         let requirements = Requirements::new().require(Capabilities::CGROUP_V2);
-        assert_eq!(Mechanism::Cgroup.compiled(), cfg!(feature = "cgroup"));
+        assert_eq!(Mechanism::Cgroup.compiled(), cfg!(feature = "cgroupv2"));
 
         // ACT
         let result = requirements.resolve(&caps);
 
         // ASSERT
-        if cfg!(feature = "cgroup") {
+        if cfg!(feature = "cgroupv2") {
             assert!(result.is_ok(), "resolve failed: {result:?}");
         } else {
             assert!(matches!(
@@ -106,7 +106,7 @@ mod tests {
 
     // The ordering is only observable in a build that leaves a mechanism out,
     // so a build carrying every mechanism has nothing to tell apart here.
-    #[cfg(not(feature = "cgroup"))]
+    #[cfg(not(feature = "cgroupv2"))]
     #[test]
     fn not_compiled_wins_over_unsupported() {
         // ARRANGE

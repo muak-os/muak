@@ -3,9 +3,9 @@
 //! A policy always describes what the caller wants, whatever this build can
 //! compile. It is the resolve step in [`crate::resolve`] that compares the
 //! description with the mechanisms this build carries and the facilities the
-//! kernel offers. Cgroups and seccomp are absent on purpose: they belong to a
-//! later phase. Namespaces, mounts and the root filesystem are present as data
-//! only, so resolution can report them as not compiled.
+//! kernel offers. Seccomp is absent on purpose: it belongs to a later phase.
+//! Namespaces, mounts, the root filesystem and the cgroup limits are present as
+//! data only, so resolution can report them as not compiled.
 
 use std::path::Path;
 
@@ -13,7 +13,7 @@ use crate::credentials::{Caps, Id};
 use crate::limits::Limits;
 use crate::probe::Capabilities;
 use crate::resolve::Requirements;
-use crate::{mount, namespace};
+use crate::{cgroup, mount, namespace};
 
 /// Everything a child is configured with before exec.
 #[derive(Clone, Debug)]
@@ -25,6 +25,7 @@ pub struct Policy<'a> {
     pub(crate) namespaces: namespace::Set,
     pub(crate) mounts: &'a [mount::Entry<'a>],
     pub(crate) rootfs: Option<&'a Path>,
+    pub(crate) cgroup: cgroup::Limits,
 }
 
 impl<'a> Policy<'a> {
@@ -39,6 +40,7 @@ impl<'a> Policy<'a> {
             namespaces: namespace::Set::empty(),
             mounts: &[],
             rootfs: None,
+            cgroup: cgroup::Limits::new(),
         }
     }
 
@@ -91,6 +93,14 @@ impl<'a> Policy<'a> {
         self
     }
 
+    /// Returns this policy applying `limits` to the cgroup the child is born
+    /// in.
+    #[must_use = "the policy is the value the caller asked for"]
+    pub const fn cgroup(mut self, limits: cgroup::Limits) -> Self {
+        self.cgroup = limits;
+        self
+    }
+
     /// Returns the kernel facilities this policy needs.
     ///
     /// A kept capability set needs capset and the bounding set drop: a set
@@ -100,7 +110,8 @@ impl<'a> Policy<'a> {
     /// limits mechanism is checked during resolution instead. A namespace needs
     /// the flag that names it, a mount needs the mount namespace plus the flag
     /// of the filesystem it mounts, and a root filesystem needs the mount
-    /// namespace plus `pivot_root`.
+    /// namespace plus `pivot_root`. A cgroup limit needs the unified v2
+    /// hierarchy, which is the only hierarchy this crate drives.
     ///
     /// This is what a build without `spawn` validates with: it has no
     /// `Policy::resolve` but still needs to know whether a policy can be
@@ -131,6 +142,9 @@ impl<'a> Policy<'a> {
             requirements = requirements
                 .require(Capabilities::MOUNT_NS)
                 .require(Capabilities::PIVOT_ROOT);
+        }
+        if self.cgroup.requested() {
+            requirements = requirements.require(Capabilities::CGROUP_V2);
         }
         requirements
     }

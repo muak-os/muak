@@ -5,6 +5,11 @@
 //! drive, which of them the machine refuses, and what a child process must do
 //! between fork and exec. Phase 4 adds namespaces, mounts and the root
 //! filesystem switch that the child performs before the capability drop.
+//! Phase 5 adds the cgroup v2 tree the child is born in.
+//!
+//! Control group v1 is deliberately unsupported. The kernel boots with
+//! `cgroup_no_v1=all`, so a v1 hierarchy can never appear, and every facility
+//! this crate relies on is a v2 facility.
 //!
 //! # Features
 //!
@@ -22,7 +27,7 @@
 //! | `mounts` | `mount::apply`, `sys::linux::mount` | 4 |
 //! | `rootfs` | `rootfs::apply`, `sys::linux::rootfs` | 4 |
 //! | `mock` | none yet | 3 |
-//! | `cgroup` | none yet | 4 |
+//! | `cgroupv2` | `cgroup::v2` | 5 |
 //! | `spawn` | `resolve::Resolved`, `Policy::resolve`, `child`, `spawn`, `sys::linux::spawn` | 2 |
 //! | `seccomp` | none yet | 6 |
 //! | `overlay` | none yet | 7 |
@@ -41,6 +46,7 @@
 #![warn(missing_docs)]
 
 pub mod cap;
+pub mod cgroup;
 pub mod credentials;
 pub mod error;
 pub mod limits;

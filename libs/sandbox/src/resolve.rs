@@ -29,7 +29,6 @@ const PATH_LIMIT: usize = 256;
 #[derive(Clone, Copy, Debug)]
 pub struct Resolved<'a> {
     pub(crate) policy: &'a Policy<'a>,
-    pub(crate) pidfd: bool,
 }
 
 /// Kernel facilities a caller requires before a sandbox can be built.
@@ -95,7 +94,10 @@ impl Policy<'_> {
     /// consequence is that an invalid policy reports `Unsupported` rather than
     /// `NotCompiled` in a build without the mechanism it asks for. The last two
     /// checks are: a non-root identity cannot keep capabilities without ambient
-    /// capabilities, and a requested limit needs the limits mechanism.
+    /// capabilities, and a requested limit needs the limits mechanism. Between
+    /// the shape and the requirements sits the cgroup check, because
+    /// `memory.max` and `pids.max` need the unified hierarchy itself rather than
+    /// the mechanism that writes them.
     ///
     /// # Errors
     ///
@@ -105,6 +107,7 @@ impl Policy<'_> {
     /// cannot honour.
     pub fn resolve(&self, caps: &Capabilities) -> Result<Resolved<'_>> {
         semantics(self)?;
+        hierarchy(self, *caps)?;
         self.requirements().resolve(caps)?;
         let ambient = self
             .caps
@@ -120,10 +123,7 @@ impl Policy<'_> {
                 mechanism: Mechanism::Limits,
             });
         }
-        Ok(Resolved {
-            policy: self,
-            pidfd: caps.contains(Capabilities::PIDFD),
-        })
+        Ok(Resolved { policy: self })
     }
 }
 
@@ -160,6 +160,22 @@ fn semantics(policy: &Policy<'_>) -> Result<()> {
             | mount::Source::Devpts => Ok(()),
         }
     })
+}
+
+// `memory.max` and `pids.max` are the two limits the kernel enforces on the
+// cgroup itself, so asking for one is what makes the unified hierarchy
+// mandatory. The check comes before the requirement set so the failure names
+// the hierarchy the caller has to boot rather than the mechanism that carries
+// it.
+#[cfg(feature = "spawn")]
+fn hierarchy(policy: &Policy<'_>, caps: Capabilities) -> Result<()> {
+    if policy.cgroup.enforces() && !caps.contains(Capabilities::CGROUP_V2) {
+        return Err(SandboxError::Unsupported {
+            mechanism: Mechanism::Cgroup,
+            detail: "CGROUP_V2, memory.max and pids.max need the unified hierarchy",
+        });
+    }
+    Ok(())
 }
 
 #[cfg(feature = "spawn")]

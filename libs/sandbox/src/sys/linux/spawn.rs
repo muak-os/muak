@@ -1,17 +1,55 @@
 //! Process creation, execution, signalling and reaping syscalls.
 //!
-//! The child path reaches this module between fork and exec, so no function
+//! The child path reaches this module between creation and exec, so no function
 //! here allocates, locks or panics. Failures come back as raw kernel numbers
 //! and the caller decides how to report them.
+//!
+//! A child is always created by `clone3`, never by `fork`. `fork` carries no
+//! pidfd and cannot place the child in a cgroup, and the kernel this system
+//! ships is new enough that both are unconditional, so the fallback is gone on
+//! purpose instead of being probed for.
+//!
+//! # Two fields, two kinds of argument
+//!
+//! `clone_args.pidfd` is a user pointer, not the descriptor number. With
+//! `CLONE_PIDFD` the kernel stores the number of the pidfd it created through
+//! that pointer, and the field itself is read as an address, so a zero field is
+//! a null pointer and the call fails with `EFAULT` instead of returning a
+//! pidfd. `clone_args.cgroup` is the opposite: a plain descriptor value, because
+//! `CLONE_INTO_CGROUP` only reads it. The two are easy to confuse, and confusing
+//! them is why a `pidfd` field holding a number looks like it should work.
 
 use core::ffi::{c_char, c_int};
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+use core::mem::size_of;
+use std::os::fd::{AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd};
 
 use rustix::{io, process};
 
 use crate::error::Errno;
 
 const MAX_SIGNAL: c_int = 64;
+
+// Ask the kernel to create a pidfd for the new child and store its number
+// through the pointer in the `pidfd` field.
+const CLONE_PIDFD: u64 = 0x0000_1000;
+
+// Create the child inside the cgroup the `cgroup` field names, instead of
+// placing it there once it already runs.
+const CLONE_INTO_CGROUP: u64 = 0x0000_0002_0000_0000;
+
+/// Outcome of a `clone3` call, told apart by whether the caller is the parent.
+#[derive(Debug)]
+pub(crate) enum Cloned {
+    /// The caller is the new child, which continues from the call.
+    Child,
+    /// The caller is the parent, which now owns the child and its pidfd.
+    Parent {
+        /// Raw process identifier of the new child.
+        pid: c_int,
+        /// Descriptor that names the new child, always present.
+        pidfd: OwnedFd,
+    },
+}
 
 pub(crate) fn pipe() -> Result<(OwnedFd, OwnedFd), Errno> {
     let mut fds = [0_i32; 2];
@@ -42,16 +80,55 @@ pub(crate) fn at_least(fd: OwnedFd, floor: c_int) -> Result<OwnedFd, Errno> {
     Ok(unsafe { OwnedFd::from_raw_fd(result) })
 }
 
-pub(crate) fn fork() -> Result<c_int, Errno> {
-    // SAFETY: fork takes no pointer arguments. The child continues in a copy of
-    // this process, and the child path only calls allocation free and lock free
-    // code before exec, so no inherited lock is ever taken there.
-    let result = unsafe { libc::fork() };
-    if result == -1_i32 {
-        Err(last())
-    } else {
-        Ok(result)
+pub(crate) fn clone3(cgroup: Option<BorrowedFd<'_>>) -> Result<Cloned, Errno> {
+    // The slot the kernel writes the pidfd number into. The argument struct
+    // carries the address of this integer, never the number itself.
+    let mut pidfd_number: c_int = -1;
+    // SAFETY: every field of `clone_args` is a plain integer, so an all-zero
+    // value is valid: no flags, no exit signal, no stack and no cgroup.
+    let mut args: libc::clone_args = unsafe { core::mem::zeroed() };
+    // `CLONE_PIDFD` reports the child exit with a signal, and it rejects an
+    // exit signal the process could not be waited on with.
+    args.exit_signal = u64::from(libc::SIGCHLD.unsigned_abs());
+    args.flags = CLONE_PIDFD;
+    args.pidfd =
+        u64::try_from((&raw mut pidfd_number).addr()).map_err(|_error| Errno::new(libc::EINVAL))?;
+    if let Some(directory) = cgroup {
+        args.flags |= CLONE_INTO_CGROUP;
+        // Unlike `pidfd`, this field is the descriptor itself.
+        args.cgroup = u64::from(directory.as_raw_fd().unsigned_abs());
     }
+    // SAFETY: `args` is a fully initialized stack value that outlives the call,
+    // and the kernel reads exactly the size given. `args.pidfd` is an output
+    // pointer to `pidfd_number`, an integer of this frame that also outlives the
+    // call, so the kernel may store the descriptor number through it. Without
+    // `CLONE_VM` the child continues in a copy of this address space, and the
+    // child path only calls allocation free and lock free code before exec, so
+    // no inherited lock is ever taken there.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_clone3,
+            &raw const args,
+            size_of::<libc::clone_args>(),
+        )
+    };
+    if result == -1 {
+        return Err(last());
+    }
+    if result == 0 {
+        return Ok(Cloned::Child);
+    }
+    let pid = c_int::try_from(result).map_err(|_error| Errno::new(libc::EINVAL))?;
+    // A successful call always stores the descriptor it created, so a slot that
+    // still holds the initial value means the call did not honour the flag.
+    if pidfd_number < 0_i32 {
+        return Err(Errno::new(libc::EINVAL));
+    }
+    // SAFETY: the kernel stored a freshly created descriptor number through
+    // `pidfd_number`, and no other value owns that descriptor, so it is adopted
+    // exactly once.
+    let pidfd = unsafe { OwnedFd::from_raw_fd(pidfd_number) };
+    Ok(Cloned::Parent { pid, pidfd })
 }
 
 /// # Safety
@@ -142,10 +219,6 @@ pub(crate) fn wait(pid: process::Pid) -> Result<process::WaitStatus, Errno> {
             return Err(Errno::from(error));
         }
     }
-}
-
-pub(crate) fn pidfd_open(pid: process::Pid) -> Result<OwnedFd, Errno> {
-    process::pidfd_open(pid, process::PidfdFlags::empty()).map_err(Errno::from)
 }
 
 pub(crate) fn kill(pid: process::Pid, signal: process::Signal) -> Result<(), Errno> {

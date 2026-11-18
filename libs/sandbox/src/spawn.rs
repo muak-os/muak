@@ -2,23 +2,34 @@
 //!
 //! The parent side of this module may allocate and format. The child side may
 //! not, and it never does: the pointers and the report pipe are built before
-//! fork, and the private child module only borrows them afterwards.
+//! the child exists, and the private child module only borrows them afterwards.
 //!
-//! # Fork safety
+//! # Clone safety
 //!
-//! Forking from a multithreaded parent is safe here only because the child path
-//! is allocation free, panic free and lock free. A forked child of a threaded
-//! process may inherit a lock whose owner thread does not exist in the child,
-//! and taking it would deadlock. The child path is therefore reduced to raw
-//! syscalls, and the integration test that runs eight threads with twenty
-//! spawns each, plus the allocation counting unit test in the private child
-//! module, enforce that discipline.
+//! Creating a child from a multithreaded parent is safe here only because the
+//! child path is allocation free, panic free and lock free. A child of a
+//! threaded process inherits its memory, and with it a lock whose owner thread
+//! does not exist in the child, so taking one there would deadlock. The child
+//! path is therefore reduced to raw syscalls, and the integration test that runs
+//! eight threads with twenty spawns each, plus the allocation counting unit test
+//! in the private child module, enforce that discipline.
+//!
+//! # Why `CLONE_INTO_CGROUP`
+//!
+//! A cgroup directory descriptor given to [`run`] is handed to `clone3` with
+//! `CLONE_INTO_CGROUP`, so the child is inside its cgroup from its first
+//! instruction. Writing the pid to `cgroup.procs` afterwards leaves a window in
+//! which the child runs under the parent's cgroup, where its limits do not
+//! apply, and a workload that forks during that window passes the cgroup on to
+//! children nobody accounted for. `fork` is gone for the same reason: it carries
+//! neither a pidfd nor a cgroup, and the kernel this system ships supports both
+//! unconditionally.
 
 use core::ffi::{CStr, c_char};
 use core::mem::size_of;
 use std::fs::File;
 use std::io::Read as _;
-use std::os::fd::{AsFd, AsRawFd as _, BorrowedFd, OwnedFd, RawFd};
+use std::os::fd::{AsFd as _, AsRawFd as _, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::process::ExitStatusExt as _;
 use std::process::ExitStatus;
 
@@ -56,7 +67,7 @@ pub struct Cmd<'a> {
 #[derive(Debug)]
 pub struct Child {
     pid: Pid,
-    pidfd: Option<OwnedFd>,
+    pidfd: OwnedFd,
 }
 
 impl<'a> Cmd<'a> {
@@ -116,10 +127,13 @@ impl Child {
         self.pid
     }
 
-    /// Returns the pidfd when the kernel and the caller asked for one.
+    /// Returns a descriptor that names this child.
+    ///
+    /// The descriptor is created by `clone3` together with the child, so it is
+    /// always present and can never name a recycled pid.
     #[must_use = "the descriptor is the value the caller asked for"]
-    pub fn pidfd(&self) -> Option<BorrowedFd<'_>> {
-        self.pidfd.as_ref().map(AsFd::as_fd)
+    pub fn pidfd(&self) -> BorrowedFd<'_> {
+        self.pidfd.as_fd()
     }
 
     /// Delivers `signal` to the child.
@@ -154,18 +168,27 @@ impl Child {
 /// Spawns `cmd` in a child configured by the resolved policy.
 ///
 /// The parent creates a close-on-exec report pipe, moves the write end above
-/// the standard descriptors and above every passed descriptor, then forks. A
-/// child that cannot apply the policy writes a fixed stage and errno pair and
-/// exits with 127; a child that execs closes the pipe on the way to the new
-/// image. No report therefore means the exec succeeded, and a report becomes a
-/// [`SandboxError::Denied`] owned by the mechanism of that stage.
+/// the standard descriptors and above every passed descriptor, then creates the
+/// child with `clone3`. A child that cannot apply the policy writes a fixed
+/// stage and errno pair and exits with 127; a child that execs closes the pipe
+/// on the way to the new image. No report therefore means the exec succeeded,
+/// and a report becomes a [`SandboxError::Denied`] owned by the mechanism of
+/// that stage.
+///
+/// A `cgroup` directory descriptor, from `Tree::fd` in the v2 module, makes
+/// the child be born inside that cgroup through `CLONE_INTO_CGROUP`. Without it
+/// the child inherits the cgroup of the caller.
 ///
 /// # Errors
 ///
-/// Returns [`SandboxError::Io`] when the pipe or fork fails, and
+/// Returns [`SandboxError::Io`] when the pipe or the clone fails, and
 /// [`SandboxError::Denied`] when the child reports a failed stage.
 #[must_use = "the child must be waited on, otherwise it becomes a zombie"]
-pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
+pub fn run(
+    resolved: &Resolved<'_>,
+    cmd: &Cmd<'_>,
+    cgroup: Option<BorrowedFd<'_>>,
+) -> Result<Child> {
     let (read, write) = spawn::pipe().map_err(SandboxError::Io)?;
     // The write end must sit above the standard descriptors and above every
     // descriptor the child installs, otherwise a caller that closed its stdio
@@ -178,13 +201,13 @@ pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
     let files = [raw(cmd.stdin), raw(cmd.stdout), raw(cmd.stderr)];
     let report_fd = write.as_raw_fd();
 
-    let raw_pid = spawn::fork().map_err(SandboxError::Io)?;
-    if raw_pid == 0_i32 {
-        // SAFETY: this branch is the child of the fork above. The command
-        // pointers, the passed descriptors and the report descriptor were
-        // built by the parent and are valid in this copy of the address space,
-        // and `exec` never returns.
-        unsafe {
+    let cloned = spawn::clone3(cgroup).map_err(SandboxError::Io)?;
+    let (raw_pid, pidfd) = match cloned {
+        // SAFETY: this branch is the child created by the clone above. The
+        // command pointers, the passed descriptors and the report descriptor
+        // were built by the parent and are valid in this copy of the address
+        // space, and `exec` never returns.
+        spawn::Cloned::Child => unsafe {
             child::exec(
                 resolved.policy,
                 program,
@@ -194,8 +217,9 @@ pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
                 cmd.pass,
                 report_fd,
             )
-        }
-    }
+        },
+        spawn::Cloned::Parent { pid, pidfd } => (pid, pidfd),
+    };
 
     drop(write);
     let report = match reported(read) {
@@ -214,11 +238,6 @@ pub fn run(resolved: &Resolved<'_>, cmd: &Cmd<'_>) -> Result<Child> {
     }
 
     let pid = process::Pid::from_raw(raw_pid).ok_or(SandboxError::Io(Errno::new(libc::EINVAL)))?;
-    let pidfd = if resolved.pidfd {
-        spawn::pidfd_open(pid).ok()
-    } else {
-        None
-    };
     Ok(Child { pid, pidfd })
 }
 
