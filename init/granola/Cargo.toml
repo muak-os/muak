@@ -32,7 +32,7 @@ kmsg = { workspace = true }
 sandbox = { workspace = true, features = ["caps", "limits", "probe", "spawn"] }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["net", "process"] }
+rustix = { workspace = true, features = ["fs", "mount", "net", "process"] }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

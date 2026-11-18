@@ -85,6 +85,12 @@
 ; STATE partition mount (btrfs on /dev/mapper/muak-state -> fs_t filesystem).
 (allow granola_t fs_t (files (mount)))
 
+; cgroup2 mount at /sys/fs/cgroup, plus cgroup.subtree_control and child cgroups.
+(allow granola_t sysfs_t  (dir        (mounton)))
+(allow granola_t cgroup_t (filesystem (mount)))
+(allow granola_t cgroup_t (files      (load)))
+(allow granola_t cgroup_t (files      (mutate)))
+
 ; ESP mount and LUKS key read from the initramfs (vfat -> esp_t filesystem).
 (allow granola_t esp_t (files (mount)))
 (allow granola_t esp_t (dir  (read search)))

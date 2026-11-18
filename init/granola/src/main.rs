@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+mod cgroup;
 mod confinement;
 mod ipc;
 mod loader;
@@ -23,6 +24,8 @@ const GRPC_SOCKET_PATH: &str = "/run/services/granola.sock";
 async fn main() -> Result<()> {
     kmsg::init("granola")?;
     kmsg::info!("PID 1 supervisor started");
+
+    cgroup::setup().context("Failed to set up cgroups")?;
 
     let env = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))

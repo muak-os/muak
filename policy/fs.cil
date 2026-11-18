@@ -24,7 +24,7 @@
 (genfscon selinuxfs / (system_u object_r selinuxfs_t s0))
 (genfscon efivarfs  / (system_u object_r efivarfs_t  s0))
 (genfscon cgroup    / (system_u object_r fs_t        s0))
-(genfscon cgroup2   / (system_u object_r fs_t        s0))
+(genfscon cgroup2   / (system_u object_r cgroup_t    s0))
 
 ; ── Filesystem association rules ─────────────────────────────────────────────
 
