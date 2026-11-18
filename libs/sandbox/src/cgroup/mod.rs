@@ -1,24 +1,16 @@
 //! Control group vocabulary.
 //!
-//! The types always compile, because a policy must always be expressible. Only
-//! the filesystem work in `v2` depends on the `cgroupv2` feature.
-//!
-//! Only the unified cgroup v2 hierarchy is supported. The kernel boots with
-//! `cgroup_no_v1=all`, so a v1 hierarchy can never appear, and every facility
-//! this crate relies on, `cgroup.kill` and `CLONE_INTO_CGROUP` above all, is a
-//! v2 facility.
+//! Only the unified v2 hierarchy is supported: the kernel boots with `cgroup_no_v1=all`, and `cgroup.kill` and `CLONE_INTO_CGROUP` are v2 facilities.
 
 #[cfg(feature = "cgroupv2")]
 pub mod v2;
 
-// One byte below the kernel's limit for a single path component, so a name that
-// passes validation always fits the buffer the kernel copies it into.
+// One byte below the kernel limit for a single path component, so a validated name always fits the buffer the kernel copies it into.
 const NAME_LIMIT: usize = 256;
 
 /// Limits a cgroup applies to the processes placed in it.
 ///
-/// Every field is optional, and an absent field leaves the kernel default
-/// alone, so a caller asks only for what it has to bound.
+/// An absent field leaves the kernel default alone.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Limits {
     memory_max: Option<u64>,
@@ -41,8 +33,7 @@ impl Limits {
 
     /// Returns these limits with `memory.max` set to `bytes`.
     ///
-    /// `memory.max` is the hard limit: the kernel reclaims memory from a group
-    /// that reaches it, and kills the group when reclaim cannot keep up.
+    /// It is the hard limit: the kernel kills the group when reclaim cannot keep up.
     #[must_use = "the limits are the value the caller asked for"]
     pub const fn memory_max(mut self, bytes: u64) -> Self {
         self.memory_max = Some(bytes);
@@ -51,8 +42,7 @@ impl Limits {
 
     /// Returns these limits with `memory.high` set to `bytes`.
     ///
-    /// `memory.high` is the throttle: a group above it is reclaimed and slowed
-    /// down, not killed.
+    /// It is the throttle: a group above it is reclaimed and slowed down, not killed.
     #[must_use = "the limits are the value the caller asked for"]
     pub const fn memory_high(mut self, bytes: u64) -> Self {
         self.memory_high = Some(bytes);
@@ -66,8 +56,7 @@ impl Limits {
         self
     }
 
-    /// Returns these limits with `cpu.max` set to `quota` microseconds of CPU
-    /// time per `period` microseconds.
+    /// Returns these limits with `cpu.max` set to `quota` microseconds of CPU time per `period` microseconds.
     #[must_use = "the limits are the value the caller asked for"]
     pub const fn cpu_max(mut self, quota: u64, period: u64) -> Self {
         self.cpu_max = Some((quota, period));
@@ -85,8 +74,7 @@ impl Limits {
 
     /// Returns whether `memory.max` or `pids.max` asks for a non zero value.
     ///
-    /// Those two are the limits the kernel enforces on the cgroup itself, so
-    /// requesting one is what makes the unified hierarchy mandatory.
+    /// Those two are what makes the unified hierarchy mandatory.
     #[cfg(feature = "spawn")]
     #[must_use = "the answer decides whether the hierarchy is required"]
     pub(crate) const fn enforces(&self) -> bool {
@@ -94,9 +82,7 @@ impl Limits {
             || matches!(self.pids_max, Some(count) if count > 0)
     }
 
-    // Renders every requested limit to the file it is written to and the text
-    // that goes into it, in one place, so the formatting is testable without a
-    // filesystem.
+    // Renders every requested limit in one place, so the formatting is testable without a filesystem.
     #[cfg(any(feature = "cgroupv2", test))]
     fn rendered(&self) -> [Option<(&'static str, String)>; 4] {
         [
@@ -113,9 +99,7 @@ impl Limits {
 
 /// Returns whether `name` names a single cgroup below a root.
 ///
-/// A valid name is not empty, is neither `.` nor `..`, holds no `/`, and is
-/// shorter than 256 bytes. A name is checked before anything touches the
-/// filesystem, so an invalid one can never create or remove a directory.
+/// The name is checked before anything touches the filesystem, so an invalid one can never create or remove a directory.
 #[must_use = "the answer decides whether the name may reach the filesystem"]
 pub fn valid_name(name: &str) -> bool {
     if name.is_empty() || name == "." || name == ".." || name.len() >= NAME_LIMIT {

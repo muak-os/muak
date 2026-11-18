@@ -1,25 +1,8 @@
 //! Namespace kinds a child is created in.
 //!
-//! A [`Set`] always compiles, because a policy must always be expressible even
-//! in a build that cannot issue `unshare`. The call that applies it, `apply`,
-//! needs `namespaces` and `spawn`: the child path between fork and exec is its
-//! only caller, and [`crate::sys::linux`] carries the call it makes.
+//! The PID namespace is absent: `unshare(CLONE_NEWPID)` leaves the caller in the old namespace, so honouring it needs a second fork inside the child path.
 //!
-//! Only the kinds whose name is the whole of the mechanism live here. Each one
-//! gives the child a private copy of a kernel table and needs nothing else.
-//!
-//! # Out of scope
-//!
-//! The PID namespace is absent. `unshare(CLONE_NEWPID)` changes the namespace
-//! of processes created afterwards and leaves the caller in the old one, so
-//! honouring it needs a second fork inside the child path. That fork would
-//! change what `Child::pid` means and how waiting works, so it belongs to a
-//! later phase.
-//!
-//! The user namespace is absent too. Unsharing one without writing a uid and a
-//! gid map leaves the process as `nobody` for every file on the host, which is
-//! a broken sandbox rather than a confined one, and the mapping is the whole
-//! point of the mechanism.
+//! The user namespace is absent: unsharing one without writing a uid and a gid map leaves the process as `nobody` for every file on the host.
 
 #[cfg(all(feature = "namespaces", feature = "spawn"))]
 use crate::error::Errno;
@@ -38,8 +21,7 @@ impl Set {
     pub const MOUNT: Self = Self(0x0000_0001);
     /// Network namespace: the child gets its own interfaces, routes and ports.
     pub const NETWORK: Self = Self(0x0000_0002);
-    /// `SysV` IPC namespace: the child gets its own message queues and
-    /// semaphores.
+    /// `SysV` IPC namespace: the child gets its own message queues and semaphores.
     pub const IPC: Self = Self(0x0000_0004);
     /// UTS namespace: the child gets its own host name and NIS domain name.
     pub const UTS: Self = Self(0x0000_0008);
@@ -90,8 +72,7 @@ impl Set {
 
 /// Unshares every kind of `set` in one call.
 ///
-/// The caller refuses an empty set instead of calling this, because `unshare`
-/// accepts zero flags and would report a success that unshared nothing.
+/// The caller refuses an empty set, because `unshare` accepts zero flags and would report a success that unshared nothing.
 #[cfg(all(feature = "namespaces", feature = "spawn"))]
 pub(crate) fn apply(set: Set) -> Result<(), Errno> {
     linux::namespace::unshare(set)

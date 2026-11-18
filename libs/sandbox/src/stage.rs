@@ -1,13 +1,6 @@
-//! Ordered stages of the child path.
+//! Stages of the child path a failure is attributed to.
 //!
-//! The child path cannot format messages, so it cannot report a `SandboxError`
-//! the way the parent side does. A failure is reported as a fixed
-//! `(Stage, Errno)` pair written to a CLOEXEC pipe, and `Stage` is the compact
-//! value that says which step of the child path failed.
-//!
-//! A code is a stable wire value, not the execution order. The child runs the
-//! signal reset first and that stage carries code 9, so a code names the step
-//! that failed and says nothing about when it ran.
+//! A code is a stable wire value, not the execution order: the signal reset runs first and carries code 9.
 
 /// Step of the child path a failure is attributed to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -6,8 +6,7 @@ use thiserror::Error;
 
 /// Raw kernel error number.
 ///
-/// The type is a plain integer on purpose: it can be built between fork and
-/// exec, where no allocator is reachable.
+/// It is a plain integer on purpose: it can be built between fork and exec, where no allocator is reachable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Errno(i32);
 
@@ -38,8 +37,7 @@ pub enum Mechanism {
 
 /// Failure returned by sandbox operations.
 ///
-/// Every variant is allocation free so that it can be constructed between fork
-/// and exec.
+/// Every variant is allocation free so that it can be constructed between fork and exec.
 #[expect(
     clippy::module_name_repetitions,
     reason = "The public error type name intentionally includes the crate name"

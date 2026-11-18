@@ -1,14 +1,6 @@
 //! Filesystem work on the unified cgroup v2 hierarchy.
 //!
-//! Every call here runs on the parent side, so it may allocate and format. The
-//! child path never reaches this module: the child is born inside its cgroup
-//! through `CLONE_INTO_CGROUP`, which takes the directory descriptor this
-//! module opens, so nothing is written after the child exists.
-//!
-//! `cgroup.kill` is required, never probed for a fallback. The kernel creates
-//! it on every non root cgroup from 5.14 onwards, and a modern kernel always
-//! satisfies that, so a cgroup without it is an error and not a reason to fall
-//! back to signalling every pid in `cgroup.procs`.
+//! `cgroup.kill` is required, never probed for a fallback: the kernel creates it on every non root cgroup from 5.14 onwards.
 
 use core::cell::OnceCell;
 use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
@@ -21,14 +13,11 @@ use rustix::process::Pid;
 use crate::cgroup::Limits;
 use crate::error::{Errno, Mechanism, Result, SandboxError};
 
-// The mode a fresh cgroup directory gets: readable by every process that may
-// list the hierarchy, writable by its owner only.
+// The mode a fresh cgroup directory gets: writable by its owner only.
 const MODE: u32 = 0o755;
 
-// The file the kernel reads as "kill every process in this cgroup".
 const KILL: &str = "cgroup.kill";
 
-// The file a process is written to when it is placed after it started.
 const PROCS: &str = "cgroup.procs";
 
 /// One cgroup below a root, borrowed from the caller's root path and name.
@@ -44,11 +33,7 @@ impl<'a> Tree<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`SandboxError::Unsupported`] when `name` is not a valid cgroup
-    /// name or when the new cgroup carries no `cgroup.kill` file, which the
-    /// kernel only omits on a cgroup this crate cannot use, and
-    /// [`SandboxError::Io`] when the directory or a limit file cannot be
-    /// written.
+    /// Returns [`SandboxError::Unsupported`] when the name is invalid or the new cgroup carries no `cgroup.kill` file, and [`SandboxError::Io`] when the directory or a limit file cannot be written.
     pub fn create(root: &'a Path, name: &'a str, limits: &Limits) -> Result<Self> {
         let tree = checked(root, name)?;
         let path = tree.path();
@@ -65,30 +50,13 @@ impl<'a> Tree<'a> {
         Ok(tree)
     }
 
-    /// Creates the cgroup `name` below `root`, clearing a leftover directory
-    /// first.
+    /// Creates the cgroup `name` below `root`, clearing a leftover directory first.
     ///
-    /// A caller that supervises a service can leave a cgroup behind when the
-    /// removal of a previous life races the asynchronous `cgroup.kill`, and a
-    /// stale directory would otherwise make every later attempt to start that
-    /// service fail for a reason the service does not have. Reusing the
-    /// directory silently is worse than the failure: processes of the old
-    /// service are still charged to the new one, its limits apply to work it
-    /// never started, and its [`Tree::kill`] reaches a process it never
-    /// spawned. The leftover directory is therefore opened, killed and removed
-    /// before the new one is created, so the cgroup handed back is empty.
-    ///
-    /// [`Tree::create`] stays strict and returns the `EEXIST` for that
-    /// caller, because a leftover directory is a bug unless the caller says it
-    /// expects one.
+    /// Reusing a leftover silently is worse than failing: processes of the old service are charged to the new one and [`Tree::kill`] reaches a process it never spawned.
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`Tree::create`], and those of [`Tree::open`],
-    /// [`Tree::kill`] and [`Tree::remove`] when a leftover directory has to be
-    /// cleared. A removal that answers `EBUSY` because the kernel is still
-    /// killing the tasks of the old service is returned to the caller, which
-    /// is expected to retry the whole claim later.
+    /// Returns the errors of [`Tree::create`] and those of clearing a leftover, including the `EBUSY` a caller must retry later.
     pub fn claim(root: &'a Path, name: &'a str, limits: &Limits) -> Result<Self> {
         match Self::create(root, name, limits) {
             Ok(tree) => Ok(tree),
@@ -104,30 +72,21 @@ impl<'a> Tree<'a> {
 
     /// Opens the cgroup `name` below `root`, which must already exist.
     ///
-    /// Nothing is created and no limit is written, so a caller that holds only
-    /// a name between two events reaches [`Tree::kill`] and [`Tree::remove`]
-    /// without repeating the setup of [`Tree::create`].
+    /// Nothing is created and no limit is written, so a caller that holds only a name reaches [`Tree::kill`] and [`Tree::remove`].
     ///
     /// # Errors
     ///
-    /// Returns [`SandboxError::Unsupported`] when `name` is not a valid cgroup
-    /// name, and [`SandboxError::Io`] when the directory is missing or is not a
-    /// directory.
+    /// Returns [`SandboxError::Unsupported`] when the name is invalid, and [`SandboxError::Io`] when the directory is missing or is not a directory.
     pub fn open(root: &'a Path, name: &'a str) -> Result<Self> {
         let tree = checked(root, name)?;
-        // Opening the directory is the existence check: a missing name and a
-        // plain file both fail here with the kernel's own error number.
+        // Opening the directory is the existence check: a missing name and a plain file both fail here with the kernel error number.
         let _descriptor = tree.fd()?;
         Ok(tree)
     }
 
     /// Places `pid` in this cgroup by writing it to `cgroup.procs`.
     ///
-    /// This exists for a caller that cannot use `CLONE_INTO_CGROUP`, and it is
-    /// the worse of the two: the process runs from its creation until the write
-    /// outside the cgroup it is about to be placed in. Use
-    /// [`Tree::fd`] with `CLONE_INTO_CGROUP` instead whenever the child is
-    /// created by this crate.
+    /// The process runs outside the cgroup until the write, so prefer [`Tree::fd`] with `CLONE_INTO_CGROUP`.
     ///
     /// # Errors
     ///
@@ -147,33 +106,25 @@ impl<'a> Tree<'a> {
 
     /// Removes the cgroup directory.
     ///
-    /// The removal fails when the cgroup still holds a process, which is the
-    /// point: a silent success there would hide a leaked process that the
-    /// caller believes it killed.
+    /// The removal fails while the cgroup still holds a process, which is the point: a silent success would hide a leaked process.
     ///
     /// # Errors
     ///
-    /// Returns [`SandboxError::Io`] when the directory cannot be removed,
-    /// including the case of a cgroup that is still populated.
+    /// Returns [`SandboxError::Io`] when the directory cannot be removed, including a cgroup that is still populated.
     pub fn remove(self) -> Result<()> {
         let Self {
             root,
             name,
             fd: cache,
         } = self;
-        // The descriptor is dropped before the directory it names, so a caller
-        // that never called `fd` costs nothing and one that did cannot hold the
-        // directory open across the removal.
+        // The descriptor is dropped before the directory it names, so it cannot stay open across the removal.
         drop(cache);
         fs::rmdir(root.join(name)).map_err(failed)
     }
 
     /// Returns a descriptor for this cgroup, opening it on first use.
     ///
-    /// `CLONE_INTO_CGROUP` takes a directory descriptor, and the descriptor is
-    /// cached so repeated spawns into the same cgroup do not reopen it. It is
-    /// opened `O_CLOEXEC`, because no process should inherit a descriptor for a
-    /// cgroup it already belongs to.
+    /// It is cached so repeated spawns into the same cgroup do not reopen it, and `O_CLOEXEC` because no process should inherit a descriptor for a cgroup it already belongs to.
     ///
     /// # Errors
     ///
@@ -183,8 +134,7 @@ impl<'a> Tree<'a> {
             return Ok(cached.as_fd());
         }
         let opened = self.descriptor()?;
-        // A caller that lost a race with another one drops its own descriptor
-        // here and shares the cached one instead.
+        // A caller that lost the race drops its own descriptor and shares the cached one.
         Ok(self.fd.get_or_init(|| opened).as_fd())
     }
 
@@ -198,8 +148,7 @@ impl<'a> Tree<'a> {
     }
 }
 
-// Validates `name` and builds the tree before anything touches the filesystem,
-// so every constructor refuses an invalid name the same way.
+// Validates `name` and builds the tree before anything touches the filesystem, so every constructor refuses an invalid name the same way.
 fn checked<'a>(root: &'a Path, name: &'a str) -> Result<Tree<'a>> {
     if !super::valid_name(name) {
         return Err(SandboxError::Unsupported {
@@ -214,8 +163,7 @@ fn checked<'a>(root: &'a Path, name: &'a str) -> Result<Tree<'a>> {
     })
 }
 
-// Whether `error` says the directory is already there, which is the one reason
-// a constructor falls back to clearing a leftover one.
+// Whether `error` says the directory is already there.
 fn exists(error: &SandboxError) -> bool {
     matches!(error, SandboxError::Io(errno) if errno.raw() == io::Errno::EXIST.raw_os_error())
 }

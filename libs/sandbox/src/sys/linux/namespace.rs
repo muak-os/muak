@@ -1,8 +1,6 @@
 //! Namespace syscalls.
 //!
-//! The child path reaches this module between fork and exec, so nothing here
-//! allocates, locks or panics. `unshare` touches per process state only, which
-//! is why it is the one call that can run before the mount steps.
+//! Nothing here allocates, locks or panics, and `unshare` touches per process state only, which is why it can run before the mount steps.
 
 use rustix::thread;
 
@@ -10,10 +8,7 @@ use crate::error::Errno;
 use crate::namespace::Set;
 
 pub(crate) fn unshare(set: Set) -> Result<(), Errno> {
-    // SAFETY: no descriptor table flag is ever requested, so the call cannot
-    // leave this thread looking at a table its siblings do not share, which is
-    // the only hazard `unshare_unsafe` documents. A single thread process
-    // unsharing its own namespaces has nothing to keep in step.
+    // SAFETY: no descriptor table flag is ever requested, the only hazard `unshare_unsafe` documents, and a single thread process unsharing its own namespaces has nothing to keep in step.
     unsafe { thread::unshare_unsafe(flags(set)) }.map_err(Errno::from)
 }
 

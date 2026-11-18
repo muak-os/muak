@@ -1,9 +1,6 @@
 //! Resource limits a workload receives before exec.
 //!
-//! The types always compile, because a policy must always be expressible. The
-//! syscall side in [`crate::sys::linux`] is the only part that depends on the
-//! `limits` feature. [`Limit::Inherit`] leaves the inherited value alone, so no
-//! field needs an `Option` wrapper to say "do not touch this".
+//! [`Limit::Inherit`] leaves the inherited value alone, so no field needs an `Option` wrapper to say "do not touch this".
 
 /// Value a single resource limit is set to.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

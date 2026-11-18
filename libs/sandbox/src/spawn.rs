@@ -1,29 +1,8 @@
 //! Spawning a command under a resolved policy.
 //!
-//! The parent side of this module may allocate and format. The child side may
-//! not, and it never does: the pointers and the report pipe are built before
-//! the child exists, and the private child module only borrows them afterwards.
+//! Creating a child from a multithreaded parent is safe here only because the child path is allocation free, panic free and lock free: a child inherits a lock whose owner thread no longer exists.
 //!
-//! # Clone safety
-//!
-//! Creating a child from a multithreaded parent is safe here only because the
-//! child path is allocation free, panic free and lock free. A child of a
-//! threaded process inherits its memory, and with it a lock whose owner thread
-//! does not exist in the child, so taking one there would deadlock. The child
-//! path is therefore reduced to raw syscalls, and the integration test that runs
-//! eight threads with twenty spawns each, plus the allocation counting unit test
-//! in the private child module, enforce that discipline.
-//!
-//! # Why `CLONE_INTO_CGROUP`
-//!
-//! A cgroup directory descriptor given to [`run`] is handed to `clone3` with
-//! `CLONE_INTO_CGROUP`, so the child is inside its cgroup from its first
-//! instruction. Writing the pid to `cgroup.procs` afterwards leaves a window in
-//! which the child runs under the parent's cgroup, where its limits do not
-//! apply, and a workload that forks during that window passes the cgroup on to
-//! children nobody accounted for. `fork` is gone for the same reason: it carries
-//! neither a pidfd nor a cgroup, and the kernel this system ships supports both
-//! unconditionally.
+//! The cgroup descriptor is handed to `clone3` with `CLONE_INTO_CGROUP`, because writing the pid to `cgroup.procs` afterwards leaves a window where the parent's limits apply.
 
 use core::ffi::{CStr, c_char};
 use core::mem::size_of;
@@ -49,9 +28,7 @@ pub type Signal = process::Signal;
 
 /// A command to execute, built from NUL terminated byte strings.
 ///
-/// The child must not allocate, so the program, the arguments and the
-/// environment are borrowed as C strings instead of being assembled from
-/// `OsString`s between fork and exec.
+/// The child must not allocate, so the program, the arguments and the environment are borrowed as C strings.
 #[derive(Clone, Copy, Debug)]
 pub struct Cmd<'a> {
     program: &'a CStr,
@@ -106,13 +83,9 @@ impl<'a> Cmd<'a> {
         self
     }
 
-    /// Returns this command with every `(fd, target)` pair duplicated onto
-    /// `target` in the child before exec.
+    /// Returns this command with every `(fd, target)` pair duplicated onto `target` in the child before exec.
     ///
-    /// This is how a descriptor the child must inherit survives the exec, for
-    /// example a socket the parent already bound: the child cannot inherit the
-    /// parent descriptor number, so the pair names the source it should be
-    /// reachable from and the fixed number the child expects.
+    /// The child cannot inherit the parent descriptor number, so the pair names the source and the fixed number the child expects.
     #[must_use = "the command is the value the caller asked for"]
     pub const fn pass(mut self, pass: &'a [(BorrowedFd<'a>, RawFd)]) -> Self {
         self.pass = pass;
@@ -129,8 +102,7 @@ impl Child {
 
     /// Returns a descriptor that names this child.
     ///
-    /// The descriptor is created by `clone3` together with the child, so it is
-    /// always present and can never name a recycled pid.
+    /// It is created by `clone3` together with the child, so it can never name a recycled pid.
     #[must_use = "the descriptor is the value the caller asked for"]
     pub fn pidfd(&self) -> BorrowedFd<'_> {
         self.pidfd.as_fd()
@@ -167,22 +139,13 @@ impl Child {
 
 /// Spawns `cmd` in a child configured by the resolved policy.
 ///
-/// The parent creates a close-on-exec report pipe, moves the write end above
-/// the standard descriptors and above every passed descriptor, then creates the
-/// child with `clone3`. A child that cannot apply the policy writes a fixed
-/// stage and errno pair and exits with 127; a child that execs closes the pipe
-/// on the way to the new image. No report therefore means the exec succeeded,
-/// and a report becomes a [`SandboxError::Denied`] owned by the mechanism of
-/// that stage.
+/// No report means the exec succeeded: a failing child writes a fixed stage and errno pair, which becomes a [`SandboxError::Denied`] owned by the mechanism of that stage.
 ///
-/// A `cgroup` directory descriptor, from `Tree::fd` in the v2 module, makes
-/// the child be born inside that cgroup through `CLONE_INTO_CGROUP`. Without it
-/// the child inherits the cgroup of the caller.
+/// A `cgroup` descriptor, from `Tree::fd` in the v2 module, makes the child be born inside that cgroup through `CLONE_INTO_CGROUP`.
 ///
 /// # Errors
 ///
-/// Returns [`SandboxError::Io`] when the pipe or the clone fails, and
-/// [`SandboxError::Denied`] when the child reports a failed stage.
+/// Returns [`SandboxError::Io`] when the pipe or the clone fails, and [`SandboxError::Denied`] when the child reports a failed stage.
 #[must_use = "the child must be waited on, otherwise it becomes a zombie"]
 pub fn run(
     resolved: &Resolved<'_>,
@@ -190,10 +153,7 @@ pub fn run(
     cgroup: Option<BorrowedFd<'_>>,
 ) -> Result<Child> {
     let (read, write) = spawn::pipe().map_err(SandboxError::Io)?;
-    // The write end must sit above the standard descriptors and above every
-    // descriptor the child installs, otherwise a caller that closed its stdio
-    // gets the report on fd 0, 1 or 2, or a passed descriptor lands on the
-    // report, and the child redirects over it before it can report a failure.
+    // The write end must sit above the standard descriptors and every descriptor the child installs, otherwise a redirect lands on the report and the child can no longer report a failure.
     let write = spawn::at_least(write, report_floor(cmd.pass)).map_err(SandboxError::Io)?;
     let argv = pointers(cmd.argv);
     let envp = pointers(cmd.envp);
@@ -203,10 +163,7 @@ pub fn run(
 
     let cloned = spawn::clone3(cgroup).map_err(SandboxError::Io)?;
     let (raw_pid, pidfd) = match cloned {
-        // SAFETY: this branch is the child created by the clone above. The
-        // command pointers, the passed descriptors and the report descriptor
-        // were built by the parent and are valid in this copy of the address
-        // space, and `exec` never returns.
+        // SAFETY: this is the child created by the clone above, where the command pointers, passed descriptors and report descriptor are valid and `exec` never returns.
         spawn::Cloned::Child => unsafe {
             child::exec(
                 resolved.policy,
@@ -264,8 +221,7 @@ fn raw(fd: Option<BorrowedFd<'_>>) -> RawFd {
     fd.map_or(-1, |fd| fd.as_raw_fd())
 }
 
-// The lowest number the report pipe may occupy: one above the standard
-// descriptors and one above the highest descriptor the child installs.
+// The lowest number the report pipe may occupy: one above the standard descriptors and above the highest descriptor the child installs.
 fn report_floor(pass: &[(BorrowedFd<'_>, RawFd)]) -> RawFd {
     let highest = pass
         .iter()

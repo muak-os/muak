@@ -1,11 +1,6 @@
 //! The policy a workload is spawned under.
 //!
-//! A policy always describes what the caller wants, whatever this build can
-//! compile. It is the resolve step in [`crate::resolve`] that compares the
-//! description with the mechanisms this build carries and the facilities the
-//! kernel offers. Seccomp is absent on purpose: it belongs to a later phase.
-//! Namespaces, mounts, the root filesystem and the cgroup limits are present as
-//! data only, so resolution can report them as not compiled.
+//! A policy always describes what the caller wants, whatever this build can compile, and [`crate::resolve`] compares it with the mechanisms this build carries and the facilities the kernel offers.
 
 use std::path::Path;
 
@@ -93,8 +88,7 @@ impl<'a> Policy<'a> {
         self
     }
 
-    /// Returns this policy applying `limits` to the cgroup the child is born
-    /// in.
+    /// Returns this policy applying `limits` to the cgroup the child is born in.
     #[must_use = "the policy is the value the caller asked for"]
     pub const fn cgroup(mut self, limits: cgroup::Limits) -> Self {
         self.cgroup = limits;
@@ -103,19 +97,9 @@ impl<'a> Policy<'a> {
 
     /// Returns the kernel facilities this policy needs.
     ///
-    /// A kept capability set needs capset and the bounding set drop: a set
-    /// smaller than every capability drives `PR_CAPBSET_DROP`, which needs
-    /// `CAP_SETPCAP` in the process. Limits need no kernel capability because
-    /// rlimits are set per process without one; whether this build carries the
-    /// limits mechanism is checked during resolution instead. A namespace needs
-    /// the flag that names it, a mount needs the mount namespace plus the flag
-    /// of the filesystem it mounts, and a root filesystem needs the mount
-    /// namespace plus `pivot_root`. A cgroup limit needs the unified v2
-    /// hierarchy, which is the only hierarchy this crate drives.
+    /// A set smaller than every capability drives `PR_CAPBSET_DROP`, which needs `CAP_SETPCAP`, and a root filesystem needs the mount namespace plus `pivot_root`.
     ///
-    /// This is what a build without `spawn` validates with: it has no
-    /// `Policy::resolve` but still needs to know whether a policy can be
-    /// honoured before it hands the policy to a process that can spawn.
+    /// This is what a build without `spawn` validates with, since it has no `Policy::resolve`.
     #[must_use = "the requirements are what the caller resolves"]
     pub fn requirements(&self) -> Requirements {
         let mut requirements = if self.caps.is_some() {
@@ -128,8 +112,7 @@ impl<'a> Policy<'a> {
         for kind in self.namespaces.flags() {
             requirements = requirements.require(namespace_requirement(kind));
         }
-        // A mount needs the mount namespace whatever it mounts, because a
-        // mount made outside one reaches the host.
+        // A mount needs the mount namespace whatever it mounts, because a mount made outside one reaches the host.
         if !self.mounts.is_empty() {
             requirements = requirements.require(Capabilities::MOUNT_NS);
             let filesystems = self

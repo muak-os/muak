@@ -1,11 +1,6 @@
 //! Requirements a caller places on detected capabilities.
 //!
-//! A caller builds a requirement set, then asks it to resolve against the
-//! capabilities the machine reported. A build problem is reported before a
-//! kernel problem, so a missing mechanism is never mistaken for an unsupported
-//! kernel, and a policy that cannot describe a working sandbox at all is
-//! reported before either. Refusal, the `Denied` variant, is not produced here:
-//! it comes from the child path through [`crate::spawn`].
+//! A build problem is reported before a kernel problem, so a missing mechanism is never mistaken for an unsupported kernel.
 
 #[cfg(feature = "spawn")]
 use std::path::Path;
@@ -19,8 +14,7 @@ use crate::namespace;
 use crate::policy::Policy;
 use crate::probe::Capabilities;
 
-// rustix converts a path through a stack buffer below this length and allocates
-// above it, and the child path must not allocate, so a longer path is refused.
+// rustix converts a path through a stack buffer below this length and allocates above it, so a longer path is refused.
 #[cfg(feature = "spawn")]
 const PATH_LIMIT: usize = 256;
 
@@ -56,15 +50,11 @@ impl Requirements {
 
     /// Returns the first requirement that cannot be met, in bit order.
     ///
-    /// For each flag the mechanism is checked first: a mechanism this build
-    /// left out fails with `NotCompiled` before the kernel is consulted, and a
-    /// flag the kernel lacks fails with `Unsupported`.
+    /// The mechanism is checked first, so a mechanism this build left out fails before the kernel is consulted.
     ///
     /// # Errors
     ///
-    /// Returns [`SandboxError::NotCompiled`] when a needed mechanism is absent
-    /// from this build, and [`SandboxError::Unsupported`] when the kernel lacks
-    /// a needed flag.
+    /// Returns [`SandboxError::NotCompiled`] when a needed mechanism is absent from this build, and [`SandboxError::Unsupported`] when the kernel lacks a needed flag.
     pub fn resolve(self, caps: &Capabilities) -> Result<()> {
         self.0.flags().try_for_each(|flag| check(flag, *caps))
     }
@@ -85,26 +75,11 @@ impl Requirements {
 impl Policy<'_> {
     /// Resolves this policy against the capabilities of the running machine.
     ///
-    /// The checks run in this order: the policy's own shape first, the
-    /// requirements second, and the two checks only a policy can fail last. The
-    /// shape goes before the requirements even though a requirement is what a
-    /// mechanism is resolved from, because an invalid policy is invalid
-    /// whatever this build carries and whatever the kernel offers, and because
-    /// a refusal that names the policy is what a caller can act on. The
-    /// consequence is that an invalid policy reports `Unsupported` rather than
-    /// `NotCompiled` in a build without the mechanism it asks for. The last two
-    /// checks are: a non-root identity cannot keep capabilities without ambient
-    /// capabilities, and a requested limit needs the limits mechanism. Between
-    /// the shape and the requirements sits the cgroup check, because
-    /// `memory.max` and `pids.max` need the unified hierarchy itself rather than
-    /// the mechanism that writes them.
+    /// The policy's own shape is checked first, so an invalid policy reports `Unsupported` rather than `NotCompiled`.
     ///
     /// # Errors
     ///
-    /// Returns [`SandboxError::NotCompiled`] when a requested mechanism is
-    /// absent from this build, [`SandboxError::Unsupported`] when the kernel
-    /// lacks a needed facility or the policy asks for a combination this phase
-    /// cannot honour.
+    /// Returns [`SandboxError::NotCompiled`] when a requested mechanism is absent from this build, and [`SandboxError::Unsupported`] when the kernel lacks a needed facility or the policy asks for a combination this phase cannot honour.
     pub fn resolve(&self, caps: &Capabilities) -> Result<Resolved<'_>> {
         semantics(self)?;
         hierarchy(self, *caps)?;
@@ -127,9 +102,7 @@ impl Policy<'_> {
     }
 }
 
-// Every rule a policy has to follow on its own, before the machine is
-// consulted. Each failure names what to change, because the caller can only fix
-// the policy, not the kernel.
+// Every rule a policy has to follow on its own, before the machine is consulted, because the caller can only fix the policy.
 #[cfg(feature = "spawn")]
 fn semantics(policy: &Policy<'_>) -> Result<()> {
     let mounted = !policy.mounts.is_empty();
@@ -162,11 +135,7 @@ fn semantics(policy: &Policy<'_>) -> Result<()> {
     })
 }
 
-// `memory.max` and `pids.max` are the two limits the kernel enforces on the
-// cgroup itself, so asking for one is what makes the unified hierarchy
-// mandatory. The check comes before the requirement set so the failure names
-// the hierarchy the caller has to boot rather than the mechanism that carries
-// it.
+// Asking for a limit the kernel enforces on the cgroup itself is what makes the unified hierarchy mandatory, and the check runs before the requirement set so the failure names the hierarchy to boot.
 #[cfg(feature = "spawn")]
 fn hierarchy(policy: &Policy<'_>, caps: Capabilities) -> Result<()> {
     if policy.cgroup.enforces() && !caps.contains(Capabilities::CGROUP_V2) {
@@ -196,9 +165,7 @@ fn usable(mechanism: Mechanism, path: &Path) -> Result<()> {
 }
 
 fn check(flag: Capabilities, caps: Capabilities) -> Result<()> {
-    // A flag without a mechanism is a programming error. Report it instead of
-    // panicking. The probe mechanism is the closest owner, because such a flag
-    // can only come from the probe vocabulary.
+    // A flag without a mechanism is a programming error from the probe vocabulary, reported instead of panicking.
     let Some(mechanism) = flag.mechanism() else {
         return Err(SandboxError::Unsupported {
             mechanism: Mechanism::Probe,

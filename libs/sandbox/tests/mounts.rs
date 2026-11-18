@@ -1,9 +1,6 @@
 //! Integration tests for mounts and the root filesystem switch.
 //!
-//! Both mechanisms need `CAP_SYS_ADMIN`, so every test prints why it skipped
-//! when the test process cannot get it: it does not run as root, or it runs as
-//! root in a container or in a capability dropping runner that took the
-//! capability away, and the kernel then refuses the step.
+//! Both mechanisms need `CAP_SYS_ADMIN`, so every test prints why it skipped when the capability is not granted.
 
 #![cfg(all(
     feature = "spawn",
@@ -44,9 +41,7 @@ mod tests {
             println!("skipping: mounts need CAP_SYS_ADMIN");
             return;
         }
-        // A propagation test needs a shared peer group to propagate into, and
-        // the inherited `/` may be private, so the test makes its own group
-        // instead of trusting the environment for one.
+        // A propagation test needs a shared peer group to propagate into, and the inherited `/` may be private.
         if !in_shared_namespace() {
             return;
         }
@@ -81,18 +76,13 @@ mod tests {
 
         // ASSERT
         assert_eq!(status.code(), Some(0_i32), "the child failed: {status:?}");
-        // The child prints its own mount table, so a step that returns `Ok`
-        // without mounting anything is caught here rather than by the parent
-        // scan below, which holds for an empty child table too.
+        // The child prints its own mount table, so a step that returns `Ok` without mounting anything is caught here.
         let mount_point = target.path().to_str().unwrap();
         assert!(
             line_at(&output, mount_point).is_some(),
             "the child mounted nothing at {mount_point}: {output}"
         );
-        // Propagation keeps the path of the mount inside the shared subtree, so
-        // a leak can only surface at the path the child mounted at. The whole
-        // parent table is not compared because a test running beside this one
-        // mounts at a path of its own and would fail this assertion.
+        // A leak of this mount can only surface at its own path, because a test running beside this one mounts elsewhere.
         assert!(
             line_at(&before, mount_point).is_none(),
             "{mount_point} was already mounted before the child ran"
@@ -114,25 +104,16 @@ mod tests {
             println!("skipping: the root switch needs CAP_SYS_ADMIN");
             return;
         }
-        // This test mounts a tmpfs in the parent namespace, so it first moves
-        // the process into a private mount namespace: on a shared `/` those
-        // mounts would reach the host table and every test running beside this
-        // one. The propagation test shares `/` afterwards, for the opposite
-        // reason.
+        // This test mounts in the parent namespace, so it first moves into a private one: on a shared `/` those mounts would reach the host table.
         if !in_private_namespace() {
             return;
         }
         let work = tempfile::tempdir().unwrap();
         let root = work.path().join("root");
         fs::create_dir_all(&root).unwrap();
-        // The tmpfs is mounted here, in the parent, and its directories are
-        // created below it. A mount point inside a fresh tmpfs does not exist
-        // yet and the child path never creates directories, so the tree has to
-        // be built before the child runs.
+        // The directories are created below the tmpfs here, because a mount point inside a fresh tmpfs does not exist and the child path never creates directories.
         assert!(mount_tmpfs(&root), "cannot mount the test tmpfs");
-        // The mount belongs to this namespace, which dies with the process, and
-        // the guard detaches it anyway so the failure path leaves nothing
-        // behind.
+        // The mount dies with the namespace, and the guard detaches it anyway so the failure path leaves nothing behind.
         let _teardown = Teardown(&root);
         let names: Vec<&str> = ["bin", "sbin", "usr", "lib", "lib64", "lib32"]
             .into_iter()
@@ -146,8 +127,7 @@ mod tests {
         }
         let proc_target = root.join("proc");
         fs::create_dir_all(&proc_target).unwrap();
-        // A writable bind, so the secure flags of the default `Flags` are
-        // checked next to the read only ones.
+        // A writable bind, so the secure flags of the default `Flags` are checked next to the read only ones.
         let etc = root.join("etc");
         fs::create_dir_all(&etc).unwrap();
 
@@ -169,8 +149,7 @@ mod tests {
                 source: Source::BindReadOnly(source),
                 target,
                 data: None,
-                // The workload is read from the host, so this one bind has to
-                // carry the one flag the secure default refuses.
+                // The workload is read from the host, so this one bind carries the flag the secure default refuses.
                 flags: Flags {
                     no_exec: false,
                     ..Flags::new()
@@ -225,10 +204,7 @@ mod tests {
         unsafe { libc::geteuid() == 0 }
     }
 
-    // Runs `cmd` under `resolved`, skipping the test with a printed reason when
-    // the kernel refuses the namespace or mount step. Running as root is not
-    // enough to carry `CAP_SYS_ADMIN`, so a refusal there is a skip and not a
-    // failure.
+    // Runs `cmd` under `resolved`, skipping the test when the kernel refuses the namespace or mount step.
     fn run_or_skip(resolved: Resolved<'_>, cmd: &Cmd<'_>) -> Option<Child> {
         match spawn::run(&resolved, cmd, None) {
             Ok(child) => Some(child),
@@ -240,8 +216,7 @@ mod tests {
         }
     }
 
-    // Returns whether `error` is the kernel refusing a step the environment did
-    // not grant, which is a skip, rather than a policy the kernel accepted.
+    // Returns whether `error` is the kernel refusing a step the environment did not grant, which is a skip.
     fn refused(error: &SandboxError) -> bool {
         matches!(
             error,
@@ -252,13 +227,9 @@ mod tests {
         )
     }
 
-    // Moves the calling thread into a private mount namespace, so nothing this
-    // test mounts reaches the table of the namespace it started in, and returns
-    // whether the kernel allowed it. The caller skips the test when it did not,
-    // because only a capable process owns a mount namespace it may unshare.
+    // Moves the calling thread into a private mount namespace, so nothing this test mounts reaches the table it started in.
     fn in_private_namespace() -> bool {
-        // SAFETY: the mount namespace alone is unshared, so no file descriptor
-        // table is unshared under a thread that may still use it.
+        // SAFETY: the mount namespace alone is unshared, so no file descriptor table is unshared under a thread that may still use it.
         let created =
             unsafe { thread::unshare_unsafe(thread::UnshareFlags::NEWNS) }.and_then(|()| {
                 mount::mount_change(
@@ -275,19 +246,12 @@ mod tests {
         }
     }
 
-    // Moves the calling thread into a mount namespace whose `/` is a shared
-    // peer group of its own, so a mount the child makes propagates into this
-    // table and nowhere else, and returns whether the kernel allowed it. The
-    // caller skips the test when it did not.
+    // Moves the calling thread into a mount namespace whose `/` is a shared peer group of its own, so a child mount propagates into this table and nowhere else.
     fn in_shared_namespace() -> bool {
         if !in_private_namespace() {
             return false;
         }
-        // Private first, shared second, never the other way round. Sharing the
-        // host `/` would hand the host's peer group a new peer, which is the
-        // leak this crate exists to prevent; sharing after the namespace is
-        // already private gives the peer group exactly one member, this
-        // namespace, and leaves the host with none.
+        // Private first, shared second: sharing the host `/` would hand the host's peer group a new peer.
         match mount::mount_change(
             "/",
             mount::MountPropagationFlags::REC | mount::MountPropagationFlags::SHARED,
@@ -300,14 +264,7 @@ mod tests {
         }
     }
 
-    // Reads the mount table of the calling thread, with any non UTF-8 path
-    // turned into replacement characters. Mount points are bytes, and one
-    // undecodable entry anywhere in the table must not fail a test about
-    // propagation. The thread and not the process, because a test runs on a
-    // thread of its own: the namespace a test unshares belongs to that thread,
-    // the child forked from it inherits that namespace, and `/proc/self` points
-    // at the thread group leader, whose table never changes and so could never
-    // show a leak.
+    // Reads the mount table of the calling thread: the namespace a test unshares belongs to that thread, while `/proc/self` points at the thread group leader.
     fn mountinfo() -> String {
         String::from_utf8_lossy(&fs::read("/proc/thread-self/mountinfo").unwrap()).into_owned()
     }
@@ -331,9 +288,7 @@ mod tests {
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     }
 
-    // Returns whether the per mount options of a mountinfo line carry every
-    // option named. The superblock options after the separator are ignored,
-    // because a read only bind of a writable filesystem keeps them writable.
+    // Returns whether the per mount options of a mountinfo line carry every option named, ignoring the superblock options after the separator.
     fn carries_options(line: &str, wanted: &[&str]) -> bool {
         let options: Vec<&str> = line
             .split(" - ")
@@ -348,8 +303,7 @@ mod tests {
 
     fn mount_tmpfs(target: &Path) -> bool {
         let target = c_string(target);
-        // SAFETY: `mount` reads three NUL terminated strings that outlive the
-        // call and two scalar arguments, and it touches no memory of ours.
+        // SAFETY: `mount` reads three NUL terminated strings that outlive the call and two scalar arguments, and it touches no memory of ours.
         unsafe {
             libc::mount(
                 c"tmpfs".as_ptr(),
@@ -363,8 +317,7 @@ mod tests {
 
     fn detach(target: &Path) {
         let target = c_string(target);
-        // SAFETY: `umount2` reads one NUL terminated string that outlives the
-        // call and one scalar flag, and it touches no memory of ours.
+        // SAFETY: `umount2` reads one NUL terminated string that outlives the call and one scalar flag, and it touches no memory of ours.
         let _status = unsafe { libc::umount2(target.as_ptr(), libc::MNT_DETACH) };
     }
 
@@ -372,8 +325,7 @@ mod tests {
         CString::new(path.as_os_str().as_bytes()).unwrap()
     }
 
-    // Detaches the tmpfs a test mounted when the test returns, so a panicking
-    // assertion cannot leave it in the table of the namespace it ran in.
+    // Detaches the tmpfs a test mounted when the test returns, so a panicking assertion cannot leave it behind.
     struct Teardown<'a>(&'a Path);
 
     impl Drop for Teardown<'_> {

@@ -137,19 +137,15 @@ mod tests {
         let policy = identity();
         let argv = [c"/bin/sh", c"-c", c"sleep 30"];
         let cmd = Cmd::new(c"/bin/sh", &argv, &[]);
-        // The pidfd comes from `clone3`, so it does not depend on a probed
-        // capability the way `pidfd_open` did.
+        // The pidfd comes from `clone3`, so it does not depend on a probed capability.
         let resolved = policy.resolve(&Capabilities::empty()).unwrap();
         let child = spawn::run(&resolved, &cmd, None).unwrap();
         let descriptor = child.pidfd().as_raw_fd();
 
         // ACT
-        // SAFETY: `fcntl` reads the scalar descriptor and returns its flags as a
-        // number, so no pointer is involved and nothing can be invalidated.
+        // SAFETY: `fcntl` reads the scalar descriptor and returns its flags as a number, so no pointer is involved.
         let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
-        // SAFETY: the call reads the scalar descriptor and signal, and a null
-        // siginfo pointer asks the kernel to deliver the default signal, which
-        // is what a plain kill does.
+        // SAFETY: the call reads the scalar descriptor and signal, and a null siginfo pointer asks the kernel to deliver the default signal.
         let sent = unsafe {
             libc::syscall(
                 libc::SYS_pidfd_send_signal,
@@ -230,8 +226,7 @@ mod tests {
         for _ in 0_i32..5_000_i32 {
             // SAFETY: `getpid` reads process state and takes no pointer.
             let pid = unsafe { libc::getpid() };
-            // SAFETY: `kill` takes only scalar arguments, so no pointer is
-            // involved, and the signal targets this process only.
+            // SAFETY: `kill` takes only scalar arguments, so no pointer is involved.
             unsafe {
                 libc::kill(pid, libc::SIGUSR1);
             }
@@ -253,13 +248,11 @@ mod tests {
         let mut action: libc::sigaction = unsafe { core::mem::zeroed() };
         let handler: *const () = core::ptr::from_ref(&quiet).cast();
         action.sa_sigaction = handler.addr();
-        // SAFETY: the mask is an initialized field of the zeroed struct, and
-        // `sigemptyset` writes only to it.
+        // SAFETY: the mask is an initialized field of the zeroed struct, and `sigemptyset` writes only to it.
         unsafe {
             libc::sigemptyset(&raw mut action.sa_mask);
         }
-        // SAFETY: `action` is initialized and outlives the call; a null old
-        // action asks the kernel to skip the previous handler.
+        // SAFETY: `action` is initialized and outlives the call; a null old action asks the kernel to skip the previous handler.
         let result =
             unsafe { libc::sigaction(libc::SIGUSR1, &raw const action, core::ptr::null_mut()) };
         assert_eq!(result, 0_i32);

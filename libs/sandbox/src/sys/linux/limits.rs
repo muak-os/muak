@@ -1,9 +1,6 @@
 //! Resource limit syscalls.
 //!
-//! Rustix owns the syscall here, so the limits feature needs no extra
-//! dependency beyond the Linux backend. Both the soft and the hard value are
-//! set to the same number, which keeps the child from raising the soft value
-//! above what the parent intended.
+//! The soft and hard value are set to the same number, which keeps the child from raising the soft value above what the parent intended.
 
 use rustix::process;
 

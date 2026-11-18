@@ -1,9 +1,6 @@
 //! Kernel capabilities the sandbox can detect.
 //!
-//! Every flag describes kernel truth: it says the running kernel offers a
-//! facility. The flags are never filtered by cargo features, so a caller always
-//! sees what the machine offers, whatever this build was compiled with. The
-//! `resolve` step in [`crate::resolve`] compares the two.
+//! The flags are never filtered by cargo features, so a caller always sees what the machine offers; [`crate::resolve`] compares the two.
 
 #[cfg(feature = "probe")]
 pub mod detect;
@@ -208,8 +205,7 @@ pub fn current() -> Capabilities {
     at(Path::new("/"))
 }
 
-/// Returns the capabilities inferred from the tree at `root` plus the
-/// capabilities of the running kernel.
+/// Returns the capabilities inferred from the tree at `root` plus those of the running kernel.
 #[cfg(feature = "probe")]
 #[must_use = "probing has no effect beyond the answer"]
 pub fn at(root: &Path) -> Capabilities {

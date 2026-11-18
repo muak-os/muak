@@ -1,9 +1,6 @@
 //! Credential, capability and no-new-privs syscalls.
 //!
-//! The calls are split by feature: dropping the identity is part of every
-//! spawned child, while the capability set only exists when the `caps` feature
-//! is compiled in. Each call reports the raw kernel number so the child can
-//! write it through the report pipe without formatting anything.
+//! Each call reports the raw kernel number so the child can write it through the report pipe without formatting anything.
 
 use core::ffi::c_int;
 
@@ -31,39 +28,28 @@ struct CapData {
     inheritable: u32,
 }
 
-// The identity calls go through `libc::syscall` rather than the C wrappers on
-// purpose. A C library is free to make `setresuid` and its siblings more than
-// a syscall: glibc routes them through the NPTL setxid machinery, which waits
-// on a futex for acknowledgements from every sibling thread. A child of a raw
-// `clone3` carries a copy of that thread list but has no schedulable siblings,
-// so the wrapper waits forever. The raw call changes only this process.
+// The identity calls use `libc::syscall` on purpose: glibc routes `setresuid` and its siblings through the NPTL setxid machinery, which waits on a futex for siblings a raw `clone3` child does not have.
 
 pub(crate) fn groups(groups: &[u32]) -> Result<(), Errno> {
-    // SAFETY: the slice owns `groups.len()` readable `gid_t` values and stays
-    // borrowed for the duration of the call, so the kernel cannot read past it
-    // or observe a freed buffer. An empty slice is passed with a zero count,
-    // which clears every supplementary group without reading the pointer.
+    // SAFETY: the slice owns `groups.len()` readable `gid_t` values and stays borrowed for the call, and an empty slice is passed with a zero count, which clears every group without reading the pointer.
     let result = unsafe { libc::syscall(libc::SYS_setgroups, groups.len(), groups.as_ptr()) };
     check_i64(result)
 }
 
 pub(crate) fn gid(gid: u32) -> Result<(), Errno> {
-    // SAFETY: the raw call reads only its scalar arguments and never
-    // dereferences a pointer, so there is nothing to keep alive or validate.
+    // SAFETY: the raw call reads only scalar arguments and never dereferences a pointer.
     let result = unsafe { libc::syscall(libc::SYS_setresgid, gid, gid, gid) };
     check_i64(result)
 }
 
 pub(crate) fn uid(uid: u32) -> Result<(), Errno> {
-    // SAFETY: the raw call reads only its scalar arguments and never
-    // dereferences a pointer, so there is nothing to keep alive or validate.
+    // SAFETY: the raw call reads only scalar arguments and never dereferences a pointer.
     let result = unsafe { libc::syscall(libc::SYS_setresuid, uid, uid, uid) };
     check_i64(result)
 }
 
 pub(crate) fn no_new_privs() -> Result<(), Errno> {
-    // SAFETY: the call reads only the scalar arguments and enables a process
-    // wide flag, so no pointer is involved and nothing can be invalidated.
+    // SAFETY: the call reads only scalar arguments and no pointer is involved.
     let result = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
     check(result)
 }
@@ -75,8 +61,7 @@ pub(crate) fn bounding(kept: Caps) -> Result<(), Errno> {
             continue;
         }
         let number = libc::c_ulong::from(cap.number());
-        // SAFETY: dropping a bounding capability reads only the scalar
-        // capability number and never dereferences a pointer.
+        // SAFETY: dropping a bounding capability reads only the scalar capability number and never dereferences a pointer.
         let result = unsafe { libc::prctl(libc::PR_CAPBSET_DROP, number, 0, 0, 0) };
         check(result)?;
     }
@@ -104,9 +89,7 @@ pub(crate) fn effective(kept: Caps) -> Result<(), Errno> {
             inheritable: high,
         },
     ];
-    // SAFETY: both pointers refer to fully initialized `repr(C)` values that
-    // outlive the call, and the header version asks the kernel for exactly the
-    // two `u32` words the data array carries, so no element is read past it.
+    // SAFETY: both pointers refer to initialized `repr(C)` values that outlive the call, and the header version asks for exactly the two `u32` words the data array carries.
     let result = unsafe { libc::syscall(libc::SYS_capset, &header, data.as_ptr()) };
     check_i64(result)
 }
@@ -120,10 +103,8 @@ fn check_i64(result: libc::c_long) -> Result<(), Errno> {
 }
 
 fn last() -> Errno {
-    // SAFETY: `__errno_location` returns the current thread's errno slot, which
-    // is always a valid readable pointer for the duration of the call.
+    // SAFETY: `__errno_location` returns the current thread's errno slot, always a valid readable pointer.
     let location = unsafe { libc::__errno_location() };
-    // SAFETY: `location` is the valid errno slot returned above and is read
-    // before the call returns.
+    // SAFETY: `location` is the valid errno slot returned above.
     Errno::new(unsafe { *location })
 }

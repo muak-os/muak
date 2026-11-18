@@ -154,10 +154,7 @@ mod tests {
     #[test]
     fn an_invalid_policy_is_unsupported_before_it_is_not_compiled() {
         // ARRANGE
-        // A mount without the mount namespace is refused by the policy check,
-        // and this build is asked for the mount namespace requirement right
-        // after it. The requirements resolve first would report the missing
-        // namespace mechanism instead.
+        // Resolving the requirements first would report the missing namespace mechanism instead of the policy shape.
         let entries = [Entry {
             source: Source::Tmpfs,
             target: Path::new("/root"),

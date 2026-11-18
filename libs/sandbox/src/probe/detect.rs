@@ -1,14 +1,6 @@
 //! Capability detection.
 //!
-//! The module has two halves. [`files`] inspects a directory tree, normally the
-//! running root but any rootfs will do, so a test can point it at a fixture.
-//! [`syscalls`] asks the running kernel directly and therefore cannot be
-//! exercised against a fixture: it always reflects the machine this process
-//! runs on. That split is why the filesystem half exists.
-//!
-//! Detection never fails. A missing or unreadable file is data, not an error:
-//! the flag it would have set simply stays unset, which is normal on a kernel
-//! that does not carry the facility.
+//! Detection never fails: a missing or unreadable file is data, not an error, so the flag it would have set stays unset.
 
 use std::fs;
 use std::path::Path;
@@ -37,15 +29,7 @@ const FILESYSTEMS: [(Capabilities, &str); 6] = [
 
 /// Returns every capability detectable from the directory tree at `root`.
 ///
-/// Every path is a fixed relative name joined under `root`, so no lookup is
-/// aimed outside the tree. A symlink found inside the tree is followed the way
-/// the kernel would follow it, so a fixture that links elsewhere is read there.
-///
-/// `cgroup.kill` and `cgroup.freeze` are never looked for. The kernel creates
-/// both files only on a non-root cgroup, so they describe a cgroup the caller
-/// creates rather than the one it sits in, and a caller at `0::/` would never
-/// observe them. The cgroup phase checks for both right after `mkdir`,
-/// falling back to `cgroup.procs` plus a per-pid kill.
+/// `cgroup.kill` is never looked for: the kernel creates it only on a non-root cgroup, so a caller sitting at `0::/` would never observe it.
 #[must_use = "probing has no effect beyond the answer"]
 pub fn files(root: &Path) -> Capabilities {
     Capabilities::empty()
@@ -58,9 +42,7 @@ pub fn files(root: &Path) -> Capabilities {
 
 /// Returns every capability the running kernel answers for.
 ///
-/// Each probe asks whether the syscall exists, never whether the call would
-/// succeed. `CLONE_INTO_CGROUP` stays unset: it is only knowable by actually
-/// cloning into a cgroup, so it is probed by use in the cgroup phase.
+/// Each probe asks whether the syscall exists, never whether the call would succeed: `CLONE_INTO_CGROUP` is only knowable by cloning into a cgroup, so it is probed by use.
 #[must_use = "probing has no effect beyond the answer"]
 pub fn syscalls() -> Capabilities {
     let mut found = Capabilities::empty();
@@ -107,8 +89,7 @@ fn namespaces(root: &Path) -> Capabilities {
 
 fn user_namespaces(root: &Path) -> Capabilities {
     let limit = read(root, "proc/sys/user/max_user_namespaces");
-    // A zero limit forbids every user namespace, so neither branch below can
-    // grant one whatever the clone sysctl says.
+    // A zero limit forbids every user namespace, so neither branch below can grant one whatever the clone sysctl says.
     if limit.as_deref().is_some_and(|text| text.trim() == "0") {
         return Capabilities::empty();
     }
@@ -117,9 +98,7 @@ fn user_namespaces(root: &Path) -> Capabilities {
     if limit.as_deref().is_some_and(positive) {
         found = found.insert(Capabilities::USER_NS);
     }
-    // `unprivileged_userns_clone` is a Debian and Ubuntu patch that mainline
-    // does not export, so its absence plus a positive limit is the mainline
-    // shape of an unprivileged namespace.
+    // `unprivileged_userns_clone` is a Debian and Ubuntu patch mainline does not export, so its absence plus a positive limit is the mainline shape.
     let unprivileged = match read(root, "proc/sys/kernel/unprivileged_userns_clone") {
         Some(text) => text.trim() == "1",
         None => limit.as_deref().is_some_and(positive),
@@ -162,8 +141,7 @@ fn seccomp(root: &Path) -> Capabilities {
         return Capabilities::empty();
     };
 
-    // The sysctl only exists when seccomp is built in, so its presence is the
-    // evidence that the kernel carries the action vocabulary.
+    // The sysctl only exists when seccomp is built in, so its presence is the evidence that the kernel carries the action vocabulary.
     let mut found = Capabilities::empty().insert(Capabilities::SECCOMP);
     if text.split_whitespace().any(|action| action == "user_notif") {
         found = found.insert(Capabilities::SECCOMP_NOTIF);

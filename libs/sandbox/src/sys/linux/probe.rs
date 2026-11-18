@@ -1,9 +1,6 @@
 //! Availability probes for the syscalls detection cares about.
 //!
-//! Every function answers whether the running kernel knows a syscall. The rule
-//! is that any error except `ENOSYS` means the syscall exists. Each call uses
-//! arguments the kernel must reject, so success is never expected and no state
-//! is touched.
+//! Any error except `ENOSYS` means the syscall exists, so each call uses arguments the kernel must reject.
 
 use std::io;
 
@@ -24,8 +21,7 @@ pub(crate) fn open_tree() -> bool {
 pub(crate) fn mount_setattr() -> bool {
     let flags: libc::c_long = 0;
     let size: libc::c_long = 0;
-    // SAFETY: an empty path with an empty attribute and zero size names no
-    // mount, so the kernel rejects the call before touching any state.
+    // SAFETY: an empty path with an empty attribute and zero size names no mount, so the kernel rejects the call before touching any state.
     let result = unsafe {
         libc::syscall(
             libc::SYS_mount_setattr,
@@ -41,10 +37,7 @@ pub(crate) fn mount_setattr() -> bool {
 
 pub(crate) fn clone3() -> bool {
     let size: libc::c_long = 0;
-    // SAFETY: a null argument pointer with zero size passes `access_ok`, since
-    // the length is zero, and the size check in `copy_struct_from_user` then
-    // rejects the call with EINVAL before anything is dereferenced, so no
-    // process is created and no argument is read.
+    // SAFETY: a null argument pointer with zero size passes `access_ok`, and the size check then rejects the call with EINVAL before anything is dereferenced.
     let result =
         unsafe { libc::syscall(libc::SYS_clone3, core::ptr::null::<libc::c_void>(), size) };
     present_raw(result)

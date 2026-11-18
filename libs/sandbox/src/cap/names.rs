@@ -1,10 +1,6 @@
 //! Text names for Linux capabilities.
 //!
-//! A configuration file names a capability in text, so the table here is the
-//! single place that turns a name into a [`Cap`] and back. The names are the
-//! kernel ones without the `CAP_` prefix, in lowercase, which is what a service
-//! file spells. The methods that use the table live on [`Cap`] itself, because
-//! an inherent impl block cannot be split across two files.
+//! The names are the kernel ones without the `CAP_` prefix, in lowercase.
 
 use super::Cap;
 

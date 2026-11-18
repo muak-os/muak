@@ -1,24 +1,8 @@
 //! The `[sandbox]` table of a service file.
 //!
-//! Every service carries one. The table is required on purpose: a service file
-//! without it is refused at load time, so a new service cannot land without a
-//! confinement policy just because nobody remembered to write one.
-//! `profile = "none"` is the explicit opt out, and it says so in the file
-//! instead of relying on a missing section.
+//! The table is required on purpose, so a new service cannot land without a confinement policy; `profile = "none"` is the explicit opt out.
 //!
-//! This module is the configuration side only. It builds a policy and issues
-//! no syscall: the caller resolves the policy against the probed capabilities,
-//! and the spawner hands the resolved policy to the sandbox crate.
-//!
-//! # Two resource tables, two mechanisms
-//!
-//! `[sandbox.limits]` sets rlimits. A rlimit belongs to one process, the child
-//! applies it on itself before `exec`, and the child carries it across every
-//! fork. `[sandbox.cgroup]` sets control group limits. Those belong to the
-//! group, they bound every process the service starts, and the supervisor
-//! writes them when it creates the service cgroup. Neither table can stand in
-//! for the other: a rlimit cannot see a fork, and a cgroup limit cannot bound a
-//! file descriptor.
+//! Neither resource table can stand in for the other: a rlimit cannot see a fork, and a cgroup limit cannot bound a file descriptor.
 
 use anyhow::{Result, bail};
 use sandbox::{cap, cgroup, credentials, limits, policy};
@@ -79,8 +63,7 @@ struct Limits {
 
 // Control group limits a service asks for, each absent value left alone.
 //
-// `cpu_quota` and `cpu_period` are the two halves of one setting, so a table
-// carrying one without the other is refused instead of quietly half applied.
+// `cpu_quota` and `cpu_period` are the two halves of one setting, so one without the other is refused.
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cgroup {
@@ -109,20 +92,13 @@ enum LimitWord {
 impl Sandbox {
     /// Returns the policy this table describes.
     ///
-    /// An absent capability table keeps every capability, which is what the
-    /// child inherits when no step asks for a change.
+    /// An absent capability table keeps every capability, which is what the child inherits when no step asks for a change.
     ///
     /// # Errors
     ///
-    /// Returns an error naming the key a `profile = "none"` table also sets,
-    /// because nothing would apply it, an error naming the capability when a
-    /// name in the list is not a Linux capability, and the error of
-    /// [`Sandbox::cgroup_limits`] so a malformed cgroup table is refused here
-    /// rather than when the service is first spawned.
+    /// Returns an error naming the key a `profile = "none"` table also sets, the capability name that is not a Linux capability, and the error of [`Sandbox::cgroup_limits`] so a malformed table is refused here rather than at the first spawn.
     pub(crate) fn policy(&self) -> Result<policy::Policy<'_>> {
-        // The cgroup table is separate from the policy, and it is read here
-        // anyway: a service is validated once, and a table that cannot be
-        // honoured must never reach the spawner.
+        // The cgroup table is separate from the policy, and it is validated here anyway so a table that cannot be honoured never reaches the spawner.
         self.cgroup_limits()?;
 
         if matches!(self.profile, Profile::None) {
@@ -132,8 +108,7 @@ impl Sandbox {
         let mut policy = policy::Policy::default();
         if let Some(user) = self.user {
             let gid = self.group.unwrap_or(user);
-            // An empty group list clears the inherited supplementary groups,
-            // which nothing can undo once the identity is dropped.
+            // An empty group list clears the inherited supplementary groups, which nothing can undo once the identity is dropped.
             policy = policy.id(credentials::Id::new(user, gid).groups(&[]));
         }
         if let Some(caps) = self.caps()? {
@@ -150,17 +125,11 @@ impl Sandbox {
 
     /// Returns the cgroup limits this table requests.
     ///
-    /// Every service runs in a cgroup, including one whose profile is `none`,
-    /// so this is not part of [`Sandbox::policy`]: the cgroup is the lifecycle
-    /// tool the supervisor kills everything a service started with, and its
-    /// limits are the second use. A table that asks for nothing still returns
-    /// the empty set, because the cgroup itself is not optional.
+    /// Every service runs in a cgroup, including one whose profile is `none`, so this is not part of [`Sandbox::policy`].
     ///
     /// # Errors
     ///
-    /// Returns an error naming the missing half when `cpu_quota` or
-    /// `cpu_period` appears alone, since the kernel takes `cpu.max` as one
-    /// value in two numbers and half of it would mean nothing.
+    /// Returns an error naming the missing half when `cpu_quota` or `cpu_period` appears alone, since the kernel takes `cpu.max` as one value in two numbers.
     pub(crate) fn cgroup_limits(&self) -> Result<cgroup::Limits> {
         match self.cgroup {
             Some(table) => table.limits(),
@@ -168,8 +137,7 @@ impl Sandbox {
         }
     }
 
-    // The policy a `profile = "none"` table describes, refusing keys it would
-    // ignore so an operator is told the setting does nothing.
+    // The policy a `profile = "none"` table describes, refusing keys it would ignore so an operator is told the setting does nothing.
     fn none_policy(&self) -> Result<policy::Policy<'_>> {
         match self.ignored() {
             Some(key) => bail!("profile = \"none\" makes `{key}` do nothing; remove it"),
@@ -280,8 +248,7 @@ mod tests {
     const CPU: u8 = 0b1000;
     const ALL: u8 = PIDS | MEMORY_MAX | MEMORY_HIGH | CPU;
 
-    // The table that asks for the settings `mask` selects, with the CPU setting
-    // written as the pair it is.
+    // The table that asks for the settings `mask` selects, with the CPU setting written as the pair it is.
     fn cgroup_table(mask: u8) -> String {
         let mut table = String::from("[cgroup]\n");
         if mask & PIDS != 0 {

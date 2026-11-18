@@ -1,9 +1,6 @@
 //! Linux capabilities and the bit each one occupies in a capability set.
 //!
-//! The numbering and the bit values are the ones the kernel documents, so the
-//! table is written out in full instead of derived. The text names live in
-//! [`names`]: a configuration file names a capability in words, and the name
-//! table is separate so each file stays small.
+//! The numbering and bit values are the ones the kernel documents, written out in full instead of derived.
 
 pub mod names;
 

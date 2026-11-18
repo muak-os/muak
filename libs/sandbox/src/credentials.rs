@@ -1,19 +1,6 @@
 //! Credentials and capability sets a workload inherits.
 //!
-//! The types here always compile because a policy must always be expressible,
-//! even in a build that cannot issue the syscalls behind it. Only the kernel
-//! side in [`crate::sys::linux`] is feature gated.
-//!
-//! [`Caps`] describes the capabilities a child keeps, not the ones that are
-//! dropped. The empty set therefore drops everything, which is the useful
-//! default, while [`Caps::all`] keeps the bounding set untouched.
-//!
-//! Ambient capabilities and securebits are deliberately absent. Ambient
-//! capabilities are what a non-root process needs to launch a child that keeps
-//! privileges, so a policy that asks for both a non-root uid and a non-empty
-//! set is rejected during resolution instead of silently losing privileges.
-//! Securebits would make that same combination permanent across exec and are
-//! not needed while ambient capabilities are missing.
+//! [`Caps`] describes what a child keeps, so the empty set is the useful default, and ambient capabilities are deliberately absent: a policy asking for a non-root uid and a non-empty set is rejected instead of silently losing privileges.
 
 use crate::cap;
 
@@ -62,9 +49,7 @@ impl<'a> Id<'a> {
 
     /// Returns this identity with `groups` as its supplementary groups.
     ///
-    /// An empty slice clears the parent groups, while leaving the setter out
-    /// keeps them. Clearing is what a caller dropping to another uid wants:
-    /// once `setresuid` ran, the parent groups can no longer be removed.
+    /// An empty slice clears the parent groups, which must happen before `setresuid`: afterwards they can no longer be removed.
     #[must_use = "the identity is the value the caller asked for"]
     pub const fn groups(self, groups: &'a [u32]) -> Self {
         Self {

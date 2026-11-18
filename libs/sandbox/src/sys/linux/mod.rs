@@ -1,11 +1,6 @@
 //! Linux syscall backend.
 //!
-//! Phase 0 only carried the error conversion. Phase 2 adds the credential,
-//! limit and spawn calls the child path needs, each gated by the feature that
-//! can reach it: the identity and no-new-privs calls ride on `spawn`, the
-//! capability calls on `caps`, and the limit calls on `limits` and `spawn`.
-//! Phase 4 adds the namespace, mount and root filesystem switch calls, which
-//! only the child path reaches, so they ride on `spawn` as well.
+//! Each module is gated by the feature that can reach it, and the calls only the child path makes ride on `spawn` as well.
 
 #[cfg(feature = "spawn")]
 pub(crate) mod credentials;

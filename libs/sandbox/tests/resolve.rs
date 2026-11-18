@@ -104,8 +104,7 @@ mod tests {
         }
     }
 
-    // The ordering is only observable in a build that leaves a mechanism out,
-    // so a build carrying every mechanism has nothing to tell apart here.
+    // The ordering is only observable in a build that leaves a mechanism out.
     #[cfg(not(feature = "cgroupv2"))]
     #[test]
     fn not_compiled_wins_over_unsupported() {

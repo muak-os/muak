@@ -212,8 +212,7 @@ mod tests {
             return;
         }
         let name = unique("claim-leftover");
-        // What a previous life of the service leaves behind: the directory and
-        // its old limits, and no process to justify them.
+        // What a previous life of the service leaves behind: the directory and its old limits.
         Tree::create(Path::new(ROOT), &name, &Limits::new().pids_max(99)).unwrap();
 
         // ACT
@@ -229,8 +228,7 @@ mod tests {
         );
     }
 
-    // Spawns a sleeping child inside `tree`, which proves placement by birth
-    // rather than by a write to `cgroup.procs` afterwards.
+    // Spawns a sleeping child inside `tree`, which proves placement by birth rather than by a write to `cgroup.procs`.
     fn spawn_in(tree: &Tree<'_>) -> Child {
         let policy = Policy::new().id(common::identity());
         let cmd = Cmd::new(c"/bin/sleep", SLEEP, &[]);
@@ -251,9 +249,7 @@ mod tests {
         format!("sandbox-{label}-{}-{count}", std::process::id())
     }
 
-    // A test process can run as root and still sit in a container whose cgroup
-    // hierarchy is read only or absent, which is a skip: the mechanism is not
-    // there to be tested rather than broken.
+    // A test process can run as root and still sit in a container whose cgroup hierarchy is read only or absent, which is a skip.
     fn writable() -> bool {
         let probe = Path::new(ROOT).join(unique("probe"));
         match fs::create_dir_all(&probe) {
