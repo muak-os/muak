@@ -2,10 +2,10 @@ name       = "timed"
 command    = "/sbin/timed"
 depends_on = ["networkd"]
 
-# all is the conservative default; narrowing per service needs a boot test.
+# clock_settime(CLOCK_REALTIME) needs sys_time.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["sys_time"]
 no_new_privs = true
 
 [sandbox.limits]

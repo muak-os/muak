@@ -2,10 +2,10 @@ name       = "consoled"
 command    = "/sbin/consoled"
 depends_on = []
 
-# all is the conservative default; narrowing per service needs a boot test.
+# /dev/tty0 is a virtual console and /dev/kmsg is read through the syslog check.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["sys_tty_config", "syslog"]
 no_new_privs = true
 
 [sandbox.limits]

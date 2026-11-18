@@ -2,10 +2,11 @@ name       = "provisiond"
 command    = "/sbin/provisiond"
 depends_on = []
 
-# all is the conservative default; narrowing per service needs a boot test.
+# mount/unmount and BLKRRPART need sys_admin, reboot/kexec need sys_boot, the
+# device-mapper node needs mknod, and efivarfs needs linux_immutable to write.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["sys_admin", "sys_boot", "mknod", "linux_immutable"]
 no_new_privs = true
 
 [sandbox.limits]

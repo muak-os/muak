@@ -2,10 +2,10 @@ name       = "apid"
 command    = "/sbin/apid --maintenance $MAINTENANCE"
 depends_on = ["networkd"]
 
-# all is the conservative default; narrowing per service needs a boot test.
+# apid binds host.port, which may be a privileged port.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["net_bind_service"]
 no_new_privs = true
 
 [sandbox.limits]

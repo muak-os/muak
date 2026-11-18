@@ -2,10 +2,10 @@ name       = "workloadd"
 command    = "/sbin/workloadd"
 depends_on = ["networkd"]
 
-# all is the conservative default; narrowing per service needs a boot test.
+# TAP creation and bridge attachment need net_admin; btrfs scrub needs sys_admin.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["net_admin", "sys_admin"]
 no_new_privs = true
 
 [sandbox.limits]

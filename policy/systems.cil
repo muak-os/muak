@@ -12,10 +12,12 @@
 
 ; ── boot_caps ─────────────────────────────────────────────────────────────────
 
+; setpcap is what the supervisor's spawn path needs to drop a service's
+; bounding set, which is how a narrowed capability list takes effect.
 (classpermission cap_boot)
 (classpermissionset cap_boot
     (capability (sys_chroot sys_admin sys_boot sys_module mknod
-                 dac_override sys_tty_config)))
+                 dac_override sys_tty_config setpcap)))
 
 (classmapping systems boot_caps cap_boot)
 

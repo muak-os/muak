@@ -2,10 +2,10 @@ name       = "networkd"
 command    = "/sbin/networkd"
 depends_on = []
 
-# all is the conservative default; narrowing per service needs a boot test.
+# rtnetlink link/address/route changes need net_admin; DHCP and SLAAC sockets are raw.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["net_admin", "net_raw"]
 no_new_privs = true
 
 [sandbox.limits]

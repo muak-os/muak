@@ -2,10 +2,10 @@ name       = "modd"
 command    = "/sbin/modd"
 depends_on = []
 
-# all is the conservative default; narrowing per service needs a boot test.
+# Module loading goes through init_module/finit_module.
 [sandbox]
 profile = "strict"
-capabilities = "all"
+capabilities = ["sys_module"]
 no_new_privs = true
 
 [sandbox.limits]
