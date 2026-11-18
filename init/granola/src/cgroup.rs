@@ -11,7 +11,11 @@ const FSTYPE: &str = "cgroup2";
 const FLAGS: MountFlags = MountFlags::NOSUID
     .union(MountFlags::NOEXEC)
     .union(MountFlags::NODEV);
-const OPTIONS: &CStr = c"nsdelegate,xattr";
+// `nsdelegate` is the only option this kernel accepts. `xattr` is rejected as
+// an unknown parameter, so per cgroup labels are not requested and the
+// `cgroup_seclabel` policy capability stays unused rather than being a reason
+// to pass an option the kernel refuses.
+const OPTIONS: &CStr = c"nsdelegate";
 
 /// Mount point of the unified hierarchy, and the root of every service cgroup.
 pub(crate) const ROOT: &str = "/sys/fs/cgroup";
