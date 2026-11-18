@@ -180,6 +180,8 @@ pub(crate) fn load(env: &HashMap<String, String>) -> Result<Vec<Service>> {
 
 #[cfg(test)]
 mod tests {
+    use sandbox::cgroup;
+
     use super::*;
 
     const UNSANDBOXED: &str = r#"
@@ -396,6 +398,17 @@ capabilities = ["chown", "chownn"]
         sandbox
             .policy()
             .unwrap_or_else(|error| panic!("{}: {error:#}", path.display()));
+        // An absent table maps to the empty set, so the limits are asserted
+        // too: a file that drops its `[sandbox.cgroup]` block must fail here.
+        let limits = sandbox
+            .cgroup_limits()
+            .unwrap_or_else(|error| panic!("{}: {error:#}", path.display()));
+        assert_eq!(
+            limits,
+            cgroup::Limits::new().pids_max(512),
+            "{} must keep its shipped cgroup limits",
+            path.display()
+        );
     }
 
     #[test]

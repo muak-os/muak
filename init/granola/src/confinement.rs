@@ -9,9 +9,19 @@
 //! This module is the configuration side only. It builds a policy and issues
 //! no syscall: the caller resolves the policy against the probed capabilities,
 //! and the spawner hands the resolved policy to the sandbox crate.
+//!
+//! # Two resource tables, two mechanisms
+//!
+//! `[sandbox.limits]` sets rlimits. A rlimit belongs to one process, the child
+//! applies it on itself before `exec`, and the child carries it across every
+//! fork. `[sandbox.cgroup]` sets control group limits. Those belong to the
+//! group, they bound every process the service starts, and the supervisor
+//! writes them when it creates the service cgroup. Neither table can stand in
+//! for the other: a rlimit cannot see a fork, and a cgroup limit cannot bound a
+//! file descriptor.
 
 use anyhow::{Result, bail};
-use sandbox::{cap, credentials, limits, policy};
+use sandbox::{cap, cgroup, credentials, limits, policy};
 use serde::Deserialize;
 
 /// Confinement a service is spawned under.
@@ -26,6 +36,7 @@ pub(crate) struct Sandbox {
     #[serde(default)]
     no_new_privs: bool,
     limits: Option<Limits>,
+    cgroup: Option<Cgroup>,
 }
 
 /// Kind of confinement a service asks for.
@@ -66,6 +77,20 @@ struct Limits {
     stack: Option<Amount>,
 }
 
+// Control group limits a service asks for, each absent value left alone.
+//
+// `cpu_quota` and `cpu_period` are the two halves of one setting, so a table
+// carrying one without the other is refused instead of quietly half applied.
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Cgroup {
+    pids_max: Option<u64>,
+    memory_max: Option<u64>,
+    memory_high: Option<u64>,
+    cpu_quota: Option<u64>,
+    cpu_period: Option<u64>,
+}
+
 /// One limit value, a number or the word `unlimited`.
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(untagged)]
@@ -90,9 +115,16 @@ impl Sandbox {
     /// # Errors
     ///
     /// Returns an error naming the key a `profile = "none"` table also sets,
-    /// because nothing would apply it, and an error naming the capability when
-    /// a name in the list is not a Linux capability.
+    /// because nothing would apply it, an error naming the capability when a
+    /// name in the list is not a Linux capability, and the error of
+    /// [`Sandbox::cgroup_limits`] so a malformed cgroup table is refused here
+    /// rather than when the service is first spawned.
     pub(crate) fn policy(&self) -> Result<policy::Policy<'_>> {
+        // The cgroup table is separate from the policy, and it is read here
+        // anyway: a service is validated once, and a table that cannot be
+        // honoured must never reach the spawner.
+        self.cgroup_limits()?;
+
         if matches!(self.profile, Profile::None) {
             return self.none_policy();
         }
@@ -114,6 +146,26 @@ impl Sandbox {
             policy = policy.limits(limits.policy());
         }
         Ok(policy)
+    }
+
+    /// Returns the cgroup limits this table requests.
+    ///
+    /// Every service runs in a cgroup, including one whose profile is `none`,
+    /// so this is not part of [`Sandbox::policy`]: the cgroup is the lifecycle
+    /// tool the supervisor kills everything a service started with, and its
+    /// limits are the second use. A table that asks for nothing still returns
+    /// the empty set, because the cgroup itself is not optional.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error naming the missing half when `cpu_quota` or
+    /// `cpu_period` appears alone, since the kernel takes `cpu.max` as one
+    /// value in two numbers and half of it would mean nothing.
+    pub(crate) fn cgroup_limits(&self) -> Result<cgroup::Limits> {
+        match self.cgroup {
+            Some(table) => table.limits(),
+            None => Ok(cgroup::Limits::new()),
+        }
     }
 
     // The policy a `profile = "none"` table describes, refusing keys it would
@@ -158,6 +210,29 @@ impl Sandbox {
     }
 }
 
+impl Cgroup {
+    // Returns the limits this table requests, refusing half a CPU setting.
+    fn limits(self) -> Result<cgroup::Limits> {
+        let mut limits = cgroup::Limits::new();
+        if let Some(count) = self.pids_max {
+            limits = limits.pids_max(count);
+        }
+        if let Some(bytes) = self.memory_max {
+            limits = limits.memory_max(bytes);
+        }
+        if let Some(bytes) = self.memory_high {
+            limits = limits.memory_high(bytes);
+        }
+        match (self.cpu_quota, self.cpu_period) {
+            (Some(quota), Some(period)) => limits = limits.cpu_max(quota, period),
+            (None, None) => {}
+            (Some(quota), None) => bail!("`cpu_quota = {quota}` also needs `cpu_period`"),
+            (None, Some(period)) => bail!("`cpu_period = {period}` also needs `cpu_quota`"),
+        }
+        Ok(limits)
+    }
+}
+
 impl Limits {
     fn policy(self) -> limits::Limits {
         limits::Limits::new()
@@ -198,6 +273,134 @@ fn limit(value: Option<Amount>) -> limits::Limit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PIDS: u8 = 0b0001;
+    const MEMORY_MAX: u8 = 0b0010;
+    const MEMORY_HIGH: u8 = 0b0100;
+    const CPU: u8 = 0b1000;
+    const ALL: u8 = PIDS | MEMORY_MAX | MEMORY_HIGH | CPU;
+
+    // The table that asks for the settings `mask` selects, with the CPU setting
+    // written as the pair it is.
+    fn cgroup_table(mask: u8) -> String {
+        let mut table = String::from("[cgroup]\n");
+        if mask & PIDS != 0 {
+            table.push_str("pids_max = 3\n");
+        }
+        if mask & MEMORY_MAX != 0 {
+            table.push_str("memory_max = 1024\n");
+        }
+        if mask & MEMORY_HIGH != 0 {
+            table.push_str("memory_high = 512\n");
+        }
+        if mask & CPU != 0 {
+            table.push_str("cpu_quota = 5\ncpu_period = 10\n");
+        }
+        table
+    }
+
+    // The limits `mask` must map to.
+    fn expected_limits(mask: u8) -> cgroup::Limits {
+        let mut limits = cgroup::Limits::new();
+        if mask & PIDS != 0 {
+            limits = limits.pids_max(3);
+        }
+        if mask & MEMORY_MAX != 0 {
+            limits = limits.memory_max(1024);
+        }
+        if mask & MEMORY_HIGH != 0 {
+            limits = limits.memory_high(512);
+        }
+        if mask & CPU != 0 {
+            limits = limits.cpu_max(5, 10);
+        }
+        limits
+    }
+
+    #[test]
+    fn every_combination_of_present_fields_maps_to_its_limit() {
+        // ARRANGE
+        let masks: Vec<u8> = (0..=ALL).collect();
+        let tables: Vec<Sandbox> = masks
+            .iter()
+            .map(|mask| {
+                let table = cgroup_table(*mask);
+                toml::from_str::<Sandbox>(&table).expect("cgroup table")
+            })
+            .collect();
+
+        // ACT
+        let mapped: Vec<_> = tables.iter().map(Sandbox::cgroup_limits).collect();
+
+        // ASSERT
+        for (mask, limits) in masks.into_iter().zip(mapped) {
+            let limits =
+                limits.unwrap_or_else(|error| panic!("mask {mask:04b} was refused: {error:#}"));
+            assert_eq!(limits, expected_limits(mask), "mask {mask:04b}");
+        }
+    }
+
+    #[test]
+    fn a_quota_without_a_period_is_refused() {
+        // ARRANGE
+        let table = "[cgroup]\ncpu_quota = 5\n";
+        let sandbox = toml::from_str::<Sandbox>(table).expect("cgroup table");
+
+        // ACT
+        let error = sandbox.cgroup_limits().expect_err("half a CPU setting");
+
+        // ASSERT
+        let error = error.to_string();
+        assert!(
+            error.contains("cpu_quota") && error.contains("cpu_period"),
+            "expected both keys in {error:?}"
+        );
+    }
+
+    #[test]
+    fn a_period_without_a_quota_is_refused() {
+        // ARRANGE
+        let table = "[cgroup]\ncpu_period = 10\n";
+        let sandbox = toml::from_str::<Sandbox>(table).expect("cgroup table");
+
+        // ACT
+        let error = sandbox.policy().expect_err("half a CPU setting");
+
+        // ASSERT
+        let error = error.to_string();
+        assert!(
+            error.contains("cpu_period") && error.contains("cpu_quota"),
+            "expected both keys in {error:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_cgroup_key_is_refused() {
+        // ARRANGE
+        let table = "[cgroup]\npids_max = 8\nmemory_min = 1\n";
+
+        // ACT
+        let result = toml::from_str::<Sandbox>(table);
+
+        // ASSERT
+        assert!(result.is_err(), "an unknown key must not be ignored");
+    }
+
+    #[test]
+    fn none_profile_keeps_its_cgroup_table() {
+        // ARRANGE
+        let table = "profile = \"none\"\n\n[cgroup]\npids_max = 8\n";
+        let sandbox = toml::from_str::<Sandbox>(table).expect("cgroup table");
+
+        // ACT
+        let policy = sandbox.policy();
+
+        // ASSERT
+        assert!(
+            policy.is_ok(),
+            "a cgroup is not inert under profile none: {policy:?}"
+        );
+    }
 
     #[test]
     fn none_profile_rejects_an_inert_capability_list() {

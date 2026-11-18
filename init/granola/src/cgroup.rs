@@ -12,7 +12,9 @@ const FLAGS: MountFlags = MountFlags::NOSUID
     .union(MountFlags::NOEXEC)
     .union(MountFlags::NODEV);
 const OPTIONS: &CStr = c"nsdelegate,xattr";
-const ROOT: &str = "/sys/fs/cgroup";
+
+/// Mount point of the unified hierarchy, and the root of every service cgroup.
+pub(crate) const ROOT: &str = "/sys/fs/cgroup";
 const CONTROLLERS: &str = "/sys/fs/cgroup/cgroup.controllers";
 const MOUNTINFO: &str = "/proc/self/mountinfo";
 const SUBTREE_CONTROL: &str = "/sys/fs/cgroup/cgroup.subtree_control";

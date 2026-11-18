@@ -144,6 +144,91 @@ mod tests {
         );
     }
 
+    #[test]
+    fn opening_a_missing_cgroup_returns_an_error() {
+        // ARRANGE
+        let name = unique("missing");
+
+        // ACT
+        let result = Tree::open(Path::new(ROOT), &name);
+
+        // ASSERT
+        assert!(
+            result.is_err(),
+            "a cgroup that was never created must not open: {result:?}"
+        );
+    }
+
+    #[test]
+    fn an_opened_cgroup_can_be_killed_and_removed() {
+        // ARRANGE
+        if !writable() {
+            return;
+        }
+        let name = unique("open");
+        Tree::create(Path::new(ROOT), &name, &Limits::new()).unwrap();
+
+        // ACT
+        let tree = Tree::open(Path::new(ROOT), &name).unwrap();
+        let killed = tree.kill();
+        let removed = tree.remove();
+
+        // ASSERT
+        assert!(
+            killed.is_ok(),
+            "killing an opened cgroup failed: {killed:?}"
+        );
+        assert!(
+            removed.is_ok(),
+            "an empty opened cgroup must be removable: {removed:?}"
+        );
+    }
+
+    #[test]
+    fn claiming_an_absent_cgroup_creates_it() {
+        // ARRANGE
+        if !writable() {
+            return;
+        }
+        let name = unique("claim-new");
+
+        // ACT
+        let tree = Tree::claim(Path::new(ROOT), &name, &Limits::new().pids_max(4)).unwrap();
+        let pids = read(&Path::new(ROOT).join(&name).join("pids.max"));
+        let removed = tree.remove();
+
+        // ASSERT
+        assert_eq!(pids.trim(), "4", "the requested limit is missing");
+        assert!(
+            removed.is_ok(),
+            "a claimed cgroup must be empty: {removed:?}"
+        );
+    }
+
+    #[test]
+    fn claiming_a_leftover_cgroup_clears_it() {
+        // ARRANGE
+        if !writable() {
+            return;
+        }
+        let name = unique("claim-leftover");
+        // What a previous life of the service leaves behind: the directory and
+        // its old limits, and no process to justify them.
+        Tree::create(Path::new(ROOT), &name, &Limits::new().pids_max(99)).unwrap();
+
+        // ACT
+        let tree = Tree::claim(Path::new(ROOT), &name, &Limits::new().pids_max(7)).unwrap();
+        let pids = read(&Path::new(ROOT).join(&name).join("pids.max"));
+        let removed = tree.remove();
+
+        // ASSERT
+        assert_eq!(pids.trim(), "7", "the leftover limit was kept");
+        assert!(
+            removed.is_ok(),
+            "a claimed cgroup must be empty: {removed:?}"
+        );
+    }
+
     // Spawns a sleeping child inside `tree`, which proves placement by birth
     // rather than by a write to `cgroup.procs` afterwards.
     fn spawn_in(tree: &Tree<'_>) -> Child {

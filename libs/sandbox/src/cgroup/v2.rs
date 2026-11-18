@@ -50,17 +50,7 @@ impl<'a> Tree<'a> {
     /// [`SandboxError::Io`] when the directory or a limit file cannot be
     /// written.
     pub fn create(root: &'a Path, name: &'a str, limits: &Limits) -> Result<Self> {
-        if !super::valid_name(name) {
-            return Err(SandboxError::Unsupported {
-                mechanism: Mechanism::Cgroup,
-                detail: "use a name that is neither empty, . nor .., holds no / and is shorter than 256 bytes",
-            });
-        }
-        let tree = Self {
-            root,
-            name,
-            fd: OnceCell::new(),
-        };
+        let tree = checked(root, name)?;
         let path = tree.path();
         fs::mkdir(&path, Mode::from_bits_truncate(MODE)).map_err(failed)?;
         for (file, contents) in limits.rendered().into_iter().flatten() {
@@ -72,6 +62,62 @@ impl<'a> Tree<'a> {
                 detail: "cgroup.kill is missing from the new cgroup",
             });
         }
+        Ok(tree)
+    }
+
+    /// Creates the cgroup `name` below `root`, clearing a leftover directory
+    /// first.
+    ///
+    /// A caller that supervises a service can leave a cgroup behind when the
+    /// removal of a previous life races the asynchronous `cgroup.kill`, and a
+    /// stale directory would otherwise make every later attempt to start that
+    /// service fail for a reason the service does not have. Reusing the
+    /// directory silently is worse than the failure: processes of the old
+    /// service are still charged to the new one, its limits apply to work it
+    /// never started, and its [`Tree::kill`] reaches a process it never
+    /// spawned. The leftover directory is therefore opened, killed and removed
+    /// before the new one is created, so the cgroup handed back is empty.
+    ///
+    /// [`Tree::create`] stays strict and returns the `EEXIST` for that
+    /// caller, because a leftover directory is a bug unless the caller says it
+    /// expects one.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Tree::create`], and those of [`Tree::open`],
+    /// [`Tree::kill`] and [`Tree::remove`] when a leftover directory has to be
+    /// cleared. A removal that answers `EBUSY` because the kernel is still
+    /// killing the tasks of the old service is returned to the caller, which
+    /// is expected to retry the whole claim later.
+    pub fn claim(root: &'a Path, name: &'a str, limits: &Limits) -> Result<Self> {
+        match Self::create(root, name, limits) {
+            Ok(tree) => Ok(tree),
+            Err(error) if exists(&error) => {
+                let leftover = Self::open(root, name)?;
+                leftover.kill()?;
+                leftover.remove()?;
+                Self::create(root, name, limits)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Opens the cgroup `name` below `root`, which must already exist.
+    ///
+    /// Nothing is created and no limit is written, so a caller that holds only
+    /// a name between two events reaches [`Tree::kill`] and [`Tree::remove`]
+    /// without repeating the setup of [`Tree::create`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SandboxError::Unsupported`] when `name` is not a valid cgroup
+    /// name, and [`SandboxError::Io`] when the directory is missing or is not a
+    /// directory.
+    pub fn open(root: &'a Path, name: &'a str) -> Result<Self> {
+        let tree = checked(root, name)?;
+        // Opening the directory is the existence check: a missing name and a
+        // plain file both fail here with the kernel's own error number.
+        let _descriptor = tree.fd()?;
         Ok(tree)
     }
 
@@ -136,7 +182,7 @@ impl<'a> Tree<'a> {
         if let Some(cached) = self.fd.get() {
             return Ok(cached.as_fd());
         }
-        let opened = self.open()?;
+        let opened = self.descriptor()?;
         // A caller that lost a race with another one drops its own descriptor
         // here and shares the cached one instead.
         Ok(self.fd.get_or_init(|| opened).as_fd())
@@ -146,10 +192,32 @@ impl<'a> Tree<'a> {
         self.root.join(self.name)
     }
 
-    fn open(&self) -> Result<OwnedFd> {
+    fn descriptor(&self) -> Result<OwnedFd> {
         let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::DIRECTORY;
         fs::open(self.path(), flags, Mode::empty()).map_err(failed)
     }
+}
+
+// Validates `name` and builds the tree before anything touches the filesystem,
+// so every constructor refuses an invalid name the same way.
+fn checked<'a>(root: &'a Path, name: &'a str) -> Result<Tree<'a>> {
+    if !super::valid_name(name) {
+        return Err(SandboxError::Unsupported {
+            mechanism: Mechanism::Cgroup,
+            detail: "use a name that is neither empty, . nor .., holds no / and is shorter than 256 bytes",
+        });
+    }
+    Ok(Tree {
+        root,
+        name,
+        fd: OnceCell::new(),
+    })
+}
+
+// Whether `error` says the directory is already there, which is the one reason
+// a constructor falls back to clearing a leftover one.
+fn exists(error: &SandboxError) -> bool {
+    matches!(error, SandboxError::Io(errno) if errno.raw() == io::Errno::EXIST.raw_os_error())
 }
 
 fn failed(error: io::Errno) -> SandboxError {

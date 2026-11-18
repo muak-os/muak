@@ -29,7 +29,13 @@ tonic-prost = { workspace = true }
 # Internal
 granola-macros = { workspace = true }
 kmsg = { workspace = true }
-sandbox = { workspace = true, features = ["caps", "limits", "probe", "spawn"] }
+sandbox = { workspace = true, features = [
+    "caps",
+    "cgroupv2",
+    "limits",
+    "probe",
+    "spawn",
+] }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["fs", "mount", "net", "process"] }
