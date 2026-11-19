@@ -26,6 +26,7 @@ members = [
     "libs/blockdev",
     "libs/btrfs",
     "libs/config",
+    "libs/dhcp",
     "libs/disk",
     "libs/esp",
     "libs/partdev",
@@ -40,9 +41,11 @@ members = [
     "libs/fatfs",
     "libs/firmware",
     "libs/granola-macros",
+    "libs/ip",
     "libs/netlib",
     "libs/oci",
     "libs/oci-client",
+    "libs/packet",
     "libs/sandbox",
     "libs/uki",
 ]
@@ -74,18 +77,21 @@ yuki = { path = "toolchain/yuki", default-features = false }
 blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
+dhcp = { path = "libs/dhcp" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }
 fatfs = { path = "libs/fatfs" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
+ip = { path = "libs/ip" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 netlib = { path = "libs/netlib" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
+packet = { path = "libs/packet" }
 partdev = { path = "libs/partdev", default-features = false }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }

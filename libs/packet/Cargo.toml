@@ -1,0 +1,13 @@
+[package]
+name = "packet"
+description = "Raw AF_PACKET sockets, TAP devices and MAC address helpers"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
