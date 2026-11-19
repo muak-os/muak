@@ -4,8 +4,8 @@ use alloc::sync::Arc;
 use core::time::Duration;
 
 use config::system::network;
-use netlib::interface::Name;
 use netlib::monitor::Event;
+use netlink::link::Name;
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
 use tokio::time::sleep;

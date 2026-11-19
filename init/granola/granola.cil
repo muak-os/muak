@@ -35,6 +35,7 @@
 (allow granola_t self (systems (service_caps)))
 (allow granola_t self (systems (syslog)))
 (allow granola_t kernel_t (system (syslog_read syslog_mod)))
+(allow granola_t kernel_t (key (search)))
 
 ; Own executable (entrypoint verification).
 (allow granola_t granola_exec_t (files (execute)))
@@ -43,6 +44,10 @@
 ; selinuxfs access (enforcement state check after policy load).
 (allow granola_t selinuxfs_t (dir  (search)))
 (allow granola_t selinuxfs_t (file (read open getattr)))
+
+; kernel module loading during the initramfs phase.
+(allow granola_t self      (system (module_load)))
+(allow granola_t modules_t (system (module_load)))
 
 ; /proc access.
 (call allow_proc_read (granola_t))
@@ -79,6 +84,13 @@
 
 ; STATE partition mount (btrfs on /dev/mapper/muak-state -> fs_t filesystem).
 (allow granola_t fs_t (files (mount)))
+
+; cgroup2 mount at /sys/fs/cgroup, plus cgroup.subtree_control and child cgroups.
+(allow granola_t sysfs_t  (dir        (mounton)))
+(allow granola_t cgroup_t (filesystem (mount)))
+(allow granola_t cgroup_t (files      (load)))
+(allow granola_t cgroup_t (files      (mutate)))
+(allow cgroup_t cgroup_t (filesystem (associate)))
 
 ; ESP mount and LUKS key read from the initramfs (vfat -> esp_t filesystem).
 (allow granola_t esp_t (files (mount)))

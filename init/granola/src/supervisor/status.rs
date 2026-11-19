@@ -50,6 +50,7 @@ mod tests {
             name: name.to_owned(),
             command: String::new(),
             depends_on: Vec::new(),
+            sandbox: None,
         }
     }
 

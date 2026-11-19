@@ -8,9 +8,9 @@ use core::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use netlib::interface::{Ethernet, Name};
-use netlib::link::{Failure, State};
-use netlib::{address, bridge, interface, link, netlink, route};
+use netdev::interface::{self, Ethernet};
+use netlink::link::{self, Device, Failure, Name, State};
+use netlink::{address, bridge, route};
 
 /// Holds in-memory link and route state for deterministic tests.
 #[derive(Debug, Default)]
@@ -33,7 +33,7 @@ pub(crate) struct MockLink {
     pub(crate) master_index: Option<u32>,
 }
 
-/// Implements `netlib::netlink::Ops` for deterministic tests.
+/// Implements `netdev::Ops` for deterministic tests.
 #[derive(Clone, Debug)]
 pub(crate) struct MockNetlinkOps {
     pub(crate) state: Arc<Mutex<MockInner>>,
@@ -77,11 +77,30 @@ impl MockNetlinkOps {
                 master_index: None,
             },
         );
+
         index
     }
 }
 
 impl link::Ops for MockNetlinkOps {
+    fn devices(&self) -> impl Future<Output = link::Result<Vec<Device>>> {
+        let state = self.lock();
+        let devices = state
+            .links
+            .iter()
+            .map(|(name, link)| Device {
+                index: link.index,
+                name: name.clone(),
+                mac: link.mac,
+                is_virtual: false,
+                admin_up: link.up,
+                carrier: link.up,
+            })
+            .collect();
+
+        std::future::ready(Ok(devices))
+    }
+
     fn exists(&self, name: &str) -> impl Future<Output = link::Result<bool>> {
         std::future::ready(Ok(self.lock().links.contains_key(name)))
     }
@@ -93,6 +112,7 @@ impl link::Ops for MockNetlinkOps {
             .get(name)
             .map(|link| link.index)
             .ok_or_else(|| Failure::NotFound(name.to_owned()));
+
         std::future::ready(result)
     }
 
@@ -104,6 +124,7 @@ impl link::Ops for MockNetlinkOps {
             }
             None => Err(Failure::NotFound(name.to_owned())),
         };
+
         std::future::ready(result)
     }
 
@@ -116,6 +137,7 @@ impl link::Ops for MockNetlinkOps {
         {
             link.up = true;
         }
+
         std::future::ready(Ok(()))
     }
 
@@ -128,6 +150,7 @@ impl link::Ops for MockNetlinkOps {
         {
             link.up = false;
         }
+
         std::future::ready(Ok(()))
     }
 
@@ -144,6 +167,7 @@ impl link::Ops for MockNetlinkOps {
         {
             link.master_index = Some(master_index);
         }
+
         std::future::ready(Ok(()))
     }
 
@@ -152,6 +176,7 @@ impl link::Ops for MockNetlinkOps {
         state.links.retain(|_, link| link.index != index);
         state.ipv4_addrs.remove(&index);
         state.ipv6_addrs.remove(&index);
+
         std::future::ready(Ok(()))
     }
 
@@ -165,6 +190,7 @@ impl link::Ops for MockNetlinkOps {
             .iter()
             .map(|&(index, name)| (index, state.links.get(name).is_some_and(|link| link.up)))
             .collect();
+
         std::future::ready(result)
     }
 }
@@ -181,6 +207,7 @@ impl address::Ops for MockNetlinkOps {
             .entry(index)
             .or_default()
             .insert((ip, prefix));
+
         std::future::ready(Ok(()))
     }
 
@@ -193,6 +220,7 @@ impl address::Ops for MockNetlinkOps {
             .ipv4_addrs
             .get(&index)
             .and_then(|addrs| addrs.iter().next().copied());
+
         std::future::ready(Ok(result))
     }
 
@@ -202,6 +230,7 @@ impl address::Ops for MockNetlinkOps {
             .ipv4_addrs
             .get(&index)
             .is_some_and(|addrs| !addrs.is_empty());
+
         std::future::ready(Ok(result))
     }
 
@@ -213,6 +242,7 @@ impl address::Ops for MockNetlinkOps {
         if let Some(addrs) = self.lock().ipv4_addrs.get_mut(&index) {
             addrs.retain(|&(addr, _)| addr != ip);
         }
+
         std::future::ready(Ok(()))
     }
 
@@ -227,6 +257,7 @@ impl address::Ops for MockNetlinkOps {
             .entry(index)
             .or_default()
             .insert((ip, prefix));
+
         std::future::ready(Ok(()))
     }
 
@@ -234,6 +265,7 @@ impl address::Ops for MockNetlinkOps {
         if let Some(addrs) = self.lock().ipv6_addrs.get_mut(&index) {
             addrs.retain(|&(addr, _)| addr != ip);
         }
+
         std::future::ready(Ok(()))
     }
 }
@@ -241,6 +273,7 @@ impl address::Ops for MockNetlinkOps {
 impl route::Ops for MockNetlinkOps {
     fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = route::Result<()>> {
         self.lock().default_routes_v4.insert(gateway);
+
         std::future::ready(Ok(()))
     }
 
@@ -249,6 +282,7 @@ impl route::Ops for MockNetlinkOps {
         gateway: Ipv6Addr,
     ) -> impl Future<Output = route::Result<()>> {
         self.lock().default_routes_v6.insert(gateway);
+
         std::future::ready(Ok(()))
     }
 
@@ -257,6 +291,7 @@ impl route::Ops for MockNetlinkOps {
         gateway: Ipv6Addr,
     ) -> impl Future<Output = route::Result<()>> {
         self.lock().default_routes_v6.remove(&gateway);
+
         std::future::ready(Ok(()))
     }
 }
@@ -285,12 +320,14 @@ impl bridge::Ops for MockNetlinkOps {
                     master_index: None,
                 },
             );
+
             index
         };
 
         if let Some(link) = state.links.get_mut(physical_iface) {
             link.master_index = Some(bridge_index);
         }
+
         std::future::ready(Ok(()))
     }
 
@@ -302,6 +339,7 @@ impl bridge::Ops for MockNetlinkOps {
             bridge_index,
         )
         .await?;
+
         Ok(())
     }
 }
@@ -319,11 +357,12 @@ impl interface::Ops for MockNetlinkOps {
                     .map(|name| to_ethernet(name, link))
             })
             .collect();
+
         std::future::ready(interfaces)
     }
 }
 
-impl netlink::Ops for MockNetlinkOps {}
+impl netdev::Ops for MockNetlinkOps {}
 
 /// Builds an `Ethernet` snapshot from a mock link.
 fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {

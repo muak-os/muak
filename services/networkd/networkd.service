@@ -1,3 +1,15 @@
 name       = "networkd"
 command    = "/sbin/networkd"
 depends_on = []
+
+[sandbox]
+profile = "strict"
+capabilities = ["net_admin", "net_raw"]
+no_new_privs = true
+
+[sandbox.limits]
+nofile = 4096
+nproc = 256
+
+[sandbox.cgroup]
+pids_max = 512

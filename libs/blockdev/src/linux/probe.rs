@@ -11,12 +11,21 @@ const EXT4_MAGIC: [u8; 2] = [0x53, 0xEF];
 const BTRFS_MAGIC_OFFSET: u64 = 0x10040;
 const BTRFS_MAGIC: [u8; 8] = *b"_BHRfS_M";
 
+const LUKS_MAGIC_OFFSET: u64 = 0;
+const LUKS_MAGIC: [u8; 6] = *b"LUKS\xba\xbe";
+
+const MAX_MAGIC_LEN: usize = 8;
+
 const FAT32_SIGNATURE: core::ops::Range<usize> = 82..90;
 const FAT16_SIGNATURE: core::ops::Range<usize> = 54..62;
 
 /// Detects the filesystem on `device` from its magic bytes.
 pub(crate) fn filesystem(device: &Path) -> Option<&'static str> {
     let file = File::open(device).ok()?;
+
+    if has_magic(&file, LUKS_MAGIC_OFFSET, &LUKS_MAGIC) {
+        return Some("crypto_LUKS");
+    }
 
     if has_magic(&file, EXT4_MAGIC_OFFSET, &EXT4_MAGIC) {
         return Some("ext4");
@@ -34,7 +43,7 @@ pub(crate) fn filesystem(device: &Path) -> Option<&'static str> {
 }
 
 fn has_magic(file: &File, offset: u64, expected: &[u8]) -> bool {
-    let mut magic = [0_u8; BTRFS_MAGIC.len()];
+    let mut magic = [0_u8; MAX_MAGIC_LEN];
     let Some(slot) = magic.get_mut(..expected.len()) else {
         return false;
     };
@@ -86,6 +95,18 @@ mod tests {
 
         // ASSERT
         assert_eq!(filesystem, Some("btrfs"));
+    }
+
+    #[test]
+    fn filesystem_detects_a_luks_magic() {
+        // ARRANGE
+        let file = file_with(&LUKS_MAGIC, LUKS_MAGIC_OFFSET);
+
+        // ACT
+        let filesystem = filesystem(file.path());
+
+        // ASSERT
+        assert_eq!(filesystem, Some("crypto_LUKS"));
     }
 
     #[test]

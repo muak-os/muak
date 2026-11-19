@@ -3,9 +3,11 @@
 use std::fs;
 use std::path::Path;
 
-use super::{Roots, attrs, probe};
+use super::{Roots, attrs, holders, probe};
 use crate::mounts::{self, Mount};
 use crate::types::Partition;
+
+const LUKS: &str = "crypto_LUKS";
 
 /// Discovers the partitions of `disk_name` below the sysfs block tree.
 pub(crate) fn discover(
@@ -59,9 +61,7 @@ fn read(roots: &Roots, disk_name: &str, name: &str, mounts_table: &[Mount]) -> O
 
     let device_path = roots.dev.join(name);
     let path = device_path.to_string_lossy().into_owned();
-    let fstype = probe::filesystem(&device_path)
-        .unwrap_or_default()
-        .to_owned();
+    let fstype = fstype(roots, disk_name, name, &device_path);
     let mount_point = mounts::of(mounts_table, &path).to_owned();
 
     Some(Partition {
@@ -74,6 +74,28 @@ fn read(roots: &Roots, disk_name: &str, name: &str, mounts_table: &[Mount]) -> O
         gpt_name: gpt_name(&sysfs_path),
         mount_point,
     })
+}
+
+fn fstype(roots: &Roots, disk_name: &str, name: &str, device_path: &Path) -> String {
+    let Some(detected) = probe::filesystem(device_path) else {
+        return String::new();
+    };
+
+    if detected != LUKS {
+        return detected.to_owned();
+    }
+
+    mapped_fstype(roots, disk_name, name).unwrap_or_else(|| detected.to_owned())
+}
+
+fn mapped_fstype(roots: &Roots, disk_name: &str, name: &str) -> Option<String> {
+    let sysfs = format!("{disk_name}/{name}");
+
+    holders::try_names(roots, &sysfs)
+        .ok()?
+        .into_iter()
+        .find_map(|holder| probe::filesystem(&roots.dev.join("mapper").join(holder)))
+        .map(str::to_owned)
 }
 
 fn gpt_name(sysfs_path: &Path) -> String {

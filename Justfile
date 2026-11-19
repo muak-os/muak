@@ -20,7 +20,6 @@ set positional-arguments
 
 # Global settings
 
-rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-11@sha256:31457d716676b10f55d2ddf83b4980b61779540764e2603762bbbef5c746552e")
 registry := env_var_or_default("REGISTRY", "ghcr.io/muak-os")
 export tag := env_var_or_default("TAG", "0.0.0-dev")
 toolchain := env_var_or_default("TOOLCHAIN", "ghcr.io/muak-os/toolchain@sha256:675909c8c1624c8e85aa9f41cf743b139cd3286c5cfd11515b1e75a88e809275")
@@ -35,7 +34,14 @@ components := `sed -n 's/^ARG PKG_//p' Dockerfile | tr '[:upper:]' '[:lower:]' |
 _arch_env := env_var_or_default("ARCH", "x86_64")
 arch := if _arch_env == "amd64" { "x86_64" } else if _arch_env == "arm64" { "aarch64" } else { _arch_env }
 oci_arch := if arch == "aarch64" { "arm64" } else if arch == "x86_64" { "amd64" } else { arch }
-release_dir := "target" / (arch + "-unknown-linux-musl") / "release"
+
+# Rust
+
+rust_image := env_var_or_default("RUST_IMAGE", "ghcr.io/rust-lang/rust:nightly-alpine3.24-2026-11-17@sha256:48f59934c1c7c8bf5279509219bb44a63025b4c38386dca08d73d173d5f9418b")
+rustflags := "-C linker=rust-lld -Zunstable-options --jobs-frontend=8" + env_var_or_default("RUSTFLAGS", "")
+triple := arch + "-unknown-linux-musl"
+target := "--target " + triple
+release_dir := "target" / triple / "release"
 
 # Container runtime
 
@@ -65,16 +71,17 @@ dev: (build "--release" "") installer sign catalog (artifacts "iso")
 
 # Build Rust packages with cargo (e.g., just build, just build --release, just build granola)
 [group('build')]
+[env("RUSTFLAGS", rustflags)]
 [arg("release", long="release", value="--release")]
 [script]
 build release="" *pkgs:
     printf "{{ cyan }}Building Rust packages{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            CARGO_BUILD_SBOM=true cargo build --locked {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl -p "$pkg"
+            CARGO_BUILD_SBOM=true cargo build --locked {{ release }} -Z sbom {{ target }} -p "$pkg"
         done
     else
-        CARGO_BUILD_SBOM=true cargo build --locked {{ release }} -Z sbom --target {{ arch }}-unknown-linux-musl
+        CARGO_BUILD_SBOM=true cargo build --locked {{ release }} -Z sbom {{ target }}
     fi
 
 # Build installer image (default uses local binaries, --prod pulls from registry)
@@ -282,12 +289,14 @@ extract image arch=oci_arch output=(out + "/extract"):
 
 # Apply rustfmt changes.
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 format:
     @printf "{{ cyan }}Formatting{{ reset }}\n"
     cargo fmt --all
 
 # Check formatting and run clippy (e.g., just lint or just lint yuki koci).
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 lint *pkgs:
     printf "{{ cyan }}Checking formatting{{ reset }}\n"
@@ -295,10 +304,10 @@ lint *pkgs:
     printf "{{ cyan }}Running clippy{{ reset }}\n"
     if [ -n "{{ pkgs }}" ]; then
         for pkg in {{ pkgs }}; do
-            cargo clippy --locked --all-targets -p "$pkg" -- -D warnings
+            cargo clippy --locked {{ target }} --all-targets -p "$pkg" -- -D warnings
         done
     else
-        cargo clippy --locked --workspace --all-targets -- -D warnings
+        cargo clippy --locked {{ target }} --workspace --all-targets -- -D warnings
     fi
 
 # Check spelling across the repository.
@@ -309,26 +318,28 @@ spell:
 
 # Run tests and doctests (e.g., just test or just test yuki koci).
 [group('test')]
+[env("RUSTFLAGS", rustflags + " -D warnings")]
 [script]
 test *pkgs:
-    export RUSTFLAGS="${RUSTFLAGS:-} -D warnings"
     printf "{{ cyan }}Running tests{{ reset }}\n"
-    just _test-run "cargo nextest run --locked --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
+    printf '[profile.default]\nslow-timeout = { period = "60s", terminate-after = 2 }\n' | install -Dm644 /dev/stdin {{ out }}/nextest.toml
+    just _test-run "cargo nextest run --locked {{ target }} --config-file {{ out }}/nextest.toml --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
     doc_args=$(cargo metadata --locked --no-deps --format-version 1 \
         | jq -r '($ARGS.positional) as $s | .packages[] | select(any(.targets[]; .kind[] == "lib") and (if $s == [] then .name != "e2e" else .name | IN($s[]) end)) | "-p \(.name)"' --args {{ pkgs }})
     if [ -n "$doc_args" ]; then
         printf "{{ cyan }}Running doctests{{ reset }}\n"
-        xargs cargo test --doc --locked <<< "$doc_args"
+        xargs cargo test --doc --locked {{ target }} <<< "$doc_args"
     else
         printf "{{ cyan }}Skipping doctests{{ reset }}\n"
     fi
 
 # Build documentation and deny rustdoc warnings.
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 docs:
     printf "{{ cyan }}Building documentation{{ reset }}\n"
-    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --workspace --no-deps
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked {{ target }} --workspace --no-deps
 
 # Check dependency policies (e.g., just deny or just deny licenses bans sources).
 [group('test')]
@@ -338,6 +349,7 @@ deny *checks="advisories bans licenses sources":
 
 # Check every feature combination compiles (e.g., just features or just features yuki).
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 features *pkgs:
     printf "{{ cyan }}Checking feature matrix{{ reset }}\n"
@@ -347,30 +359,32 @@ features *pkgs:
             case "$pkg" in
                 firmware | sbolt | partdev) extra="--exclude-no-default-features" ;;
             esac
-            cargo hack check --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
+            cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
         done
     else
-        cargo hack check --each-feature --no-dev-deps --keep-going \
+        cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going \
             --workspace --exclude e2e --exclude firmware --exclude sbolt \
             --exclude partdev
-        cargo hack check --each-feature --no-dev-deps --keep-going \
+        cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going \
             --exclude-no-default-features -p firmware -p sbolt -p partdev
     fi
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [arg("missing", long="missing", value="--show-missing-lines")]
 [script]
 coverage missing="" *pkgs:
     cargo llvm-cov clean --workspace
-    just _test-run "cargo llvm-cov nextest {{ missing }}" "Running tests with coverage for" {{ pkgs }}
+    just _test-run "cargo llvm-cov nextest {{ target }} {{ missing }}" "Running tests with coverage for" {{ pkgs }}
 
 # Run E2E tests suite (requires: qemu, built artifacts)
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 e2e: (build "--release" "muakctl") _ensure-fw
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
-    MUAK_ARTIFACTS={{ out }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run -E 'package(e2e)' --test-threads 3
+    MUAK_ARTIFACTS={{ out }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run {{ target }} -E 'package(e2e)' --test-threads 3
 
 # Qualify fleet with three installed hosts and a real nested workload (see docs/fleet-inventory.md).
 [group('test')]
@@ -424,6 +438,7 @@ start clean="false": (_require out / "muak.iso" "just dev") _ensure-fw
 
 # Profile a Rust binary with perf and render a CPU flamegraph
 [group('test')]
+[env("RUSTFLAGS", rustflags)]
 [script]
 flame pkg *args: _ensure-out
     flame=$(command -v cargo-flamegraph || echo "$HOME/.cargo/bin/cargo-flamegraph")
@@ -445,8 +460,8 @@ flame pkg *args: _ensure-out
             *) args="$args $a" ;;
         esac
     done
-    RUSTFLAGS="-C force-frame-pointers=yes -Clink-arg=-Wl,--no-rosegment" \
-        "$flame" flamegraph --profile profiling --no-inline -c "record -F 997 --call-graph dwarf -o {{ out }}/flame.data" -o {{ out }}/flamegraph.svg -p {{ pkg }} -- $args -o {{ out }}
+    RUSTFLAGS="$RUSTFLAGS -C force-frame-pointers=yes -Clink-arg=--no-rosegment" \
+        "$flame" flamegraph {{ target }} --profile profiling --no-inline -c "record -F 997 --call-graph dwarf -o {{ out }}/flame.data" -o {{ out }}/flamegraph.svg -p {{ pkg }} -- $args -o {{ out }}
     printf "{{ green }}Flamegraph written to {{ out }}/flamegraph.svg{{ reset }}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────

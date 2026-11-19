@@ -1,14 +1,13 @@
 //! Bridge provisioning logic for a per-interface actor.
 
 use anyhow::{Context as _, Result};
-use netlib::interface::Name;
-use netlib::link::State;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::link::{Name, State};
 
 use super::Actor;
-use crate::dhcp::State as DhcpState;
+use super::lifecycle::DhcpState;
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 
 /// Creates the bridge device, transfers the IP from this port, and returns the bridge snapshot.
 pub(super) async fn configure<N: Ops>(

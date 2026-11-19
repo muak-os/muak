@@ -36,6 +36,8 @@ Wizard consumes these bounded SELinux labeling rules and omits the metadata file
 from the payload. Existing extensions without this metadata keep their behavior.
 The base installer does not include fleetd or its service descriptor.
 There are no new external runtime binaries or separate database processes.
+The extension descriptor uses Granola's strict sandbox profile with an empty
+Linux capability set, `no_new_privs`, and the base services' process limits.
 
 For a development registry, build the package with the existing recipe:
 

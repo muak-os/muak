@@ -1,11 +1,11 @@
 //! Primary/backup promotion and failover policy for the network supervisor.
 
-use netlib::interface::Name;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::link::Name;
 
 use super::NetworkSupervisor;
 use crate::interface::commands::{ApplyMode, Command};
-use crate::interface::state::Lifecycle;
+use crate::interface::lifecycle::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {

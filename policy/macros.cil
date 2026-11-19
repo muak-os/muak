@@ -77,7 +77,6 @@
     (allow domain_t  exec_t   (files (execute)))
     (allow domain_t  exec_t   (files (enter)))
     (allow granola_t exec_t   (files (execute)))
-    (allow kernel_t  exec_t   (files (execute)))
     (allow granola_t domain_t (processes (transform)))
     (allow granola_t domain_t (process   (noatsecure rlimitinh siginh)))
     (typetransition granola_t exec_t process domain_t))

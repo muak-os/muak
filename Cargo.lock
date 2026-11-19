@@ -267,9 +267,9 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cc"
-version = "1.11.1"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
+checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -508,6 +508,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "dhcp"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "ip",
+ "packet",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -832,6 +843,7 @@ dependencies = [
  "prost",
  "protox",
  "rustix",
+ "sandbox",
  "serde",
  "tempfile",
  "tokio",
@@ -1058,6 +1070,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ip"
+version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1258,6 +1277,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mac"
+version = "0.0.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1325,9 +1351,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.2.4"
+version = "1.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
+checksum = "20521a903f02b0a573cd6840e9d0a5a0cc043d361fe924092cd70f8556cc9c4a"
 dependencies = [
  "libc",
  "wasi",
@@ -1396,13 +1422,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "netdev"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "netlink",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "netlib"
 version = "0.0.0"
 dependencies = [
- "libc",
+ "mac",
+ "netlink",
  "rtnetlink",
- "rustix",
- "sha2",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
+name = "netlink"
+version = "0.0.0"
+dependencies = [
+ "rtnetlink",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -1463,13 +1507,17 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "getrandom 0.4.3",
+ "dhcp",
  "granola",
  "kmsg",
  "libc",
+ "mac",
+ "netdev",
  "netlib",
- "rtnetlink",
+ "netlink",
+ "packet",
  "rustix",
+ "slaac",
  "tempfile",
  "tokio",
 ]
@@ -1556,6 +1604,16 @@ dependencies = [
  "primefield",
  "primeorder",
  "sha2",
+]
+
+[[package]]
+name = "packet"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -2096,6 +2154,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sandbox"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sbolt"
 version = "0.0.0"
 dependencies = [
@@ -2258,6 +2326,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "slaac"
+version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2328,6 +2403,15 @@ name = "sync_wrapper"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
+
+[[package]]
+name = "tap"
+version = "0.0.0"
+dependencies = [
+ "netlink",
+ "rustix",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "tar"
@@ -2960,13 +3044,14 @@ dependencies = [
  "fleet-api",
  "granola",
  "kmsg",
- "netlib",
+ "mac",
+ "netlink",
  "prost",
  "protox",
- "rtnetlink",
  "rustix",
  "serde",
  "serde_json",
+ "tap",
  "tokio",
  "tokio-stream",
  "tonic",

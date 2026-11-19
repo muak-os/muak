@@ -1,0 +1,23 @@
+[package]
+name = "tap"
+description = "TAP device creation and bridge attachment"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+netlink = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true }
+
+[lints]
+workspace = true

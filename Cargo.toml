@@ -28,6 +28,7 @@ members = [
     "libs/btrfs",
     "libs/config",
     "libs/coordination",
+    "libs/dhcp",
     "libs/disk",
     "libs/esp",
     "libs/partdev",
@@ -35,6 +36,7 @@ members = [
     "libs/kmod",
     "libs/kmsg",
     "libs/luks2",
+    "libs/mac",
     "libs/pki",
     "libs/tpm2",
     "libs/tui",
@@ -43,9 +45,16 @@ members = [
     "libs/firmware",
     "libs/fleet-api",
     "libs/granola-macros",
+    "libs/ip",
+    "libs/netdev",
     "libs/netlib",
+    "libs/netlink",
     "libs/oci",
     "libs/oci-client",
+    "libs/packet",
+    "libs/sandbox",
+    "libs/slaac",
+    "libs/tap",
     "libs/uki",
 ]
 resolver = "3"
@@ -77,23 +86,32 @@ blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 coordination = { path = "libs/coordination" }
-fleet-api = { path = "libs/fleet-api" }
+dhcp = { path = "libs/dhcp" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }
 fatfs = { path = "libs/fatfs" }
+fleet-api = { path = "libs/fleet-api" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
+ip = { path = "libs/ip" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
+mac = { path = "libs/mac" }
+netdev = { path = "libs/netdev" }
 netlib = { path = "libs/netlib" }
+netlink = { path = "libs/netlink" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
+packet = { path = "libs/packet" }
 partdev = { path = "libs/partdev", default-features = false }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
+sandbox = { path = "libs/sandbox", default-features = false }
+slaac = { path = "libs/slaac" }
+tap = { path = "libs/tap" }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 uki = { path = "libs/uki" }
@@ -181,6 +199,9 @@ uuid = { version = "1.29", default-features = false, features = ["v4", "v7"] }
 syn = { version = "3.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
+
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"

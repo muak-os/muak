@@ -3,13 +3,13 @@
 use core::time::Duration;
 
 use anyhow::{Result, bail};
-use netlib::interface::{Ethernet, Selector};
-use netlib::link::State;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netdev::interface::{Ethernet, Selector};
+use netlink::link::State;
 
 use super::NetworkSupervisor;
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 /// Timeout for carrier detection when probing interfaces.

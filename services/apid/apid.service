@@ -1,3 +1,15 @@
 name       = "apid"
 command    = "/sbin/apid --maintenance $MAINTENANCE"
 depends_on = ["networkd"]
+
+[sandbox]
+profile = "strict"
+capabilities = ["net_bind_service"]
+no_new_privs = true
+
+[sandbox.limits]
+nofile = 4096
+nproc = 256
+
+[sandbox.cgroup]
+pids_max = 512

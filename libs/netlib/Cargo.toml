@@ -11,21 +11,18 @@ categories.workspace = true
 
 [dependencies]
 # Asynchronous
-tokio = { workspace = true, features = ["net", "sync", "time"] }
+tokio = { workspace = true, features = ["sync"] }
 tokio-stream = { workspace = true }
-
-# Cryptography
-sha2 = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
 
+# Internal
+mac = { workspace = true }
+netlink = { workspace = true }
+
 # Networking
 rtnetlink = { workspace = true }
-
-# System/platform APIs
-libc = { workspace = true }
-rustix = { workspace = true, features = ["net"] }
 
 [lints]
 workspace = true

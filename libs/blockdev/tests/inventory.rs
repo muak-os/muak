@@ -4,7 +4,8 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Seek as _, Write as _};
+    use std::os::unix::fs::FileExt as _;
+    use std::path::Path;
 
     use blockdev::error::BlockdevError;
     use blockdev::kernel::Kernel as _;
@@ -13,6 +14,22 @@ mod tests {
     use parttable::gpt;
 
     use crate::common::Fixture;
+
+    const LUKS_MAGIC: [u8; 6] = *b"LUKS\xba\xbe";
+    const BTRFS_MAGIC_OFFSET: u64 = 0x10040;
+    const BTRFS_MAGIC: [u8; 8] = *b"_BHRfS_M";
+
+    fn write_magic(device: &Path, offset: u64, magic: &[u8]) {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(device)
+            .expect("device node");
+        let end = offset
+            .checked_add(u64::try_from(magic.len()).expect("magic length"))
+            .expect("magic offset");
+        file.set_len(end).expect("device size");
+        file.write_all_at(magic, offset).expect("magic");
+    }
 
     #[test]
     fn lists_the_physical_disks_sorted_by_name() {
@@ -98,13 +115,7 @@ mod tests {
         fixture.disk("sda", 8192);
         fixture.partition("sda", "sda1", 1, "STATE", 2048, 1024);
         let device = fixture.roots().dev.join("sda1");
-        let mut node = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&device)
-            .expect("device node");
-        node.set_len(0x10_048).expect("extend device node");
-        node.seek(std::io::SeekFrom::Start(0x438)).expect("seek");
-        node.write_all(&[0x53, 0xEF]).expect("ext4 magic");
+        write_magic(&device, 0x438, &[0x53, 0xEF]);
 
         // ACT
         let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
@@ -118,6 +129,54 @@ mod tests {
 
         // ASSERT
         assert_eq!(fstype, "ext4");
+    }
+
+    #[test]
+    fn reports_the_filesystem_inside_a_luks_mapping() {
+        // ARRANGE
+        let fixture = Fixture::new();
+        fixture.disk("sda", 8192);
+        fixture.partition("sda", "sda1", 1, "STATE", 2048, 1024);
+        write_magic(&fixture.roots().dev.join("sda1"), 0, &LUKS_MAGIC);
+        fixture.holder("sda/sda1", "dm-0");
+        fixture.mapping("dm-0", "muak-state");
+        let mapped = fixture.mapped_node("muak-state");
+        write_magic(&mapped, BTRFS_MAGIC_OFFSET, &BTRFS_MAGIC);
+
+        // ACT
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
+        let fstype = &disks
+            .first()
+            .expect("disk")
+            .partitions
+            .first()
+            .expect("partition")
+            .fstype;
+
+        // ASSERT
+        assert_eq!(fstype, "btrfs");
+    }
+
+    #[test]
+    fn reports_an_unmapped_luks_partition_as_encrypted() {
+        // ARRANGE
+        let fixture = Fixture::new();
+        fixture.disk("sda", 8192);
+        fixture.partition("sda", "sda1", 1, "STATE", 2048, 1024);
+        write_magic(&fixture.roots().dev.join("sda1"), 0, &LUKS_MAGIC);
+
+        // ACT
+        let disks = Linux::rooted(&fixture.roots()).disks().expect("disks");
+        let fstype = &disks
+            .first()
+            .expect("disk")
+            .partitions
+            .first()
+            .expect("partition")
+            .fstype;
+
+        // ASSERT
+        assert_eq!(fstype, "crypto_LUKS");
     }
 
     #[test]

@@ -5,6 +5,8 @@ use std::time::Instant;
 use granola::runtime::notify::Health;
 use serde::Deserialize;
 
+use crate::confinement::Sandbox;
+
 /// Blueprint for a supervised service.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Service {
@@ -12,6 +14,8 @@ pub(crate) struct Service {
     pub command: String,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub sandbox: Option<Sandbox>,
 }
 
 impl Service {

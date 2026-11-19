@@ -2,16 +2,15 @@
 
 use anyhow::Result;
 use config::system::network;
-use netlib::interface::Name;
-use netlib::link::State;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::link::{Name, State};
 use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
 
 use super::{NetworkSupervisor, provision};
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 /// Describes whether reconcile applied intent or skipped it deliberately.

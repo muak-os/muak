@@ -7,14 +7,14 @@ use core::net::Ipv6Addr;
 use core::time::Duration;
 use std::os::fd::OwnedFd;
 
+use ::slaac::address::generate;
+use ::slaac::icmpv6::ROUTER_ADVERTISEMENT;
+use ::slaac::icmpv6::build::router_solicitation;
+use ::slaac::icmpv6::parse::router_advertisement;
+use ::slaac::icmpv6::types::RouterAdvertisement;
 use anyhow::{Result, bail};
 use config::system::network;
-use netlib::slaac::address::generate;
-use netlib::slaac::icmpv6::{
-    ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
-    parse_router_advertisement,
-};
-use netlib::socket;
+use packet::socket;
 use rustix::io::Errno;
 use rustix::net::ipproto::ICMPV6;
 use rustix::net::netdevice::name_to_index;
@@ -154,7 +154,7 @@ async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {
 }
 
 async fn initial_solicitation(manager: &mut Manager) -> Result<SlaacEvent> {
-    let rs_packet = build_router_solicitation(&manager.mac);
+    let rs_packet = router_solicitation(&manager.mac);
     let dest = create_all_routers_sockaddr(manager.ifindex);
 
     for attempt in 1..=MAX_RTR_SOLICITATIONS {
@@ -222,19 +222,15 @@ async fn try_recv_ra(manager: &Manager) -> Result<Option<RouterAdvertisement>> {
     };
 
     let Some(addr) = addr else {
-        if byte_at(&buf, 0) == ICMPV6_ROUTER_ADVERTISEMENT {
-            let ra = parse_router_advertisement(
-                buf.get(..len).unwrap_or_default(),
-                Ipv6Addr::UNSPECIFIED,
-            )?;
+        if byte_at(&buf, 0) == ROUTER_ADVERTISEMENT {
+            let ra =
+                router_advertisement(buf.get(..len).unwrap_or_default(), Ipv6Addr::UNSPECIFIED)?;
             return Ok(Some(ra));
         }
         return Ok(None);
     };
 
-    if addr.address_family() != AddressFamily::INET6
-        || byte_at(&buf, 0) != ICMPV6_ROUTER_ADVERTISEMENT
-    {
+    if addr.address_family() != AddressFamily::INET6 || byte_at(&buf, 0) != ROUTER_ADVERTISEMENT {
         return Ok(None);
     }
 
@@ -242,7 +238,7 @@ async fn try_recv_ra(manager: &Manager) -> Result<Option<RouterAdvertisement>> {
         return Ok(None);
     };
     let source = *sockaddr_v6.ip();
-    let ra = parse_router_advertisement(buf.get(..len).unwrap_or_default(), source)?;
+    let ra = router_advertisement(buf.get(..len).unwrap_or_default(), source)?;
 
     Ok(Some(ra))
 }

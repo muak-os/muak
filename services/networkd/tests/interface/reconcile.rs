@@ -3,11 +3,12 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 
+use ::dhcp::lease::Lease;
 use config::system::network;
-use netlib::address;
-use netlib::address::IpConfig;
-use networkd::dhcp::{Lease, State as DhcpState};
+use netlink::address;
+use netlink::address::IpConfig;
 use networkd::interface::commands::ApplyMode;
+use networkd::interface::lifecycle::DhcpState;
 use tokio::time::{sleep, timeout};
 
 use super::*;

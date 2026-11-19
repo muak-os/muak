@@ -3,8 +3,8 @@
 use alloc::sync::Arc;
 use core::net::Ipv6Addr;
 
-use netlib::address::Ipv6Config;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::address::Ipv6Config;
 
 use super::Actor;
 use crate::interface::commands::ApplyMode;

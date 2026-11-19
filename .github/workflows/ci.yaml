@@ -59,6 +59,10 @@ jobs:
           tool: just@1.58.0
           fallback: none
 
+      - uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8
+        with:
+          target: x86_64-unknown-linux-musl
+
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
       - run: just lint
@@ -95,6 +99,10 @@ jobs:
           tool: just@1.58.0,cargo-nextest@0.9.146
           fallback: none
 
+      - uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8
+        with:
+          target: x86_64-unknown-linux-musl
+
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
       - run: just test
@@ -114,6 +122,10 @@ jobs:
           tool: just@1.58.0,cargo-hack@0.6.45
           fallback: none
 
+      - uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8
+        with:
+          target: x86_64-unknown-linux-musl
+
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 
       - run: just features
@@ -132,6 +144,10 @@ jobs:
         with:
           tool: just@1.58.0
           fallback: none
+
+      - uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8
+        with:
+          target: x86_64-unknown-linux-musl
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
 

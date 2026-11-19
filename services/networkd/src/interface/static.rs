@@ -4,12 +4,12 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 use config::system::network;
-use netlib::address::{IpConfig, Ipv6Config};
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::address::{IpConfig, Ipv6Config};
 
 use super::Actor;
 use crate::interface::commands::ApplyMode;
-use crate::interface::state::Lifecycle;
+use crate::interface::lifecycle::Lifecycle;
 
 #[derive(Clone, Copy)]
 enum StaticRequest<'a> {

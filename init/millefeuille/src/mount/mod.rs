@@ -9,7 +9,7 @@ mod rootfs;
 
 pub(crate) use boot::{BOOT_DIR, bridge};
 pub(crate) use persistent::persistent;
-pub(crate) use pseudo::pseudo;
+pub(crate) use pseudo::{CORE, pseudo};
 pub(crate) use rootfs::rootfs;
 
 /// Image format file extension.

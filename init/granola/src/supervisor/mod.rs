@@ -1,3 +1,4 @@
+mod cgroup;
 mod dependency;
 pub(crate) mod logger;
 mod notify;
@@ -45,7 +46,7 @@ impl Supervisor<Spawner, Reaper> {
             service_defs,
             logger,
             status,
-            Spawner,
+            Spawner::new(sandbox::probe::current()),
             Reaper::new()?,
             Path::new(DEFAULT_SERVICES_DIR),
         )
@@ -104,7 +105,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
                 biased;
 
                 exits = self.reaper.wait_for_exits() => {
-                    self.process_exits(exits);
+                    self.process_exits(exits).await;
                 }
 
                 _ = sigterm.recv() => {
@@ -122,21 +123,22 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
 
                 _ = sweep.tick() => {
                     let exits = self.reaper.reap_all();
-                    if !exits.is_empty() { self.process_exits(exits); }
+                    if !exits.is_empty() { self.process_exits(exits).await; }
                 }
             }
         }
     }
 
-    fn process_exits(&mut self, exits: Vec<(String, reaper::ChildExit)>) {
+    async fn process_exits(&mut self, exits: Vec<(String, reaper::ChildExit)>) {
         for (name, exit) in exits {
-            self.handle_service_exit(&name, exit.pid, exit.exit_code, exit.signal);
+            self.handle_service_exit(&name, exit.pid, exit.exit_code, exit.signal)
+                .await;
         }
         status::publish(&self.services, &self.status);
     }
 
-    /// Records a service exit and schedules a restart or failure as needed.
-    fn handle_service_exit(
+    /// Records a service exit, releases its cgroup and schedules a restart or failure as needed.
+    async fn handle_service_exit(
         &mut self,
         name: &str,
         pid: i32,
@@ -150,10 +152,10 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
             (_, Some(sig)) => {
                 kmsg::warn!("Service {} (PID {}) killed by signal {}", name, pid, sig);
             }
-            _ => {
-                kmsg::warn!("Service {} (PID {}) exited", name, pid);
-            }
+            _ => kmsg::warn!("Service {} (PID {}) exited", name, pid),
         }
+
+        cgroup::release(name).await;
 
         let Some(state) = self.services.get_mut(name) else {
             return;
@@ -179,7 +181,6 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         }
     }
 
-    // Spawns a service, scheduling a delayed retry when the spawn fails.
     fn spawn_or_log(&mut self, name: &str) {
         let Err(error) = self.spawn_service(name) else {
             return;
@@ -387,6 +388,7 @@ mod tests {
             name: name.to_owned(),
             command: String::new(),
             depends_on: depends_on.iter().copied().map(str::to_owned).collect(),
+            sandbox: None,
         }
     }
 
@@ -425,7 +427,7 @@ mod tests {
         for _ in 0..restart::MAX_RESTART_ATTEMPTS {
             injector.inject("svc", Some(1_i32));
             let exits = sup.reaper.wait_for_exits().await;
-            sup.process_exits(exits);
+            sup.process_exits(exits).await;
             let due = sup.restart_queue.take_due(|_| true);
             respawn_all(sup, due);
         }
@@ -493,7 +495,7 @@ mod tests {
         // ACT
         injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
-        sup.process_exits(exits);
+        sup.process_exits(exits).await;
 
         // ASSERT
         assert_eq!(
@@ -515,7 +517,7 @@ mod tests {
         // ACT
         injector.inject("svc", Some(0_i32));
         let exits = sup.reaper.wait_for_exits().await;
-        sup.process_exits(exits);
+        sup.process_exits(exits).await;
 
         // ASSERT
         assert_eq!(
@@ -538,7 +540,7 @@ mod tests {
         exhaust_restart_attempts(&mut sup, &injector).await;
         injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
-        sup.process_exits(exits);
+        sup.process_exits(exits).await;
 
         // ASSERT
         assert_eq!(
@@ -820,7 +822,8 @@ mod tests {
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.handle_service_exit("svc", 1234, None, Some(9_i32));
+        sup.handle_service_exit("svc", 1234, None, Some(9_i32))
+            .await;
 
         // ASSERT
         assert_eq!(
@@ -840,7 +843,7 @@ mod tests {
         let mut sup = make_supervisor(services, spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.handle_service_exit("svc", 1234, None, None);
+        sup.handle_service_exit("svc", 1234, None, None).await;
 
         // ASSERT
         assert_eq!(
@@ -859,7 +862,32 @@ mod tests {
         let mut sup = make_supervisor(vec![], spawner, reaper, &dir).expect("supervisor");
 
         // ACT
-        sup.handle_service_exit("ghost", 9999, Some(1_i32), None);
+        sup.handle_service_exit("ghost", 9999, Some(1_i32), None)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn exit_of_a_service_whose_spawn_failed_is_harmless() {
+        // ARRANGE
+        let dir = TempDir::new().expect("tempdir");
+        let (reaper, _injector) = FakeReaper::new();
+        let services = vec![make_service("svc", &[])];
+        let mut sup =
+            make_supervisor(services, FailingSpawner::new(), reaper, &dir).expect("supervisor");
+        sup.start_ready_services();
+
+        // ACT
+        sup.handle_service_exit("svc", 1234, Some(1_i32), None)
+            .await;
+
+        // ASSERT
+        assert!(sup.state("svc").is_some_and(|state| state.pid.is_none()));
+        assert_eq!(
+            sup.state("svc").map(|state| &state.status),
+            Some(&ServiceStatus::Pending)
+        );
+        assert_eq!(sup.state("svc").map(|state| state.restart_count), Some(2));
+        assert!(sup.restart_queue.is_queued("svc"));
     }
 
     #[tokio::test]
@@ -873,7 +901,7 @@ mod tests {
 
         injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
-        sup.process_exits(exits);
+        sup.process_exits(exits).await;
         assert_eq!(
             sup.state("svc").map(|state| &state.status),
             Some(&ServiceStatus::Pending)
@@ -909,7 +937,7 @@ mod tests {
         status_rx.borrow_and_update();
 
         // ACT
-        sup.process_exits(Vec::new());
+        sup.process_exits(Vec::new()).await;
 
         // ASSERT
         assert!(!status_rx.has_changed().expect("sender alive"));
@@ -930,7 +958,7 @@ mod tests {
         let after_start = status_rx.borrow().clone();
         injector.inject("svc", Some(1_i32));
         let exits = sup.reaper.wait_for_exits().await;
-        sup.process_exits(exits);
+        sup.process_exits(exits).await;
         let after_exit = status_rx.borrow().clone();
 
         // ASSERT

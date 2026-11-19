@@ -44,7 +44,7 @@
 
 ; Every type with an xattr label on the erofs rootfs. overlayfs calls
 ; vfs_getxattr() on lower-layer inodes during path lookup (trusted.overlay.redirect),
-; which triggers a getattr check against the mounter's credentials (kernel_t).
+; which triggers a getattr check against the mounter's credentials (granola_t).
 (typeattribute sqsh_file_type)
 
 ; ── Subject attributes ────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@
     security_t unlabeled_t fs_t esp_t file_t dir_t
     muak_run_t muak_state_t muak_data_t
     proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
-    modules_t))
+    cgroup_t modules_t))
 
 ; Constrained objects: files where MCS dominance is enforced.
 (typeattribute constrained_o)
@@ -107,6 +107,9 @@
 
 (type fs_t)
 (roletype object_r fs_t)
+
+(type cgroup_t)
+(roletype object_r cgroup_t)
 
 (type esp_t)
 (roletype object_r esp_t)
@@ -177,7 +180,7 @@
     security_t unlabeled_t fs_t esp_t file_t dir_t
     muak_run_t muak_state_t
     proc_t sysfs_t devtmpfs_t tmpfs_t selinuxfs_t efivarfs_t
-    modules_t))
+    cgroup_t modules_t))
 
 ; global: union of all subjects and all objects. Populated last because it
 ; depends on both all_s and all_o being fully expanded.

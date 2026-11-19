@@ -1,15 +1,14 @@
 //! Netlink event consumer: dispatches received `NetworkEvent`s to supervisor state handlers.
 
-use netlib::interface::Name;
-use netlib::link::State;
-use netlib::mac::format as format_mac;
+use mac::format as format_mac;
+use netdev::Ops;
 use netlib::monitor::Event;
-use netlib::netlink::Ops;
+use netlink::link::{Name, State};
 
 use super::{NetworkSupervisor, failover};
 use crate::interface::commands::Command;
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 
 /// Dispatches a netlink event to the appropriate handler.
 pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, event: Event) {

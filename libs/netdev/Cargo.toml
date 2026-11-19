@@ -1,0 +1,21 @@
+[package]
+name = "netdev"
+description = "Domain-layer network device discovery and selection"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+mac = { workspace = true }
+netlink = { workspace = true }
+
+[lints]
+workspace = true

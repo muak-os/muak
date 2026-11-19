@@ -1,18 +1,14 @@
-//! Muak init - phase 1 initialization process.
-//!
-//! This is the first process started by the kernel. It mounts pseudo filesystems,
-//! loads kernel modules, mounts the root filesystem, loads the `SELinux` policy,
-//! switches to the new root and executes the PID 1 process.
+//! Phase 1 initialization process.
 
 extern crate alloc;
 
 mod modules;
 mod mount;
+#[cfg(feature = "selinux")]
 mod selinux;
 mod switchroot;
 
 use std::path::Path;
-use std::process;
 
 use anyhow::Result;
 
@@ -23,7 +19,7 @@ const NEWROOT: &str = "/newroot";
 fn main() {
     if let Err(e) = run() {
         kmsg::error!("FATAL ERROR: {:#}", e);
-        process::exit(1);
+        std::process::exit(1);
     }
 }
 
@@ -39,18 +35,13 @@ fn run() -> Result<()> {
     mount::rootfs()?;
     kmsg::info!("Rootfs mounted successfully");
 
+    #[cfg(feature = "selinux")]
+    selinux::init()?;
+
     match modules::load(Path::new(NEWROOT)) {
         Ok(count) => kmsg::info!("Loaded {} kernel modules", count),
         Err(e) => kmsg::warn!("Module loading failed: {}", e),
     }
-
-    selinux::load()?;
-    let mode = if selinux::is_enforcing().unwrap_or(false) {
-        "enforcing"
-    } else {
-        "permissive"
-    };
-    kmsg::info!("SELinux policy loaded ({})", mode);
 
     let persistent = mount::persistent();
     if persistent {
