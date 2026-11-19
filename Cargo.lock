@@ -1015,6 +1015,9 @@ dependencies = [
 [[package]]
 name = "ip"
 version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "is_terminal_polyfill"
