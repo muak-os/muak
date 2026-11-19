@@ -1367,6 +1367,7 @@ dependencies = [
  "prost",
  "protox",
  "rustls",
+ "serde_json",
  "tempfile",
  "tokio",
  "tokio-rustls",

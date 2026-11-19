@@ -161,6 +161,8 @@ and replace the previous session without creating another registration.
 ```sh
 muakctl --context manager fleet nodes
 muakctl --context manager fleet vms
+muakctl --context manager fleet nodes --status pending -o json
+muakctl --context manager fleet vms --node NODE_UUID --state stopped --freshness fresh -o json
 muakctl --context worker fleet agent-status
 muakctl --context manager logs --service fleetd
 muakctl --context manager dmesg
@@ -171,6 +173,23 @@ binding. `vms` shows node-qualified VM UUIDs, names, lifecycle states and freshn
 Reported state comes from workloadd's actor; fleetd receives a minimal read-only
 publication through a separate local socket. No manager connection reaches the
 worker's VM command socket.
+
+Both lists accept `--node` with the exact UUID from `fleet nodes` and
+`--freshness fresh|stale`. Filter node enrollment with `--status` or VM
+lifecycle state with `--state`. The filters combine, and a node UUID absent
+from the manager's inventory returns an error.
+
+Use `-o json` for automation. Each command emits one JSON array. VM entries
+carry both the node and VM UUIDs, the hostname, observed state, freshness and
+age in seconds. Node entries include enrollment status and the certificate
+fingerprint. Nodes that have yet to provide an observation are stale and have
+`null` age. An empty VM result can also mean that the selected node has no
+observation. Check `fleet nodes --node NODE_UUID -o json` before drawing
+conclusions about workloads. Human-readable tables remain the default.
+
+To act on an observed VM, use its UUID with the operator context already
+configured for that host, for example `muakctl --context worker vm logs VM_UUID`.
+The manager's observations may lag behind the host's live state.
 
 For display, an empty VM name falls back to its UUID and an overlong name is
 shortened at a UTF-8 boundary with `...`. The local VM name, identity and state

@@ -1,11 +1,13 @@
 //! Optional fleet inspection through the existing operator context.
 
+mod inventory;
+
 use anyhow::Result;
-use clap::Subcommand;
+use clap::{Args, Subcommand, ValueEnum};
 use fleet_api::fleet::fleet_service_client::FleetServiceClient;
 use fleet_api::fleet::{
-    ApproveNodeRequest, GetAgentStatusRequest, GetInfoRequest, ListNodesRequest, NodeRecord,
-    RevokeNodeRequest, RotateCredentialRequest,
+    ApproveNodeRequest, GetAgentStatusRequest, GetInfoRequest, ListNodesRequest, RevokeNodeRequest,
+    RotateCredentialRequest,
 };
 use tonic::transport::Channel;
 
@@ -15,9 +17,21 @@ pub enum Action {
     /// Show the manager's domain and public trust anchor.
     Info,
     /// List pending, approved and revoked hosts, including freshness.
-    Nodes,
+    Nodes {
+        #[command(flatten)]
+        options: Options,
+        /// Filter by enrollment status.
+        #[arg(long, value_parser = ["pending", "approved", "revoked"])]
+        status: Option<String>,
+    },
     /// List observed VMs, qualified by node and freshness.
-    Vms,
+    Vms {
+        #[command(flatten)]
+        options: Options,
+        /// Filter by observed VM state.
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(inventory::VM_STATES))]
+        state: Option<String>,
+    },
     /// Show the local agent's enrollment and reporting state.
     AgentStatus,
     /// Generate a new key and CSR on this agent while preserving its node identity.
@@ -28,6 +42,26 @@ pub enum Action {
     Revoke { node: String },
     /// Replace an approved node's certificate fingerprint.
     RotateCredential { node: String, fingerprint: String },
+}
+
+/// Filters and output format for fleet lists.
+#[derive(Args, Clone, Debug)]
+pub struct Options {
+    /// Select the exact node UUID from `fleet nodes`.
+    #[arg(long, value_name = "UUID")]
+    node: Option<String>,
+    /// Filter by observation freshness.
+    #[arg(long, value_parser = ["fresh", "stale"])]
+    freshness: Option<String>,
+    /// Choose table output for operators or JSON for scripts.
+    #[arg(short, long, value_enum, default_value_t = Format::Table)]
+    output: Format,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Format {
+    Table,
+    Json,
 }
 
 pub(crate) async fn handle(channel: Channel, action: Action) -> Result<()> {
@@ -54,21 +88,21 @@ pub(crate) async fn handle(channel: Channel, action: Action) -> Result<()> {
                 status.detail
             );
         }
-        Action::Nodes | Action::Vms => {
-            let nodes = client
-                .list_nodes(ListNodesRequest {})
-                .await?
-                .into_inner()
-                .nodes;
-            let vms = matches!(action, Action::Vms);
-            if vms {
-                println!("NODE\tVM\tNAME\tSTATE\tFRESHNESS");
-            } else {
-                println!("NODE\tHOST\tSTATUS\tFRESHNESS\tAGE(s)\tCERTIFICATE");
-            }
-            for node in nodes {
-                print_node(node, vms);
-            }
+        Action::Nodes { options, status } => {
+            list(
+                &mut client,
+                &options,
+                inventory::View::Nodes(status.as_deref()),
+            )
+            .await?;
+        }
+        Action::Vms { options, state } => {
+            list(
+                &mut client,
+                &options,
+                inventory::View::Vms(state.as_deref()),
+            )
+            .await?;
         }
         Action::RenewAgentCredential => {
             let status = client
@@ -108,50 +142,16 @@ pub(crate) async fn handle(channel: Channel, action: Action) -> Result<()> {
     Ok(())
 }
 
-fn state(value: i32) -> &'static str {
-    match value {
-        1 => "created",
-        2 => "starting",
-        3 => "running",
-        4 => "stopping",
-        5 => "stopped",
-        6 => "failed",
-        _ => "unspecified",
-    }
-}
-
-fn print_node(node: NodeRecord, vms: bool) {
-    let freshness = if node.stale { "stale" } else { "fresh" };
-    if vms {
-        print_vms(node, freshness);
-        return;
-    }
-    let age = node
-        .observation_age_secs
-        .map_or_else(|| "never".to_owned(), |age| age.to_string());
-    println!(
-        "{}\t{}\t{}\t{}\t{}\t{}",
-        node.node_id,
-        node.hostname.escape_default(),
-        node.status,
-        freshness,
-        age,
-        node.fingerprint
-    );
-}
-
-fn print_vms(node: NodeRecord, freshness: &str) {
-    let Some(snapshot) = node.snapshot else {
-        return;
-    };
-    for vm in snapshot.vms {
-        println!(
-            "{}\t{}\t{}\t{}\t{}",
-            node.node_id,
-            vm.vm_id,
-            vm.name.escape_default(),
-            state(vm.state),
-            freshness
-        );
-    }
+async fn list(
+    client: &mut FleetServiceClient<Channel>,
+    options: &Options,
+    view: inventory::View<'_>,
+) -> Result<()> {
+    let response = client.list_nodes(ListNodesRequest {}).await?.into_inner();
+    inventory::write(
+        &mut std::io::stdout().lock(),
+        &response.nodes,
+        options,
+        view,
+    )
 }

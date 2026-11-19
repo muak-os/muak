@@ -23,6 +23,7 @@ rustls = { workspace = true }
 
 # Encoding
 prost = { workspace = true }
+serde_json = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
