@@ -505,6 +505,13 @@ dependencies = [
 [[package]]
 name = "dhcp"
 version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "ip",
+ "packet",
+ "thiserror 2.0.21",
+ "tokio",
+]
 
 [[package]]
 name = "digest"

@@ -9,5 +9,19 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[dependencies]
+# Asynchronous
+tokio = { workspace = true, features = ["net", "time"] }
+
+# Cryptography
+getrandom = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+ip = { workspace = true }
+packet = { workspace = true }
+
 [lints]
 workspace = true
