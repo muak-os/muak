@@ -8,6 +8,8 @@ use anyhow::{Context as _, Result, bail};
 use rustix::mount::mount_move;
 use rustix::process::{chdir, chroot};
 
+use crate::mount;
+
 /// Switches to the new root filesystem.
 pub(crate) fn new_root(newroot: &str) -> Result<()> {
     move_pseudo_mounts(newroot).context("moving pseudo mounts failed")?;
@@ -28,10 +30,10 @@ pub(crate) fn exec_init(env: &[(&str, &str)]) -> Result<()> {
 
 /// Moves pseudo-filesystem mounts from the initramfs into the new root.
 fn move_pseudo_mounts(newroot: &str) -> Result<()> {
-    for mnt in &["/dev", "/proc", "/sys", "/run"] {
+    for mnt in mount::CORE {
         let target = format!("{newroot}{mnt}");
 
-        mount_move(*mnt, target.as_str())
+        mount_move(mnt, target.as_str())
             .with_context(|| format!("Failed to move mount {mnt} to {target}"))?;
     }
 
@@ -47,7 +49,7 @@ fn free_ramfs_at(root: &Path) -> Result<()> {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
-        if matches!(name_str.as_ref(), "dev" | "proc" | "sys" | "run") {
+        if is_core_mount(&name_str) {
             continue;
         }
 
@@ -59,6 +61,13 @@ fn free_ramfs_at(root: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Returns true when `name` is the last path component of a core pseudo mount.
+fn is_core_mount(name: &str) -> bool {
+    mount::CORE
+        .iter()
+        .any(|core| core.trim_start_matches('/') == name)
 }
 
 /// Finds the init binary in the new root filesystem.
@@ -90,10 +99,9 @@ mod tests {
         // ARRANGE
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        std::fs::create_dir_all(temp.path().join("dev")).unwrap();
-        std::fs::create_dir_all(temp.path().join("proc")).unwrap();
-        std::fs::create_dir_all(temp.path().join("sys")).unwrap();
-        std::fs::create_dir_all(temp.path().join("run")).unwrap();
+        for core in mount::CORE {
+            std::fs::create_dir_all(temp.path().join(core.trim_start_matches('/'))).unwrap();
+        }
         std::fs::create_dir_all(temp.path().join("old")).unwrap();
         std::fs::create_dir_all(temp.path().join("tmp")).unwrap();
         std::fs::write(temp.path().join("init"), b"#!/bin/sh").unwrap();
@@ -103,13 +111,12 @@ mod tests {
         free_ramfs_at(temp.path()).expect("Failed to free ramfs");
 
         // ASSERT
-        assert!(temp.path().join("dev").exists(), "/dev should be preserved");
-        assert!(
-            temp.path().join("proc").exists(),
-            "/proc should be preserved"
-        );
-        assert!(temp.path().join("sys").exists(), "/sys should be preserved");
-        assert!(temp.path().join("run").exists(), "/run should be preserved");
+        for core in mount::CORE {
+            assert!(
+                temp.path().join(core.trim_start_matches('/')).exists(),
+                "{core} should be preserved"
+            );
+        }
         assert!(
             !temp.path().join("old").exists(),
             "Regular directory /old should be deleted"

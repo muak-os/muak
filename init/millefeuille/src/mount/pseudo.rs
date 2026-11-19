@@ -77,6 +77,9 @@ const FS: &[Fs] = &[
     },
 ];
 
+/// Top-level pseudo mounts that follow the root switch and survive ramfs cleanup.
+pub(crate) const CORE: [&str; 4] = ["/dev", "/proc", "/sys", "/run"];
+
 /// Boot policy for a pseudo filesystem mount.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Required {
@@ -136,10 +139,26 @@ mod tests {
     use super::{FS, Required};
 
     #[cfg(feature = "selinux")]
-    const CORE: [&str; 5] = ["/dev", "/proc", "/sys", "/run", "/sys/fs/selinux"];
+    const FATAL: [&str; 5] = ["/dev", "/proc", "/sys", "/run", "/sys/fs/selinux"];
 
     #[cfg(not(feature = "selinux"))]
-    const CORE: [&str; 4] = ["/dev", "/proc", "/sys", "/run"];
+    const FATAL: [&str; 4] = ["/dev", "/proc", "/sys", "/run"];
+
+    #[test]
+    fn core_mounts_lead_the_table() {
+        // ARRANGE
+        let leading: Vec<&str> = FS
+            .iter()
+            .take(super::CORE.len())
+            .map(|entry| entry.target)
+            .collect();
+
+        // ACT
+        let core_leads = leading == super::CORE;
+
+        // ASSERT
+        assert!(core_leads, "core mounts must open the table: {leading:?}");
+    }
 
     #[test]
     fn targets_are_unique() {
@@ -173,14 +192,14 @@ mod tests {
         let fatal_leads = fatal == leading;
 
         // ASSERT
-        assert_eq!(fatal, CORE);
+        assert_eq!(fatal, FATAL);
         assert!(fatal_leads);
     }
 
     #[test]
     fn entries_after_the_fatal_block_are_optional() {
         // ARRANGE
-        let trailing = FS.iter().skip(CORE.len());
+        let trailing = FS.iter().skip(FATAL.len());
 
         // ACT
         let all_optional = trailing
@@ -189,6 +208,6 @@ mod tests {
 
         // ASSERT
         assert!(all_optional);
-        assert_eq!(trailing.count(), FS.len() - CORE.len());
+        assert_eq!(trailing.count(), FS.len() - FATAL.len());
     }
 }
