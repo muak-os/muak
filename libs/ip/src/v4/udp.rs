@@ -13,9 +13,6 @@ const PROTOCOL_UDP: u8 = 17;
 
 /// Writes an IPv4 header, a UDP header and `payload` into `buf`.
 ///
-/// Returns the written region, which starts at the IPv4 header. A computed UDP checksum of zero is
-/// written as `0xFFFF`, because zero means "no checksum" on the wire.
-///
 /// # Errors
 ///
 /// Returns [`Failure::TooSmall`] when `buf` cannot hold both headers and the payload, and
@@ -35,8 +32,6 @@ pub fn wrap<'a>(payload: &[u8], src: Addr, dst: Addr, buf: &'a mut [u8]) -> Resu
 }
 
 /// Parses the IPv4 and UDP headers of `buf`.
-///
-/// Returns the source endpoint, the destination endpoint and the UDP payload slice.
 ///
 /// # Errors
 ///

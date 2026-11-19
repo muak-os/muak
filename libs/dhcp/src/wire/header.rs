@@ -13,8 +13,6 @@ pub(crate) const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len(
 
 /// Writes the fixed header and magic cookie with the broadcast flag set.
 ///
-/// Returns the written prefix of `buf`.
-///
 /// # Errors
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
@@ -24,8 +22,6 @@ pub(crate) fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]>
 }
 
 /// Writes the fixed header and magic cookie with the broadcast flag cleared.
-///
-/// Returns the written prefix of `buf`.
 ///
 /// # Errors
 ///
@@ -162,7 +158,6 @@ mod tests {
     fn build_clears_reused_buffer() {
         // ARRANGE
         let mut buf = [0xAA_u8; 300];
-        // `secs` (8..10), `ciaddr` (12..16) and `yiaddr` (16..20) are never written explicitly.
         let secs = 8..10;
         let ciaddr = 12..16;
         let yiaddr = 16..20;

@@ -28,8 +28,6 @@ pub struct Header {
 
 /// Writes a 20 byte IPv4 header at the start of `buf` and returns it.
 ///
-/// The checksum is computed over the written header, so the caller does not have to.
-///
 /// # Errors
 ///
 /// Returns [`Failure::TooSmall`] when `buf` cannot hold a header and
@@ -88,8 +86,6 @@ pub fn build(
 }
 
 /// Parses the IPv4 header at the start of `buf`.
-///
-/// The protocol field is reported as is, so the caller decides which protocols it accepts.
 ///
 /// # Errors
 ///

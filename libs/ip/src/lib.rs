@@ -1,7 +1,4 @@
 //! IPv4 and UDP header construction and parsing.
-//!
-//! Frames are written into caller supplied buffers and parsed from borrowed slices, so neither
-//! direction allocates.
 
 #![warn(missing_docs)]
 
@@ -16,8 +13,6 @@ use thiserror::Error;
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum Failure {
     /// Buffer is shorter than the structure it must hold.
-    ///
-    /// Carries the available and the required byte count.
     #[error("truncated buffer: {0} bytes available, {1} bytes required")]
     Truncated(usize, usize),
     /// IPv4 IHL field declares a header that does not fit the buffer.
@@ -30,8 +25,6 @@ pub enum Failure {
     #[error("length {0} overflows its length field")]
     LengthOverflow(usize),
     /// Caller supplied buffer cannot hold the requested frame.
-    ///
-    /// Carries the required byte count.
     #[error("buffer too small: {0} bytes required")]
     TooSmall(usize),
 }

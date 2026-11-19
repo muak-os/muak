@@ -1,18 +1,12 @@
 //! Internet checksum helpers, as defined by RFC 1071.
 
 /// Computes the 16 bit one's complement checksum of `data`.
-///
-/// A trailing odd byte is treated as the high half of a word whose low half is zero. The
-/// accumulator is a `u32` of 16 bit words, so the result stays exact for any input under about
-/// 131070 bytes, which covers any IPv4 datagram.
 #[must_use = "callers need the checksum"]
 pub fn sum(data: &[u8]) -> u16 {
     finish(accumulate(0, data))
 }
 
 /// Adds the big-endian 16 bit words of `data` to `sum`.
-///
-/// Splitting the work lets a pseudo header and a segment be summed without joining them.
 #[must_use = "callers need the accumulated sum"]
 pub(crate) fn accumulate(sum: u32, data: &[u8]) -> u32 {
     let mut total = sum;

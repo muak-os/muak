@@ -30,8 +30,6 @@ pub(crate) enum Mode {
 
 /// Writes a DHCP DISCOVER message into `buf`.
 ///
-/// Returns the written prefix of `buf`.
-///
 /// # Errors
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the
@@ -59,8 +57,6 @@ pub(crate) fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u
 }
 
 /// Writes a DHCP REQUEST message into `buf`.
-///
-/// Returns the written prefix of `buf`.
 ///
 /// # Errors
 ///
@@ -113,8 +109,6 @@ pub(crate) fn request(
 }
 
 /// Writes the parameter request list option at `cursor` in `buf`.
-///
-/// Returns the cursor position after the option.
 ///
 /// # Errors
 ///
