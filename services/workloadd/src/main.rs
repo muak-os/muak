@@ -69,8 +69,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     create_dir_all(persistence::VMS_DIR).await?;
 
-    let (connection, netlink_handle, _) = rtnetlink::new_connection()?;
-    tokio::spawn(connection);
+    let rtnl = netlink::Rtnl::connect()?;
 
     let bridge_name = config::system::network()
         .context("Failed to load network configuration")?
@@ -84,7 +83,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .context("Failed to load VM configuration")?
         .auto_restart;
 
-    let vm_handle = start_vm_actor(netlink_handle, bridge_name, kvm_available, auto_restart).await;
+    let vm_handle = start_vm_actor(rtnl, bridge_name, kvm_available, auto_restart).await;
 
     let stream = UnixListenerStream::new(socket()?);
 

@@ -4,7 +4,7 @@ use anyhow::Result;
 use dhcp::Scratch;
 use dhcp::connector::Connector;
 use dhcp::lease::Lease;
-use netlib::netlink::Ops;
+use netdev::Ops;
 
 use super::{Actor, commit, do_full_dora};
 use crate::interface::lifecycle::DhcpState;

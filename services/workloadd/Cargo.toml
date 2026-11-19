@@ -32,10 +32,8 @@ config = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 mac = { workspace = true }
-netlib = { workspace = true }
-
-# Networking
-rtnetlink = { workspace = true }
+netlink = { workspace = true }
+tap = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }

@@ -7,8 +7,7 @@ use rtnetlink::packet_route::link::BridgeStpState;
 use rtnetlink::{Handle, LinkBridge};
 use thiserror::Error;
 
-use crate::netlink::Rtnl;
-use crate::{address, link, retry, route};
+use crate::{Rtnl, address, link, retry, route};
 
 /// Number of attempts to check for bridge creation before giving up.
 const CREATE_RETRIES: u8 = 30;

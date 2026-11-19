@@ -6,7 +6,8 @@ use anyhow::bail;
 use btrfs::quota::{DiskUsage, get_usage, set};
 use btrfs::subvolume::{create, delete, list};
 use mac::{format as format_mac, generate as generate_mac};
-use netlib::tap::{remove as net_remove_tap, setup_on_bridge};
+use netlink::Rtnl;
+use tap::{remove as net_remove_tap, setup_on_bridge};
 use tokio::fs::{read_to_string, write};
 use tokio::sync::mpsc;
 
@@ -30,7 +31,7 @@ struct TapDevice {
 }
 
 pub(super) struct VmActor {
-    netlink_handle: rtnetlink::Handle,
+    rtnl: Rtnl,
     bridge_name: String,
     vms: HashMap<String, VmEntry>,
     pending_restarts: Vec<String>,
@@ -153,7 +154,7 @@ impl From<DiskUsage> for ProtoDiskUsage {
 
 impl VmActor {
     pub(super) fn new(
-        netlink_handle: rtnetlink::Handle,
+        rtnl: Rtnl,
         bridge_name: String,
         kvm_available: bool,
         auto_restart: bool,
@@ -162,7 +163,7 @@ impl VmActor {
         Self::cleanup_orphaned_disks(&vms);
 
         Self {
-            netlink_handle,
+            rtnl,
             bridge_name,
             vms,
             pending_restarts,
@@ -332,7 +333,7 @@ impl VmActor {
             "tap-{}",
             vm_id.get(..8.min(vm_id.len())).unwrap_or_default()
         );
-        setup_on_bridge(&self.netlink_handle, &tap_name, &self.bridge_name).await?;
+        setup_on_bridge(&self.rtnl, &tap_name, &self.bridge_name).await?;
         let mac = generate_mac(vm_id);
         let tap = TapDevice {
             name: tap_name,
@@ -399,7 +400,7 @@ impl VmActor {
                 let tap_name = entry.tap_device.take().map(|tap| tap.name);
                 entry.state = VmState::Created;
                 save_vm(vm_id, &entry.to_persisted())?;
-                cleanup_tap_on_err(&self.netlink_handle, tap_name).await;
+                cleanup_tap_on_err(&self.rtnl, tap_name).await;
                 Err(e)
             }
         }
@@ -430,7 +431,7 @@ impl VmActor {
             entry.state = VmState::Stopped;
             entry.pid = None;
             save_vm(vm_id, &entry.to_persisted())?;
-            remove_tap(&self.netlink_handle, &tap_name).await;
+            remove_tap(&self.rtnl, &tap_name).await;
             return Ok(());
         }
 
@@ -565,15 +566,15 @@ fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> anyhow::Resu
     }
 }
 
-async fn remove_tap(handle: &rtnetlink::Handle, tap_name: &str) {
-    if let Err(e) = net_remove_tap(handle, tap_name).await {
+async fn remove_tap(rtnl: &Rtnl, tap_name: &str) {
+    if let Err(e) = net_remove_tap(rtnl, tap_name).await {
         eprintln!("Failed to delete TAP device {tap_name}: {e}");
     }
 }
 
-async fn cleanup_tap_on_err(handle: &rtnetlink::Handle, tap_name: Option<String>) {
+async fn cleanup_tap_on_err(rtnl: &Rtnl, tap_name: Option<String>) {
     if let Some(name) = tap_name {
-        remove_tap(handle, &name).await;
+        remove_tap(rtnl, &name).await;
     }
 }
 

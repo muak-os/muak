@@ -74,8 +74,7 @@ impl fmt::Display for DhcpState {
 
 #[cfg(test)]
 mod tests {
-    use netlib::interface::Name;
-    use netlib::link::State;
+    use netlink::link::{Name, State};
 
     use super::*;
     use crate::interface::snapshot::Snapshot;

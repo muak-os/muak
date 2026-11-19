@@ -8,7 +8,7 @@ use rtnetlink::packet_route::address::AddressAttribute;
 use thiserror::Error;
 use tokio_stream::StreamExt as _;
 
-use crate::netlink::Rtnl;
+use crate::Rtnl;
 
 /// Address management failure conditions.
 #[derive(Debug, Error)]
@@ -62,7 +62,6 @@ pub struct Ipv6Config {
 /// Trait covering all address-layer netlink operations.
 pub trait Ops: Clone + Send + Sync + 'static {
     /// Adds or confirms an IPv4 address on an interface.
-    /// Adds an IPv4 address to an interface.
     fn add_ipv4(
         &self,
         index: u32,

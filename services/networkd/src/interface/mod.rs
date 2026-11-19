@@ -19,7 +19,7 @@ use config::system::network;
 use dhcp::manager::Manager;
 use dhcp::timers::LeaseTimers;
 use lifecycle::Lifecycle;
-use netlib::netlink::Ops;
+use netdev::Ops;
 use snapshot::Snapshot;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;

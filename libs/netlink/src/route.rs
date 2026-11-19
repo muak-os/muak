@@ -8,7 +8,7 @@ use rtnetlink::{Handle, RouteMessageBuilder};
 use thiserror::Error;
 use tokio_stream::StreamExt as _;
 
-use crate::netlink::Rtnl;
+use crate::Rtnl;
 
 /// Route operation failures.
 #[derive(Debug, Error)]

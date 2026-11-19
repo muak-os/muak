@@ -10,7 +10,7 @@ use anyhow::Result;
 use dhcp::Scratch;
 use dhcp::connector::Connector;
 use dhcp::lease::Lease;
-use netlib::netlink::Ops;
+use netdev::Ops;
 
 use super::Actor;
 use crate::interface::commands::ApplyMode;

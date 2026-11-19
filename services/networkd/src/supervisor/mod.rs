@@ -17,9 +17,10 @@ use std::collections::HashMap;
 use anyhow::Result;
 use commands::SupervisorCommand;
 use config::system::network;
-use netlib::interface::Name;
+use netdev::Ops;
 use netlib::monitor::{self, Event};
-use netlib::netlink::{Ops, Rtnl};
+use netlink::Rtnl;
+use netlink::link::Name;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, interval, sleep};
 
@@ -243,10 +244,7 @@ impl NetworkActorHandle {
 ///
 /// Returns an error if the rtnetlink connection cannot be established.
 pub fn start() -> Result<NetworkActorHandle> {
-    let (connection, handle, _) = rtnetlink::new_connection()?;
-    tokio::spawn(connection);
-
-    let ops = Rtnl::new(handle);
+    let ops = Rtnl::connect()?;
     let event_rx = start_events_monitor();
     let config = Arc::new(network()?.clone());
 

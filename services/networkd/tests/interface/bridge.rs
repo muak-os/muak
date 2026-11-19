@@ -6,8 +6,8 @@ use std::time::SystemTime;
 
 use ::dhcp::lease::Lease;
 use config::system::network;
-use netlib::address::IpConfig;
-use netlib::link::State;
+use netlink::address::IpConfig;
+use netlink::link::State;
 use networkd::interface::commands::ApplyMode;
 use networkd::interface::lifecycle::DhcpState;
 use tokio::sync::oneshot;
