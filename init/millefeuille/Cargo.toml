@@ -13,6 +13,10 @@ categories.workspace = true
 name = "init"
 path = "src/main.rs"
 
+[features]
+default = ["selinux"]
+selinux = []
+
 [dependencies]
 # Error handling
 anyhow = { workspace = true }

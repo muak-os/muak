@@ -44,6 +44,7 @@ const FS: &[Fs] = &[
         data: Some(c"mode=0755"),
         required: Required::Fatal,
     },
+    #[cfg(feature = "selinux")]
     Fs {
         target: "/sys/fs/selinux",
         source: "selinuxfs",
@@ -134,7 +135,11 @@ fn create_and_mount(entry: &Fs) -> Result<()> {
 mod tests {
     use super::{FS, Required};
 
+    #[cfg(feature = "selinux")]
     const CORE: [&str; 5] = ["/dev", "/proc", "/sys", "/run", "/sys/fs/selinux"];
+
+    #[cfg(not(feature = "selinux"))]
+    const CORE: [&str; 4] = ["/dev", "/proc", "/sys", "/run"];
 
     #[test]
     fn targets_are_unique() {
