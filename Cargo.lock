@@ -1429,7 +1429,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "getrandom 0.4.3",
+ "dhcp",
  "granola",
  "kmsg",
  "libc",

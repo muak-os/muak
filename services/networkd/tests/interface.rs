@@ -10,15 +10,14 @@ use std::collections::{HashMap, HashSet};
 use std::os::fd::{FromRawFd as _, IntoRawFd as _, OwnedFd};
 use std::sync::{Mutex, MutexGuard};
 
-use anyhow::Result;
 use config::system::network;
+use dhcp::connector::Connector;
 use netlib::interface::{Ethernet, Name};
 use netlib::link::{Failure, State};
 use netlib::{address, bridge, interface as net_iface, link, netlink, route};
-use networkd::dhcp::client::DhcpConnector;
 use networkd::interface::commands::Command;
+use networkd::interface::lifecycle::Lifecycle;
 use networkd::interface::snapshot::Snapshot;
-use networkd::interface::state::Lifecycle;
 use networkd::interface::{Actor, ActorHandle};
 use packet::raw::Socket;
 use tokio::net::UdpSocket;
@@ -28,8 +27,8 @@ use tokio::time::timeout;
 #[derive(Clone, Default)]
 struct MockDhcpConnector;
 
-impl DhcpConnector for MockDhcpConnector {
-    async fn create_raw(&self, _interface: &str) -> Result<Socket> {
+impl Connector for MockDhcpConnector {
+    async fn create_raw(&self, _interface: &str) -> dhcp::Result<Socket> {
         let udp = UdpSocket::bind("127.0.0.1:0").await?;
         let std_udp = udp.into_std()?;
         std_udp.set_nonblocking(true)?;
@@ -39,7 +38,7 @@ impl DhcpConnector for MockDhcpConnector {
         Ok(Socket::from_fd(fd, 0)?)
     }
 
-    async fn create_unicast(&self, _interface: &str, _src_ip: Ipv4Addr) -> Result<UdpSocket> {
+    async fn create_unicast(&self, _interface: &str, _src_ip: Ipv4Addr) -> dhcp::Result<UdpSocket> {
         Ok(UdpSocket::bind("127.0.0.1:0").await?)
     }
 }

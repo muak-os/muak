@@ -8,8 +8,8 @@ use packet::mac::format as format_mac;
 
 use super::{NetworkSupervisor, failover};
 use crate::interface::commands::Command;
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 
 /// Dispatches a netlink event to the appropriate handler.
 pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, event: Event) {

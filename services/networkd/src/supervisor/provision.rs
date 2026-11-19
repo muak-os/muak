@@ -14,8 +14,8 @@ use tokio::sync::{oneshot, watch};
 use super::NetworkSupervisor;
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 
 /// Applies declarative interface configuration from the config file.
 pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
