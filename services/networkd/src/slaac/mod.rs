@@ -5,8 +5,8 @@ mod state;
 
 use std::os::fd::{AsFd, AsRawFd as _};
 
+use ::slaac::icmpv6::ROUTER_ADVERTISEMENT;
 use anyhow::{Result, bail};
-pub(crate) use netlib::slaac::icmpv6::ICMPV6_ROUTER_ADVERTISEMENT;
 
 /// `ICMPv6` router-advertisement type for the raw socket filter.
 pub(crate) const ICMP6_FILTER: libc::c_int = 1;
@@ -20,7 +20,7 @@ pub(crate) fn create_icmpv6_filter() -> Icmp6Filter {
     let mut filter = Icmp6Filter {
         data: [0xFFFF_FFFF; 8],
     };
-    let ra_type = usize::from(ICMPV6_ROUTER_ADVERTISEMENT);
+    let ra_type = usize::from(ROUTER_ADVERTISEMENT);
     let word = ra_type >> 5_usize;
     let bit = ra_type & 31;
     if let Some(word_ref) = filter.data.get_mut(word) {
@@ -56,7 +56,7 @@ mod tests {
     fn create_icmpv6_filter_passes_ra() {
         // ARRANGE / ACT
         let filter = create_icmpv6_filter();
-        let ra_type = usize::from(ICMPV6_ROUTER_ADVERTISEMENT);
+        let ra_type = usize::from(ROUTER_ADVERTISEMENT);
         let word = filter.data.get(ra_type >> 5_usize).copied().unwrap_or(0);
         let bit = word & (1 << (ra_type & 31));
 
@@ -73,7 +73,7 @@ mod tests {
         let icmp_types = [0_u8, 1, 128, 129, 133, 135, 136];
         for icmp_type in icmp_types
             .into_iter()
-            .filter(|icmp| *icmp != ICMPV6_ROUTER_ADVERTISEMENT)
+            .filter(|icmp| *icmp != ROUTER_ADVERTISEMENT)
         {
             let idx = usize::from(icmp_type);
             let word = filter.data.get(idx >> 5_usize).copied().unwrap_or(0);

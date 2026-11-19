@@ -1,15 +1,10 @@
-//! `ICMPv6` packet construction and parsing for stateless address autoconfiguration (RFC 4861).
+//! Parsing of `ICMPv6` Router Advertisements into structured prefix, DNS and flag data.
 
 use core::net::Ipv6Addr;
 
-use thiserror::Error;
+use super::ROUTER_ADVERTISEMENT;
+use super::types::{Failure, PrefixInfo, Result, RouterAdvertisement};
 
-/// `ICMPv6` Router Solicitation type code.
-pub const ICMPV6_ROUTER_SOLICITATION: u8 = 133;
-/// `ICMPv6` Router Advertisement type code.
-pub const ICMPV6_ROUTER_ADVERTISEMENT: u8 = 134;
-
-const ND_OPT_SOURCE_LL_ADDR: u8 = 1;
 const ND_OPT_PREFIX_INFO: u8 = 3;
 const ND_OPT_RDNSS: u8 = 25;
 
@@ -21,87 +16,19 @@ const RDNSS_OPTION_MIN_LEN: usize = 24;
 const RDNSS_ADDRESS_OFFSET: usize = 8;
 const IPV6_ADDR_LEN: usize = 16;
 
-/// Prefix information from a Router Advertisement option.
-#[derive(Debug, Clone)]
-pub struct PrefixInfo {
-    /// IPv6 prefix.
-    pub prefix: Ipv6Addr,
-    /// Prefix length in bits.
-    pub prefix_len: u8,
-    /// Whether autonomous address configuration is enabled.
-    pub autonomous: bool,
-    /// Valid lifetime in seconds.
-    pub valid_lifetime: u32,
-    /// Preferred lifetime in seconds.
-    pub preferred_lifetime: u32,
-}
-
-/// Parsed Router Advertisement message.
-#[derive(Debug, Clone)]
-pub struct RouterAdvertisement {
-    /// Hop limit value.
-    pub hop_limit: u8,
-    /// Managed address configuration flag.
-    pub managed_flag: bool,
-    /// Other configuration flag.
-    pub other_flag: bool,
-    /// Router lifetime in seconds.
-    pub router_lifetime: u16,
-    /// Source IPv6 address of the router.
-    pub source: Ipv6Addr,
-    /// Prefix information options.
-    pub prefixes: Vec<PrefixInfo>,
-    /// Recursive DNS server addresses.
-    pub dns_servers: Vec<Ipv6Addr>,
-    /// DNS server lifetime in seconds.
-    pub dns_lifetime: u32,
-}
-
-/// `ICMPv6` parsing failures.
-#[derive(Debug, Error)]
-pub enum Failure {
-    /// RA packet is too short.
-    #[error("RA too short: {0} bytes")]
-    TooShort(usize),
-    /// Packet is not a Router Advertisement.
-    #[error("not a Router Advertisement: type={0}")]
-    WrongType(u8),
-}
-
-/// `ICMPv6` parsing result type.
-pub type Result<T> = core::result::Result<T, Failure>;
-
-/// Constructs an `ICMPv6` Router Solicitation packet with a source link-layer address option.
-#[must_use = "dropping it means no solicitation is sent"]
-pub fn build_router_solicitation(mac: &[u8; 6]) -> Vec<u8> {
-    let mut pkt = Vec::with_capacity(16);
-
-    pkt.push(ICMPV6_ROUTER_SOLICITATION);
-    pkt.push(0);
-    pkt.extend([0, 0]);
-
-    pkt.extend([0, 0, 0, 0]);
-
-    pkt.push(ND_OPT_SOURCE_LL_ADDR);
-    pkt.push(1);
-    pkt.extend(mac);
-
-    pkt
-}
-
 /// Parses a raw `ICMPv6` Router Advertisement into structured prefix, DNS and flag data.
 ///
 /// # Errors
 ///
 /// Returns [`Failure::TooShort`] when the packet is shorter than the RA header and
 /// [`Failure::WrongType`] when the packet is not a Router Advertisement.
-pub fn parse_router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<RouterAdvertisement> {
+pub fn router_advertisement(data: &[u8], source: Ipv6Addr) -> Result<RouterAdvertisement> {
     if data.len() < RA_HEADER_LEN {
         return Err(Failure::TooShort(data.len()));
     }
 
     let packet_type = read_u8(data, 0).ok_or(Failure::TooShort(data.len()))?;
-    if packet_type != ICMPV6_ROUTER_ADVERTISEMENT {
+    if packet_type != ROUTER_ADVERTISEMENT {
         return Err(Failure::WrongType(packet_type));
     }
 
@@ -221,10 +148,11 @@ fn read_array<const N: usize>(data: &[u8], offset: usize) -> Option<[u8; N]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::icmpv6::ROUTER_SOLICITATION;
 
     fn make_ra_base(hop_limit: u8, flags: u8, router_lifetime: u16) -> Vec<u8> {
         let mut data = Vec::with_capacity(RA_HEADER_LEN);
-        data.extend([ICMPV6_ROUTER_ADVERTISEMENT, 0, 0, 0, hop_limit, flags]);
+        data.extend([ROUTER_ADVERTISEMENT, 0, 0, 0, hop_limit, flags]);
         data.extend(router_lifetime.to_be_bytes());
         data.extend([0_u8; 8]);
         data
@@ -265,55 +193,13 @@ mod tests {
     }
 
     #[test]
-    fn build_router_solicitation_structure() {
-        // ARRANGE
-        let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
-
-        // ACT
-        let pkt = build_router_solicitation(&mac);
-
-        // ASSERT
-        let expected = [
-            ICMPV6_ROUTER_SOLICITATION,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            ND_OPT_SOURCE_LL_ADDR,
-            1,
-            0xaa,
-            0xbb,
-            0xcc,
-            0xdd,
-            0xee,
-            0xff,
-        ];
-        assert_eq!(pkt.as_slice(), expected.as_slice());
-    }
-
-    #[test]
-    fn build_router_solicitation_length() {
-        // ARRANGE
-        let mac = [0; 6];
-
-        // ACT
-        let pkt = build_router_solicitation(&mac);
-
-        // ASSERT
-        assert_eq!(pkt.len(), 16);
-    }
-
-    #[test]
     fn parse_ra_minimal() {
         // ARRANGE
         let data = make_ra_base(64, 0xC0, 1800);
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.hop_limit, 64);
@@ -332,7 +218,7 @@ mod tests {
         let source = "fe80::2".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(ra.managed_flag);
@@ -346,7 +232,7 @@ mod tests {
         let source = "fe80::2".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(!ra.managed_flag);
@@ -360,7 +246,7 @@ mod tests {
         let source = "fe80::2".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(!ra.managed_flag);
@@ -370,22 +256,22 @@ mod tests {
     #[test]
     fn parse_ra_too_short() {
         // ARRANGE
-        let data = vec![ICMPV6_ROUTER_ADVERTISEMENT, 0, 0, 0];
+        let data = vec![ROUTER_ADVERTISEMENT, 0, 0, 0];
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT / ASSERT
-        parse_router_advertisement(&data, source).unwrap_err();
+        router_advertisement(&data, source).unwrap_err();
     }
 
     #[test]
     fn parse_ra_wrong_type() {
         // ARRANGE
         let mut data = make_ra_base(0, 0, 0);
-        *data.first_mut().expect("RA header should have type") = ICMPV6_ROUTER_SOLICITATION;
+        *data.first_mut().expect("RA header should have type") = ROUTER_SOLICITATION;
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT / ASSERT
-        parse_router_advertisement(&data, source).unwrap_err();
+        router_advertisement(&data, source).unwrap_err();
     }
 
     #[test]
@@ -397,7 +283,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
@@ -418,7 +304,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
@@ -450,7 +336,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 2);
@@ -466,7 +352,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.dns_servers.as_slice(), &[dns1, dns2]);
@@ -490,7 +376,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
@@ -508,7 +394,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert!(ra.prefixes.is_empty());
@@ -532,7 +418,7 @@ mod tests {
         let source = "fe80::1".parse().expect("valid address");
 
         // ACT
-        let ra = parse_router_advertisement(&data, source).expect("should parse");
+        let ra = router_advertisement(&data, source).expect("should parse");
 
         // ASSERT
         assert_eq!(ra.prefixes.len(), 1);
