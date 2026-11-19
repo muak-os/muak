@@ -47,6 +47,7 @@ members = [
     "libs/oci-client",
     "libs/packet",
     "libs/sandbox",
+    "libs/slaac",
     "libs/uki",
 ]
 resolver = "3"
@@ -97,6 +98,7 @@ parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
+slaac = { path = "libs/slaac" }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 uki = { path = "libs/uki" }

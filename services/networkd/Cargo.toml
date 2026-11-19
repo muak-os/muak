@@ -23,6 +23,7 @@ kmsg = { workspace = true }
 config = { workspace = true }
 netlib = { workspace = true }
 packet = { workspace = true }
+slaac = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }

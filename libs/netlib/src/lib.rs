@@ -12,5 +12,4 @@ pub mod monitor;
 pub mod netlink;
 pub mod retry;
 pub mod route;
-pub mod slaac;
 pub mod tap;
