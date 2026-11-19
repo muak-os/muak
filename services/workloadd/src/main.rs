@@ -2,6 +2,7 @@
 
 mod actor;
 mod disk;
+mod fleet;
 mod hypervisor;
 mod ipc;
 mod persistence;
@@ -37,6 +38,7 @@ pub mod proto {
 
 use actor::start_vm_actor;
 use anyhow::{Context as _, Result};
+use config::system::fleet::Config as FleetConfig;
 use config::system::network::InterfaceKind;
 use granola::runtime::notify::Health;
 use granola::runtime::signal::shutdown;
@@ -89,6 +91,17 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.ready()?;
 
+    let fleet_handle = match config::system::config()?.fleet.as_ref() {
+        Some(&FleetConfig::Agent {
+            report_interval_secs,
+            ..
+        }) => Some(tokio::spawn(fleet::publish(
+            vm_handle.clone(),
+            config::system::host()?.name.clone(),
+            report_interval_secs,
+        ))),
+        _ => None,
+    };
     let service = VmServiceImpl::new(vm_handle);
 
     let mut sigchld = signal(SignalKind::child())?;
@@ -113,6 +126,9 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     disk::scrub::shutdown();
     sigchld_handle.abort();
     scrub_handle.abort();
+    if let Some(handle) = fleet_handle {
+        handle.abort();
+    }
 
     Ok(())
 }

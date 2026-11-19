@@ -30,6 +30,9 @@ use std::{env, fs};
 /// Valid permission strings that map to Permission enum variants.
 const VALID_PERMISSIONS: &[(&str, &str)] = &[
     ("admin", "Admin"),
+    ("fleet:read", "FleetRead"),
+    ("fleet:report", "FleetReport"),
+    ("fleet:manage", "FleetManage"),
     ("vm:read", "VmRead"),
     ("vm:create", "VmCreate"),
     ("vm:start", "VmStart"),
@@ -75,6 +78,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let proto_dir = Path::new(&manifest_dir).join("../../api");
     let proto_files = [
         "auth.proto",
+        "fleet.proto",
         "vm.proto",
         "provision.proto",
         "process.proto",

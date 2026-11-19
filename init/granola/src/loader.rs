@@ -415,9 +415,10 @@ capabilities = ["chown", "chownn"]
         for path in &paths {
             assert_sandboxed(path);
         }
+        assert_sandboxed(&root.join("fleetd/package/fleetd.service"));
 
         // ASSERT
-        assert_eq!(paths.len(), 7, "expected seven shipped service files");
+        assert_eq!(paths.len(), 7, "expected seven base service files");
     }
 
     #[test]

@@ -6,7 +6,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 /// Known permission categories that support wildcards.
-const CATEGORIES: &[&str] = &["vm", "system", "auth", "process", "security"];
+const CATEGORIES: &[&str] = &["vm", "system", "auth", "process", "security", "fleet"];
 
 /// Fine-grained permissions for RBAC.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -63,6 +63,16 @@ pub enum Permission {
     /// Read security events and audit logs.
     #[serde(rename = "security:read")]
     SecurityRead,
+
+    /// Consult fleet inventory.
+    #[serde(rename = "fleet:read")]
+    FleetRead,
+    /// Publish inventory using a separately approved node identity.
+    #[serde(rename = "fleet:report")]
+    FleetReport,
+    /// Approve, revoke and rotate node registrations.
+    #[serde(rename = "fleet:manage")]
+    FleetManage,
 }
 
 impl std::fmt::Display for Permission {
@@ -80,6 +90,9 @@ impl std::fmt::Display for Permission {
             Self::SystemUpdate => "system:update",
             Self::ProcessRead => "process:read",
             Self::SecurityRead => "security:read",
+            Self::FleetRead => "fleet:read",
+            Self::FleetReport => "fleet:report",
+            Self::FleetManage => "fleet:manage",
         };
         write!(f, "{text}")
     }
@@ -102,6 +115,9 @@ impl FromStr for Permission {
             "system:update" => Ok(Self::SystemUpdate),
             "process:read" => Ok(Self::ProcessRead),
             "security:read" => Ok(Self::SecurityRead),
+            "fleet:read" => Ok(Self::FleetRead),
+            "fleet:report" => Ok(Self::FleetReport),
+            "fleet:manage" => Ok(Self::FleetManage),
             _ => Err(format!("Unknown permission: {s}")),
         }
     }
@@ -124,6 +140,11 @@ impl Permission {
             "auth" => &[Permission::AuthManage],
             "process" => &[Permission::ProcessRead],
             "security" => &[Permission::SecurityRead],
+            "fleet" => &[
+                Permission::FleetRead,
+                Permission::FleetReport,
+                Permission::FleetManage,
+            ],
             _ => &[],
         }
     }
@@ -165,6 +186,7 @@ impl Permission {
             Self::SystemRead | Self::SystemUpdate => Some("system"),
             Self::ProcessRead => Some("process"),
             Self::SecurityRead => Some("security"),
+            Self::FleetRead | Self::FleetReport | Self::FleetManage => Some("fleet"),
         }
     }
 }

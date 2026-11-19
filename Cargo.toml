@@ -8,6 +8,7 @@ members = [
 
     "services/apid",
     "services/consoled",
+    "services/fleetd",
     "services/modd",
     "services/networkd",
     "services/provisiond",
@@ -26,6 +27,7 @@ members = [
     "libs/blockdev",
     "libs/btrfs",
     "libs/config",
+    "libs/coordination",
     "libs/dhcp",
     "libs/disk",
     "libs/esp",
@@ -41,6 +43,7 @@ members = [
     "libs/erofs",
     "libs/fatfs",
     "libs/firmware",
+    "libs/fleet-api",
     "libs/granola-macros",
     "libs/ip",
     "libs/netdev",
@@ -82,11 +85,13 @@ yuki = { path = "toolchain/yuki", default-features = false }
 blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
+coordination = { path = "libs/coordination" }
 dhcp = { path = "libs/dhcp" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }
 fatfs = { path = "libs/fatfs" }
+fleet-api = { path = "libs/fleet-api" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
 ip = { path = "libs/ip" }

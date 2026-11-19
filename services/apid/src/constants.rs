@@ -18,3 +18,8 @@ pub const AUTH_SERVICE_PREFIX: &str = "/muak.auth.v1.AuthService/";
 pub const SECURITY_SERVICE_PREFIX: &str = "/muak.security.v1.SecurityService/";
 pub const LOG_SERVICE_PREFIX: &str = "/muak.log.v1.LogService/";
 pub const VERSION_SERVICE_PREFIX: &str = "/muak.version.v1.VersionService/";
+
+/// Optional fleet backend.
+pub const FLEETD_SOCKET: &str = "/run/services/fleetd.sock";
+/// Management service only; the local inventory publisher is never routed.
+pub const FLEET_SERVICE_PREFIX: &str = "/muak.fleet.v1.FleetService/";

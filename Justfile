@@ -386,6 +386,14 @@ e2e: (build "--release" "muakctl") _ensure-fw
     printf "{{ cyan }}Running E2E tests{{ reset }}\n"
     MUAK_ARTIFACTS={{ out }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run {{ target }} -E 'package(e2e)' --test-threads 3
 
+# Qualify fleet with three installed hosts and a real nested workload (see docs/fleet-inventory.md).
+[group('test')]
+[script]
+e2e-fleet: (build "--release" "muakctl") _ensure-fw
+    : "${MUAK_FLEET_VM_KERNEL:?Set the workload kernel path; see docs/fleet-inventory.md}"
+    : "${MUAK_FLEET_VM_INITRD:?Set the workload initrd path; see docs/fleet-inventory.md}"
+    MUAK_ARTIFACTS={{ out }} MUAK_CLI=$(realpath "{{ release_dir }}/muakctl") cargo nextest run --locked --run-ignored only -E 'package(e2e) & binary(fleet)' --test-threads 1
+
 # Boot the ISO in QEMU using user-mode networking and a persistent NVMe disk
 [group('test')]
 [arg("clean", long="reset", value="true")]

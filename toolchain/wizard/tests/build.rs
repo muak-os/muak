@@ -48,6 +48,7 @@ mod tests {
         stub: FixtureImage,
         kernel: FixtureImage,
         extension: FixtureImage,
+        fleet_extension: FixtureImage,
         overlay: FixtureImage,
         overlay_layers: FixtureImage,
         overlay_unsorted: FixtureImage,
@@ -106,6 +107,7 @@ mod tests {
         warm_image(harness, "stub", "latest");
         warm_image(harness, "linux", "latest");
         warm_image(harness, "pkgs/qemu", "latest");
+        warm_image(harness, "pkgs/fleetd", "latest");
         warm_image(harness, "sbc/raspberrypi", "latest");
         warm_image(harness, "sbc/layers", "latest");
         warm_image(harness, "sbc/unsorted", "latest");
@@ -134,6 +136,7 @@ mod tests {
         install_image(routes, "stub", "latest", &images.stub);
         install_image(routes, "linux", "latest", &images.kernel);
         install_image(routes, "pkgs/qemu", "latest", &images.extension);
+        install_image(routes, "pkgs/fleetd", "latest", &images.fleet_extension);
         install_image(routes, "sbc/raspberrypi", "latest", &images.overlay);
         install_image(routes, "sbc/layers", "latest", &images.overlay_layers);
         install_image(routes, "sbc/unsorted", "latest", &images.overlay_unsorted);
@@ -146,6 +149,7 @@ mod tests {
             ("stub", &images.stub),
             ("linux", &images.kernel),
             ("pkgs/qemu", &images.extension),
+            ("pkgs/fleetd", &images.fleet_extension),
             ("sbc/raspberrypi", &images.overlay),
             ("sbc/layers", &images.overlay_layers),
             ("sbc/unsorted", &images.overlay_unsorted),
@@ -191,8 +195,16 @@ source = "muak-os/extensions"
 repository = "pkgs/qemu"
 tag = "latest"
 digest = "{qemu}"
+
+[[extensions]]
+name = "fleetd"
+source = "muak-os/extensions"
+repository = "pkgs/fleetd"
+tag = "latest"
+digest = "{fleet}"
 "#,
             qemu = sha256_digest(&images.extension.manifest),
+            fleet = sha256_digest(&images.fleet_extension.manifest),
         );
         let overlays = format!(
             r#"api_version = "muak.dev/catalog/overlays/v1"
@@ -255,6 +267,17 @@ digest = "{unsorted}"
             stub: build_image(&stub_entries(&stub)),
             kernel: build_image(&kernel_entries(&kernel)),
             extension: build_image(&extension_entries()),
+            fleet_extension: build_image(&[
+                ("sbin/fleetd", b"fixture-fleet-binary"),
+                (
+                    "etc/services/fleetd.service",
+                    include_bytes!("../../../services/fleetd/package/fleetd.service"),
+                ),
+                (
+                    ".muak/file_contexts",
+                    include_bytes!("../../../services/fleetd/package/file_contexts.conf"),
+                ),
+            ]),
             overlay: build_image(&[
                 (
                     "rpi_generic/partitions/C12A7328-F81F-11D2-BA4B-00A0C93EC93B/a.txt",
@@ -801,6 +824,33 @@ extensions = []
             contains(&initramfs, b"extensions/qemu.erofs"),
             "initramfs must carry the extension payload entry"
         );
+    }
+
+    #[test]
+    fn optional_extension_metadata_labels_payload_and_preserves_standalone_output() {
+        // ARRANGE
+        let _env = env();
+        let mut initramfs = Vec::new();
+        let profile = Profile::new(
+            None,
+            CustomizationSpec::new(vec!["fleetd".to_owned()]).expect("fleet extension"),
+            KernelSpec::new("muak-os/linux".to_owned()).expect("kernel spec"),
+        );
+        // ACT
+        request(RELEASE)
+            .arch(Arch::Amd64)
+            .artifact(Artifact::Initramfs, &mut initramfs)
+            .expect("initramfs target")
+            .build(&profile)
+            .expect("build labeled extension");
+        // ASSERT: SELinux labels are present in EROFS metadata.
+        assert!(contains(&initramfs, b"extensions/fleetd.erofs"));
+        assert!(contains(
+            &initramfs,
+            b"selinuxsystem_u:object_r:fleetd_exec_t:s0"
+        ));
+        assert!(!contains(base_initramfs(), b"extensions/fleetd.erofs"));
+        assert!(!contains(base_initramfs(), b"fleetd_exec_t"));
     }
 
     #[test]

@@ -1,0 +1,40 @@
+[package]
+name = "fleetd"
+description = "Optional outbound fleet inventory service"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+base16ct = { workspace = true }
+config = { workspace = true }
+coordination = { workspace = true }
+fleet-api = { workspace = true }
+granola = { workspace = true }
+kmsg = { workspace = true }
+pki = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["net", "sync", "time", "signal"] }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+apid = { path = "../apid" }
+der = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+tempfile = { workspace = true }
+tokio-rustls = { workspace = true }
+x509-cert = { workspace = true }
+
+[lints]
+workspace = true

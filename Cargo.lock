@@ -398,6 +398,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
+name = "coordination"
+version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "cpubits"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -694,6 +702,48 @@ dependencies = [
  "crc32fast",
  "miniz_oxide",
  "zlib-rs",
+]
+
+[[package]]
+name = "fleet-api"
+version = "0.0.0"
+dependencies = [
+ "hyper-util",
+ "prost",
+ "protox",
+ "tokio",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+]
+
+[[package]]
+name = "fleetd"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "apid",
+ "base16ct",
+ "config",
+ "coordination",
+ "der",
+ "fleet-api",
+ "granola",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "kmsg",
+ "pki",
+ "prost",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tonic",
+ "uuid",
+ "x509-cert",
 ]
 
 [[package]]
@@ -1336,12 +1386,14 @@ dependencies = [
  "anyhow",
  "clap",
  "config",
+ "fleet-api",
  "hyper",
  "hyper-util",
  "pki",
  "prost",
  "protox",
  "rustls",
+ "serde_json",
  "tempfile",
  "tokio",
  "tokio-rustls",
@@ -2989,6 +3041,7 @@ dependencies = [
  "anyhow",
  "btrfs",
  "config",
+ "fleet-api",
  "granola",
  "kmsg",
  "mac",

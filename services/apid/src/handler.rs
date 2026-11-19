@@ -23,7 +23,7 @@ pub type Body = Either<Empty<Bytes>, Incoming>;
 /// Returns an error if the request cannot be proxied to the backend.
 pub async fn handle_request(
     pool: &BackendPool,
-    req: Request<Incoming>,
+    mut req: Request<Incoming>,
     client_fingerprint: Option<Arc<str>>,
     maintenance_mode: bool,
 ) -> Result<Response<Body>> {
@@ -56,6 +56,10 @@ pub async fn handle_request(
         return grpc_error(12, "Unknown service");
     };
 
+    if path.starts_with(constants::FLEET_SERVICE_PREFIX) {
+        set_fleet_identity(&mut req, client_fingerprint.as_deref())?;
+    }
+
     match proxy::forward(pool, req, socket_path).await {
         Ok(response) => Ok(response.map(Either::Right)),
         Err(e) => {
@@ -65,9 +69,28 @@ pub async fn handle_request(
     }
 }
 
+/// Overwrites untrusted fleet metadata with the verified TLS peer identity.
+///
+/// # Errors
+///
+/// Returns an error if a supplied certificate fingerprint is not a valid header.
+pub fn set_fleet_identity<B>(req: &mut Request<B>, fingerprint: Option<&str>) -> Result<()> {
+    req.headers_mut().remove("x-muak-client-fingerprint");
+    if let Some(fingerprint) = fingerprint {
+        req.headers_mut()
+            .insert("x-muak-client-fingerprint", fingerprint.parse()?);
+    }
+    Ok(())
+}
+
 /// Routes a request path to the appropriate backend socket.
 pub async fn route_request(path: &str) -> Option<&'static str> {
-    if path.starts_with(constants::VM_SERVICE_PREFIX) {
+    if path.starts_with(constants::FLEET_SERVICE_PREFIX) {
+        if !try_exists(constants::FLEETD_SOCKET).await.unwrap_or(false) {
+            return None;
+        }
+        Some(constants::FLEETD_SOCKET)
+    } else if path.starts_with(constants::VM_SERVICE_PREFIX) {
         let socket_exists = try_exists(constants::WORKLOADD_SOCKET)
             .await
             .unwrap_or(false);

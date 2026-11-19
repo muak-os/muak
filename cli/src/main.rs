@@ -70,6 +70,11 @@ impl From<OutputFlags> for Flags {
 
 #[derive(Subcommand, Clone)]
 pub enum Commands {
+    /// Inspect or administer optional fleet inventory.
+    Fleet {
+        #[command(subcommand)]
+        action: commands::fleet::Action,
+    },
     Auth {
         #[command(subcommand)]
         action: Option<AuthAction>,
