@@ -1,6 +1,6 @@
 [package]
-name = "netlib"
-description = "A library of networking primitives and utilities"
+name = "netlink-monitor"
+description = "Netlink event monitor for network interface changes"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

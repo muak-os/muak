@@ -18,9 +18,9 @@ use anyhow::Result;
 use commands::SupervisorCommand;
 use config::system::network;
 use netdev::Ops;
-use netlib::monitor::{self, Event};
 use netlink::Rtnl;
 use netlink::link::Name;
+use netlink_monitor::{Config, Event};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, interval, sleep};
 
@@ -399,8 +399,8 @@ fn retry_delay(base: Duration, max: Duration, attempt: u32) -> Duration {
 }
 
 fn start_events_monitor() -> Option<mpsc::Receiver<Event>> {
-    let config = monitor::Config::default();
-    match monitor::start(config) {
+    let config = Config::default();
+    match netlink_monitor::start(config) {
         Ok(rx) => {
             println!("Network event monitoring enabled");
             Some(rx)

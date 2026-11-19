@@ -2,8 +2,8 @@
 
 use mac::format as format_mac;
 use netdev::Ops;
-use netlib::monitor::Event;
 use netlink::link::{Name, State};
+use netlink_monitor::Event;
 
 use super::{NetworkSupervisor, failover};
 use crate::interface::commands::Command;

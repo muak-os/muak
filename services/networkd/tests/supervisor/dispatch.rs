@@ -2,8 +2,8 @@
 
 use core::time::Duration;
 
-use netlib::monitor::Event;
 use netlink::link::Name;
+use netlink_monitor::Event;
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};

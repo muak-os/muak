@@ -23,8 +23,8 @@ kmsg = { workspace = true }
 config = { workspace = true }
 mac = { workspace = true }
 netdev = { workspace = true }
-netlib = { workspace = true }
 netlink = { workspace = true }
+netlink-monitor = { workspace = true }
 packet = { workspace = true }
 slaac = { workspace = true }
 

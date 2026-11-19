@@ -1,111 +1,35 @@
-//! Netlink-based monitor that watches for network interface state changes.
+//! Netlink message pump that turns link notifications into monitor events.
 
 use std::collections::HashMap;
-use std::io;
 
 use netlink::link::{self, Name, is_ethernet};
 use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::link::{LinkFlags, LinkMessage};
-use thiserror::Error;
+use rtnetlink::sys::SocketAddr;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt as _;
+use tokio_stream::{Stream, StreamExt as _};
 
-/// Monitor operation failures.
-#[derive(Debug, Error)]
-pub enum Failure {
-    /// Failed to create netlink connection.
-    #[error("failed to create netlink connection: {0}")]
-    Connection(#[source] io::Error),
-    /// Failed to enumerate links.
-    #[error("failed to enumerate links: {0}")]
-    List(#[source] rtnetlink::Error),
-}
+use crate::{Config, Event, Failure, Result};
 
-/// Monitor operation result type.
-pub type Result<T> = core::result::Result<T, Failure>;
-
-/// An event emitted by the network monitor when a link changes state.
-#[derive(Debug, Clone)]
-pub enum Event {
-    /// Interface carrier detected.
-    Up {
-        /// Interface name.
-        name: Name,
-        /// Kernel interface index.
-        index: u32,
-    },
-    /// Interface carrier lost.
-    Down {
-        /// Interface name.
-        name: Name,
-        /// Kernel interface index.
-        index: u32,
-    },
-    /// New interface added.
-    Added {
-        /// Interface name.
-        name: Name,
-        /// Kernel interface index.
-        index: u32,
-        /// MAC address.
-        mac: [u8; 6],
-    },
-    /// Interface removed.
-    Deleted {
-        /// Interface name.
-        name: Name,
-        /// Kernel interface index.
-        index: u32,
-    },
-}
-
-/// Controls which categories of events the monitor emits.
-pub struct Config {
-    /// Whether to monitor link state changes.
-    pub monitor_link_state: bool,
-    /// Whether to monitor link additions and removals.
-    pub monitor_link_changes: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            monitor_link_state: true,
-            monitor_link_changes: true,
-        }
-    }
-}
-
-/// Starts the network event monitor, returning a receiver of [`Event`] values.
-///
-/// # Errors
-///
-/// Returns an error when creating the netlink connection fails.
-pub fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
-    let (tx, rx) = mpsc::channel(32);
-    let (connection, handle, mut messages) =
-        rtnetlink::new_connection().map_err(Failure::Connection)?;
-
-    tokio::spawn(async move {
-        let () = connection.await;
-    });
-
+pub(super) async fn run<S>(
+    config: &Config,
+    handle: &Handle,
+    messages: &mut S,
+    tx: &mpsc::Sender<Event>,
+) where
+    S: Stream<Item = (NetlinkMessage<RouteNetlinkMessage>, SocketAddr)> + Unpin,
+{
     let mut link_states: HashMap<u32, (String, bool)> = HashMap::new();
 
-    tokio::spawn(async move {
-        if let Err(e) = initial_scan(&handle, &mut link_states).await {
-            println!("Initial interface scan failed: {e}");
-        }
+    if let Err(e) = initial_scan(handle, &mut link_states).await {
+        println!("Initial interface scan failed: {e}");
+    }
 
-        while let Some((message, _)) = messages.next().await {
-            process_message(message, &tx, &config, &mut link_states).await;
-        }
-    });
-
-    println!("Network event monitor started");
-    Ok(rx)
+    while let Some((message, _)) = messages.next().await {
+        process_message(message, tx, config, &mut link_states).await;
+    }
 }
 
 async fn initial_scan(
@@ -259,11 +183,8 @@ async fn handle_del_link(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use rtnetlink::packet_core::{NetlinkHeader, NetlinkMessage, NetlinkPayload};
-    use rtnetlink::packet_route::RouteNetlinkMessage;
-    use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
+    use rtnetlink::packet_core::NetlinkHeader;
+    use rtnetlink::packet_route::link::LinkAttribute;
 
     use super::*;
 
@@ -502,15 +423,5 @@ mod tests {
 
         // ASSERT
         rx.try_recv().unwrap_err();
-    }
-
-    #[test]
-    fn config_default_enables_state_and_change_events() {
-        // ACT
-        let config = Config::default();
-
-        // ASSERT
-        assert!(config.monitor_link_state);
-        assert!(config.monitor_link_changes);
     }
 }
