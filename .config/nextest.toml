@@ -1,9 +1,0 @@
-# A sandbox spawn test that deadlocks must fail in about a minute instead of
-# blocking the harness: the child path race it guards against is intermittent,
-# so an unbounded hang is the failure mode a regression would take.
-[profile.default]
-slow-timeout = { period = "60s", terminate-after = 2 }
-
-[[profile.default.overrides]]
-filter = 'package(sandbox)'
-slow-timeout = { period = "30s", terminate-after = 2 }
