@@ -1,6 +1,4 @@
 //! Release of the cgroup of a service that is known to be dead.
-//!
-//! The main process may have left children behind, and `cgroup.kill` reaches them without walking the process table.
 
 use std::path::Path;
 use std::time::Duration;
@@ -17,15 +15,10 @@ const ATTEMPTS: u32 = 5;
 const DELAY: Duration = Duration::from_millis(20);
 
 /// Kills every process left in the cgroup of `name` and removes it.
-///
-/// `cgroup.kill` returns before the tasks are gone, so the removal is retried a bounded number of times.
-///
-/// A cgroup that is not there is not an error: a spawn can fail before creating one.
 pub(crate) async fn release(name: &str) {
     let root = Path::new(ROOT);
     let tree = match Tree::open(root, name) {
         Ok(tree) => tree,
-        // The binding keeps its underscore because the debug call compiles away without the `debug` feature.
         Err(_error) => {
             kmsg::debug!("Service {name} has no cgroup to release: {_error}");
             return;
@@ -47,7 +40,6 @@ async fn retire(root: &Path, name: &str) {
             Err(error) if gone(&error) => return,
             Err(error) => last = error.to_string(),
         }
-        // The delay belongs before the next removal only: the last attempt is followed by the warning.
         if attempt < ATTEMPTS {
             tokio::time::sleep(DELAY).await;
         }

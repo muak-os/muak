@@ -1,6 +1,4 @@
 //! Availability probes for the syscalls detection cares about.
-//!
-//! Any error except `ENOSYS` means the syscall exists, so each call uses arguments the kernel must reject.
 
 use std::io;
 
@@ -32,6 +30,7 @@ pub(crate) fn mount_setattr() -> bool {
             size,
         )
     };
+
     present_raw(result)
 }
 
@@ -40,6 +39,7 @@ pub(crate) fn clone3() -> bool {
     // SAFETY: a null argument pointer with zero size passes `access_ok`, and the size check then rejects the call with EINVAL before anything is dereferenced.
     let result =
         unsafe { libc::syscall(libc::SYS_clone3, core::ptr::null::<libc::c_void>(), size) };
+
     present_raw(result)
 }
 
@@ -63,5 +63,6 @@ fn present_raw(result: libc::c_long) -> bool {
     if result != -1 {
         return true;
     }
+
     io::Error::last_os_error().raw_os_error() != Some(libc::ENOSYS)
 }

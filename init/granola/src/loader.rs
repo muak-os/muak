@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
 use std::path::Path;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use sandbox::probe;
 
 use crate::supervisor::service::Service;
@@ -26,11 +26,11 @@ pub(crate) fn scan_services(dir: &Path, caps: probe::Capabilities) -> Result<Vec
             files.push(svc);
         }
     }
+
     Ok(files)
 }
 
-/// Reads a single service file, logging (and skipping) unreadable, malformed or
-/// unsandboxed files.
+/// Reads a single service file, logging (and skipping) unreadable, malformed or unsandboxed files.
 fn read_service_file(path: &Path, caps: probe::Capabilities) -> Option<Service> {
     let content = std::fs::read_to_string(path)
         .inspect_err(|error| {
@@ -46,6 +46,7 @@ fn read_service_file(path: &Path, caps: probe::Capabilities) -> Option<Service> 
         kmsg::error!("Refusing service {}: {error:#}", svc.name);
         return None;
     }
+
     Some(svc)
 }
 
@@ -59,6 +60,7 @@ fn validate(service: &Service, caps: probe::Capabilities) -> Result<()> {
     policy
         .resolve(&caps)
         .context("[sandbox] policy cannot be honoured on this machine")?;
+
     Ok(())
 }
 
@@ -73,11 +75,11 @@ pub(crate) fn substitute_vars(text: &str, env: &HashMap<String, String>) -> Stri
             plain => result.push(plain),
         }
     }
+
     result
 }
 
-/// Consumes a variable name from `chars` and appends its value (or the raw
-/// `$NAME` reference when unknown) to `result`.
+/// Consumes a variable name from `chars` and appends its value to `result`.
 fn append_variable(
     chars: &mut Peekable<std::str::Chars<'_>>,
     env: &HashMap<String, String>,
@@ -111,6 +113,7 @@ fn detect_cycles(index: &HashMap<String, &Service>) -> Result<()> {
             dfs_cycle(name, index, &mut visited, &mut stack)?;
         }
     }
+
     Ok(())
 }
 
@@ -120,7 +123,6 @@ fn dfs_cycle<'a>(
     visited: &mut HashSet<&'a str>,
     stack: &mut Vec<&'a str>,
 ) -> Result<()> {
-    use anyhow::bail;
     if stack.contains(&name) {
         bail!(
             "Dependency cycle detected: {} -> {}",
@@ -139,6 +141,7 @@ fn dfs_cycle<'a>(
     }
     stack.pop();
     visited.insert(name);
+
     Ok(())
 }
 
@@ -161,20 +164,11 @@ pub(crate) fn prepare(defs: Vec<Service>, env: &HashMap<String, String>) -> Resu
 }
 
 /// Convenience entry-point: scans all service files and prepares them.
-///
-/// The probe runs once, before any file is read, because millefeuille has
-/// already moved `/proc` into the new root by the time granola runs, so the
-/// answer describes the machine the services will run on.
-///
-/// A service that is skipped here is a configuration bug, not an operator
-/// problem: a missing or unhonourable `[sandbox]` table is caught by the test
-/// that walks the shipped service files, so a boot never has to recover from
-/// one. Boot continues without that service rather than aborting, because the
-/// rest of the system may still be useful and the error is already logged.
 pub(crate) fn load(env: &HashMap<String, String>) -> Result<Vec<Service>> {
     let caps = probe::current();
     let defs =
         scan_services(Path::new(SERVICES_DIR), caps).context("Failed to scan service files")?;
+
     prepare(defs, env)
 }
 

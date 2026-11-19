@@ -2,7 +2,6 @@ name       = "networkd"
 command    = "/sbin/networkd"
 depends_on = []
 
-# rtnetlink link/address/route changes need net_admin; DHCP and SLAAC sockets are raw.
 [sandbox]
 profile = "strict"
 capabilities = ["net_admin", "net_raw"]
@@ -12,6 +11,5 @@ no_new_privs = true
 nofile = 4096
 nproc = 256
 
-# pids_max only: a memory limit low enough to matter needs the boot test.
 [sandbox.cgroup]
 pids_max = 512

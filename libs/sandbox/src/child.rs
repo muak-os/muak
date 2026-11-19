@@ -1,6 +1,4 @@
-//! The child path between creation and exec.
-//!
-//! Nothing here allocates, locks, formats or panics: the parent may have held an allocator, panic or stdio lock at the clone instant whose owner does not exist in the child, so [`exec`] reports a fixed `(stage code, errno)` pair and the glibc `setuid` family is bypassed for the raw syscalls.
+//! The child path between creation and exec. No allocations allowed.
 
 use core::ffi::c_char;
 use std::os::fd::{AsRawFd as _, BorrowedFd, RawFd};
@@ -36,7 +34,6 @@ pub(crate) unsafe fn exec(
         fail(report, stage, errno);
     }
 
-    // 10. Exec, with the descriptor installation and signal mask it needs, which belong to the exec step rather than to the policy.
     let targets = [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO];
     for (source, target) in files.into_iter().zip(targets) {
         if source >= 0_i32
@@ -46,7 +43,6 @@ pub(crate) unsafe fn exec(
         }
     }
 
-    // Passed descriptors are installed after stdio, so stdio never clobbers one, and the close-on-exec flag is cleared because a descriptor already at its target was not copied.
     for &(source, target) in pass {
         if let Err(errno) = spawn::redirect(source.as_raw_fd(), target) {
             fail(report, Stage::Exec, errno);
@@ -56,62 +52,53 @@ pub(crate) unsafe fn exec(
         }
     }
 
-    // The parent's handlers must not run in a process whose reactor is gone, so the mask is cleared only after every step that needed a signal.
     if let Err(errno) = spawn::restore_signals() {
         fail(report, Stage::Exec, errno);
     }
 
     // SAFETY: the pointers come from a `Cmd` the parent built and kept alive across the fork, so they name NUL terminated strings and null terminated arrays in this copy of the address space.
     let errno = unsafe { spawn::exec(program, argv, envp) };
+
     fail(report, Stage::Exec, errno);
 }
 
 fn apply(policy: &Policy<'_>) -> Result<(), Failure> {
-    // 1. Signals first: the parent may be a multithreaded reactor whose handler would run where the reactor no longer exists.
     trap(Stage::Signals, spawn::reset_signals())?;
 
-    // 2. Namespaces before every mount, because a mount made outside the mount namespace propagates into the host, and before the capability drop, because unshare needs CAP_SYS_ADMIN.
     #[cfg(feature = "namespaces")]
     if !policy.namespaces.is_empty() {
         trap(Stage::Namespaces, namespace::apply(policy.namespaces))?;
     }
 
-    // 3. Mounts after the namespace, so they land in the child's own table, and before the capability drop. It runs for a root filesystem alone too: its propagation change is what keeps the root switch below out of the host.
     #[cfg(feature = "mounts")]
     if !policy.mounts.is_empty() || policy.rootfs.is_some() {
         trap(Stage::Mounts, mount::apply(policy.mounts))?;
     }
 
-    // 4. The root switch last of the three, because it is what makes the mounts above reachable, and still before the capability drop.
     #[cfg(feature = "rootfs")]
     if let Some(root) = policy.rootfs {
         trap(Stage::Rootfs, rootfs::apply(root))?;
     }
 
-    // 5. Limits before dropping privilege: raising a hard limit above the inherited maximum needs CAP_SYS_RESOURCE, which the uid drop removes.
     #[cfg(feature = "limits")]
     trap(Stage::Limits, limits::apply(&policy.limits))?;
 
-    // 6. The bounding set before the uid drop, because PR_CAPBSET_DROP needs CAP_SETPCAP, which a non-root identity no longer carries.
     #[cfg(feature = "caps")]
     if let Some(kept) = policy.caps {
         trap(Stage::Caps, credentials::bounding(kept))?;
     }
 
-    // 7. Supplementary groups first, then gid, then uid: after setresuid the process can no longer call setgroups.
     if let Some(groups) = policy.id.groups {
         trap(Stage::Credentials, credentials::groups(groups))?;
     }
     trap(Stage::Credentials, credentials::gid(policy.id.gid))?;
     trap(Stage::Credentials, credentials::uid(policy.id.uid))?;
 
-    // 8. The effective set after the uid drop, because the new identity is what the kernel checks when the permitted set changes.
     #[cfg(feature = "caps")]
     if let Some(kept) = policy.caps {
         trap(Stage::Caps, credentials::effective(kept))?;
     }
 
-    // 9. No new privileges last: once set, later privileged operations fail, so every earlier step must already be done.
     if policy.no_new_privs {
         trap(Stage::NoNewPrivs, credentials::no_new_privs())?;
     }
@@ -141,6 +128,7 @@ fn fail(report: RawFd, stage: Stage, errno: Errno) -> ! {
             written = written.saturating_add(usize::try_from(result).unwrap_or(0));
         }
     }
+
     // SAFETY: `_exit` has no pointer preconditions, and 127 fits the integer argument the kernel expects.
     unsafe { libc::_exit(127) }
 }
@@ -148,6 +136,7 @@ fn fail(report: RawFd, stage: Stage, errno: Errno) -> ! {
 fn interrupted() -> bool {
     // SAFETY: `__errno_location` returns the current thread's errno slot, always a valid readable pointer.
     let location = unsafe { libc::__errno_location() };
+
     // SAFETY: `location` is the valid errno slot returned above.
     unsafe { *location == libc::EINTR }
 }
@@ -187,6 +176,101 @@ mod tests {
             // SAFETY: the pointer and layout came from this allocator, which forwards them unchanged to the system allocator.
             unsafe { System.dealloc(ptr, layout) }
         }
+    }
+
+    fn reported_stage(policy: &Policy<'_>) -> Option<Stage> {
+        let argv = [
+            c"/nonexistent/sandbox/program".as_ptr(),
+            core::ptr::null::<c_char>(),
+        ];
+        let (report, _output) = run(policy, &argv);
+
+        reported(&report).map(|(stage, _errno)| stage)
+    }
+
+    // Runs the child path for `policy` in a forked child and returns what it reported plus what `argv` wrote to standard output. An empty report means the child reached the exec.
+    fn run(policy: &Policy<'_>, argv: &[*const c_char]) -> (Vec<u8>, Vec<u8>) {
+        let (read, write) = spawn::pipe().unwrap();
+        let report_fd = write.as_raw_fd();
+        let (output, out_write) = spawn::pipe().unwrap();
+        let stdout_fd = out_write.as_raw_fd();
+        let envp = [core::ptr::null::<c_char>()];
+        let files = [-1_i32, stdout_fd, -1_i32];
+        // SAFETY: the child runs the child path against the pointers built above, which stay valid in its copy of the address space, and `exec` never returns.
+        let pid = unsafe { libc::fork() };
+        if pid == 0_i32 {
+            // SAFETY: the conditions above hold in the forked child, whose only work is this call.
+            unsafe {
+                exec(
+                    policy,
+                    argv[0],
+                    argv.as_ptr(),
+                    envp.as_ptr(),
+                    files,
+                    &[],
+                    report_fd,
+                );
+            }
+        }
+        drop(write);
+        drop(out_write);
+        let report = read_all(read);
+        let output = read_all(output);
+        let mut status = 0_i32;
+        // SAFETY: `pid` is the child forked above and `status` is a valid out pointer.
+        unsafe {
+            libc::waitpid(pid, &raw mut status, 0);
+        };
+
+        (report, output)
+    }
+
+    fn reported(bytes: &[u8]) -> Option<(Stage, Errno)> {
+        if bytes.is_empty() {
+            return None;
+        }
+        let packed = u64::from_le_bytes(bytes.try_into().ok()?);
+        let code = u16::try_from(packed & 0xffff).unwrap_or(0);
+        let stage = Stage::from_code(code)?;
+        let raw = u32::try_from((packed >> 16_u32) & 0xffff_ffff).unwrap_or(0);
+
+        Some((stage, Errno::new(i32::from_le_bytes(raw.to_le_bytes()))))
+    }
+
+    fn read_all(fd: OwnedFd) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        File::from(fd).read_to_end(&mut bytes).unwrap();
+
+        bytes
+    }
+
+    #[cfg(all(feature = "mounts", feature = "namespaces"))]
+    fn refused(outcome: Option<(Stage, Errno)>) -> bool {
+        let Some((stage, errno)) = outcome else {
+            return false;
+        };
+        let denied = matches!(stage, Stage::Namespaces | Stage::Mounts)
+            && matches!(errno.raw(), libc::EPERM | libc::EACCES);
+        if denied {
+            println!("skipping: the kernel refused the {stage:?} step: {errno}");
+        }
+
+        denied
+    }
+
+    fn identity() -> Id<'static> {
+        // SAFETY: `geteuid` and `getegid` read process state and dereference no pointer.
+        let uid = unsafe { libc::geteuid() };
+        // SAFETY: as above.
+        let gid = unsafe { libc::getegid() };
+
+        Id::new(uid, gid)
+    }
+
+    #[cfg(all(feature = "mounts", feature = "namespaces"))]
+    fn runs_as_root() -> bool {
+        // SAFETY: `geteuid` reads process state and dereferences no pointer.
+        unsafe { libc::geteuid() == 0 }
     }
 
     #[test]
@@ -246,7 +330,6 @@ mod tests {
             return;
         }
         let directory = tempfile::tempdir().unwrap();
-        // A target that does not exist fails the mount step, so the reported stage says whether the step ran at all.
         let target = directory.path().join("absent");
         let entries = [Entry {
             source: Source::Tmpfs,
@@ -334,98 +417,5 @@ mod tests {
             Some(Stage::Exec),
             "an empty mount list and namespace set stopped the child at {stage:?}"
         );
-    }
-
-    // Returns the stage the child path reports for `policy`: the program below never exists, so it is the last step reached.
-    fn reported_stage(policy: &Policy<'_>) -> Option<Stage> {
-        let argv = [
-            c"/nonexistent/sandbox/program".as_ptr(),
-            core::ptr::null::<c_char>(),
-        ];
-        let (report, _output) = run(policy, &argv);
-        reported(&report).map(|(stage, _errno)| stage)
-    }
-
-    // Runs the child path for `policy` in a forked child and returns what it reported plus what `argv` wrote to standard output. An empty report means the child reached the exec.
-    fn run(policy: &Policy<'_>, argv: &[*const c_char]) -> (Vec<u8>, Vec<u8>) {
-        let (read, write) = spawn::pipe().unwrap();
-        let report_fd = write.as_raw_fd();
-        let (output, out_write) = spawn::pipe().unwrap();
-        let stdout_fd = out_write.as_raw_fd();
-        let envp = [core::ptr::null::<c_char>()];
-        let files = [-1_i32, stdout_fd, -1_i32];
-        // SAFETY: the child runs the child path against the pointers built above, which stay valid in its copy of the address space, and `exec` never returns.
-        let pid = unsafe { libc::fork() };
-        if pid == 0_i32 {
-            // SAFETY: the conditions above hold in the forked child, whose only work is this call.
-            unsafe {
-                exec(
-                    policy,
-                    argv[0],
-                    argv.as_ptr(),
-                    envp.as_ptr(),
-                    files,
-                    &[],
-                    report_fd,
-                );
-            }
-        }
-        drop(write);
-        drop(out_write);
-        let report = read_all(read);
-        let output = read_all(output);
-        let mut status = 0_i32;
-        // SAFETY: `pid` is the child forked above and `status` is a valid out pointer.
-        unsafe {
-            libc::waitpid(pid, &raw mut status, 0);
-        };
-        (report, output)
-    }
-
-    // Returns the stage and errno the child path reported, or `None` when it reached the exec.
-    fn reported(bytes: &[u8]) -> Option<(Stage, Errno)> {
-        if bytes.is_empty() {
-            return None;
-        }
-        let packed = u64::from_le_bytes(bytes.try_into().ok()?);
-        let code = u16::try_from(packed & 0xffff).unwrap_or(0);
-        let stage = Stage::from_code(code)?;
-        let raw = u32::try_from((packed >> 16_u32) & 0xffff_ffff).unwrap_or(0);
-        Some((stage, Errno::new(i32::from_le_bytes(raw.to_le_bytes()))))
-    }
-
-    fn read_all(fd: OwnedFd) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        File::from(fd).read_to_end(&mut bytes).unwrap();
-        bytes
-    }
-
-    // A container root can still lack CAP_SYS_ADMIN, and that refusal is a skip because the mechanism is absent rather than broken.
-    #[cfg(all(feature = "mounts", feature = "namespaces"))]
-    fn refused(outcome: Option<(Stage, Errno)>) -> bool {
-        let Some((stage, errno)) = outcome else {
-            return false;
-        };
-        let denied = matches!(stage, Stage::Namespaces | Stage::Mounts)
-            && matches!(errno.raw(), libc::EPERM | libc::EACCES);
-        if denied {
-            println!("skipping: the kernel refused the {stage:?} step: {errno}");
-        }
-        denied
-    }
-
-    fn identity() -> Id<'static> {
-        // SAFETY: `geteuid` and `getegid` read process state and dereference no pointer.
-        let uid = unsafe { libc::geteuid() };
-        // SAFETY: as above.
-        let gid = unsafe { libc::getegid() };
-        Id::new(uid, gid)
-    }
-
-    // The namespace and mount syscalls check effective capabilities, not the identity, so this only rules out the run that cannot succeed at all.
-    #[cfg(all(feature = "mounts", feature = "namespaces"))]
-    fn runs_as_root() -> bool {
-        // SAFETY: `geteuid` reads process state and dereferences no pointer.
-        unsafe { libc::geteuid() == 0 }
     }
 }

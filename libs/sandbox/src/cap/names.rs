@@ -1,6 +1,4 @@
 //! Text names for Linux capabilities.
-//!
-//! The names are the kernel ones without the `CAP_` prefix, in lowercase.
 
 use super::Cap;
 

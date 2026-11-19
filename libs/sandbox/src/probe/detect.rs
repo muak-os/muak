@@ -1,6 +1,4 @@
 //! Capability detection.
-//!
-//! Detection never fails: a missing or unreadable file is data, not an error, so the flag it would have set stays unset.
 
 use std::fs;
 use std::path::Path;
@@ -28,8 +26,6 @@ const FILESYSTEMS: [(Capabilities, &str); 6] = [
 ];
 
 /// Returns every capability detectable from the directory tree at `root`.
-///
-/// `cgroup.kill` is never looked for: the kernel creates it only on a non-root cgroup, so a caller sitting at `0::/` would never observe it.
 #[must_use = "probing has no effect beyond the answer"]
 pub fn files(root: &Path) -> Capabilities {
     Capabilities::empty()
@@ -41,8 +37,6 @@ pub fn files(root: &Path) -> Capabilities {
 }
 
 /// Returns every capability the running kernel answers for.
-///
-/// Each probe asks whether the syscall exists, never whether the call would succeed: `CLONE_INTO_CGROUP` is only knowable by cloning into a cgroup, so it is probed by use.
 #[must_use = "probing has no effect beyond the answer"]
 pub fn syscalls() -> Capabilities {
     let mut found = Capabilities::empty();
@@ -69,6 +63,7 @@ pub fn syscalls() -> Capabilities {
     if linux::probe::cap_bounding() {
         found = found.insert(Capabilities::CAP_BOUNDING);
     }
+
     found
 }
 
@@ -84,12 +79,12 @@ fn namespaces(root: &Path) -> Capabilities {
         }
         found = found.insert(flag);
     }
+
     found
 }
 
 fn user_namespaces(root: &Path) -> Capabilities {
     let limit = read(root, "proc/sys/user/max_user_namespaces");
-    // A zero limit forbids every user namespace, so neither branch below can grant one whatever the clone sysctl says.
     if limit.as_deref().is_some_and(|text| text.trim() == "0") {
         return Capabilities::empty();
     }
@@ -98,7 +93,6 @@ fn user_namespaces(root: &Path) -> Capabilities {
     if limit.as_deref().is_some_and(positive) {
         found = found.insert(Capabilities::USER_NS);
     }
-    // `unprivileged_userns_clone` is a Debian and Ubuntu patch mainline does not export, so its absence plus a positive limit is the mainline shape.
     let unprivileged = match read(root, "proc/sys/kernel/unprivileged_userns_clone") {
         Some(text) => text.trim() == "1",
         None => limit.as_deref().is_some_and(positive),
@@ -108,6 +102,7 @@ fn user_namespaces(root: &Path) -> Capabilities {
             .insert(Capabilities::USER_NS)
             .insert(Capabilities::UNPRIV_USER_NS);
     }
+
     found
 }
 
@@ -116,6 +111,7 @@ fn cgroups(root: &Path) -> Capabilities {
     if read(root, "sys/fs/cgroup/cgroup.controllers").is_some() {
         found = found.insert(Capabilities::CGROUP_V2);
     }
+
     found
 }
 
@@ -133,6 +129,7 @@ fn filesystems(root: &Path) -> Capabilities {
             found = found.insert(flag);
         }
     }
+
     found
 }
 
@@ -141,11 +138,11 @@ fn seccomp(root: &Path) -> Capabilities {
         return Capabilities::empty();
     };
 
-    // The sysctl only exists when seccomp is built in, so its presence is the evidence that the kernel carries the action vocabulary.
     let mut found = Capabilities::empty().insert(Capabilities::SECCOMP);
     if text.split_whitespace().any(|action| action == "user_notif") {
         found = found.insert(Capabilities::SECCOMP_NOTIF);
     }
+
     found
 }
 

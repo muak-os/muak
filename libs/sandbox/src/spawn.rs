@@ -1,8 +1,4 @@
 //! Spawning a command under a resolved policy.
-//!
-//! Creating a child from a multithreaded parent is safe here only because the child path is allocation free, panic free and lock free: a child inherits a lock whose owner thread no longer exists.
-//!
-//! The cgroup descriptor is handed to `clone3` with `CLONE_INTO_CGROUP`, because writing the pid to `cgroup.procs` afterwards leaves a window where the parent's limits apply.
 
 use core::ffi::{CStr, c_char};
 use core::mem::size_of;
@@ -27,8 +23,6 @@ pub type Pid = process::Pid;
 pub type Signal = process::Signal;
 
 /// A command to execute, built from NUL terminated byte strings.
-///
-/// The child must not allocate, so the program, the arguments and the environment are borrowed as C strings.
 #[derive(Clone, Copy, Debug)]
 pub struct Cmd<'a> {
     program: &'a CStr,
@@ -84,8 +78,6 @@ impl<'a> Cmd<'a> {
     }
 
     /// Returns this command with every `(fd, target)` pair duplicated onto `target` in the child before exec.
-    ///
-    /// The child cannot inherit the parent descriptor number, so the pair names the source and the fixed number the child expects.
     #[must_use = "the command is the value the caller asked for"]
     pub const fn pass(mut self, pass: &'a [(BorrowedFd<'a>, RawFd)]) -> Self {
         self.pass = pass;
@@ -101,8 +93,6 @@ impl Child {
     }
 
     /// Returns a descriptor that names this child.
-    ///
-    /// It is created by `clone3` together with the child, so it can never name a recycled pid.
     #[must_use = "the descriptor is the value the caller asked for"]
     pub fn pidfd(&self) -> BorrowedFd<'_> {
         self.pidfd.as_fd()
@@ -139,10 +129,6 @@ impl Child {
 
 /// Spawns `cmd` in a child configured by the resolved policy.
 ///
-/// No report means the exec succeeded: a failing child writes a fixed stage and errno pair, which becomes a [`SandboxError::Denied`] owned by the mechanism of that stage.
-///
-/// A `cgroup` descriptor, from `Tree::fd` in the v2 module, makes the child be born inside that cgroup through `CLONE_INTO_CGROUP`.
-///
 /// # Errors
 ///
 /// Returns [`SandboxError::Io`] when the pipe or the clone fails, and [`SandboxError::Denied`] when the child reports a failed stage.
@@ -153,7 +139,6 @@ pub fn run(
     cgroup: Option<BorrowedFd<'_>>,
 ) -> Result<Child> {
     let (read, write) = spawn::pipe().map_err(SandboxError::Io)?;
-    // The write end must sit above the standard descriptors and every descriptor the child installs, otherwise a redirect lands on the report and the child can no longer report a failure.
     let write = spawn::at_least(write, report_floor(cmd.pass)).map_err(SandboxError::Io)?;
     let argv = pointers(cmd.argv);
     let envp = pointers(cmd.envp);
@@ -175,6 +160,7 @@ pub fn run(
                 report_fd,
             )
         },
+
         spawn::Cloned::Parent { pid, pidfd } => (pid, pidfd),
     };
 
@@ -195,6 +181,7 @@ pub fn run(
     }
 
     let pid = process::Pid::from_raw(raw_pid).ok_or(SandboxError::Io(Errno::new(libc::EINVAL)))?;
+
     Ok(Child { pid, pidfd })
 }
 
@@ -214,6 +201,7 @@ fn mechanism(stage: Stage) -> Mechanism {
 fn pointers(items: &[&CStr]) -> Vec<*const c_char> {
     let mut pointers: Vec<*const c_char> = items.iter().map(|item| item.as_ptr()).collect();
     pointers.push(core::ptr::null());
+
     pointers
 }
 
@@ -221,13 +209,13 @@ fn raw(fd: Option<BorrowedFd<'_>>) -> RawFd {
     fd.map_or(-1, |fd| fd.as_raw_fd())
 }
 
-// The lowest number the report pipe may occupy: one above the standard descriptors and above the highest descriptor the child installs.
 fn report_floor(pass: &[(BorrowedFd<'_>, RawFd)]) -> RawFd {
     let highest = pass
         .iter()
         .map(|&(_, target)| target)
         .max()
         .unwrap_or(libc::STDERR_FILENO);
+
     highest.max(libc::STDERR_FILENO).saturating_add(1)
 }
 
@@ -257,6 +245,7 @@ fn reported(read: OwnedFd) -> Result<Option<(Stage, Errno)>> {
     let code = u16::try_from(packed & 0xffff).unwrap_or(0);
     let stage = Stage::from_code(code).ok_or(SandboxError::Io(Errno::new(libc::EINVAL)))?;
     let raw = u32::try_from((packed >> 16_u32) & 0xffff_ffff).unwrap_or(0);
+
     Ok(Some((
         stage,
         Errno::new(i32::from_le_bytes(raw.to_le_bytes())),

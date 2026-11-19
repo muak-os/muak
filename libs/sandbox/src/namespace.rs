@@ -1,8 +1,4 @@
 //! Namespace kinds a child is created in.
-//!
-//! The PID namespace is absent: `unshare(CLONE_NEWPID)` leaves the caller in the old namespace, so honouring it needs a second fork inside the child path.
-//!
-//! The user namespace is absent: unsharing one without writing a uid and a gid map leaves the process as `nobody` for every file on the host.
 
 #[cfg(all(feature = "namespaces", feature = "spawn"))]
 use crate::error::Errno;
@@ -71,8 +67,6 @@ impl Set {
 }
 
 /// Unshares every kind of `set` in one call.
-///
-/// The caller refuses an empty set, because `unshare` accepts zero flags and would report a success that unshared nothing.
 #[cfg(all(feature = "namespaces", feature = "spawn"))]
 pub(crate) fn apply(set: Set) -> Result<(), Errno> {
     linux::namespace::unshare(set)

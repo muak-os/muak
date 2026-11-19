@@ -1,6 +1,4 @@
 //! Kernel capabilities the sandbox can detect.
-//!
-//! The flags are never filtered by cargo features, so a caller always sees what the machine offers; [`crate::resolve`] compares the two.
 
 #[cfg(feature = "probe")]
 pub mod detect;

@@ -2,7 +2,6 @@ name       = "consoled"
 command    = "/sbin/consoled"
 depends_on = []
 
-# /dev/tty0 is a virtual console and /dev/kmsg is read through the syslog check.
 [sandbox]
 profile = "strict"
 capabilities = ["sys_tty_config", "syslog"]
@@ -12,6 +11,5 @@ no_new_privs = true
 nofile = 4096
 nproc = 256
 
-# pids_max only: a memory limit low enough to matter needs the boot test.
 [sandbox.cgroup]
 pids_max = 512

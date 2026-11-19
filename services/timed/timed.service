@@ -2,7 +2,6 @@ name       = "timed"
 command    = "/sbin/timed"
 depends_on = ["networkd"]
 
-# clock_settime(CLOCK_REALTIME) needs sys_time.
 [sandbox]
 profile = "strict"
 capabilities = ["sys_time"]
@@ -12,6 +11,5 @@ no_new_privs = true
 nofile = 4096
 nproc = 256
 
-# pids_max only: a memory limit low enough to matter needs the boot test.
 [sandbox.cgroup]
 pids_max = 512

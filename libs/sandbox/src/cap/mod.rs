@@ -1,6 +1,4 @@
 //! Linux capabilities and the bit each one occupies in a capability set.
-//!
-//! The numbering and bit values are the ones the kernel documents, written out in full instead of derived.
 
 pub mod names;
 

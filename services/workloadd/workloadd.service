@@ -2,7 +2,6 @@ name       = "workloadd"
 command    = "/sbin/workloadd"
 depends_on = ["networkd"]
 
-# TAP creation and bridge attachment need net_admin; btrfs scrub needs sys_admin.
 [sandbox]
 profile = "strict"
 capabilities = ["net_admin", "sys_admin"]
@@ -12,6 +11,5 @@ no_new_privs = true
 nofile = 4096
 nproc = 256
 
-# pids_max only: a memory limit low enough to matter needs the boot test.
 [sandbox.cgroup]
 pids_max = 512

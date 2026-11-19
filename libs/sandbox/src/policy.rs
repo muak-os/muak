@@ -1,6 +1,4 @@
 //! The policy a workload is spawned under.
-//!
-//! A policy always describes what the caller wants, whatever this build can compile, and [`crate::resolve`] compares it with the mechanisms this build carries and the facilities the kernel offers.
 
 use std::path::Path;
 
@@ -96,10 +94,6 @@ impl<'a> Policy<'a> {
     }
 
     /// Returns the kernel facilities this policy needs.
-    ///
-    /// A set smaller than every capability drives `PR_CAPBSET_DROP`, which needs `CAP_SETPCAP`, and a root filesystem needs the mount namespace plus `pivot_root`.
-    ///
-    /// This is what a build without `spawn` validates with, since it has no `Policy::resolve`.
     #[must_use = "the requirements are what the caller resolves"]
     pub fn requirements(&self) -> Requirements {
         let mut requirements = if self.caps.is_some() {
@@ -112,7 +106,6 @@ impl<'a> Policy<'a> {
         for kind in self.namespaces.flags() {
             requirements = requirements.require(namespace_requirement(kind));
         }
-        // A mount needs the mount namespace whatever it mounts, because a mount made outside one reaches the host.
         if !self.mounts.is_empty() {
             requirements = requirements.require(Capabilities::MOUNT_NS);
             let filesystems = self
@@ -129,6 +122,7 @@ impl<'a> Policy<'a> {
         if self.cgroup.requested() {
             requirements = requirements.require(Capabilities::CGROUP_V2);
         }
+
         requirements
     }
 }

@@ -90,10 +90,6 @@
 (allow granola_t cgroup_t (filesystem (mount)))
 (allow granola_t cgroup_t (files      (load)))
 (allow granola_t cgroup_t (files      (mutate)))
-; Associating a cgroupfs inode with its superblock, checked when a child cgroup
-; directory is created. Both contexts are cgroup_t because the new inode takes
-; the genfscon label. The files classmap mount slot has no associate permission,
-; so this cannot be expressed through (call allow_...).
 (allow cgroup_t cgroup_t (filesystem (associate)))
 
 ; ESP mount and LUKS key read from the initramfs (vfat -> esp_t filesystem).

@@ -1,6 +1,4 @@
 //! Control group vocabulary.
-//!
-//! Only the unified v2 hierarchy is supported: the kernel boots with `cgroup_no_v1=all`, and `cgroup.kill` and `CLONE_INTO_CGROUP` are v2 facilities.
 
 #[cfg(feature = "cgroupv2")]
 pub mod v2;
@@ -9,8 +7,6 @@ pub mod v2;
 const NAME_LIMIT: usize = 256;
 
 /// Limits a cgroup applies to the processes placed in it.
-///
-/// An absent field leaves the kernel default alone.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Limits {
     memory_max: Option<u64>,
@@ -32,8 +28,6 @@ impl Limits {
     }
 
     /// Returns these limits with `memory.max` set to `bytes`.
-    ///
-    /// It is the hard limit: the kernel kills the group when reclaim cannot keep up.
     #[must_use = "the limits are the value the caller asked for"]
     pub const fn memory_max(mut self, bytes: u64) -> Self {
         self.memory_max = Some(bytes);
@@ -41,8 +35,6 @@ impl Limits {
     }
 
     /// Returns these limits with `memory.high` set to `bytes`.
-    ///
-    /// It is the throttle: a group above it is reclaimed and slowed down, not killed.
     #[must_use = "the limits are the value the caller asked for"]
     pub const fn memory_high(mut self, bytes: u64) -> Self {
         self.memory_high = Some(bytes);
@@ -73,8 +65,6 @@ impl Limits {
     }
 
     /// Returns whether `memory.max` or `pids.max` asks for a non zero value.
-    ///
-    /// Those two are what makes the unified hierarchy mandatory.
     #[cfg(feature = "spawn")]
     #[must_use = "the answer decides whether the hierarchy is required"]
     pub(crate) const fn enforces(&self) -> bool {
@@ -98,13 +88,12 @@ impl Limits {
 }
 
 /// Returns whether `name` names a single cgroup below a root.
-///
-/// The name is checked before anything touches the filesystem, so an invalid one can never create or remove a directory.
 #[must_use = "the answer decides whether the name may reach the filesystem"]
 pub fn valid_name(name: &str) -> bool {
     if name.is_empty() || name == "." || name == ".." || name.len() >= NAME_LIMIT {
         return false;
     }
+
     !name.contains('/')
 }
 

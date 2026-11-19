@@ -1,6 +1,4 @@
 //! Stages of the child path a failure is attributed to.
-//!
-//! A code is a stable wire value, not the execution order: the signal reset runs first and carries code 9.
 
 /// Step of the child path a failure is attributed to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

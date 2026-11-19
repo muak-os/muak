@@ -137,15 +137,7 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         status::publish(&self.services, &self.status);
     }
 
-    /// Records a service exit, releases its cgroup and schedules a restart or
-    /// failure as needed.
-    ///
-    /// This is the one place a service is known to be dead, so it is also the
-    /// place its cgroup is killed and removed: the main process is gone, but
-    /// the children it started may not be, and nothing else would reach them.
-    ///
-    /// The release only waits for the retries of the removal, and a cgroup left
-    /// behind is harmless because the spawner claims it again.
+    /// Records a service exit, releases its cgroup and schedules a restart or failure as needed.
     async fn handle_service_exit(
         &mut self,
         name: &str,
@@ -189,7 +181,6 @@ impl<S: Spawn, R: Reap> Supervisor<S, R> {
         }
     }
 
-    // Spawns a service, scheduling a delayed retry when the spawn fails.
     fn spawn_or_log(&mut self, name: &str) {
         let Err(error) = self.spawn_service(name) else {
             return;
@@ -885,8 +876,6 @@ mod tests {
             make_supervisor(services, FailingSpawner::new(), reaper, &dir).expect("supervisor");
         sup.start_ready_services();
 
-        // The spawn failed, so no cgroup was left behind for the exit path to
-        // release, and this is the case the release has to tolerate.
         // ACT
         sup.handle_service_exit("svc", 1234, Some(1_i32), None)
             .await;

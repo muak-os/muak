@@ -1,6 +1,4 @@
 //! Resource limits a workload receives before exec.
-//!
-//! [`Limit::Inherit`] leaves the inherited value alone, so no field needs an `Option` wrapper to say "do not touch this".
 
 /// Value a single resource limit is set to.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

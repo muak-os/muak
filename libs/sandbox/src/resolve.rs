@@ -1,6 +1,4 @@
 //! Requirements a caller places on detected capabilities.
-//!
-//! A build problem is reported before a kernel problem, so a missing mechanism is never mistaken for an unsupported kernel.
 
 #[cfg(feature = "spawn")]
 use std::path::Path;
@@ -50,8 +48,6 @@ impl Requirements {
 
     /// Returns the first requirement that cannot be met, in bit order.
     ///
-    /// The mechanism is checked first, so a mechanism this build left out fails before the kernel is consulted.
-    ///
     /// # Errors
     ///
     /// Returns [`SandboxError::NotCompiled`] when a needed mechanism is absent from this build, and [`SandboxError::Unsupported`] when the kernel lacks a needed flag.
@@ -60,8 +56,6 @@ impl Requirements {
     }
 
     /// Returns the required flags this build compiles but the kernel lacks.
-    ///
-    /// This is what a relaxed caller logs before degrading.
     #[must_use = "the absent flags are what the caller reports"]
     pub fn missing(self, caps: &Capabilities) -> Capabilities {
         self.0
@@ -74,8 +68,6 @@ impl Requirements {
 #[cfg(feature = "spawn")]
 impl Policy<'_> {
     /// Resolves this policy against the capabilities of the running machine.
-    ///
-    /// The policy's own shape is checked first, so an invalid policy reports `Unsupported` rather than `NotCompiled`.
     ///
     /// # Errors
     ///
@@ -98,6 +90,7 @@ impl Policy<'_> {
                 mechanism: Mechanism::Limits,
             });
         }
+
         Ok(Resolved { policy: self })
     }
 }
@@ -144,6 +137,7 @@ fn hierarchy(policy: &Policy<'_>, caps: Capabilities) -> Result<()> {
             detail: "CGROUP_V2, memory.max and pids.max need the unified hierarchy",
         });
     }
+
     Ok(())
 }
 
@@ -161,6 +155,7 @@ fn usable(mechanism: Mechanism, path: &Path) -> Result<()> {
             detail: "use a path shorter than 256 bytes, the child path cannot allocate",
         });
     }
+
     Ok(())
 }
 
@@ -181,6 +176,7 @@ fn check(flag: Capabilities, caps: Capabilities) -> Result<()> {
             detail: flag.name().unwrap_or("unknown flag"),
         });
     }
+
     Ok(())
 }
 
@@ -197,6 +193,15 @@ mod tests {
     use crate::mount::{Entry, Flags, Source};
     use crate::namespace::Set;
     use crate::policy::Policy;
+
+    fn tmpfs(target: &Path) -> Entry<'_> {
+        Entry {
+            source: Source::Tmpfs,
+            target,
+            data: None,
+            flags: Flags::new(),
+        }
+    }
 
     #[test]
     fn mounts_without_the_mount_namespace_are_refused() {
@@ -349,14 +354,5 @@ mod tests {
             ),
             "expected an absolute path complaint, got {result:?}"
         );
-    }
-
-    fn tmpfs(target: &Path) -> Entry<'_> {
-        Entry {
-            source: Source::Tmpfs,
-            target,
-            data: None,
-            flags: Flags::new(),
-        }
     }
 }

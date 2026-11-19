@@ -1,6 +1,4 @@
 //! Integration tests for mounts and the root filesystem switch.
-//!
-//! Both mechanisms need `CAP_SYS_ADMIN`, so every test prints why it skipped when the capability is not granted.
 
 #![cfg(all(
     feature = "spawn",
@@ -41,7 +39,6 @@ mod tests {
             println!("skipping: mounts need CAP_SYS_ADMIN");
             return;
         }
-        // A propagation test needs a shared peer group to propagate into, and the inherited `/` may be private.
         if !in_shared_namespace() {
             return;
         }
@@ -76,13 +73,11 @@ mod tests {
 
         // ASSERT
         assert_eq!(status.code(), Some(0_i32), "the child failed: {status:?}");
-        // The child prints its own mount table, so a step that returns `Ok` without mounting anything is caught here.
         let mount_point = target.path().to_str().unwrap();
         assert!(
             line_at(&output, mount_point).is_some(),
             "the child mounted nothing at {mount_point}: {output}"
         );
-        // A leak of this mount can only surface at its own path, because a test running beside this one mounts elsewhere.
         assert!(
             line_at(&before, mount_point).is_none(),
             "{mount_point} was already mounted before the child ran"
@@ -104,16 +99,13 @@ mod tests {
             println!("skipping: the root switch needs CAP_SYS_ADMIN");
             return;
         }
-        // This test mounts in the parent namespace, so it first moves into a private one: on a shared `/` those mounts would reach the host table.
         if !in_private_namespace() {
             return;
         }
         let work = tempfile::tempdir().unwrap();
         let root = work.path().join("root");
         fs::create_dir_all(&root).unwrap();
-        // The directories are created below the tmpfs here, because a mount point inside a fresh tmpfs does not exist and the child path never creates directories.
         assert!(mount_tmpfs(&root), "cannot mount the test tmpfs");
-        // The mount dies with the namespace, and the guard detaches it anyway so the failure path leaves nothing behind.
         let _teardown = Teardown(&root);
         let names: Vec<&str> = ["bin", "sbin", "usr", "lib", "lib64", "lib32"]
             .into_iter()
@@ -127,7 +119,6 @@ mod tests {
         }
         let proc_target = root.join("proc");
         fs::create_dir_all(&proc_target).unwrap();
-        // A writable bind, so the secure flags of the default `Flags` are checked next to the read only ones.
         let etc = root.join("etc");
         fs::create_dir_all(&etc).unwrap();
 
@@ -149,7 +140,6 @@ mod tests {
                 source: Source::BindReadOnly(source),
                 target,
                 data: None,
-                // The workload is read from the host, so this one bind carries the flag the secure default refuses.
                 flags: Flags {
                     no_exec: false,
                     ..Flags::new()
@@ -251,7 +241,6 @@ mod tests {
         if !in_private_namespace() {
             return false;
         }
-        // Private first, shared second: sharing the host `/` would hand the host's peer group a new peer.
         match mount::mount_change(
             "/",
             mount::MountPropagationFlags::REC | mount::MountPropagationFlags::SHARED,

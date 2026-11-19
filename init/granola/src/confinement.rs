@@ -1,8 +1,4 @@
 //! The `[sandbox]` table of a service file.
-//!
-//! The table is required on purpose, so a new service cannot land without a confinement policy; `profile = "none"` is the explicit opt out.
-//!
-//! Neither resource table can stand in for the other: a rlimit cannot see a fork, and a cgroup limit cannot bound a file descriptor.
 
 use anyhow::{Result, bail};
 use sandbox::{cap, cgroup, credentials, limits, policy};
@@ -62,8 +58,6 @@ struct Limits {
 }
 
 // Control group limits a service asks for, each absent value left alone.
-//
-// `cpu_quota` and `cpu_period` are the two halves of one setting, so one without the other is refused.
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cgroup {
@@ -74,7 +68,7 @@ struct Cgroup {
     cpu_period: Option<u64>,
 }
 
-/// One limit value, a number or the word `unlimited`.
+/// One limit value, a number, or the word `unlimited`.
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(untagged)]
 enum Amount {
@@ -92,13 +86,10 @@ enum LimitWord {
 impl Sandbox {
     /// Returns the policy this table describes.
     ///
-    /// An absent capability table keeps every capability, which is what the child inherits when no step asks for a change.
-    ///
     /// # Errors
     ///
-    /// Returns an error naming the key a `profile = "none"` table also sets, the capability name that is not a Linux capability, and the error of [`Sandbox::cgroup_limits`] so a malformed table is refused here rather than at the first spawn.
+    /// Returns an error when a table is malformed.
     pub(crate) fn policy(&self) -> Result<policy::Policy<'_>> {
-        // The cgroup table is separate from the policy, and it is validated here anyway so a table that cannot be honoured never reaches the spawner.
         self.cgroup_limits()?;
 
         if matches!(self.profile, Profile::None) {
@@ -108,7 +99,6 @@ impl Sandbox {
         let mut policy = policy::Policy::default();
         if let Some(user) = self.user {
             let gid = self.group.unwrap_or(user);
-            // An empty group list clears the inherited supplementary groups, which nothing can undo once the identity is dropped.
             policy = policy.id(credentials::Id::new(user, gid).groups(&[]));
         }
         if let Some(caps) = self.caps()? {
@@ -120,16 +110,15 @@ impl Sandbox {
         if let Some(limits) = self.limits {
             policy = policy.limits(limits.policy());
         }
+
         Ok(policy)
     }
 
     /// Returns the cgroup limits this table requests.
     ///
-    /// Every service runs in a cgroup, including one whose profile is `none`, so this is not part of [`Sandbox::policy`].
-    ///
     /// # Errors
     ///
-    /// Returns an error naming the missing half when `cpu_quota` or `cpu_period` appears alone, since the kernel takes `cpu.max` as one value in two numbers.
+    /// Returns an error naming the missing half when `cpu_quota` or `cpu_period` appears alone.
     pub(crate) fn cgroup_limits(&self) -> Result<cgroup::Limits> {
         match self.cgroup {
             Some(table) => table.limits(),
@@ -137,7 +126,6 @@ impl Sandbox {
         }
     }
 
-    // The policy a `profile = "none"` table describes, refusing keys it would ignore so an operator is told the setting does nothing.
     fn none_policy(&self) -> Result<policy::Policy<'_>> {
         match self.ignored() {
             Some(key) => bail!("profile = \"none\" makes `{key}` do nothing; remove it"),
@@ -145,7 +133,6 @@ impl Sandbox {
         }
     }
 
-    // The first key a `profile = "none"` table makes inert.
     fn ignored(&self) -> Option<&'static str> {
         if self.user.is_some() {
             return Some("user");
@@ -162,6 +149,7 @@ impl Sandbox {
         if self.limits.is_some() {
             return Some("limits");
         }
+
         None
     }
 
@@ -174,12 +162,12 @@ impl Sandbox {
             Capabilities::Word(CapWord::None) => credentials::Caps::none(),
             Capabilities::List(names) => named(&names)?,
         };
+
         Ok(Some(caps))
     }
 }
 
 impl Cgroup {
-    // Returns the limits this table requests, refusing half a CPU setting.
     fn limits(self) -> Result<cgroup::Limits> {
         let mut limits = cgroup::Limits::new();
         if let Some(count) = self.pids_max {
@@ -197,6 +185,7 @@ impl Cgroup {
             (Some(quota), None) => bail!("`cpu_quota = {quota}` also needs `cpu_period`"),
             (None, Some(period)) => bail!("`cpu_period = {period}` also needs `cpu_quota`"),
         }
+
         Ok(limits)
     }
 }
@@ -231,6 +220,7 @@ fn named(names: &[String]) -> Result<credentials::Caps> {
         };
         caps = caps.allow(cap);
     }
+
     Ok(caps)
 }
 

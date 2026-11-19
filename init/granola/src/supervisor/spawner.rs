@@ -1,27 +1,4 @@
 //! Spawning supervised services through the sandbox crate.
-//!
-//! Every service goes through [`sandbox::spawn::run`], so exactly one spawn
-//! path exists and it always applies the policy of the service `[sandbox]`
-//! table. The pre-bound listener is installed at fd 3 with `Cmd::pass` instead
-//! of a `pre_exec` hook, which keeps the child side inside the sandbox crate
-//! where the allocation and lock discipline of the fork window is enforced.
-//!
-//! # One cgroup per service
-//!
-//! Every service gets its own cgroup, including one whose profile is `none`.
-//! The cgroup is a lifecycle tool as much as a confinement one: it is how the
-//! supervisor guarantees it can kill everything the service started, children
-//! included, and the limits of its service file are the second use. The child
-//! is born inside its cgroup through `CLONE_INTO_CGROUP`, so it never runs
-//! outside it, and a cgroup that cannot be created fails the spawn with context
-//! instead of letting the service run without the limits it asked for.
-//!
-//! # No pidfd wait
-//!
-//! The `Reaper` already awaits `SIGCHLD` and drains `waitpid(-1, WNOHANG)`, so
-//! nothing here ever blocks a tokio worker on a child. `Child::pidfd` stays
-//! available for a consumer that needs it later; do not add pidfd machinery
-//! here to wait for exits.
 
 use alloc::ffi::CString;
 use std::ffi::{CStr, OsStr};
@@ -29,14 +6,14 @@ use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStringExt as _;
 use std::path::Path;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Error, Result, bail};
 use sandbox::cgroup::v2::Tree;
 use sandbox::spawn::{self, Cmd};
 use sandbox::{cgroup, probe};
 
 use super::service::{ServiceState, ServiceStatus};
 
-/// Descriptor the child expects its pre-bound listener on.
+/// Descriptor the child expects its prebound listener on.
 const LISTENER_FD: RawFd = 3;
 
 /// Output file descriptors produced by spawning a service.
@@ -71,8 +48,6 @@ impl Spawn for Spawner {
             .as_ref()
             .context("service has no [sandbox] table")?;
         let name = state.service.name.as_str();
-        // The service name is the cgroup name, so it has to satisfy the rules
-        // a cgroup name follows before anything reaches the hierarchy.
         if !cgroup::valid_name(name) {
             bail!("service name `{name}` is not a valid cgroup name");
         }
@@ -100,16 +75,9 @@ impl Spawn for Spawner {
             .map(|fd| (fd.as_fd(), LISTENER_FD));
         let pass: &[(BorrowedFd<'_>, RawFd)] = listener.as_slice();
 
-        // The cgroup outlives the spawn: the descriptor is only read by the
-        // clone, and the directory stays for the exit path to kill and remove.
         let tree = Tree::claim(Path::new(crate::cgroup::ROOT), name, &cgroup_limits)
             .with_context(|| format!("Failed to create the cgroup of {name}"))?;
 
-        // The strings and the command live only across the fork: the sandbox
-        // crate turns them into pointers before the child runs, and the child
-        // copies nothing. Every step after the create sits in this closure, so
-        // the single failure path below removes the cgroup whatever step it
-        // was, the descriptor included.
         let child = (|| {
             let (program, argv) = command_line(&tokens)?;
             let envp = environment()?;
@@ -119,19 +87,17 @@ impl Spawn for Spawner {
                 .stdout(stdout_writer.as_fd())
                 .stderr(stderr_writer.as_fd())
                 .pass(pass);
-            // The child is born in its cgroup, so the descriptor is the only
-            // way it can be placed there before it runs a single instruction.
             let cgroup = tree
                 .fd()
                 .with_context(|| format!("Failed to open the cgroup of {name}"))?;
+
             spawn::run(&resolved, &cmd, Some(cgroup)).context("Failed to spawn service")
         })();
+
         let child = match child {
             Ok(child) => child,
             Err(error) => return Err(discard(tree, name, error)),
         };
-        // The parent must not hold the write ends: the log reader would never
-        // see the end of the output of a service that exited.
         drop(stdout_writer);
         drop(stderr_writer);
 
@@ -149,10 +115,8 @@ impl Spawn for Spawner {
     }
 }
 
-// Removes the cgroup of a service whose spawn failed and hands the failure
-// back: a cgroup left here would hold limits applied to nothing, and its name
-// would stay occupied for the next start to clear.
-fn discard(tree: Tree<'_>, name: &str, error: anyhow::Error) -> anyhow::Error {
+// Removes the cgroup of a service whose spawn failed and hands the failure back.
+fn discard(tree: Tree<'_>, name: &str, error: Error) -> Error {
     if let Err(failed) = tree.remove() {
         kmsg::warn!("cgroup: removing the cgroup of {name} after a failed spawn failed: {failed}");
     }
@@ -161,14 +125,11 @@ fn discard(tree: Tree<'_>, name: &str, error: anyhow::Error) -> anyhow::Error {
 }
 
 /// Returns the program and the argument vector of `tokens`.
-///
-/// `execve` reads the program name from `argv[0]`, and `Service::argv` keeps
-/// the program as its first element, so the vector is built from every token
-/// and never from the arguments alone.
 fn command_line(tokens: &[String]) -> Result<(CString, Vec<CString>)> {
     let program = tokens.first().context("command must not be empty")?;
     let program = cstring(program.as_bytes())?;
     let argv = cstrings(&tokens.iter().map(String::as_bytes).collect::<Vec<_>>())?;
+
     Ok((program, argv))
 }
 
@@ -189,6 +150,7 @@ fn environment() -> Result<Vec<CString>> {
     });
     let entries: Vec<_> = entries.collect();
     let entries: Vec<&[u8]> = entries.iter().map(Vec::as_slice).collect();
+
     cstrings(&entries)
 }
 

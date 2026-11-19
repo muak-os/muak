@@ -1,8 +1,4 @@
 //! Confinement primitives for untrusted workloads.
-//!
-//! Control group v1 is deliberately unsupported: the kernel boots with `cgroup_no_v1=all`.
-//!
-//! Code between fork and exec is allocation, panic and lock free: a forked child of a multithreaded parent can inherit a held allocator or panic lock and deadlock.
 
 #![warn(missing_docs)]
 

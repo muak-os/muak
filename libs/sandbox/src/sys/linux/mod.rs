@@ -1,6 +1,4 @@
 //! Linux syscall backend.
-//!
-//! Each module is gated by the feature that can reach it, and the calls only the child path makes ride on `spawn` as well.
 
 #[cfg(feature = "spawn")]
 pub(crate) mod credentials;

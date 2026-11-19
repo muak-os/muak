@@ -1,6 +1,4 @@
 //! Credentials and capability sets a workload inherits.
-//!
-//! [`Caps`] describes what a child keeps, so the empty set is the useful default, and ambient capabilities are deliberately absent: a policy asking for a non-root uid and a non-empty set is rejected instead of silently losing privileges.
 
 use crate::cap;
 
@@ -48,8 +46,6 @@ impl<'a> Id<'a> {
     }
 
     /// Returns this identity with `groups` as its supplementary groups.
-    ///
-    /// An empty slice clears the parent groups, which must happen before `setresuid`: afterwards they can no longer be removed.
     #[must_use = "the identity is the value the caller asked for"]
     pub const fn groups(self, groups: &'a [u32]) -> Self {
         Self {
