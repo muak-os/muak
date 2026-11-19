@@ -1,3 +1,15 @@
 name       = "modd"
 command    = "/sbin/modd"
 depends_on = []
+
+[sandbox]
+profile = "strict"
+capabilities = ["sys_module"]
+no_new_privs = true
+
+[sandbox.limits]
+nofile = 4096
+nproc = 256
+
+[sandbox.cgroup]
+pids_max = 512

@@ -31,6 +31,7 @@ mod tests {
             name: name.to_owned(),
             command: String::new(),
             depends_on: depends_on.iter().copied().map(str::to_owned).collect(),
+            sandbox: None,
         }
     }
 

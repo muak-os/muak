@@ -322,7 +322,8 @@ spell:
 [script]
 test *pkgs:
     printf "{{ cyan }}Running tests{{ reset }}\n"
-    just _test-run "cargo nextest run --locked {{ target }} --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
+    printf '[profile.default]\nslow-timeout = { period = "60s", terminate-after = 2 }\n' | install -Dm644 /dev/stdin {{ out }}/nextest.toml
+    just _test-run "cargo nextest run --locked {{ target }} --config-file {{ out }}/nextest.toml --no-fail-fast --failure-output immediate-final --final-status-level slow" "Running tests for" {{ pkgs }}
     doc_args=$(cargo metadata --locked --no-deps --format-version 1 \
         | jq -r '($ARGS.positional) as $s | .packages[] | select(any(.targets[]; .kind[] == "lib") and (if $s == [] then .name != "e2e" else .name | IN($s[]) end)) | "-p \(.name)"' --args {{ pkgs }})
     if [ -n "$doc_args" ]; then
