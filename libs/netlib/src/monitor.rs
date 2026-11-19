@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::io;
 
-use packet::mac;
 use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::packet_route::RouteNetlinkMessage;

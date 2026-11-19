@@ -18,7 +18,7 @@ tokio-stream = { workspace = true }
 thiserror = { workspace = true }
 
 # Internal
-packet = { workspace = true }
+mac = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }

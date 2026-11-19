@@ -1227,6 +1227,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mac"
+version = "0.0.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1366,7 +1373,7 @@ dependencies = [
 name = "netlib"
 version = "0.0.0"
 dependencies = [
- "packet",
+ "mac",
  "rtnetlink",
  "rustix",
  "thiserror 2.0.21",
@@ -1433,6 +1440,7 @@ dependencies = [
  "granola",
  "kmsg",
  "libc",
+ "mac",
  "netlib",
  "packet",
  "rtnetlink",
@@ -1531,7 +1539,6 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "rustix",
- "sha2",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -2947,8 +2954,8 @@ dependencies = [
  "config",
  "granola",
  "kmsg",
+ "mac",
  "netlib",
- "packet",
  "prost",
  "protox",
  "rtnetlink",

@@ -1,4 +1,6 @@
-//! Deterministic MAC address generation.
+//! MAC address formatting and generation.
+
+#![warn(missing_docs)]
 
 use sha2::{Digest as _, Sha256};
 
