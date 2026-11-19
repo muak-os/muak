@@ -21,6 +21,7 @@ dhcp = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 config = { workspace = true }
+mac = { workspace = true }
 netlib = { workspace = true }
 packet = { workspace = true }
 

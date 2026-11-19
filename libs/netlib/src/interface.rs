@@ -7,7 +7,6 @@ use core::fmt;
 use core::future::Future;
 use core::str::FromStr;
 
-use packet::mac;
 use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
 use thiserror::Error;

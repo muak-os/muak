@@ -31,8 +31,8 @@ btrfs = { workspace = true }
 config = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
+mac = { workspace = true }
 netlib = { workspace = true }
-packet = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }
