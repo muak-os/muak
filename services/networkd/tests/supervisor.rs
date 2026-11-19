@@ -22,7 +22,7 @@ mod fixtures;
 use alloc::sync::Arc;
 
 use config::system::network;
-use netlib::address::Ops as _;
+use netlink::address::Ops as _;
 
 use self::fixtures::netlink::MockNetlinkOps;
 

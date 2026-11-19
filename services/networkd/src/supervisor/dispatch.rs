@@ -1,10 +1,9 @@
 //! Netlink event consumer: dispatches received `NetworkEvent`s to supervisor state handlers.
 
 use mac::format as format_mac;
-use netlib::interface::Name;
-use netlib::link::State;
+use netdev::Ops;
 use netlib::monitor::Event;
-use netlib::netlink::Ops;
+use netlink::link::{Name, State};
 
 use super::{NetworkSupervisor, failover};
 use crate::interface::commands::Command;

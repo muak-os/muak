@@ -7,8 +7,8 @@ use anyhow::Result;
 use config::system::network::{
     BridgeConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
 };
-use netlib::interface::Name;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::link::Name;
 use tokio::sync::{oneshot, watch};
 
 use super::NetworkSupervisor;

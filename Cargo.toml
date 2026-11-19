@@ -43,12 +43,15 @@ members = [
     "libs/firmware",
     "libs/granola-macros",
     "libs/ip",
+    "libs/netdev",
     "libs/netlib",
+    "libs/netlink",
     "libs/oci",
     "libs/oci-client",
     "libs/packet",
     "libs/sandbox",
     "libs/slaac",
+    "libs/tap",
     "libs/uki",
 ]
 resolver = "3"
@@ -91,7 +94,9 @@ kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 mac = { path = "libs/mac" }
+netdev = { path = "libs/netdev" }
 netlib = { path = "libs/netlib" }
+netlink = { path = "libs/netlink" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
 packet = { path = "libs/packet" }
@@ -101,6 +106,7 @@ disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
 slaac = { path = "libs/slaac" }
+tap = { path = "libs/tap" }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 uki = { path = "libs/uki" }

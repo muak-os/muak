@@ -4,8 +4,8 @@ use core::net::Ipv4Addr;
 
 use anyhow::Result;
 use dhcp::lease::Lease;
-use netlib::address::IpConfig;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::address::IpConfig;
 
 use super::Actor;
 use crate::interface::lifecycle::DhcpState;

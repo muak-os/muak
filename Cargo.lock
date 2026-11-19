@@ -1370,12 +1370,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "netdev"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "netlink",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "netlib"
 version = "0.0.0"
 dependencies = [
  "mac",
+ "netlink",
  "rtnetlink",
- "rustix",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
+name = "netlink"
+version = "0.0.0"
+dependencies = [
+ "rtnetlink",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -1441,9 +1460,10 @@ dependencies = [
  "kmsg",
  "libc",
  "mac",
+ "netdev",
  "netlib",
+ "netlink",
  "packet",
- "rtnetlink",
  "rustix",
  "slaac",
  "tempfile",
@@ -2333,6 +2353,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 
 [[package]]
+name = "tap"
+version = "0.0.0"
+dependencies = [
+ "netlink",
+ "rustix",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "tar"
 version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2963,13 +2992,13 @@ dependencies = [
  "granola",
  "kmsg",
  "mac",
- "netlib",
+ "netlink",
  "prost",
  "protox",
- "rtnetlink",
  "rustix",
  "serde",
  "serde_json",
+ "tap",
  "tokio",
  "tokio-stream",
  "tonic",

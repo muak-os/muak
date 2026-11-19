@@ -1,12 +1,10 @@
 //! TAP device life cycle.
 
-use rtnetlink::Handle;
+use netlink::link;
 use rustix::fs::{Mode, OFlags, open};
 use rustix::io::Errno;
 use rustix::ioctl::{Opcode, Setter, ioctl};
 use thiserror::Error;
-
-use crate::link;
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const IFF_TAP: i16 = 0x0002;
@@ -101,16 +99,19 @@ pub fn create(tap_name: &str) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when the TAP device cannot be created, brought up, or attached to the bridge.
-pub async fn setup_on_bridge(handle: &Handle, tap_name: &str, bridge_name: &str) -> Result<u32> {
+pub async fn setup_on_bridge<L: link::Ops>(
+    link: &L,
+    tap_name: &str,
+    bridge_name: &str,
+) -> Result<u32> {
     create(tap_name)?;
 
-    let msg = link::find_by_name(handle, tap_name).await?;
-    let index = msg.header.index;
+    let index = link.index(tap_name).await?;
 
-    link::bring_up(handle, index).await?;
+    link.bring_up(index).await?;
 
-    let bridge_index = link::get_index(handle, bridge_name).await?;
-    link::set_master(handle, index, bridge_index).await?;
+    let bridge_index = link.index(bridge_name).await?;
+    link.set_master(index, bridge_index).await?;
     println!("{tap_name} attached to bridge {bridge_name}");
 
     Ok(index)
@@ -121,11 +122,11 @@ pub async fn setup_on_bridge(handle: &Handle, tap_name: &str, bridge_name: &str)
 /// # Errors
 ///
 /// Returns an error when deleting an existing TAP device fails.
-pub async fn remove(handle: &Handle, tap_name: &str) -> Result<()> {
+pub async fn remove<L: link::Ops>(link: &L, tap_name: &str) -> Result<()> {
     println!("Deleting TAP device: {tap_name}");
 
-    if let Ok(index) = link::get_index(handle, tap_name).await {
-        link::delete(handle, index).await?;
+    if let Ok(index) = link.index(tap_name).await {
+        link.delete(index).await?;
         println!("TAP device {tap_name} deleted");
     } else {
         println!("TAP device {tap_name} does not exist");

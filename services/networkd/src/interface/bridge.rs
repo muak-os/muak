@@ -1,9 +1,8 @@
 //! Bridge provisioning logic for a per-interface actor.
 
 use anyhow::{Context as _, Result};
-use netlib::interface::Name;
-use netlib::link::State;
-use netlib::netlink::Ops;
+use netdev::Ops;
+use netlink::link::{Name, State};
 
 use super::Actor;
 use super::lifecycle::DhcpState;

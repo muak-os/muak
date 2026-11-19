@@ -22,12 +22,11 @@ granola = { workspace = true }
 kmsg = { workspace = true }
 config = { workspace = true }
 mac = { workspace = true }
+netdev = { workspace = true }
 netlib = { workspace = true }
+netlink = { workspace = true }
 packet = { workspace = true }
 slaac = { workspace = true }
-
-# Networking
-rtnetlink = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["net", "event", "time"] }
