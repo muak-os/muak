@@ -4,7 +4,7 @@ use core::future::Future;
 use core::time::Duration;
 
 use anyhow::Result;
-use netlib::packet::Socket;
+use packet::raw::Socket;
 use tokio::time::sleep;
 
 use super::Lease;

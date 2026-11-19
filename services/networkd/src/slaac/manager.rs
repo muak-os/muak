@@ -14,7 +14,7 @@ use netlib::slaac::icmpv6::{
     ICMPV6_ROUTER_ADVERTISEMENT, RouterAdvertisement, build_router_solicitation,
     parse_router_advertisement,
 };
-use netlib::socket;
+use packet::socket;
 use rustix::io::Errno;
 use rustix::net::ipproto::ICMPV6;
 use rustix::net::netdevice::name_to_index;

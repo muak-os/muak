@@ -2,9 +2,9 @@
 
 use netlib::interface::Name;
 use netlib::link::State;
-use netlib::mac::format as format_mac;
 use netlib::monitor::Event;
 use netlib::netlink::Ops;
+use packet::mac::format as format_mac;
 
 use super::{NetworkSupervisor, failover};
 use crate::interface::commands::Command;

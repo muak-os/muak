@@ -82,7 +82,7 @@ unsafe impl SocketAddrArg for SockAddrLl {
     }
 }
 
-/// Async DHCP raw socket bound to a specific interface, filtered to `ETH_P_IP`.
+/// Async `AF_PACKET` socket bound to a specific interface, filtered to `ETH_P_IP`.
 pub struct Socket {
     /// Async file descriptor for the socket.
     fd: AsyncFd<OwnedFd>,

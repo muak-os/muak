@@ -14,18 +14,17 @@ categories.workspace = true
 tokio = { workspace = true, features = ["net", "sync", "time"] }
 tokio-stream = { workspace = true }
 
-# Cryptography
-sha2 = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
+
+# Internal
+packet = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }
 
 # System/platform APIs
-libc = { workspace = true }
-rustix = { workspace = true, features = ["net"] }
+rustix = { workspace = true }
 
 [lints]
 workspace = true

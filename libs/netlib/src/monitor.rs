@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::io;
 
+use packet::mac;
 use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::packet_route::RouteNetlinkMessage;
@@ -12,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt as _;
 
 use crate::interface::{Name, is_ethernet};
-use crate::{link, mac};
+use crate::link;
 
 /// Monitor operation failures.
 #[derive(Debug, Error)]

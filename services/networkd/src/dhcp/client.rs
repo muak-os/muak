@@ -5,8 +5,8 @@ use core::net::Ipv4Addr;
 use core::time::Duration;
 
 use anyhow::Result;
-use netlib::packet::{ETH_BROADCAST, Socket};
-use netlib::socket::bind_device;
+use packet::raw::{ETH_BROADCAST, Socket};
+use packet::socket::bind_device;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 

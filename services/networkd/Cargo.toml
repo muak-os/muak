@@ -21,6 +21,7 @@ granola = { workspace = true }
 kmsg = { workspace = true }
 config = { workspace = true }
 netlib = { workspace = true }
+packet = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }

@@ -1359,10 +1359,9 @@ dependencies = [
 name = "netlib"
 version = "0.0.0"
 dependencies = [
- "libc",
+ "packet",
  "rtnetlink",
  "rustix",
- "sha2",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -1428,6 +1427,7 @@ dependencies = [
  "kmsg",
  "libc",
  "netlib",
+ "packet",
  "rtnetlink",
  "rustix",
  "tempfile",
@@ -1521,6 +1521,13 @@ dependencies = [
 [[package]]
 name = "packet"
 version = "0.0.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "sha2",
+ "thiserror 2.0.21",
+ "tokio",
+]
 
 [[package]]
 name = "partdev"
@@ -2934,6 +2941,7 @@ dependencies = [
  "granola",
  "kmsg",
  "netlib",
+ "packet",
  "prost",
  "protox",
  "rtnetlink",
