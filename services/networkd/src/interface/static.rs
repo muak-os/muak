@@ -9,7 +9,7 @@ use netlib::netlink::Ops;
 
 use super::Actor;
 use crate::interface::commands::ApplyMode;
-use crate::interface::state::Lifecycle;
+use crate::interface::lifecycle::Lifecycle;
 
 #[derive(Clone, Copy)]
 enum StaticRequest<'a> {

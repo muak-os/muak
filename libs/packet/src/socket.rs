@@ -1,4 +1,4 @@
-//! Raw socket helpers.
+//! `SO_BINDTODEVICE` helper.
 
 use alloc::ffi::{CString, NulError};
 use core::result::Result as CoreResult;

@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::bail;
 use btrfs::quota::{DiskUsage, get_usage, set};
 use btrfs::subvolume::{create, delete, list};
-use netlib::mac::{format as format_mac, generate as generate_mac};
 use netlib::tap::{remove as net_remove_tap, setup_on_bridge};
+use packet::mac::{format as format_mac, generate as generate_mac};
 use tokio::fs::{read_to_string, write};
 use tokio::sync::mpsc;
 

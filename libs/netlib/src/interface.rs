@@ -7,13 +7,13 @@ use core::fmt;
 use core::future::Future;
 use core::str::FromStr;
 
+use packet::mac;
 use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkInfo};
 use thiserror::Error;
 use tokio_stream::StreamExt as _;
 
 use crate::link::State;
-use crate::mac::format;
 use crate::netlink::Rtnl;
 
 /// A validated Linux network interface name.
@@ -249,7 +249,7 @@ async fn discover_ethernet(handle: &Handle) -> Result<Vec<Ethernet>> {
             "Discovered interface: {} (index {}, MAC {}, state: {})",
             name,
             link_msg.header.index,
-            format(&mac_address),
+            mac::format(&mac_address),
             link_state
         );
 

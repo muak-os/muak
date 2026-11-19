@@ -3,27 +3,27 @@
 mod bridge;
 pub mod commands;
 mod dhcp;
+pub mod lifecycle;
 mod link;
 mod slaac;
 pub mod snapshot;
-pub mod state;
 mod r#static;
 
 use alloc::sync::Arc;
 use core::pin::Pin;
 
+use ::dhcp::connector::{Connector, System};
+use ::dhcp::lease::Lease;
 use commands::Command;
 use config::system::network;
-use dhcp::LeaseTimers;
+use dhcp::manager::Manager;
+use dhcp::timers::LeaseTimers;
+use lifecycle::Lifecycle;
 use netlib::netlink::Ops;
 use snapshot::Snapshot;
-use state::Lifecycle;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;
 
-use crate::dhcp::Lease;
-use crate::dhcp::client::{DhcpConnector, SystemDhcpConnector};
-use crate::dhcp::manager::Manager;
 use crate::slaac::manager::{Manager as SlaacManager, SlaacEvent};
 
 pub struct Actor<N: Ops> {
@@ -57,11 +57,11 @@ enum ActorEvent {
 impl<N: Ops> Actor<N> {
     /// Spawns a new per-interface actor.
     pub fn spawn(snapshot: Snapshot, ops: N, config: Arc<network::Config>) -> ActorHandle {
-        Self::spawn_with(snapshot, ops, config, SystemDhcpConnector)
+        Self::spawn_with(snapshot, ops, config, System)
     }
 
     /// Spawns a new per-interface actor with a custom DHCP connector.
-    pub fn spawn_with<C: DhcpConnector>(
+    pub fn spawn_with<C: Connector>(
         snapshot: Snapshot,
         ops: N,
         config: Arc<network::Config>,
@@ -89,14 +89,14 @@ impl<N: Ops> Actor<N> {
     }
 
     /// Rehydrates runtime-only state from a persisted interface snapshot.
-    async fn run<C: DhcpConnector>(mut self, connector: C) {
+    async fn run<C: Connector>(mut self, connector: C) {
         kmsg::info!("Actor started for {}", self.snapshot.name);
         actor_loop(&mut self, &connector).await;
         kmsg::info!("Actor stopped for {}", self.snapshot.name);
     }
 
     /// Runs the full DHCP re-acquisition when the lease expires.
-    async fn dispatch<C: DhcpConnector>(&mut self, cmd: Command, connector: &C) {
+    async fn dispatch<C: Connector>(&mut self, cmd: Command, connector: &C) {
         match cmd {
             Command::ConfigureDhcp { mode } => dhcp::apply(self, mode, connector).await,
             Command::ConfigureStaticIpv4 {
@@ -139,7 +139,7 @@ impl<N: Ops> Actor<N> {
         }
     }
 
-    async fn on_expire<C: DhcpConnector>(&mut self, connector: &C) {
+    async fn on_expire<C: Connector>(&mut self, connector: &C) {
         if let Err(error) = dhcp::do_full_dora(self, connector).await {
             kmsg::warn!("DHCP re-acquire failed for {}: {error}", self.snapshot.name);
         }
@@ -174,7 +174,7 @@ impl<N: Ops> Actor<N> {
     }
 }
 
-async fn actor_loop<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &C) {
+async fn actor_loop<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
     loop {
         let event = actor_select(
             &mut actor.cmd_rx,
@@ -194,8 +194,8 @@ async fn actor_loop<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &
             ActorEvent::DhcpLease(lease) => dhcp::acquired(actor, lease).await,
             ActorEvent::DhcpFailed => dhcp::acquisition_failed(actor),
             ActorEvent::Slaac(event) => slaac::handle_event(actor, event).await,
-            ActorEvent::Renew => dhcp::renew_lease(actor, connector).await,
-            ActorEvent::Rebind => dhcp::rebind_lease(actor, connector).await,
+            ActorEvent::Renew => dhcp::refresh::renew(actor, connector).await,
+            ActorEvent::Rebind => dhcp::refresh::rebind(actor, connector).await,
             ActorEvent::Expire => actor.on_expire(connector).await,
         }
     }

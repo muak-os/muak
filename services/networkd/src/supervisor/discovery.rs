@@ -8,8 +8,8 @@ use netlib::link::State;
 use netlib::netlink::Ops;
 
 use super::NetworkSupervisor;
+use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::interface::state::Lifecycle;
 use crate::supervisor::state::NetworkState;
 
 /// Timeout for carrier detection when probing interfaces.

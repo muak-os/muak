@@ -17,16 +17,15 @@ tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "
 anyhow = { workspace = true }
 
 # Internal
+dhcp = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 config = { workspace = true }
 netlib = { workspace = true }
+packet = { workspace = true }
 
 # Networking
 rtnetlink = { workspace = true }
-
-# Cryptography
-getrandom = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["net", "event", "time"] }

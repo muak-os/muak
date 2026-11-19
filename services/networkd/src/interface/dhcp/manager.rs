@@ -4,20 +4,22 @@ use core::future::Future;
 use core::time::Duration;
 
 use anyhow::Result;
-use netlib::packet::Socket;
+use dhcp::connector::Connector;
+use dhcp::lease::Lease;
+use dhcp::{MAX_FRAME_LEN, MAX_MESSAGE_LEN, Scratch};
+use packet::raw::Socket;
 use tokio::time::sleep;
-
-use super::Lease;
-use super::client::{self, DhcpConnector};
 
 const RETRY_BASE: Duration = Duration::from_secs(2);
 const RETRY_MAX: Duration = Duration::from_mins(2);
 const ACQUIRE_MAX_ATTEMPTS: u32 = 3;
 
 /// Drives the full DORA exchange with exponential-backoff retries until a lease is acquired.
-pub struct Manager {
+pub(in crate::interface) struct Manager {
     socket: Socket,
     mac: [u8; 6],
+    msg: [u8; MAX_MESSAGE_LEN],
+    frame: [u8; MAX_FRAME_LEN],
 }
 
 impl Manager {
@@ -26,13 +28,18 @@ impl Manager {
     /// # Errors
     ///
     /// Returns an error if the raw packet socket cannot be opened.
-    pub async fn new<C: DhcpConnector>(
+    pub(in crate::interface) async fn new<C: Connector>(
         interface: &str,
         mac: [u8; 6],
         connector: &C,
     ) -> Result<Self> {
         let socket = connector.create_raw(interface).await?;
-        Ok(Self { socket, mac })
+        Ok(Self {
+            socket,
+            mac,
+            msg: [0; MAX_MESSAGE_LEN],
+            frame: [0; MAX_FRAME_LEN],
+        })
     }
 
     /// Runs DORA with backoff, resolving once a lease is acquired or giving up
@@ -41,18 +48,14 @@ impl Manager {
     /// # Errors
     ///
     /// Returns the most recent acquisition error once the attempts are exhausted.
-    pub async fn acquire(&mut self) -> Result<Lease> {
+    pub(in crate::interface) async fn acquire(&mut self) -> Result<Lease> {
         acquire_attempts(Run {
             socket: &self.socket,
             mac: self.mac,
+            msg: self.msg.as_mut_slice(),
+            frame: self.frame.as_mut_slice(),
         })
         .await
-    }
-
-    /// Returns a reference to the underlying raw socket for reuse in rebind operations.
-    #[must_use = "callers need the socket to send DHCP packets"]
-    pub fn socket(&self) -> &Socket {
-        &self.socket
     }
 }
 
@@ -60,11 +63,19 @@ impl Manager {
 struct Run<'a> {
     socket: &'a Socket,
     mac: [u8; 6],
+    msg: &'a mut [u8],
+    frame: &'a mut [u8],
 }
 
 impl DoraAttempt for Run<'_> {
     async fn attempt(&mut self) -> Result<Lease> {
-        client::run(self.socket, &self.mac).await
+        dhcp::exchange::acquire(
+            self.socket,
+            self.mac,
+            Scratch::new(&mut *self.msg, &mut *self.frame),
+        )
+        .await
+        .map_err(Into::into)
     }
 }
 

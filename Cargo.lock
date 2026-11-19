@@ -503,6 +503,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dhcp"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "ip",
+ "packet",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1009,6 +1020,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ip"
+version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1348,10 +1366,9 @@ dependencies = [
 name = "netlib"
 version = "0.0.0"
 dependencies = [
- "libc",
+ "packet",
  "rtnetlink",
  "rustix",
- "sha2",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -1412,11 +1429,12 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "getrandom 0.4.3",
+ "dhcp",
  "granola",
  "kmsg",
  "libc",
  "netlib",
+ "packet",
  "rtnetlink",
  "rustix",
  "tempfile",
@@ -1505,6 +1523,17 @@ dependencies = [
  "primefield",
  "primeorder",
  "sha2",
+]
+
+[[package]]
+name = "packet"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "sha2",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -2919,6 +2948,7 @@ dependencies = [
  "granola",
  "kmsg",
  "netlib",
+ "packet",
  "prost",
  "protox",
  "rtnetlink",

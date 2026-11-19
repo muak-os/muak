@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-pub mod dhcp;
 pub mod dns;
 pub mod interface;
 pub mod slaac;

@@ -1,15 +1,15 @@
 //! Link-state event handlers for a per-interface actor.
 
+use ::dhcp::connector::Connector;
 use netlib::link::State;
 use netlib::netlink::Ops;
 
 use super::Actor;
-use crate::dhcp::client::DhcpConnector;
 use crate::interface::dhcp;
-use crate::interface::state::Lifecycle;
+use crate::interface::lifecycle::Lifecycle;
 
 /// Handles a link-up event on this interface.
-pub(super) async fn up<N: Ops, C: DhcpConnector>(actor: &mut Actor<N>, connector: &C) {
+pub(super) async fn up<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
     actor.snapshot.link = State::Up;
     if !matches!(
         actor.snapshot.state,

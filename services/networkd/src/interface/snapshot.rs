@@ -1,12 +1,12 @@
 //! Snapshot of a single network interface's runtime state.
 
 use anyhow::Result;
+use dhcp::lease::Lease;
 use netlib::address::{IpConfig, Ipv6Config};
 use netlib::interface::Name;
 use netlib::link::State;
 
-use crate::dhcp::{Lease, State as DhcpState};
-use crate::interface::state::Lifecycle;
+use super::lifecycle::{DhcpState, Lifecycle};
 use crate::statemachine::StateMachine as _;
 
 /// Point-in-time view of one interface's configuration and link status.
