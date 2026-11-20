@@ -18,6 +18,7 @@ const CHANNEL_CAPACITY: usize = 32;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FakeMonitor {
     subscribe_calls: Arc<AtomicU32>,
+    fail_subscribes: Arc<AtomicU32>,
     senders: Arc<Mutex<Vec<mpsc::Sender<Event>>>>,
 }
 
@@ -31,6 +32,11 @@ impl FakeMonitor {
     #[must_use = "the test asserts on how often the monitor was subscribed"]
     pub(crate) fn subscribe_calls(&self) -> u32 {
         self.subscribe_calls.load(Ordering::SeqCst)
+    }
+
+    /// Sets how many upcoming subscriptions fail, without handing out a channel.
+    pub(crate) fn fail_next(&self, count: u32) {
+        self.fail_subscribes.store(count, Ordering::SeqCst);
     }
 
     /// Sends an event on the most recent subscription, returning whether it was queued.
@@ -50,6 +56,12 @@ impl FakeMonitor {
 impl Source for FakeMonitor {
     fn subscribe(&self) -> impl Future<Output = Result<mpsc::Receiver<Event>>> + Send {
         self.subscribe_calls.fetch_add(1, Ordering::SeqCst);
+        let failures = self.fail_subscribes.load(Ordering::SeqCst);
+        if failures > 0 {
+            self.fail_subscribes
+                .store(failures.saturating_sub(1), Ordering::SeqCst);
+            return std::future::ready(Err(anyhow::anyhow!("mock monitor failure")));
+        }
         let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
         self.lock().push(tx);
 

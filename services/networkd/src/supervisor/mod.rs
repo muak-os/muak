@@ -255,13 +255,14 @@ fn run<N: Ops, M: Source + Send + Sync + 'static>(
 async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     ops: N,
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
-    mut event_rx: mpsc::Receiver<Event>,
+    event_rx: mpsc::Receiver<Event>,
     source: M,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
 ) {
     let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx, dns);
+    let mut events = monitor::Subscription::new(event_rx, source);
     let mut reconcile = interval(RECONCILE_INTERVAL);
 
     loop {
@@ -274,7 +275,7 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
 
         let event = selection::wait(
             &mut cmd_rx,
-            &mut event_rx,
+            events.receiver(),
             &mut primary_snap_rx,
             &mut reconcile,
         )
@@ -286,14 +287,15 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
 
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
-            SupervisorEvent::Netlink(event) => {
-                monitor::handle_event(&mut supervisor, &mut event_rx, &source, event).await;
-            }
+            SupervisorEvent::Netlink(event) => events.handle(&mut supervisor, event).await,
             SupervisorEvent::PrimaryChanged => {
                 failover::switch_if_needed(&mut supervisor).await;
                 dns::flush(&mut supervisor);
             }
-            SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
+            SupervisorEvent::ReconcileTick => {
+                reconcile::run(&mut supervisor).await;
+                events.retry_if_closed().await;
+            }
         }
     }
 }

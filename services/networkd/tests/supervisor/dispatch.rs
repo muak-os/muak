@@ -412,3 +412,57 @@ async fn monitor_closed_event_renews_the_subscription() {
         "supervisor must stay alive after renewing the monitor"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn monitor_retries_a_failed_renewal_on_the_reconcile_tick() {
+    // ARRANGE
+    // No interface config keeps the interface actor idle, so the paused clock advances.
+    let mut cfg = network::Config::default();
+    cfg.dns.clear();
+    cfg.interfaces.clear();
+    let config = Arc::new(cfg);
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+    let source = FakeMonitor::new();
+    source.fail_next(1);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle =
+        supervisor::start_with_source(mock, event_rx, source.clone(), config, Resolver::default())
+            .expect("start failed");
+    handle
+        .initialize_with_retry()
+        .await
+        .expect("initialize failed");
+    // Let the interval consume its immediate first tick before the closed event arrives.
+    sleep(Duration::from_secs(1)).await;
+
+    event_tx
+        .send(Event::Error(Failure::Closed))
+        .await
+        .expect("send failed");
+    // The real monitor drops its sender right after the closed event, so the receiver is closed.
+    drop(event_tx);
+
+    // ACT
+    let limit = Duration::from_secs(1);
+    let step = Duration::from_millis(10);
+    let mut waited = Duration::ZERO;
+    while source.subscribe_calls() == 0 && waited < limit {
+        sleep(step).await;
+        waited += step;
+    }
+    assert_eq!(
+        source.subscribe_calls(),
+        1,
+        "the closed event must trigger exactly one failed renewal"
+    );
+    sleep(Duration::from_secs(31)).await;
+
+    // ASSERT
+    assert_eq!(
+        source.subscribe_calls(),
+        2,
+        "the reconcile tick must retry a failed renewal"
+    );
+}

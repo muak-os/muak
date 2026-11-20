@@ -28,7 +28,8 @@ pub(super) async fn wait(
 ) -> Option<SupervisorEvent> {
     let mut cmd_fut = core::pin::pin!(cmd_rx.recv());
     // A closed monitor channel must not stop the supervisor: the stream is renewable by
-    // `monitor::renew`, so the pending arm keeps this future from ever completing.
+    // the supervisor's monitor subscription, so the pending arm keeps this future from ever
+    // completing.
     let mut event_fut = core::pin::pin!(async {
         match event_rx.recv().await {
             Some(event) => event,
