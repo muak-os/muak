@@ -15,9 +15,6 @@ use crate::commands::disks::{self, column_refs, text};
 
 const CONFIRM_PHRASE: &str = "FACTORY RESET";
 const PLAN_COLUMNS: [&str; 4] = ["PARTITION", "ROLE", "SIZE", "MOUNT"];
-// Mirrors the GPT names returned by `Role::gpt_name()` in `libs/disk/src/role.rs`.
-// The plan lists every matching partition, while the reset deletes the first
-// partition of each role, so duplicates across disks can be over-reported.
 const REMOVABLE_ROLES: [&str; 2] = ["STATE", "EPHEMERAL"];
 
 struct Plan<'a> {
