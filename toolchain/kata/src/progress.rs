@@ -82,13 +82,47 @@ impl Reporter for Noop {
     fn report(&self, _event: Event<'_>) {}
 }
 
+/// koci progress reporter that forwards upload progress as catalog events.
+pub(crate) struct Registry<'a>(pub(crate) &'a dyn Reporter);
+
+impl koci::progress::Reporter for Registry<'_> {
+    fn report(&self, event: koci::progress::Event<'_>) {
+        match event {
+            koci::progress::Event::Bytes { current, total, .. } => {
+                self.0.report(Event::Upload { current, total });
+            }
+            koci::progress::Event::ItemDone { digest, size, .. } => {
+                self.0.report(Event::LayerUploaded { digest, size });
+            }
+            koci::progress::Event::ItemSkipped { digest, .. } => {
+                self.0.report(Event::LayerSkipped { digest });
+            }
+            koci::progress::Event::Started { .. }
+            | koci::progress::Event::Resolved { .. }
+            | koci::progress::Event::Collected { .. }
+            | koci::progress::Event::Packed { .. }
+            | koci::progress::Event::IndexFetched { .. }
+            | koci::progress::Event::PhaseStarted { .. }
+            | koci::progress::Event::PhaseCompleted { .. }
+            | koci::progress::Event::Progress { .. }
+            | koci::progress::Event::ItemQueued { .. }
+            | koci::progress::Event::ManifestPushed { .. }
+            | koci::progress::Event::Verified { .. }
+            | koci::progress::Event::Note { .. }
+            | koci::progress::Event::Done { .. } => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::size_of_val;
     use std::path::Path;
     use std::sync::Mutex;
 
-    use super::{Event, Noop, Reporter};
+    use koci::progress::Reporter as _;
+
+    use super::{Event, Noop, Registry, Reporter};
 
     #[derive(Debug, Default)]
     struct Recorder {
@@ -190,6 +224,44 @@ mod tests {
 
         // ASSERT
         assert_eq!(recorder.labels(), every_label());
+    }
+
+    #[test]
+    fn registry_forwards_upload_progress_and_ignores_the_rest() {
+        // ARRANGE
+        let recorder = Recorder::default();
+        let registry = Registry(&recorder);
+
+        // ACT
+        registry.report(koci::progress::Event::Bytes {
+            phase: koci::progress::Phase::Upload,
+            index: None,
+            current: 64,
+            total: 128,
+        });
+        registry.report(koci::progress::Event::ItemDone {
+            phase: koci::progress::Phase::Upload,
+            index: 1,
+            size: 4096,
+            digest: "sha256:cccc",
+        });
+        registry.report(koci::progress::Event::ItemSkipped {
+            phase: koci::progress::Phase::Upload,
+            digest: "sha256:dddd",
+        });
+        registry.report(koci::progress::Event::Note { message: "ignored" });
+
+        // ASSERT
+        assert_eq!(
+            recorder.labels(),
+            [
+                "upload 64 128",
+                "layer sha256:cccc 4096",
+                "skipped sha256:dddd"
+            ]
+            .map(str::to_owned)
+            .to_vec()
+        );
     }
 
     #[test]

@@ -5,11 +5,21 @@ use std::path::Path;
 use koci::registry;
 
 use crate::error::{KataError, Result};
+use crate::progress::{Event, Reporter};
 use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::entries::NamedEntry;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
+
+/// One verified release line.
+#[derive(Debug)]
+pub struct Verified {
+    /// Verified line as `<kind>/<release>`.
+    pub line: String,
+    /// Number of verified entries.
+    pub entries: usize,
+}
 
 /// One document entry to recheck against the registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +39,7 @@ pub(crate) struct EntryCheck {
 /// # Errors
 ///
 /// Returns an error listing every failing line.
-pub fn run(root: &Path, release: Option<&str>) -> Result<Vec<String>> {
+pub fn run(root: &Path, release: Option<&str>, reporter: &dyn Reporter) -> Result<Vec<Verified>> {
     repository::require_root(root)?;
     if let Some(release) = release {
         validate_release(release)?;
@@ -38,7 +48,17 @@ pub fn run(root: &Path, release: Option<&str>) -> Result<Vec<String>> {
     let mut failures = Vec::new();
     for (kind, line) in lines(root, release) {
         match verify_line(root, kind, &line) {
-            Ok(count) => verified.push(format!("{}/{} ({count} entries)", kind.dir(), line)),
+            Ok(entries) => {
+                let entry = Verified {
+                    line: format!("{}/{line}", kind.dir()),
+                    entries,
+                };
+                reporter.report(Event::Verified {
+                    line: &entry.line,
+                    entries: entry.entries,
+                });
+                verified.push(entry);
+            }
             Err(error) => failures.push(format!("{}/{line}: {error}", kind.dir())),
         }
     }
@@ -98,7 +118,6 @@ fn verify_line(root: &Path, kind: Kind, release: &str) -> Result<usize> {
     }
 
     let verified = verify_document(&document)?;
-    eprintln!("{}/{release}: verified", kind.dir());
 
     Ok(verified.len())
 }

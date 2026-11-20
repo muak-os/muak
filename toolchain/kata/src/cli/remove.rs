@@ -40,15 +40,18 @@ pub(crate) fn run(args: Args) -> Result<()> {
     } = args;
 
     let role = Role::parse(&role).context("Invalid role")?;
-    let identity = remove::run(&remove::Input {
-        dir,
-        role,
-        name,
-        source,
-        release,
-    })
+    let removed = remove::run(
+        &remove::Input {
+            dir,
+            role,
+            name,
+            source,
+            release,
+        },
+        &kata::progress::Noop,
+    )
     .context("Failed to remove entry")?;
-    println!("Removed {identity}");
+    println!("Removed {}", removed.identity);
 
     Ok(())
 }

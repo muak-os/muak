@@ -18,6 +18,7 @@ use plan::{Auto, Selections};
 
 use crate::error::{KataError, Result};
 use crate::ops::{reference, verify};
+use crate::progress::{Event, Reporter};
 use crate::repository;
 use crate::schema::documents;
 use crate::schema::documents::Document;
@@ -55,7 +56,7 @@ pub struct Input {
 /// Returns an error when the lineage or publication gates refuse the
 /// composition, a selection or carried pin cannot be resolved, or a document
 /// fails verification. Nothing is written when any gate or verification fails.
-pub fn run(input: &Input) -> Result<Vec<String>> {
+pub fn run(input: &Input, reporter: &dyn Reporter) -> Result<Vec<PathBuf>> {
     validate_release(&input.release)?;
 
     let parent = parent_line(&input.dir, &input.release, input.from_line.as_deref())?;
@@ -89,11 +90,13 @@ pub fn run(input: &Input) -> Result<Vec<String>> {
         verify::verify_document(document)?;
     }
     let written = write_documents(&plan.documents, &input.dir, &input.release)?;
-    eprintln!(
-        "Composed line {} ({} entries)",
-        input.release,
-        plan.entries.len()
-    );
+    reporter.report(Event::Composed {
+        release: &input.release,
+        entries: plan.entries.len(),
+    });
+    for path in &written {
+        reporter.report(Event::Wrote { path });
+    }
 
     Ok(written)
 }
@@ -122,14 +125,10 @@ fn gate_publication(documents: &[Document], release: &str, force: bool) -> Resul
     Ok(())
 }
 
-fn write_documents(documents: &[Document], dir: &Path, release: &str) -> Result<Vec<String>> {
+fn write_documents(documents: &[Document], dir: &Path, release: &str) -> Result<Vec<PathBuf>> {
     let mut written = Vec::new();
     for document in documents {
-        written.push(
-            repository::write(document, dir, release)?
-                .display()
-                .to_string(),
-        );
+        written.push(repository::write(document, dir, release)?);
     }
 
     Ok(written)

@@ -8,12 +8,22 @@ use koci::{pull, push, registry};
 
 use crate::error::{KataError, Result};
 use crate::ops::verify;
+use crate::progress::{self, Event, Reporter};
 use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
 
 const DOCUMENT_PATH: &str = "catalog.toml";
+
+/// Identity of a successfully published catalog image.
+#[derive(Debug)]
+pub struct Published {
+    /// Published image reference, tag included.
+    pub reference: String,
+    /// Digest of the pushed manifest.
+    pub digest: String,
+}
 
 /// Publish every kind's catalog image with a document for `release`, moving
 /// each `channels` tag to it.
@@ -23,7 +33,13 @@ const DOCUMENT_PATH: &str = "catalog.toml";
 /// Returns an error when the root is unusable, no document exists, a document is not canonical,
 /// an entry fails verification, a published line would be mutated, a channel would move backwards,
 /// or the registry push fails.
-pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Result<Vec<String>> {
+pub fn run(
+    root: &Path,
+    release: &str,
+    channels: &[String],
+    force: bool,
+    reporter: &dyn Reporter,
+) -> Result<Vec<Published>> {
     repository::require_root(root)?;
     validate_release(release)?;
     for channel in channels {
@@ -41,7 +57,7 @@ pub fn run(root: &Path, release: &str, channels: &[String], force: bool) -> Resu
 
     let mut published = Vec::new();
     for kind in kinds {
-        published.push(publish_one(root, release, kind, channels, force)?);
+        published.push(publish_one(root, release, kind, channels, force, reporter)?);
     }
 
     Ok(published)
@@ -148,7 +164,8 @@ fn publish_one(
     kind: Kind,
     channels: &[String],
     force: bool,
-) -> Result<String> {
+    reporter: &dyn Reporter,
+) -> Result<Published> {
     let document = repository::load(kind, root, release)?;
     if !repository::canonical_on_disk(&document, root, release)? {
         return Err(KataError::Document(format!(
@@ -189,15 +206,25 @@ fn publish_one(
             path: "catalog.toml".to_owned(),
             source: repository::document_path(kind, root, release),
         }],
-        &koci::progress::Noop,
+        &progress::Registry(reporter),
     )
     .map_err(|error| KataError::Registry(error.to_string()))?;
-    eprintln!("Published {image_ref}");
+    reporter.report(Event::Published {
+        reference: &image_ref,
+        digest: &pushed.digest,
+    });
     for channel in channels {
-        eprintln!("Moved channel {image}:{channel} → {release}");
+        reporter.report(Event::ChannelMoved {
+            image: &image,
+            channel,
+            release,
+        });
     }
 
-    Ok(pushed.digest)
+    Ok(Published {
+        reference: image_ref,
+        digest: pushed.digest,
+    })
 }
 
 #[cfg(test)]

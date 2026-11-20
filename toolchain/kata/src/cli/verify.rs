@@ -21,9 +21,10 @@ pub(super) struct Args {
 pub(crate) fn run(args: Args) -> Result<()> {
     let Args { release, dir } = args;
 
-    let verified = verify::run(&dir, release.as_deref()).context("Verification failed")?;
-    for line in verified {
-        println!("Verified {line}");
+    let verified = verify::run(&dir, release.as_deref(), &kata::progress::Noop)
+        .context("Verification failed")?;
+    for verified in verified {
+        println!("Verified {}", verified.line);
     }
 
     Ok(())

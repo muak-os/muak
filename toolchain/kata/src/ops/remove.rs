@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::error::{KataError, Result};
+use crate::progress::{Event, Reporter};
 use crate::repository;
 use crate::schema::documents;
 use crate::schema::documents::Document;
@@ -10,6 +11,15 @@ use crate::schema::entries::{NamedEntry, SourcedEntry};
 use crate::schema::kinds::Kind;
 use crate::schema::parse::validate_release;
 use crate::schema::view::Role;
+
+/// One removed catalog entry.
+#[derive(Debug)]
+pub struct Removed {
+    /// Entry identity, such as `kernels/linux`.
+    pub identity: String,
+    /// Digest the removed entry pinned.
+    pub digest: String,
+}
 
 /// One `kata remove` request.
 #[derive(Debug, Clone)]
@@ -33,11 +43,11 @@ pub struct Input {
 /// Returns an error when the release is invalid, the role is missing
 /// `--source`/`--name`, the document is missing, the entry does not exist,
 /// or the removal would leave the line unresolvable.
-pub fn run(input: &Input) -> Result<String> {
+pub fn run(input: &Input, reporter: &dyn Reporter) -> Result<Removed> {
     validate_release(&input.release)?;
 
     let mut document = load(input)?;
-    let identity = match input.role {
+    let removed = match input.role {
         Role::Kernel => remove_kernel(&mut document, source(input)?),
         Role::Overlay => remove_named(&mut document, Kind::Overlays, name(input)?),
         Role::Extension => remove_named(&mut document, Kind::Extensions, name(input)?),
@@ -50,9 +60,12 @@ pub fn run(input: &Input) -> Result<String> {
     }
 
     repository::write(&document, &input.dir, &input.release)?;
-    eprintln!("Removed {identity}");
+    reporter.report(Event::Removed {
+        identity: &removed.identity,
+        digest: &removed.digest,
+    });
 
-    Ok(identity)
+    Ok(removed)
 }
 
 fn document_kind(role: Role) -> Kind {
@@ -92,16 +105,15 @@ fn name(input: &Input) -> Result<&str> {
     })
 }
 
-fn remove_kernel(document: &mut Document, source: &str) -> Result<String> {
+fn remove_kernel(document: &mut Document, source: &str) -> Result<Removed> {
     match *document {
         Document::Core(ref mut core) => {
-            let removed = take_kernel(&mut core.kernels, source)?;
-            eprintln!(
-                "Removed kernels entry '{}' ({})",
-                removed.source, removed.digest
-            );
+            let entry = take_kernel(&mut core.kernels, source)?;
 
-            Ok(format!("kernels/{source}"))
+            Ok(Removed {
+                identity: format!("kernels/{source}"),
+                digest: entry.digest,
+            })
         }
         Document::Overlays(_) | Document::Extensions(_) => Err(KataError::Document(
             "kernels entries live in a core document".to_owned(),
@@ -109,22 +121,21 @@ fn remove_kernel(document: &mut Document, source: &str) -> Result<String> {
     }
 }
 
-fn remove_slot(document: &mut Document, slot: &str) -> Result<String> {
+fn remove_slot(document: &mut Document, slot: &str) -> Result<Removed> {
     match *document {
         Document::Core(ref mut core) => {
             let slot_entry = match slot {
                 "stub" => &mut core.stub,
                 _ => &mut core.installer,
             };
-            let Some(removed) = slot_entry.take() else {
+            let Some(entry) = slot_entry.take() else {
                 return Err(KataError::Document(format!("no {slot} entry to remove")));
             };
-            eprintln!(
-                "Removed {slot} entry '{}' ({})",
-                removed.source, removed.digest
-            );
 
-            Ok(slot.to_owned())
+            Ok(Removed {
+                identity: slot.to_owned(),
+                digest: entry.digest,
+            })
         }
         Document::Overlays(_) | Document::Extensions(_) => Err(KataError::Document(
             "core slots live in a core document".to_owned(),
@@ -132,25 +143,23 @@ fn remove_slot(document: &mut Document, slot: &str) -> Result<String> {
     }
 }
 
-fn remove_named(document: &mut Document, kind: Kind, name: &str) -> Result<String> {
+fn remove_named(document: &mut Document, kind: Kind, name: &str) -> Result<Removed> {
     match *document {
         Document::Overlays(ref mut overlays) => {
-            let removed = take_named(&mut overlays.overlays, name, kind)?;
-            eprintln!(
-                "Removed overlays entry '{}' ({})",
-                removed.name, removed.digest
-            );
+            let entry = take_named(&mut overlays.overlays, name, kind)?;
 
-            Ok(format!("overlays/{name}"))
+            Ok(Removed {
+                identity: format!("overlays/{name}"),
+                digest: entry.digest,
+            })
         }
         Document::Extensions(ref mut extensions) => {
-            let removed = take_named(&mut extensions.extensions, name, kind)?;
-            eprintln!(
-                "Removed extensions entry '{}' ({})",
-                removed.name, removed.digest
-            );
+            let entry = take_named(&mut extensions.extensions, name, kind)?;
 
-            Ok(format!("extensions/{name}"))
+            Ok(Removed {
+                identity: format!("extensions/{name}"),
+                digest: entry.digest,
+            })
         }
         Document::Core(_) => Err(KataError::Document(format!(
             "{}.toml is not a {} document",
@@ -184,15 +193,37 @@ fn take_named(entries: &mut Vec<NamedEntry>, name: &str, kind: Kind) -> Result<N
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Mutex;
 
     use tempfile::TempDir;
 
     use super::{Input, run};
+    use crate::progress::{Event, Noop, Reporter};
     use crate::repository;
     use crate::schema::documents::{CoreDocument, Document, OverlayDocument};
     use crate::schema::entries::{NamedEntry, SourcedEntry};
     use crate::schema::kinds::{CORE_API_VERSION, Kind, OVERLAYS_API_VERSION};
     use crate::schema::view::Role;
+
+    #[derive(Debug, Default)]
+    struct Recorder {
+        labels: Mutex<Vec<String>>,
+    }
+
+    impl Recorder {
+        fn labels(&self) -> Vec<String> {
+            self.labels.lock().expect("recorder lock").clone()
+        }
+    }
+
+    impl Reporter for Recorder {
+        fn report(&self, event: Event<'_>) {
+            self.labels
+                .lock()
+                .expect("recorder lock")
+                .push(format!("{event:?}"));
+        }
+    }
 
     fn write_fixtures(root: &TempDir) {
         let core = CoreDocument {
@@ -253,12 +284,17 @@ mod tests {
             source: Some("muak-os/rt".to_owned()),
             ..input(&root, Role::Kernel, "v1.1.0")
         };
+        let recorder = Recorder::default();
 
         // ACT
-        let identity = run(&input).expect("remove kernel");
+        let removed = run(&input, &recorder).expect("remove kernel");
 
         // ASSERT
-        assert_eq!(identity, "kernels/muak-os/rt");
+        assert_eq!(removed.identity, "kernels/muak-os/rt");
+        assert_eq!(removed.digest, "sha256:kernel-rt");
+        let events = recorder.labels().join("\n");
+        assert!(events.contains("kernels/muak-os/rt"));
+        assert!(events.contains("sha256:kernel-rt"));
         let Document::Core(core) =
             repository::load(Kind::Core, root.path(), "v1.1.0").expect("reload")
         else {
@@ -289,7 +325,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        let error = run(&input).expect_err("last kernel must be refused");
+        let error = run(&input, &Noop).expect_err("last kernel must be refused");
         assert!(error.to_string().contains("requires a kernel"));
     }
 
@@ -304,10 +340,11 @@ mod tests {
         };
 
         // ACT
-        let identity = run(&input).expect("remove overlay");
+        let removed = run(&input, &Noop).expect("remove overlay");
 
         // ASSERT
-        assert_eq!(identity, "overlays/rpi_generic");
+        assert_eq!(removed.identity, "overlays/rpi_generic");
+        assert_eq!(removed.digest, "sha256:rpi_generic");
         let Document::Overlays(overlays) =
             repository::load(Kind::Overlays, root.path(), "v1.1.0").expect("reload")
         else {
@@ -327,7 +364,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        let error = run(&input).expect_err("unknown entry must fail");
+        let error = run(&input, &Noop).expect_err("unknown entry must fail");
         assert!(
             error
                 .to_string()
@@ -345,7 +382,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        let error = run(&without_document).expect_err("missing document must fail");
+        let error = run(&without_document, &Noop).expect_err("missing document must fail");
         assert!(error.to_string().contains("no core document"));
 
         // ARRANGE
@@ -356,7 +393,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        let error = run(&unknown).expect_err("unknown source must fail");
+        let error = run(&unknown, &Noop).expect_err("unknown source must fail");
         assert!(
             error
                 .to_string()
@@ -375,7 +412,7 @@ mod tests {
         };
 
         // ACT / ASSERT
-        let error = run(&input).expect_err("missing document must fail");
+        let error = run(&input, &Noop).expect_err("missing document must fail");
         assert!(error.to_string().contains("no overlays document"));
     }
 
@@ -387,7 +424,7 @@ mod tests {
         let input = input(&root, Role::Stub, "v1.1.0");
 
         // ACT / ASSERT
-        let error = run(&input).expect_err("stub removal must fail");
+        let error = run(&input, &Noop).expect_err("stub removal must fail");
         assert!(error.to_string().contains("requires a stub"));
     }
 
@@ -398,10 +435,10 @@ mod tests {
         write_fixtures(&root);
 
         // ACT / ASSERT
-        let error = run(&input(&root, Role::Kernel, "v1.1.0"))
+        let error = run(&input(&root, Role::Kernel, "v1.1.0"), &Noop)
             .expect_err("kernel removal without --source must fail");
         assert!(error.to_string().contains("requires --source"));
-        let error = run(&input(&root, Role::Overlay, "v1.1.0"))
+        let error = run(&input(&root, Role::Overlay, "v1.1.0"), &Noop)
             .expect_err("overlay removal without --name must fail");
         assert!(error.to_string().contains("requires --name"));
     }

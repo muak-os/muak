@@ -54,18 +54,21 @@ pub(crate) fn run(args: Args) -> Result<()> {
         sets: parse_pairs(&sets).context("Invalid set selection")?,
     };
 
-    let written = compose::run(&compose::Input {
-        dir,
-        from_line,
-        release,
-        selections,
-        policy: if auto { Policy::Auto } else { Policy::Carried },
-        force,
-    })
+    let written = compose::run(
+        &compose::Input {
+            dir,
+            from_line,
+            release,
+            selections,
+            policy: if auto { Policy::Auto } else { Policy::Carried },
+            force,
+        },
+        &kata::progress::Noop,
+    )
     .context("Failed to compose line")?;
 
     for path in written {
-        println!("Wrote {path}");
+        println!("Wrote {}", path.display());
     }
 
     Ok(())

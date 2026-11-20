@@ -34,10 +34,10 @@ pub(crate) fn run(args: Args) -> Result<()> {
         force,
     } = args;
 
-    let published =
-        publish::run(&dir, &release, &channel, force).context("Failed to publish catalog")?;
-    for digest in published {
-        println!("Published {digest}");
+    let published = publish::run(&dir, &release, &channel, force, &kata::progress::Noop)
+        .context("Failed to publish catalog")?;
+    for published in published {
+        println!("Published {}", published.reference);
     }
 
     Ok(())
