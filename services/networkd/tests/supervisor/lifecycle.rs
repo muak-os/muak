@@ -16,8 +16,7 @@ async fn supervisor_initializes_with_one_interface() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -41,8 +40,7 @@ async fn supervisor_shuts_down_when_all_channels_dropped() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());

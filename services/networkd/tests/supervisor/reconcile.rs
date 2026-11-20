@@ -105,8 +105,7 @@ async fn reconcile_reapplies_static_ipv4_after_drift() {
         event_rx,
         config_static_named(),
         Resolver::default(),
-    )
-    .expect("start failed");
+    );
 
     handle.initialize_with_retry().await.expect("init failed");
 
@@ -139,8 +138,7 @@ async fn reconcile_before_initialization_is_a_noop() {
         event_rx,
         config_static_named(),
         Resolver::default(),
-    )
-    .expect("start failed");
+    );
 
     // ACT
     handle.reconcile().await.expect("reconcile failed");
@@ -166,8 +164,7 @@ async fn reconcile_reapplies_static_ipv6_after_drift() {
         event_rx,
         config_static_ipv6_named(),
         Resolver::default(),
-    )
-    .expect("start failed");
+    );
 
     handle.initialize_with_retry().await.expect("init failed");
 
@@ -198,8 +195,7 @@ async fn reconcile_with_dhcp_config_completes() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, event_rx, config_dhcp_named(), Resolver::default())
-        .expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config_dhcp_named(), Resolver::default());
 
     handle.initialize_with_retry().await.expect("init failed");
 
@@ -222,8 +218,7 @@ async fn reconcile_skips_bridge_when_port_is_missing() {
         event_rx,
         config_bridge_missing_port(),
         Resolver::default(),
-    )
-    .expect("start failed");
+    );
 
     handle.initialize_with_retry().await.expect("init failed");
 
@@ -242,8 +237,7 @@ async fn reconcile_named_missing_interface_is_non_fatal() {
     mock.add_link("eth1", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, event_rx, config_static_named(), Resolver::default())
-        .expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config_static_named(), Resolver::default());
 
     handle.initialize_with_retry().await.expect("init failed");
 
@@ -266,8 +260,7 @@ async fn reconcile_refreshes_unconfigured_bridge() {
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle =
-        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default())
-            .expect("start failed");
+        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default());
     handle.initialize_with_retry().await.expect("init failed");
     assert_eq!(mock.ensure_bridge_calls(), 0, "no bridge should exist yet");
 
@@ -312,8 +305,7 @@ async fn reconcile_skips_configured_bridge() {
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle =
-        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default())
-            .expect("start failed");
+        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default());
     handle.initialize_with_retry().await.expect("init failed");
 
     event_tx

@@ -73,8 +73,7 @@ async fn static_ipv4_supervisor_writes_nameservers_to_resolv_conf() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config_with_ipv4_dns(), dns).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config_with_ipv4_dns(), dns);
 
     // ACT
     timeout(Duration::from_secs(5), handle.initialize_with_retry())
@@ -101,8 +100,7 @@ async fn static_ipv6_supervisor_writes_nameservers_to_resolv_conf() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config_with_ipv6_dns(), dns).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config_with_ipv6_dns(), dns);
 
     // ACT
     timeout(Duration::from_secs(5), handle.initialize_with_retry())

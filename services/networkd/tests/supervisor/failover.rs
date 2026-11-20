@@ -19,8 +19,7 @@ async fn primary_link_down_triggers_failover_handling() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -47,8 +46,7 @@ async fn primary_link_down_then_up_triggers_recovery() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -86,8 +84,7 @@ async fn backup_link_recovery_triggers_promotion() {
     let idx1 = mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -118,8 +115,7 @@ async fn primary_deleted_promotes_backup() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -146,8 +142,7 @@ async fn single_interface_deleted_leaves_no_primary() {
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -175,8 +170,7 @@ async fn all_interfaces_deleted_degrades_supervisor() {
     let idx1 = mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -217,8 +211,7 @@ async fn rapid_primary_failover_and_recovery() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(64);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -259,8 +252,7 @@ async fn primary_link_up_when_ready_hits_recovery_warn() {
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -288,8 +280,7 @@ async fn backup_link_up_when_ready_hits_recovery_warn() {
     let idx1 = mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -319,8 +310,7 @@ async fn double_link_down_on_primary_hits_failure_warn() {
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
@@ -360,8 +350,7 @@ async fn delete_last_interface_when_already_degraded_hits_degrade_warn() {
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());

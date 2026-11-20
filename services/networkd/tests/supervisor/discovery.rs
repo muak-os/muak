@@ -15,8 +15,7 @@ async fn no_interfaces_retries_on_empty_discovery() {
     let mock = MockNetlinkOps::new();
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     // ACT
     let result = timeout(Duration::from_secs(3), handle.initialize_with_retry()).await;
@@ -37,8 +36,7 @@ async fn all_no_carrier_retries_on_degraded_discovery() {
     mock.add_link("eth1", [0xBB; 6], false);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
 
     // ACT
     let result = timeout(Duration::from_secs(3), handle.initialize_with_retry()).await;

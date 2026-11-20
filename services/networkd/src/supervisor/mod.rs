@@ -46,6 +46,7 @@ struct NetworkSupervisor<N: Ops> {
 }
 
 #[derive(Clone)]
+#[must_use = "dropping it shuts the supervisor down"]
 pub struct NetworkActorHandle {
     tx: mpsc::Sender<SupervisorCommand>,
 }
@@ -169,58 +170,40 @@ pub trait Source {
 ///
 /// # Errors
 ///
-/// Returns an error if the `netlink` connection cannot be established or the
-/// network event monitor cannot be started.
+/// Returns an error if the `netlink` connection cannot be established, the
+/// network event monitor cannot be started, or the network configuration
+/// cannot be loaded.
 pub async fn start() -> Result<NetworkActorHandle> {
     let ops = Rtnl::connect()?;
     let event_rx = monitor::start().await?;
     let config = Arc::new(network()?.clone());
 
-    start_with(ops, event_rx, config, Resolver::default())
+    Ok(start_with(ops, event_rx, config, Resolver::default()))
 }
 
 /// Starts the supervisor with injected dependencies.
-///
-/// # Errors
-///
-/// Returns an error if the supervisor command channel cannot be created.
 pub fn start_with<N: Ops>(
     ops: N,
     event_rx: mpsc::Receiver<Event>,
     config: Arc<network::Config>,
     dns: Resolver,
-) -> Result<NetworkActorHandle> {
+) -> NetworkActorHandle {
     start_with_source(ops, event_rx, monitor::Live, config, dns)
 }
 
 /// Starts the supervisor with injected dependencies and event source.
-///
-/// # Errors
-///
-/// Returns an error if the supervisor command channel cannot be created.
 pub fn start_with_source<N: Ops, M: Source + Send + Sync + 'static>(
     ops: N,
     event_rx: mpsc::Receiver<Event>,
     source: M,
     config: Arc<network::Config>,
     dns: Resolver,
-) -> Result<NetworkActorHandle> {
+) -> NetworkActorHandle {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
-    run(ops, cmd_rx, event_rx, source, config, dns);
-
-    Ok(NetworkActorHandle { tx: cmd_tx })
-}
-
-fn run<N: Ops, M: Source + Send + Sync + 'static>(
-    ops: N,
-    cmd_rx: mpsc::Receiver<SupervisorCommand>,
-    event_rx: mpsc::Receiver<Event>,
-    source: M,
-    config: Arc<network::Config>,
-    dns: Resolver,
-) {
     tokio::spawn(supervisor_loop(ops, cmd_rx, event_rx, source, config, dns));
+
+    NetworkActorHandle { tx: cmd_tx }
 }
 
 async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
