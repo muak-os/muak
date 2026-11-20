@@ -3,19 +3,11 @@
 use core::net::Ipv4Addr;
 
 use super::option;
-
-/// Parsed DHCP options extracted from a response.
-pub(crate) struct ParsedOptions {
-    pub(crate) message_type: Option<u8>,
-    pub(crate) server_id: Option<Ipv4Addr>,
-    pub(crate) subnet_mask: Option<Ipv4Addr>,
-    pub(crate) router: Option<Ipv4Addr>,
-    pub(crate) dns_servers: Vec<Ipv4Addr>,
-    pub(crate) lease_time: Option<u32>,
-}
+use crate::ParsedOptions;
 
 /// Parses the options section of a DHCP response (after the magic cookie).
-pub(crate) fn parse(options_bytes: &[u8]) -> ParsedOptions {
+#[must_use = "the parsed options hold the response fields"]
+pub fn parse(options_bytes: &[u8]) -> ParsedOptions {
     let mut parsed = ParsedOptions {
         message_type: None,
         server_id: None,
@@ -90,7 +82,7 @@ pub(crate) fn parse(options_bytes: &[u8]) -> ParsedOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::message_type;
+    use crate::message_type;
 
     #[test]
     fn parse_empty() {

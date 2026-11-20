@@ -503,14 +503,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "dhcp"
+name = "dhcp-client"
 version = "0.0.0"
 dependencies = [
- "getrandom 0.4.3",
+ "dhcp-proto",
  "ip",
  "packet",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "dhcp-proto"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1455,7 +1463,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "dhcp",
+ "dhcp-client",
  "granola",
  "kmsg",
  "libc",

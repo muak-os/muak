@@ -3,7 +3,7 @@
 use core::net::Ipv4Addr;
 
 use anyhow::Result;
-use dhcp::lease::Lease;
+use dhcp_client::lease::Lease;
 use netdev::Ops;
 use netlink::address::IpConfig;
 

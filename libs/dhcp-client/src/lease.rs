@@ -4,7 +4,12 @@ use core::net::Ipv4Addr;
 use core::time::Duration;
 use std::time::SystemTime;
 
-use crate::wire;
+use dhcp_proto::ParsedOptions;
+
+// Lease duration used when the server omits the option.
+const DEFAULT_LEASE_SECS: u32 = 3600;
+// Prefix length used when the server omits the subnet mask.
+const DEFAULT_PREFIX_LEN: u8 = 24;
 
 /// A successfully acquired `DHCPv4` lease with timing and server metadata.
 #[derive(Debug, Clone)]
@@ -43,15 +48,13 @@ impl Lease {
         obtained_at: SystemTime,
         assigned_ip: Ipv4Addr,
         server_ip: Ipv4Addr,
-        options: wire::options::ParsedOptions,
+        options: ParsedOptions,
     ) -> Self {
-        let lease_seconds = options.lease_time.unwrap_or(wire::DEFAULT_LEASE_SECS);
-        let prefix_len = options
-            .subnet_mask
-            .map_or(wire::DEFAULT_PREFIX_LEN, |mask| {
-                let ones = mask.octets().into_iter().map(u8::count_ones).sum::<u32>();
-                u8::try_from(ones).unwrap_or(wire::DEFAULT_PREFIX_LEN)
-            });
+        let lease_seconds = options.lease_time.unwrap_or(DEFAULT_LEASE_SECS);
+        let prefix_len = options.subnet_mask.map_or(DEFAULT_PREFIX_LEN, |mask| {
+            let ones = mask.octets().into_iter().map(u8::count_ones).sum::<u32>();
+            u8::try_from(ones).unwrap_or(DEFAULT_PREFIX_LEN)
+        });
         let renewal = lease_seconds.saturating_div(2);
         let rebind = lease_seconds.saturating_mul(7).saturating_div(8);
 
@@ -74,8 +77,9 @@ mod tests {
     use core::time::Duration;
     use std::time::SystemTime;
 
+    use dhcp_proto::message_type;
+
     use super::*;
-    use crate::wire::message_type;
 
     fn make_lease(obtained_at: SystemTime, lease_secs: u64) -> Lease {
         Lease {
@@ -127,7 +131,7 @@ mod tests {
     #[test]
     fn from_ack_defaults() {
         // ARRANGE
-        let options = wire::options::ParsedOptions {
+        let options = ParsedOptions {
             message_type: Some(message_type::ACK),
             server_id: Some(Ipv4Addr::new(192, 168, 1, 1)),
             subnet_mask: None,
@@ -147,10 +151,10 @@ mod tests {
         // ASSERT
         assert_eq!(lease.assigned_ip, Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(lease.server_ip, Ipv4Addr::new(192, 168, 1, 1));
-        assert_eq!(lease.prefix_len, wire::DEFAULT_PREFIX_LEN);
+        assert_eq!(lease.prefix_len, DEFAULT_PREFIX_LEN);
         assert_eq!(
             lease.lease_time,
-            Duration::from_secs(u64::from(wire::DEFAULT_LEASE_SECS))
+            Duration::from_secs(u64::from(DEFAULT_LEASE_SECS))
         );
         assert!(lease.gateway.is_none());
         assert_eq!(lease.dns_servers, Vec::<Ipv4Addr>::new());
@@ -159,7 +163,7 @@ mod tests {
     #[test]
     fn from_ack_with_all_options() {
         // ARRANGE
-        let options = wire::options::ParsedOptions {
+        let options = ParsedOptions {
             message_type: Some(message_type::ACK),
             server_id: Some(Ipv4Addr::new(192, 168, 1, 1)),
             subnet_mask: Some(Ipv4Addr::new(255, 255, 255, 0)),

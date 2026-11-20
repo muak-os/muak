@@ -1,11 +1,10 @@
-//! `DHCPv4` packet codec and lease acquisition.
+//! `DHCPv4` lease acquisition client.
 
 #![warn(missing_docs)]
 
 pub mod connector;
 pub mod exchange;
 pub mod lease;
-pub(crate) mod wire;
 
 use core::result::Result as CoreResult;
 
@@ -25,29 +24,12 @@ pub enum Failure {
     /// No response arrived before the exchange deadline.
     #[error("DHCP exchange timed out")]
     Timeout,
-    /// Failed to generate a random transaction ID.
-    #[error("failed to generate a random DHCP transaction ID")]
-    Xid,
-    /// Response carries a message type the exchange did not expect.
-    #[error("expected DHCP message type {expected}, got {got}")]
-    MessageType {
-        /// Message type the exchange expected.
-        expected: u8,
-        /// Message type the response carried.
-        got: u8,
-    },
-    /// Response has no message type option.
-    #[error("DHCP response missing message type option")]
-    MissingMessageType,
-    /// Response carries a transaction ID from another exchange.
-    #[error("DHCP response transaction ID mismatch")]
-    XidMismatch,
-    /// Received message is shorter than the fixed header and magic cookie.
-    #[error("DHCP response too short ({0} bytes)")]
-    ResponseTooShort(usize),
     /// Offer carries no server identifier option.
     #[error("no server identifier in DHCPOFFER")]
     MissingServerId,
+    /// Message construction or response validation failed.
+    #[error("{0}")]
+    Proto(#[source] dhcp_proto::Failure),
     /// IPv4 or UDP framing failed.
     #[error("IP framing failed: {0}")]
     Framing(#[from] ip::Failure),
@@ -60,11 +42,20 @@ pub enum Failure {
     /// Binding the socket to an interface failed.
     #[error("DHCP socket bind failed: {0}")]
     Bind(#[from] packet::socket::Failure),
-    /// DHCP message does not fit the caller supplied buffer.
-    ///
-    /// Carries the required byte count.
-    #[error("DHCP message needs {0} bytes, caller buffer is smaller")]
-    MessageTooLong(usize),
+}
+
+impl From<dhcp_proto::Failure> for Failure {
+    fn from(failure: dhcp_proto::Failure) -> Self {
+        match failure {
+            dhcp_proto::Failure::Nak => Self::Nak,
+            other @ (dhcp_proto::Failure::Xid
+            | dhcp_proto::Failure::MessageTooLong { .. }
+            | dhcp_proto::Failure::ResponseTooShort(_)
+            | dhcp_proto::Failure::XidMismatch
+            | dhcp_proto::Failure::MissingMessageType
+            | dhcp_proto::Failure::MessageType { .. }) => Self::Proto(other),
+        }
+    }
 }
 
 /// `DHCPv4` exchange result type.

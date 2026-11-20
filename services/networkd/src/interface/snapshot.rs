@@ -1,7 +1,7 @@
 //! Snapshot of a single network interface's runtime state.
 
 use anyhow::Result;
-use dhcp::lease::Lease;
+use dhcp_client::lease::Lease;
 use netlink::address::{IpConfig, Ipv6Config};
 use netlink::link::{Name, State};
 

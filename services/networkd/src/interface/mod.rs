@@ -12,8 +12,8 @@ mod r#static;
 use alloc::sync::Arc;
 use core::pin::Pin;
 
-use ::dhcp::connector::{Connector, System};
-use ::dhcp::lease::Lease;
+use ::dhcp_client::connector::{Connector, System};
+use ::dhcp_client::lease::Lease;
 use commands::Command;
 use config::system::network;
 use dhcp::manager::Manager;

@@ -1,7 +1,6 @@
 //! Validation of received `DHCPv4` responses.
 
-use super::options::{self, ParsedOptions};
-use super::{MAGIC_COOKIE, field, message_type, xid};
+use super::{MAGIC_COOKIE, ParsedOptions, field, message_type, options, xid};
 use crate::{Failure, Result};
 
 /// Validates a received DHCP response and parses its options.
@@ -13,7 +12,7 @@ use crate::{Failure, Result};
 /// exchange, [`Failure::Nak`] when the server refused the request, [`Failure::MessageType`] when
 /// the message type is not `expected_type`, and [`Failure::MissingMessageType`] when the option is
 /// absent.
-pub(crate) fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<ParsedOptions> {
+pub fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<ParsedOptions> {
     let options_start = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
     if buf.len() < options_start {
         return Err(Failure::ResponseTooShort(buf.len()));
@@ -42,9 +41,10 @@ pub(crate) fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MAX_MESSAGE_LEN;
-    use crate::wire::{header, option};
+    use crate::{header, option};
 
+    // Buffer large enough for any message the builders produce.
+    const MAX_MESSAGE_LEN: usize = 1500;
     const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 
     fn make_minimal_packet(xid: u32) -> Vec<u8> {

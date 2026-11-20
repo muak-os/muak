@@ -1,9 +1,9 @@
 //! DHCP renew and rebind exchanges with NAK recovery.
 
 use anyhow::Result;
-use dhcp::Scratch;
-use dhcp::connector::Connector;
-use dhcp::lease::Lease;
+use dhcp_client::Scratch;
+use dhcp_client::connector::Connector;
+use dhcp_client::lease::Lease;
 use netdev::Ops;
 
 use super::{Actor, commit, do_full_dora};
@@ -33,9 +33,9 @@ async fn attempt_renew<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C
     let socket = connector
         .create_unicast(actor.snapshot.name.as_str(), assigned_ip)
         .await?;
-    let mut msg = [0_u8; dhcp::MAX_MESSAGE_LEN];
-    let mut frame = [0_u8; dhcp::MAX_FRAME_LEN];
-    match dhcp::exchange::renew(
+    let mut msg = [0_u8; dhcp_client::MAX_MESSAGE_LEN];
+    let mut frame = [0_u8; dhcp_client::MAX_FRAME_LEN];
+    match dhcp_client::exchange::renew(
         &socket,
         mac,
         server_ip,
@@ -45,7 +45,7 @@ async fn attempt_renew<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C
     .await
     {
         Ok(lease) => apply_renewed_lease(actor, &lease).await,
-        Err(dhcp::Failure::Nak) => {
+        Err(dhcp_client::Failure::Nak) => {
             kmsg::warn!(
                 "DHCP RENEW NAK for {}, returning to INIT",
                 actor.snapshot.name
@@ -59,9 +59,9 @@ async fn attempt_renew<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C
 async fn attempt_rebind<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) -> Result<()> {
     let (mac, server_ip, assigned_ip) = commit::params(actor)?;
     let socket = connector.create_raw(actor.snapshot.name.as_str()).await?;
-    let mut msg = [0_u8; dhcp::MAX_MESSAGE_LEN];
-    let mut frame = [0_u8; dhcp::MAX_FRAME_LEN];
-    match dhcp::exchange::rebind(
+    let mut msg = [0_u8; dhcp_client::MAX_MESSAGE_LEN];
+    let mut frame = [0_u8; dhcp_client::MAX_FRAME_LEN];
+    match dhcp_client::exchange::rebind(
         &socket,
         mac,
         server_ip,
@@ -71,7 +71,7 @@ async fn attempt_rebind<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &
     .await
     {
         Ok(lease) => apply_renewed_lease(actor, &lease).await,
-        Err(dhcp::Failure::Nak) => {
+        Err(dhcp_client::Failure::Nak) => {
             kmsg::warn!(
                 "DHCP REBIND NAK for {}, returning to INIT",
                 actor.snapshot.name

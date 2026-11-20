@@ -7,9 +7,9 @@ pub(super) mod timers;
 mod commit;
 
 use anyhow::Result;
-use dhcp::Scratch;
-use dhcp::connector::Connector;
-use dhcp::lease::Lease;
+use dhcp_client::Scratch;
+use dhcp_client::connector::Connector;
+use dhcp_client::lease::Lease;
 use netdev::Ops;
 
 use super::Actor;
@@ -125,9 +125,9 @@ pub(super) async fn do_full_dora<N: Ops, C: Connector>(
 
     let mac = actor.snapshot.mac;
     let socket = connector.create_raw(actor.snapshot.name.as_str()).await?;
-    let mut msg = [0_u8; dhcp::MAX_MESSAGE_LEN];
-    let mut frame = [0_u8; dhcp::MAX_FRAME_LEN];
-    let lease = dhcp::exchange::acquire(&socket, mac, Scratch::new(&mut msg, &mut frame))
+    let mut msg = [0_u8; dhcp_client::MAX_MESSAGE_LEN];
+    let mut frame = [0_u8; dhcp_client::MAX_FRAME_LEN];
+    let lease = dhcp_client::exchange::acquire(&socket, mac, Scratch::new(&mut msg, &mut frame))
         .await
         .inspect_err(|_| {
             actor.set_state(Lifecycle::Failed);

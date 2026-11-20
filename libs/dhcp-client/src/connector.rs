@@ -3,11 +3,11 @@
 use core::future::Future;
 use core::net::Ipv4Addr;
 
+use dhcp_proto::DHCP_CLIENT_PORT;
 use packet::raw::Socket;
 use packet::socket::bind_device;
 use tokio::net::UdpSocket;
 
-use crate::wire::DHCP_CLIENT_PORT;
 use crate::{Failure, Result};
 
 /// Creates the sockets an exchange needs.

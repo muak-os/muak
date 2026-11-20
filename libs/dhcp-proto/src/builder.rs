@@ -19,9 +19,12 @@ const END_LEN: usize = 1;
 
 /// `DHCPv4` REQUEST state, selecting the broadcast flag and server identifier option.
 #[derive(Clone, Copy)]
-pub(crate) enum Mode {
+pub enum Mode {
     /// SELECTING: broadcast flag set, server identifier included.
-    Selecting { server: Ipv4Addr },
+    Selecting {
+        /// Server that offered the lease.
+        server: Ipv4Addr,
+    },
     /// RENEWING: broadcast flag cleared.
     Unicast,
     /// REBINDING: broadcast flag set, no server identifier.
@@ -34,13 +37,16 @@ pub(crate) enum Mode {
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the
 /// header and the DISCOVER options.
-pub(crate) fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
+pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     let required = header::LEN
         .saturating_add(MESSAGE_TYPE_LEN)
         .saturating_add(PARAM_REQUEST_LIST_LEN)
         .saturating_add(END_LEN);
     let Some(out) = buf.get_mut(..required) else {
-        return Err(Failure::MessageTooLong(required));
+        return Err(Failure::MessageTooLong {
+            required,
+            capacity: buf.len(),
+        });
     };
 
     header::build(out, xid, mac)?;
@@ -62,7 +68,7 @@ pub(crate) fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the
 /// header and the REQUEST options.
-pub(crate) fn request(
+pub fn request(
     buf: &mut [u8],
     xid: u32,
     mac: [u8; 6],
@@ -78,7 +84,10 @@ pub(crate) fn request(
         required = required.saturating_add(SERVER_ID_LEN);
     }
     let Some(out) = buf.get_mut(..required) else {
-        return Err(Failure::MessageTooLong(required));
+        return Err(Failure::MessageTooLong {
+            required,
+            capacity: buf.len(),
+        });
     };
 
     match mode {
@@ -132,7 +141,10 @@ pub(crate) fn append_param_request_list(buf: &mut [u8], cursor: usize) -> Result
 fn put(buf: &mut [u8], cursor: usize, bytes: &[u8]) -> Result<usize> {
     let end = cursor.saturating_add(bytes.len());
     let Some(slot) = buf.get_mut(cursor..end) else {
-        return Err(Failure::MessageTooLong(end));
+        return Err(Failure::MessageTooLong {
+            required: end,
+            capacity: buf.len(),
+        });
     };
     slot.copy_from_slice(bytes);
 
@@ -142,9 +154,10 @@ fn put(buf: &mut [u8], cursor: usize, bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MAX_MESSAGE_LEN;
-    use crate::wire::field;
+    use crate::field;
 
+    // Buffer large enough for any message the builders produce.
+    const MAX_MESSAGE_LEN: usize = 1500;
     const MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 
     fn flags(message: &[u8]) -> u16 {
@@ -197,7 +210,7 @@ mod tests {
         let message = discover(&mut buf, 1, MAC).expect("message fits");
 
         // ASSERT
-        assert_eq!(flags(message), super::super::FLAG_BROADCAST);
+        assert_eq!(flags(message), crate::FLAG_BROADCAST);
     }
 
     #[test]
@@ -225,7 +238,7 @@ mod tests {
             request(&mut buf, 0x1234, MAC, assigned, Mode::Broadcast).expect("message fits");
 
         // ASSERT
-        assert_eq!(flags(message), super::super::FLAG_BROADCAST);
+        assert_eq!(flags(message), crate::FLAG_BROADCAST);
     }
 
     #[test]
@@ -278,7 +291,7 @@ mod tests {
             .expect("message fits");
 
         // ASSERT
-        assert_eq!(flags(message), super::super::FLAG_BROADCAST);
+        assert_eq!(flags(message), crate::FLAG_BROADCAST);
     }
 
     #[test]
@@ -308,7 +321,15 @@ mod tests {
         let result = discover(&mut buf[..required - 1], 1, MAC);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::MessageTooLong(len)) if len == required));
+        let Err(Failure::MessageTooLong {
+            required: needed,
+            capacity,
+        }) = result
+        else {
+            panic!("expected MessageTooLong");
+        };
+        assert_eq!(needed, required);
+        assert_eq!(capacity, required - 1);
     }
 
     #[test]
@@ -324,7 +345,15 @@ mod tests {
         let result = request(&mut buf[..required - 1], 1, MAC, assigned, Mode::Broadcast);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::MessageTooLong(len)) if len == required));
+        let Err(Failure::MessageTooLong {
+            required: needed,
+            capacity,
+        }) = result
+        else {
+            panic!("expected MessageTooLong");
+        };
+        assert_eq!(needed, required);
+        assert_eq!(capacity, required - 1);
     }
 
     #[test]
@@ -343,6 +372,14 @@ mod tests {
 
         // ASSERT
         assert_eq!(required, 262);
-        assert!(matches!(result, Err(Failure::MessageTooLong(len)) if len == required));
+        let Err(Failure::MessageTooLong {
+            required: needed,
+            capacity,
+        }) = result
+        else {
+            panic!("expected MessageTooLong");
+        };
+        assert_eq!(needed, required);
+        assert_eq!(capacity, required - 1);
     }
 }

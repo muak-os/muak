@@ -3,7 +3,7 @@
 use core::pin::Pin;
 use std::time::SystemTime;
 
-use dhcp::lease::Lease;
+use dhcp_client::lease::Lease;
 use tokio::time::{Sleep, sleep};
 
 /// Holds the three timers handles that drive the DHCP renewal state machine.

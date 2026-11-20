@@ -3,7 +3,7 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 
-use ::dhcp::lease::Lease;
+use ::dhcp_client::lease::Lease;
 use config::system::network;
 use netlink::address;
 use netlink::address::IpConfig;

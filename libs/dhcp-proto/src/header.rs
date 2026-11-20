@@ -9,7 +9,7 @@ const HTYPE_ETHERNET: u8 = 1;
 const HLEN_ETHERNET: u8 = 6;
 
 /// Size of the fixed header plus the magic cookie.
-pub(crate) const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
+pub const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
 
 /// Writes the fixed header and magic cookie with the broadcast flag set.
 ///
@@ -17,7 +17,7 @@ pub(crate) const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len(
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
 /// [`LEN`].
-pub(crate) fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
+pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     write(buf, xid, mac, FLAG_BROADCAST)
 }
 
@@ -27,12 +27,13 @@ pub(crate) fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]>
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
 /// [`LEN`].
-pub(crate) fn build_unicast(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
+pub fn build_unicast(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     write(buf, xid, mac, 0)
 }
 
 /// Extracts `yiaddr` from a raw DHCP message, reading `0` for missing bytes.
-pub(crate) fn yiaddr(buf: &[u8]) -> Ipv4Addr {
+#[must_use = "the address is the result of parsing"]
+pub fn yiaddr(buf: &[u8]) -> Ipv4Addr {
     Ipv4Addr::from([
         byte_at(buf, field::YIADDR),
         byte_at(buf, field::YIADDR.saturating_add(1)),
@@ -43,7 +44,10 @@ pub(crate) fn yiaddr(buf: &[u8]) -> Ipv4Addr {
 
 fn write(buf: &mut [u8], xid: u32, mac: [u8; 6], flags: u16) -> Result<&mut [u8]> {
     let Some(out) = buf.get_mut(..LEN) else {
-        return Err(Failure::MessageTooLong(LEN));
+        return Err(Failure::MessageTooLong {
+            required: LEN,
+            capacity: buf.len(),
+        });
     };
     out.fill(0);
     set_byte(out, field::OP, BOOTREQUEST);
@@ -78,8 +82,9 @@ fn byte_at(data: &[u8], index: usize) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MAX_MESSAGE_LEN;
 
+    // Buffer large enough for any message the builders produce.
+    const MAX_MESSAGE_LEN: usize = 1500;
     const MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 
     #[test]
@@ -192,7 +197,11 @@ mod tests {
         let result = build(&mut buf, 1, MAC);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::MessageTooLong(required)) if required == LEN));
+        let Err(Failure::MessageTooLong { required, capacity }) = result else {
+            panic!("expected MessageTooLong");
+        };
+        assert_eq!(required, LEN);
+        assert_eq!(capacity, LEN - 1);
     }
 
     #[test]

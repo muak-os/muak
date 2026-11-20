@@ -8,7 +8,7 @@ use crate::{Failure, Result};
 /// # Errors
 ///
 /// Returns [`Failure::Xid`] when the system random number generator fails.
-pub(crate) fn generate() -> Result<u32> {
+pub fn generate() -> Result<u32> {
     let mut buf = [0_u8; 4];
     getrandom::fill(&mut buf).map_err(|_error| Failure::Xid)?;
 
@@ -16,7 +16,8 @@ pub(crate) fn generate() -> Result<u32> {
 }
 
 /// Extracts the transaction ID from a raw DHCP message, reading `0` for missing bytes.
-pub(crate) fn extract(buf: &[u8]) -> u32 {
+#[must_use = "the transaction ID is the result of parsing"]
+pub fn extract(buf: &[u8]) -> u32 {
     let end = field::XID.saturating_add(4);
 
     buf.get(field::XID..end)
@@ -27,8 +28,10 @@ pub(crate) fn extract(buf: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MAX_MESSAGE_LEN;
-    use crate::wire::header;
+    use crate::header;
+
+    // Buffer large enough for any message the builders produce.
+    const MAX_MESSAGE_LEN: usize = 1500;
 
     #[test]
     fn generate_produces_value() {

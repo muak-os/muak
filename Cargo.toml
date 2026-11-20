@@ -26,7 +26,8 @@ members = [
     "libs/blockdev",
     "libs/btrfs",
     "libs/config",
-    "libs/dhcp",
+    "libs/dhcp-client",
+    "libs/dhcp-proto",
     "libs/disk",
     "libs/esp",
     "libs/partdev",
@@ -82,7 +83,8 @@ yuki = { path = "toolchain/yuki", default-features = false }
 blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
-dhcp = { path = "libs/dhcp" }
+dhcp-client = { path = "libs/dhcp-client" }
+dhcp-proto = { path = "libs/dhcp-proto" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }

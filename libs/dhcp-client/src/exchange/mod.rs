@@ -5,12 +5,12 @@ mod recv;
 use core::net::Ipv4Addr;
 use std::time::SystemTime;
 
+use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, builder, message_type, xid};
 use ip::v4::{Addr, udp};
 use packet::raw::{ETH_BROADCAST, Socket};
 use tokio::net::UdpSocket;
 
 use crate::lease::Lease;
-use crate::wire::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, builder, message_type, xid};
 use crate::{Failure, Result, Scratch};
 
 /// Runs a full `DHCPDISCOVER` / `DHCPOFFER` / `DHCPREQUEST` / `DHCPACK` exchange.

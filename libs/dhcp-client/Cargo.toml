@@ -1,6 +1,6 @@
 [package]
-name = "dhcp"
-description = "DHCPv4 packet codec and lease acquisition"
+name = "dhcp-client"
+description = "DHCPv4 lease acquisition client"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,13 +13,11 @@ categories.workspace = true
 # Asynchronous
 tokio = { workspace = true, features = ["net", "time"] }
 
-# Cryptography
-getrandom = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
 
 # Internal
+dhcp-proto = { workspace = true }
 ip = { workspace = true }
 packet = { workspace = true }
 
