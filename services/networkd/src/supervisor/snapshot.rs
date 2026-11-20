@@ -1,21 +1,17 @@
-//! Aggregate snapshot of the network subsystem and all known interfaces.
-
-use alloc::sync::Arc;
+//! Network subsystem readiness, primary, and backup interfaces.
 
 use anyhow::Result;
 use netlink::link::ifname::Name;
 
-use crate::interface::snapshot::Snapshot;
 use crate::statemachine::StateMachine as _;
 use crate::supervisor::state::NetworkState;
 
-/// Point-in-time view of the entire network subsystem.
+/// Point-in-time view of the network subsystem's readiness and interface election.
 #[derive(Debug)]
 pub(super) struct NetworkSnapshot {
     pub state: NetworkState,
     pub primary: Option<Name>,
     pub backups: Vec<Name>,
-    pub interfaces: Vec<Arc<Snapshot>>,
 }
 
 impl NetworkSnapshot {
@@ -25,7 +21,6 @@ impl NetworkSnapshot {
             state: NetworkState::Uninitialized,
             primary: None,
             backups: Vec::new(),
-            interfaces: Vec::new(),
         }
     }
 
@@ -53,6 +48,5 @@ mod tests {
         assert_eq!(snap.state, NetworkState::Uninitialized);
         assert!(snap.primary.is_none());
         assert_eq!(snap.backups, Vec::<Name>::new());
-        assert!(snap.interfaces.is_empty());
     }
 }

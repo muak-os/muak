@@ -7,7 +7,7 @@ use netdev::Ops;
 use netdev::interface::{Ethernet, Selector};
 use netlink::link::state::State;
 
-use super::NetworkSupervisor;
+use super::{NetworkSupervisor, dns};
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
 use crate::supervisor::state::NetworkState;
@@ -51,7 +51,7 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
     select_primary_interface(supervisor, &discovered)?;
 
     supervisor.state.transition(NetworkState::Operational)?;
-    supervisor.sync_and_flush();
+    dns::flush(supervisor);
     kmsg::info!(
         "Discovered {} interfaces, primary={:?}",
         discovered.len(),

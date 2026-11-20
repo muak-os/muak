@@ -96,17 +96,6 @@ impl<N: Ops> NetworkSupervisor<N> {
         }
     }
 
-    // Aggregates the interface snapshots and flushes DNS from the primary.
-    fn sync_and_flush(&mut self) {
-        self.state.interfaces.clear();
-        self.state.interfaces.extend(
-            self.interfaces
-                .values()
-                .map(|handle| Arc::clone(&handle.state_rx.borrow())),
-        );
-        dns::flush(self);
-    }
-
     fn get_primary_name(&self) -> Result<Name> {
         self.state
             .primary

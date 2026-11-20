@@ -7,7 +7,7 @@ use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
 
-use super::{NetworkSupervisor, provision};
+use super::{NetworkSupervisor, dns, provision};
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
@@ -46,7 +46,7 @@ pub(super) async fn run<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
         }
     }
 
-    supervisor.sync_and_flush();
+    dns::flush(supervisor);
 }
 
 /// Reapplies an Ethernet interface intent when the port still owns the configuration.

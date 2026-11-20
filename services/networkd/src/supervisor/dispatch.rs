@@ -6,7 +6,7 @@ use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use netlink_monitor::{Event, Failure};
 
-use super::{NetworkSupervisor, failover, reconcile};
+use super::{NetworkSupervisor, dns, failover, reconcile};
 use crate::interface::commands::Command;
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
@@ -87,7 +87,7 @@ fn on_link_added<N: Ops>(
         supervisor.state.backups.insert(pos, name);
     }
 
-    supervisor.sync_and_flush();
+    dns::flush(supervisor);
 }
 
 async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
@@ -104,7 +104,7 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
         supervisor.state.backups.retain(|n| n != &name);
     }
 
-    supervisor.sync_and_flush();
+    dns::flush(supervisor);
 }
 
 // Logs a monitor failure and reconciles immediately. A lost or stalled link event
