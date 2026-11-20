@@ -12,7 +12,6 @@ use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::supervisor::state::NetworkState;
 
 /// Describes whether reconcile applied intent or skipped it deliberately.
 enum ReconcileDisposition {
@@ -22,10 +21,7 @@ enum ReconcileDisposition {
 
 /// Reapplies declarative interface configuration to converge drifted state.
 pub(super) async fn run<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
-    if !matches!(
-        supervisor.state.state,
-        NetworkState::Operational | NetworkState::Ready
-    ) {
+    if !supervisor.state.is_operational() {
         return;
     }
 

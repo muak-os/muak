@@ -245,7 +245,7 @@ async fn rapid_primary_failover_and_recovery() {
 }
 
 #[tokio::test]
-async fn primary_link_up_when_ready_hits_recovery_warn() {
+async fn primary_link_up_when_ready_keeps_supervisor_alive() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
@@ -268,15 +268,19 @@ async fn primary_link_up_when_ready_hits_recovery_warn() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
+    timeout(Duration::from_secs(5), handle.reconcile())
+        .await
+        .expect("reconcile timed out")
+        .expect("the supervisor must stay responsive");
     drop(event_tx);
 }
 
 #[tokio::test]
-async fn backup_link_up_when_ready_hits_recovery_warn() {
+async fn primary_down_then_backup_up_keeps_supervisor_alive() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
-    mock.add_link("eth0", [0xAA; 6], true);
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
     let idx1 = mock.add_link("eth1", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
@@ -285,9 +289,20 @@ async fn backup_link_up_when_ready_hits_recovery_warn() {
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
+    let primary_name = Name::new("eth0").expect("valid name");
     let backup_name = Name::new("eth1").expect("valid name");
 
     // ACT
+    event_tx
+        .send(Event::Down {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send failed");
+
+    sleep(Duration::from_millis(100)).await;
+
     event_tx
         .send(Event::Up {
             name: backup_name,
@@ -299,11 +314,15 @@ async fn backup_link_up_when_ready_hits_recovery_warn() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
+    timeout(Duration::from_secs(5), handle.reconcile())
+        .await
+        .expect("reconcile timed out")
+        .expect("the supervisor must stay responsive");
     drop(event_tx);
 }
 
 #[tokio::test]
-async fn double_link_down_on_primary_hits_failure_warn() {
+async fn double_link_down_on_primary_keeps_supervisor_alive() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
@@ -339,11 +358,15 @@ async fn double_link_down_on_primary_hits_failure_warn() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
+    timeout(Duration::from_secs(5), handle.reconcile())
+        .await
+        .expect("reconcile timed out")
+        .expect("the supervisor must stay responsive");
     drop(event_tx);
 }
 
 #[tokio::test]
-async fn delete_last_interface_when_already_degraded_hits_degrade_warn() {
+async fn delete_last_interface_when_degraded_keeps_supervisor_alive() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
@@ -379,5 +402,9 @@ async fn delete_last_interface_when_already_degraded_hits_degrade_warn() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
+    timeout(Duration::from_secs(5), handle.reconcile())
+        .await
+        .expect("reconcile timed out")
+        .expect("the supervisor must stay responsive");
     drop(event_tx);
 }

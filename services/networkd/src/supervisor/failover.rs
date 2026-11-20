@@ -6,7 +6,6 @@ use netlink::link::ifname::Name;
 use super::NetworkSupervisor;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
-use crate::supervisor::state::NetworkState;
 
 pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
     supervisor.state.primary.as_ref() == Some(name)
@@ -34,7 +33,7 @@ pub(super) fn is_interface_configured<N: Ops>(
 
 pub(super) fn handle_primary_recovery<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: &Name) {
     kmsg::info!("Primary interface {} recovered", name);
-    if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
+    if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state during primary recovery: {}", e);
     }
 }
@@ -66,7 +65,7 @@ pub(super) fn handle_backup_recovery<N: Ops>(
     supervisor.state.backups.push(current_primary);
     supervisor.state.primary = Some(recovered.clone());
 
-    if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
+    if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state restoring primary {}: {}", recovered, e);
     }
 }
@@ -76,7 +75,7 @@ pub(super) async fn handle_primary_failure<N: Ops>(
     name: &Name,
 ) {
     kmsg::warn!("Primary interface {} failed", name);
-    if let Err(e) = supervisor.state.transition(NetworkState::Degraded) {
+    if let Err(e) = supervisor.state.ensure_degraded() {
         kmsg::warn!("Unexpected state during primary failure: {}", e);
     }
 
@@ -104,7 +103,7 @@ pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<
     } else {
         kmsg::warn!("No backup interfaces available");
         supervisor.state.primary = None;
-        if let Err(e) = supervisor.state.transition(NetworkState::Degraded) {
+        if let Err(e) = supervisor.state.ensure_degraded() {
             kmsg::warn!("Unexpected state during primary removal: {}", e);
         }
     }
@@ -139,7 +138,7 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
             .await;
     }
 
-    if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
+    if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
     }
 }
