@@ -154,7 +154,9 @@ async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {
 }
 
 async fn initial_solicitation(manager: &mut Manager) -> Result<SlaacEvent> {
-    let rs_packet = router_solicitation(&manager.mac);
+    // The socket is not bound to a source address and this first solicitation may be sent from
+    // the unspecified address, which RFC 4861 allows.
+    let rs_packet = router_solicitation(Ipv6Addr::UNSPECIFIED, &manager.mac);
     let dest = create_all_routers_sockaddr(manager.ifindex);
 
     for attempt in 1..=MAX_RTR_SOLICITATIONS {
