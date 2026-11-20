@@ -131,7 +131,7 @@ fn verify_line(root: &Path, kind: Kind, release: &str) -> Result<usize> {
 pub(crate) fn verify_document(document: &Document) -> Result<Vec<String>> {
     let mut verified: Vec<String> = Vec::new();
     for check in checks(document) {
-        let reference = super::reference(&check.repository, &check.tag);
+        let reference = repository::reference(&check.repository, &check.tag);
         let actual = registry::manifest_digest(&reference)
             .map_err(|error| KataError::Registry(error.to_string()))?;
         if actual != check.digest {

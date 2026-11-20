@@ -2,8 +2,8 @@
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use kata::ops::compose::plan::Selections;
-use kata::ops::compose::{self, Policy};
+use kata::compose::plan::Selections;
+use kata::compose::{self, Policy};
 
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]

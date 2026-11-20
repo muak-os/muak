@@ -5,12 +5,17 @@
 #[cfg(feature = "cli")]
 extern crate alloc;
 
+#[cfg(feature = "cli")]
+pub mod compose;
 pub mod error;
 #[cfg(feature = "cli")]
 pub mod progress;
-pub mod schema;
-
 #[cfg(feature = "cli")]
-pub mod ops;
+pub mod publish;
+#[cfg(feature = "cli")]
+pub mod remove;
 #[cfg(feature = "cli")]
 pub mod repository;
+pub mod schema;
+#[cfg(feature = "cli")]
+pub mod verify;

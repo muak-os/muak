@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
-use kata::ops::verify;
+use kata::verify;
 
 /// Arguments of the `verify` subcommand.
 #[derive(clap::Args, Debug)]

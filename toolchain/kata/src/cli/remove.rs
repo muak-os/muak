@@ -2,7 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use kata::ops::remove;
+use kata::remove;
 use kata::schema::view::Role;
 
 /// Arguments of the `remove` subcommand.

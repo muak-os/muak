@@ -17,12 +17,12 @@ use bases::{output_documents, parent_bases, parent_line};
 use plan::{Auto, Selections};
 
 use crate::error::{KataError, Result};
-use crate::ops::{reference, verify};
 use crate::progress::{Event, Reporter};
-use crate::repository;
+use crate::repository::reference;
 use crate::schema::documents;
 use crate::schema::documents::Document;
 use crate::schema::parse::validate_release;
+use crate::{repository, verify};
 
 /// Tag policy for entries without an explicit selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
-use kata::ops::publish;
+use kata::publish;
 
 /// Arguments of the `publish` subcommand.
 #[derive(clap::Args, Debug)]

@@ -7,12 +7,11 @@ use koci::arch::Arch;
 use koci::{pull, push, registry};
 
 use crate::error::{KataError, Result};
-use crate::ops::verify;
 use crate::progress::{self, Event, Reporter};
-use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;
 use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
+use crate::{repository, verify};
 
 const DOCUMENT_PATH: &str = "catalog.toml";
 
@@ -117,7 +116,7 @@ fn ensure_channel_forward(channel: &str, served: &str, release: &str) -> Result<
 }
 
 fn check_channel_forward(kind: Kind, release: &str, channel: &str) -> Result<()> {
-    let reference = super::reference(kind.dir(), channel);
+    let reference = repository::reference(kind.dir(), channel);
     let Some(bytes) = fetch_document_bytes(&reference)? else {
         return Ok(());
     };
@@ -177,7 +176,7 @@ fn publish_one(
 
     verify::verify_document(&document)?;
 
-    let line_reference = super::reference(kind.dir(), release);
+    let line_reference = repository::reference(kind.dir(), release);
     let line_published = registry::manifest_exists(&line_reference)
         .map_err(|error| KataError::Registry(error.to_string()))?;
 
@@ -194,7 +193,7 @@ fn publish_one(
         }
     }
 
-    let image = format!("{}/{}", super::registry(), kind.dir());
+    let image = format!("{}/{}", repository::prefix(), kind.dir());
     let image_ref = format!("{image}:{release}");
     let mut tags = vec![release.to_owned()];
     tags.extend(channels.iter().cloned());
