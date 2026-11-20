@@ -116,7 +116,6 @@ pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<
     }
 }
 
-/// Promotes the highest-priority backup to primary and provisions it with DHCP.
 async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed: &Name) {
     let configured_backup = supervisor
         .state
