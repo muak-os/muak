@@ -8,6 +8,7 @@ mod failover;
 mod monitor;
 mod provision;
 mod reconcile;
+mod retry;
 mod selection;
 mod snapshot;
 mod state;
@@ -25,7 +26,7 @@ use netlink::link::ifname::Name;
 use netlink_monitor::Event;
 use selection::SupervisorEvent;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{interval, sleep};
+use tokio::time::interval;
 
 use crate::dns::Resolver;
 use crate::interface::commands::Command;
@@ -163,7 +164,7 @@ impl NetworkActorHandle {
         let base_delay = Duration::from_secs(1);
         let max_delay = Duration::from_secs(10);
 
-        initialize_with_retry(self, base_delay, max_delay).await
+        retry::initialize(self, base_delay, max_delay).await
     }
 
     async fn initialize(&self) -> Result<()> {
@@ -174,25 +175,6 @@ impl NetworkActorHandle {
         rx.await??;
 
         Ok(())
-    }
-
-    async fn try_initialize(
-        &self,
-        attempt: u32,
-        base_delay: Duration,
-        max_delay: Duration,
-    ) -> Option<Result<()>> {
-        if self.initialize().await.is_ok() {
-            println!("Network initialized successfully on attempt {attempt}");
-            return Some(Ok(()));
-        }
-        eprintln!("Network initialization failed (attempt {attempt})");
-
-        let delay = retry_delay(base_delay, max_delay, attempt);
-        println!("Retrying in {delay:?}...");
-        sleep(delay).await;
-
-        None
     }
 }
 
@@ -287,24 +269,4 @@ async fn supervisor_loop<N: Ops>(
             SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
     }
-}
-
-async fn initialize_with_retry(
-    handle: &NetworkActorHandle,
-    base_delay: Duration,
-    max_delay: Duration,
-) -> Result<()> {
-    let mut attempt = 1_u32;
-    loop {
-        if let Some(result) = handle.try_initialize(attempt, base_delay, max_delay).await {
-            return result;
-        }
-        attempt = attempt.saturating_add(1);
-    }
-}
-
-fn retry_delay(base: Duration, max: Duration, attempt: u32) -> Duration {
-    let multiplier = 1_u32 << attempt.saturating_sub(1).min(5);
-
-    base.checked_mul(multiplier).unwrap_or(max).min(max)
 }
