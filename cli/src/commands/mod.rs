@@ -180,7 +180,7 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
             console.line(
                 Role::Warn,
                 "Existing credentials found for this server. Remove the context to reinstall.",
-            );
+            )?;
             Ok(true)
         }
         Commands::Config { .. }

@@ -84,8 +84,9 @@ struct TokenResponse {
 ///
 /// # Errors
 ///
-/// Returns an [`ClientError::Auth`] error when the registry challenges requests
-/// and the challenge cannot be answered.
+/// Returns an [`ClientError::Status`] error when the auth probe answers an
+/// unexpected status, and an [`ClientError::Auth`] error when the registry
+/// challenges requests and the challenge cannot be answered.
 pub async fn authenticate(
     client: &Transport,
     scheme: &str,
@@ -101,11 +102,10 @@ pub async fn authenticate(
         return Ok(None);
     }
     if response.status() != StatusCode::UNAUTHORIZED {
-        eprintln!(
-            "Registry auth probe returned HTTP {}; continuing unauthenticated",
-            response.status()
-        );
-        return Ok(None);
+        return Err(ClientError::Status {
+            status: response.status().as_u16(),
+            url: ping_url,
+        });
     }
 
     let challenge = pick_challenge(&response, registry)?;
@@ -454,17 +454,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticate_tolerates_unexpected_ping_status() {
+    async fn authenticate_reports_unexpected_ping_status() {
         // ARRANGE
         let server = TestServer::spawn(&[&raw("404 Not Found", &[], "")]);
+        let image = server.image();
+        let ping_url = format!("{}://{}/v2/", endpoint::scheme(&image), image.registry);
 
         // ACT
-        let auth = authenticate_on(&server, None)
+        let error = authenticate_on(&server, None)
             .await
-            .expect("authenticate should succeed");
+            .expect_err("unexpected ping status should fail");
 
         // ASSERT
-        assert_eq!(auth, None);
+        assert!(
+            matches!(&error, ClientError::Status { status: 404, url } if url == &ping_url),
+            "unexpected error: {error:?}"
+        );
     }
 
     #[tokio::test]

@@ -25,11 +25,11 @@ pub(crate) async fn detail(
     console.table(&fields_table(disk))?;
 
     if disk.partitions.is_empty() {
-        console.line(Role::Muted, "No partitions");
+        console.line(Role::Muted, "No partitions")?;
         return Ok(());
     }
 
-    console.line(Role::Muted, "Partitions");
+    console.line(Role::Muted, "Partitions")?;
     console.table(&partitions_table(disk))?;
 
     Ok(())

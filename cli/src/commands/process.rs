@@ -33,7 +33,7 @@ async fn list(client: &mut ProcessServiceClient<Channel>, console: &Console) -> 
     let resp = response.into_inner();
 
     if resp.processes.is_empty() {
-        console.line(Role::Warn, "No processes running");
+        console.line(Role::Warn, "No processes running")?;
         return Ok(());
     }
 

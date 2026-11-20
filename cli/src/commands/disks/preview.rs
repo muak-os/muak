@@ -18,7 +18,7 @@ pub(crate) fn print(response: &WipeDiskResponse, console: &Console) -> io::Resul
     if let Some(disk) = response.disk.as_ref() {
         console.table(&fields_table(disk))?;
         if disk.partitions.is_empty() {
-            console.line(Role::Muted, "No partitions");
+            console.line(Role::Muted, "No partitions")?;
         } else {
             console.table(&partitions_table(disk))?;
         }

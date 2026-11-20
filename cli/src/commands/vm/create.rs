@@ -105,7 +105,7 @@ fn parse_hypervisor(vmm: &str, console: &Console) -> Hypervisor {
         "cloud-hypervisor" | "cloud_hypervisor" | "ch" => Hypervisor::CloudHypervisor,
         "qemu" | "kvm" => Hypervisor::Qemu,
         other => {
-            console.warn(&format!("Unknown hypervisor '{other}', defaulting to QEMU"));
+            drop(console.warn(&format!("Unknown hypervisor '{other}', defaulting to QEMU")));
             Hypervisor::Qemu
         }
     }
@@ -283,6 +283,6 @@ async fn cleanup_vm(client: &mut VmServiceClient<Channel>, vm_id: &str, console:
         vm_id: vm_id.to_owned(),
     });
     if let Err(e) = client.delete_vm(delete_request).await {
-        console.warn(&format!("Failed to clean up VM: {e}"));
+        drop(console.warn(&format!("Failed to clean up VM: {e}")));
     }
 }

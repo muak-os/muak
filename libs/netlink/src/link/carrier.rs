@@ -17,25 +17,11 @@ pub(super) async fn probe_carriers(
     handle: &Handle,
     interfaces: &[(u32, &str)],
     timeout: Duration,
-) -> HashMap<u32, bool> {
+) -> Result<HashMap<u32, bool>> {
     let indices: Vec<u32> = interfaces.iter().map(|&(index, _)| index).collect();
-    let names: Vec<&str> = interfaces.iter().map(|&(_, name)| name).collect();
-
-    println!(
-        "Probing {} interfaces for carrier (timeout: {:?}): {:?}",
-        interfaces.len(),
-        timeout,
-        names
-    );
 
     let (conn, sub_handle, mut messages) =
-        match rtnetlink::new_multicast_connection(&[MulticastGroup::Link]) {
-            Ok(connection_parts) => connection_parts,
-            Err(error) => {
-                println!("Failed to open netlink subscription: {error}");
-                return indices.iter().map(|idx| (*idx, false)).collect();
-            }
-        };
+        rtnetlink::new_multicast_connection(&[MulticastGroup::Link]).map_err(Failure::Subscribe)?;
     tokio::spawn(conn);
 
     for &index in &indices {
@@ -49,12 +35,11 @@ pub(super) async fn probe_carriers(
     }
 
     if states.values().any(|&carrier_present| carrier_present) {
-        log_carrier_detections(interfaces, &states, Duration::ZERO);
-        return states;
+        return Ok(states);
     }
 
     let Some(deadline) = Instant::now().checked_add(timeout) else {
-        return states;
+        return Ok(states);
     };
 
     loop {
@@ -79,17 +64,12 @@ pub(super) async fn probe_carriers(
         }
 
         states.insert(idx, true);
-        log_carrier_detections(interfaces, &states, timeout.saturating_sub(remaining));
         if states.values().all(|&carrier_present| carrier_present) {
-            return states;
+            return Ok(states);
         }
     }
 
-    if !states.values().any(|&carrier_present| carrier_present) {
-        println!("No carrier detected on any interface after {timeout:?}");
-    }
-
-    states
+    Ok(states)
 }
 
 async fn get_all_carrier_states(handle: &Handle) -> Result<HashMap<u32, bool>> {
@@ -116,24 +96,11 @@ fn seed_carrier_states(
     }
 }
 
-fn log_carrier_detections(
-    interfaces: &[(u32, &str)],
-    states: &HashMap<u32, bool>,
-    elapsed: Duration,
-) {
-    for &(index, name) in interfaces {
-        if states.get(&index) == Some(&true) {
-            println!("Carrier detected on {name} after {elapsed:?}");
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use core::time::Duration;
     use std::collections::HashMap;
 
-    use super::{log_carrier_detections, seed_carrier_states};
+    use super::seed_carrier_states;
 
     #[test]
     fn seed_carrier_states_marks_only_requested_carriers() {
@@ -146,18 +113,5 @@ mod tests {
 
         // ASSERT
         assert_eq!(states, HashMap::from([(1, true)]));
-    }
-
-    #[test]
-    fn log_carrier_detections_accepts_absent_states() {
-        // ARRANGE
-        let interfaces = [(1, "eth0"), (2, "eth1")];
-        let states = HashMap::from([(1, true)]);
-
-        // ACT
-        log_carrier_detections(&interfaces, &states, Duration::ZERO);
-
-        // ASSERT
-        assert_eq!(states.get(&1), Some(&true));
     }
 }

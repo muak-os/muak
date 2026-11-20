@@ -36,7 +36,7 @@ async fn history(channel: Channel, limit: u32, console: &Console) -> Result<()> 
     }
 
     if resp.entries.is_empty() {
-        console.line(Role::Muted, "No rollback history found.");
+        console.line(Role::Muted, "No rollback history found.")?;
         return Ok(());
     }
 

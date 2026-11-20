@@ -27,7 +27,7 @@ pub(crate) async fn handle(channel: Channel, console: &Console) -> Result<()> {
     match fetch_server(channel).await {
         None => {
             console
-                .warn("server does not support version reporting (consider updating the server)");
+                .warn("server does not support version reporting (consider updating the server)")?;
         }
         Some(ref server_ver) => {
             println!("{} {}", console.paint("Server:", Role::Label), server_ver);
@@ -72,5 +72,5 @@ pub(crate) fn print_compat_warning(console: &Console, client_ver: &str, server_v
         }
     };
 
-    console.warn(&msg);
+    drop(console.warn(&msg));
 }

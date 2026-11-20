@@ -125,7 +125,6 @@ pub(crate) async fn ensure_up_by_name(handle: &Handle, name: &str) -> Result<u32
     let link = find_by_name(handle, name).await?;
     let index = link.header.index;
     if !link.header.flags.contains(LinkFlags::Up) {
-        println!("Bringing up interface {name} (index {index})");
         bring_up(handle, index).await?;
     }
 

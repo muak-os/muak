@@ -107,14 +107,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if !errors.is_empty() {
+        let mut message = String::new();
         for err in &errors {
-            eprintln!("error: {err}");
+            message.push_str("error: ");
+            message.push_str(err);
+            message.push('\n');
         }
-        return Err(
-            "Proto RBAC annotation errors found. See above for details. \
-             All RPC methods must have an `// @rbac: permission` comment on the preceding line."
-                .into(),
+        message.push_str(
+            "Proto RBAC annotation errors found. \
+             All RPC methods must have an `// @rbac: permission` comment on the preceding line.",
         );
+        return Err(message.into());
     }
 
     let generated = generate_rust_code(&all_methods)?;

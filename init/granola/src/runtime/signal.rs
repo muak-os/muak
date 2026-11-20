@@ -15,10 +15,10 @@ pub async fn shutdown() {
         biased;
 
         _ = sigterm.recv() => {
-            println!("Received SIGTERM, shutting down");
+            kmsg::info!("Received SIGTERM, shutting down");
         }
         _ = sigint.recv() => {
-            println!("Received SIGINT, shutting down");
+            kmsg::info!("Received SIGINT, shutting down");
         }
     }
 }

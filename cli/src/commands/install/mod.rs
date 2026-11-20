@@ -42,7 +42,7 @@ pub(crate) async fn handle(
     plan::print(&plan, console)?;
 
     if options.dry_run {
-        console.info("Dry run: nothing was written");
+        console.info("Dry run: nothing was written")?;
         return Ok(());
     }
 
@@ -140,7 +140,7 @@ async fn install(
 
     let target_disk = plan::system_path(plan);
     let msg = format!("Installing Muak to {target_disk}...");
-    console.info(&msg);
+    console.info(&msg)?;
 
     let response = client
         .install(request)
@@ -203,7 +203,7 @@ async fn install(
     reboot_result?;
 
     let msg = format!("Context '{actual_name}' added and set as current.");
-    console.success(&msg);
+    console.success(&msg)?;
 
     Ok(())
 }

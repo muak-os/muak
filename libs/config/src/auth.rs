@@ -51,7 +51,7 @@ pub fn init() -> Result<()> {
     let path = Path::new(AUTH_PATH);
     let (config, mtime) = if path.exists() {
         let config = load_from_path(path)?;
-        let mtime = file_mtime(AUTH_PATH);
+        let mtime = file_mtime(path);
         (config, mtime)
     } else {
         (State::default(), 0)
@@ -70,27 +70,34 @@ pub fn init() -> Result<()> {
 ///
 /// # Errors
 ///
-/// Returns [`ConfigError::NotInitialized`] when [`crate::init()`] has not been called.
+/// Returns [`ConfigError::NotInitialized`] when [`crate::init()`] has not been called,
+/// and the reload error when the auth state file changed but cannot be parsed.
 pub fn current() -> Result<RwLockReadGuard<'static, State>> {
-    try_current().ok_or(ConfigError::NotInitialized)
+    try_current()?.ok_or(ConfigError::NotInitialized)
 }
 
 /// Returns a read guard over the current auth state, or `None` if [`crate::init()`] hasn't been called.
-pub fn try_current() -> Option<RwLockReadGuard<'static, State>> {
-    let cache = AUTH_CACHE.get()?;
+///
+/// # Errors
+///
+/// Returns an error when the auth state file changed on disk but cannot be reloaded.
+pub fn try_current() -> Result<Option<RwLockReadGuard<'static, State>>> {
+    let Some(cache) = AUTH_CACHE.get() else {
+        return Ok(None);
+    };
 
-    let current_mtime = file_mtime(AUTH_PATH);
+    let current_mtime = file_mtime(Path::new(AUTH_PATH));
     let cached_mtime = cache.mtime.load(Ordering::Relaxed);
 
     if current_mtime != cached_mtime {
-        let (config, mtime) = load_with_mtime();
+        let (config, mtime) = load_with_mtime(Path::new(AUTH_PATH))?;
         if let Ok(mut data) = cache.data.write() {
             *data = config;
             cache.mtime.store(mtime, Ordering::Relaxed);
         }
     }
 
-    cache.data.read().ok()
+    Ok(cache.data.read().ok())
 }
 
 /// Serializes an [`State`] to a string.
@@ -125,23 +132,19 @@ pub fn load_from_path(path: &Path) -> Result<State> {
     }
 }
 
-/// Loads auth config + mtime from the canonical path.
-/// Falls back to default on error (logging a warning via eprintln).
-fn load_with_mtime() -> (State, u64) {
-    let config = match load_from_path(Path::new(AUTH_PATH)) {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            eprintln!("config: failed to reload {AUTH_PATH}: {e}");
-            State::default()
-        }
+// Loads the auth config and its mtime from `path`.
+fn load_with_mtime(path: &Path) -> Result<(State, u64)> {
+    let (config, mtime) = if path.exists() {
+        (load_from_path(path)?, file_mtime(path))
+    } else {
+        (State::default(), 0)
     };
-    let mtime = file_mtime(AUTH_PATH);
 
-    (config, mtime)
+    Ok((config, mtime))
 }
 
 /// Returns the mtime of a file as seconds since epoch, or 0 if unavailable.
-fn file_mtime(path: &str) -> u64 {
+fn file_mtime(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .map_or(0, |modified| {
@@ -302,8 +305,11 @@ mod tests {
 
     #[test]
     fn load_with_mtime_nonexistent_returns_default() {
+        // ARRANGE
+        let path = Path::new("/nonexistent/auth.toml");
+
         // ACT
-        let (config, mtime) = load_with_mtime();
+        let (config, mtime) = load_with_mtime(path).unwrap();
 
         // ASSERT
         assert!(config.users.is_empty());
@@ -311,9 +317,23 @@ mod tests {
     }
 
     #[test]
+    fn load_with_mtime_invalid_toml_is_reported() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.toml");
+        std::fs::write(&path, "[[[ not valid toml").unwrap();
+
+        // ACT
+        let result = load_with_mtime(&path);
+
+        // ASSERT
+        result.unwrap_err();
+    }
+
+    #[test]
     fn file_mtime_nonexistent_returns_zero() {
         // ACT
-        let mtime = file_mtime("/nonexistent/path/to/file.toml");
+        let mtime = file_mtime(Path::new("/nonexistent/path/to/file.toml"));
 
         // ASSERT
         assert_eq!(mtime, 0);
@@ -327,7 +347,7 @@ mod tests {
         std::fs::write(&path, "data").unwrap();
 
         // ACT
-        let mtime = file_mtime(path.to_str().unwrap());
+        let mtime = file_mtime(&path);
 
         // ASSERT
         assert!(mtime > 0);
@@ -335,8 +355,11 @@ mod tests {
 
     #[test]
     fn try_auth_returns_none_before_init() {
-        // ARRANGE & ACT & ASSERT
-        drop(try_current());
+        // ARRANGE & ACT
+        let current = try_current();
+
+        // ASSERT
+        assert!(current.unwrap().is_none());
     }
 
     #[test]

@@ -76,7 +76,7 @@ async fn get(
         Some(path) => {
             std::fs::write(&path, &config)
                 .with_context(|| format!("Failed to write config to {}", path.display()))?;
-            console.success(&format!("Config written to {}", path.display()));
+            console.success(&format!("Config written to {}", path.display()))?;
         }
         None => print!("{config}"),
     }

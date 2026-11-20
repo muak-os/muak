@@ -27,11 +27,12 @@ fn run(args: &cli::Args) -> Result<()> {
         &mut output,
     )?;
 
-    println!(
+    writeln!(
+        std::io::stdout(),
         "Created rootfs image at {} ({} bytes)",
         args.output.display(),
         output.metadata()?.len(),
-    );
+    )?;
 
     Ok(())
 }

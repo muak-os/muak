@@ -71,7 +71,7 @@ pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
         console.warn(
             "No public key provided - manifest signature verification is DISABLED. \
              This image has not been authenticated and may have been tampered with.",
-        );
+        )?;
     }
 
     let started = Instant::now();

@@ -35,7 +35,7 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
     let carrier_states = supervisor
         .ops
         .probe_carriers(&pairs, Duration::from_secs(CARRIER_TIMEOUT_SECS))
-        .await;
+        .await?;
 
     let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
     if !any_carrier {

@@ -1,3 +1,5 @@
+use std::io::Write as _;
+
 use anyhow::Result;
 use tonic::transport::Channel;
 use tui::console::Console;
@@ -66,7 +68,7 @@ async fn handle_get(
 
     for entry in &entries {
         if should_display(entry, level) {
-            print_entry(console, entry);
+            print_entry(console, entry)?;
         }
     }
 
@@ -88,7 +90,7 @@ async fn handle_follow(
 
     while let Some(entry) = stream.message().await? {
         if should_display(&entry, level) {
-            print_entry(console, &entry);
+            print_entry(console, &entry)?;
         }
     }
 
@@ -104,14 +106,14 @@ fn should_display(entry: &LogEntry, max_level: Option<i32>) -> bool {
 }
 
 /// Formats and prints a single log entry with level-based coloring.
-fn print_entry(console: &Console, entry: &LogEntry) {
+fn print_entry(console: &Console, entry: &LogEntry) -> std::io::Result<()> {
     let line = format!("[{}] {}", entry.service, entry.message);
 
     match Level::try_from(entry.level) {
         Ok(Level::Error) => console.line(Role::ErrorText, &line),
         Ok(Level::Warn) => console.line(Role::Warn, &line),
         Ok(Level::Debug) => console.line(Role::Muted, &line),
-        _ => println!("{line}"),
+        _ => writeln!(std::io::stdout(), "{line}"),
     }
 }
 

@@ -112,7 +112,7 @@ async fn approve(
 
     let full_fingerprint = match matching.len() {
         0 => {
-            console.error(&format!("No pending CSR matches '{fingerprint}'"));
+            console.error(&format!("No pending CSR matches '{fingerprint}'"))?;
             return Ok(());
         }
         1 => matching
@@ -123,7 +123,7 @@ async fn approve(
         _ => {
             console.error(&format!(
                 "Multiple CSRs match '{fingerprint}'. Please be more specific:"
-            ));
+            ))?;
             for csr in matching {
                 println!("  {}", csr.fingerprint);
             }
@@ -147,7 +147,7 @@ async fn approve(
         .context("Failed to approve CSR")?;
 
     println!();
-    console.success("Certificate issued!");
+    console.success("Certificate issued!")?;
 
     Ok(())
 }
@@ -169,7 +169,7 @@ async fn revoke(channel: Channel, fingerprint: &str, console: &Console) -> Resul
 
     let full_fingerprint = match matching.len() {
         0 => {
-            console.error(&format!("No user matches fingerprint '{fingerprint}'"));
+            console.error(&format!("No user matches fingerprint '{fingerprint}'"))?;
             return Ok(());
         }
         1 => matching
@@ -180,7 +180,7 @@ async fn revoke(channel: Channel, fingerprint: &str, console: &Console) -> Resul
         _ => {
             console.error(&format!(
                 "Multiple users match '{fingerprint}'. Please be more specific:"
-            ));
+            ))?;
             for user in matching {
                 println!("  {}", user.fingerprint);
             }
@@ -201,7 +201,7 @@ async fn revoke(channel: Channel, fingerprint: &str, console: &Console) -> Resul
         .await
         .context("Failed to revoke certificate")?;
 
-    console.success("Certificate revoked.");
+    console.success("Certificate revoked.")?;
 
     Ok(())
 }
@@ -364,7 +364,7 @@ async fn wait_for_approval(
                 console.line(
                     Role::Accent,
                     &format!("Context '{name}' created and set as current."),
-                );
+                )?;
                 return Ok(());
             }
             CsrStatus::Rejected => {

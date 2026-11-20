@@ -46,15 +46,15 @@ pub(crate) async fn handle(
     context_name: Option<String>,
     console: &Console,
 ) -> Result<()> {
-    console.line(Role::Error, "WARNING: This will perform a factory reset!");
+    console.line(Role::Error, "WARNING: This will perform a factory reset!")?;
     console.line(
         Role::ErrorText,
         "All data, VMs, and configuration will be permanently deleted.",
-    );
+    )?;
     console.line(
         Role::ErrorText,
         "The system will reboot into maintenance mode.\n",
-    );
+    )?;
 
     if dry_run {
         let config_resp = client
@@ -137,18 +137,18 @@ fn plan_row(part: &PartitionInfo) -> [String; 4] {
 
 fn print_plan(plan: &Plan<'_>, console: &Console) -> Result<()> {
     if !plan.installed {
-        console.line(Role::Warn, "System is not installed yet");
+        console.line(Role::Warn, "System is not installed yet")?;
     }
 
     if plan.rows.is_empty() {
-        console.line(Role::Warn, "No STATE or EPHEMERAL partitions found");
+        console.line(Role::Warn, "No STATE or EPHEMERAL partitions found")?;
     } else {
-        console.info("Dry run: a factory reset would remove:");
+        console.info("Dry run: a factory reset would remove:")?;
         console.table(&plan.table())?;
     }
 
     if let Some(message) = plan.context_message() {
-        console.info(&message);
+        console.info(&message)?;
     }
 
     Ok(())

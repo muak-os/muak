@@ -27,7 +27,7 @@ pub(crate) async fn handle(
                 .await?;
             let state = response.into_inner();
 
-            console.line(Role::Header, "Security State");
+            console.line(Role::Header, "Security State")?;
 
             for line in report(console, &state) {
                 println!("{line}");

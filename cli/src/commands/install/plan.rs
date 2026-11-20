@@ -21,7 +21,7 @@ pub(crate) fn print(plan: &InstallPlan, console: &Console) -> io::Result<()> {
             console.line(
                 Role::ErrorText,
                 &format!("Wiping {device} destroys every partition on it"),
-            );
+            )?;
         }
     }
 

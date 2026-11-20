@@ -1,6 +1,7 @@
 //! Console facade shared by the command-line interfaces.
 
-#[cfg(feature = "live")]
+use std::io::Write as _;
+
 #[cfg(feature = "live")]
 use crate::live::spinner::Spinner;
 #[cfg(feature = "live")]
@@ -47,22 +48,38 @@ impl Console {
     }
 
     /// Prints a success line to standard output unless quiet.
-    pub fn success(&self, message: &str) {
-        if !self.stdout.is_quiet() {
-            self.line(Role::Success, message);
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard output fails.
+    pub fn success(&self, message: &str) -> std::io::Result<()> {
+        if self.stdout.is_quiet() {
+            return Ok(());
         }
+
+        self.line(Role::Success, message)
     }
 
     /// Prints an informational line to standard output unless quiet.
-    pub fn info(&self, message: &str) {
-        if !self.stdout.is_quiet() {
-            self.line(Role::Info, message);
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard output fails.
+    pub fn info(&self, message: &str) -> std::io::Result<()> {
+        if self.stdout.is_quiet() {
+            return Ok(());
         }
+
+        self.line(Role::Info, message)
     }
 
     /// Prints `message` to standard output with `role`, even when quiet.
-    pub fn line(&self, role: Role, message: &str) {
-        println!("{}", self.paint(message, role));
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard output fails.
+    pub fn line(&self, role: Role, message: &str) -> std::io::Result<()> {
+        writeln!(std::io::stdout(), "{}", self.paint(message, role))
     }
 
     /// Formats a `Warning:` line for standard error.
@@ -75,8 +92,12 @@ impl Console {
     }
 
     /// Prints a `Warning:` line to standard error.
-    pub fn warn(&self, message: &str) {
-        eprintln!("{}", self.warning(message));
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard error fails.
+    pub fn warn(&self, message: &str) -> std::io::Result<()> {
+        writeln!(std::io::stderr(), "{}", self.warning(message))
     }
 
     /// Formats an `Error:` line for standard error.
@@ -89,8 +110,12 @@ impl Console {
     }
 
     /// Prints an `Error:` line to standard error.
-    pub fn error(&self, message: &str) {
-        eprintln!("{}", self.failure(message));
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard error fails.
+    pub fn error(&self, message: &str) -> std::io::Result<()> {
+        writeln!(std::io::stderr(), "{}", self.failure(message))
     }
 
     /// Paints `text` with the standard output theme.
@@ -129,7 +154,7 @@ impl Console {
     #[cfg(feature = "live")]
     pub fn report(&self, summary: &Summary<'_>) {
         if let Err(error) = summary::print(summary, self.stdout) {
-            self.warn(&format!("Failed to print summary: {error}"));
+            drop(self.warn(&format!("Failed to print summary: {error}")));
         }
     }
 

@@ -26,6 +26,9 @@ pub enum Failure {
     /// Failed to query link.
     #[error("failed to query link: {0}")]
     Query(#[source] rtnetlink::Error),
+    /// Failed to subscribe to kernel link notifications.
+    #[error("failed to subscribe to link notifications: {0}")]
+    Subscribe(#[source] std::io::Error),
     /// Failed to bring link up.
     #[error("failed to bring link up: {0}")]
     BringUp(#[source] rtnetlink::Error),
@@ -66,12 +69,12 @@ pub trait Ops: Clone + Send + Sync + 'static {
     /// Returns the kernel interface index for a named link.
     fn index(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
 
-    /// Polls interfaces for carrier, returning a map of index to carrier-present.
+    /// Polls interfaces for carrier, returning a map of index to carrier-present or a subscribe failure.
     fn probe_carriers(
         &self,
         interfaces: &[(u32, &str)],
         timeout: Duration,
-    ) -> impl Future<Output = HashMap<u32, bool>> + Send;
+    ) -> impl Future<Output = Result<HashMap<u32, bool>>> + Send;
 
     /// Attaches a slave interface to a master (bridge) interface.
     fn set_master(
@@ -123,7 +126,7 @@ impl Ops for Rtnl {
         &self,
         interfaces: &[(u32, &str)],
         timeout: Duration,
-    ) -> HashMap<u32, bool> {
+    ) -> Result<HashMap<u32, bool>> {
         carrier::probe_carriers(&self.handle, interfaces, timeout).await
     }
 }

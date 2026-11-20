@@ -57,7 +57,7 @@ fn list(console: &Console) -> Result<()> {
         console.line(
             Role::Warn,
             "No contexts configured. Run 'muakctl install' to add a server.",
-        );
+        )?;
         return Ok(());
     }
 
@@ -88,7 +88,7 @@ fn use_context(name: &str, console: &Console) -> Result<()> {
     config.set_current(name)?;
     config.save()?;
 
-    console.success(&format!("Switched to context '{name}'"));
+    console.success(&format!("Switched to context '{name}'"))?;
 
     Ok(())
 }
@@ -101,7 +101,7 @@ fn info(console: &Console) -> Result<()> {
         console.line(
             Role::Warn,
             "No current context. Run 'muakctl context use <name>' to select one.",
-        );
+        )?;
         return Ok(());
     };
 
@@ -165,11 +165,11 @@ fn add(
     config.save()?;
 
     if actual_name == name {
-        console.success(&format!("Added context '{actual_name}'"));
+        console.success(&format!("Added context '{actual_name}'"))?;
     } else {
         console.success(&format!(
             "Added context '{actual_name}' (renamed from '{name}' to avoid collision)"
-        ));
+        ))?;
     }
 
     Ok(())
@@ -181,7 +181,7 @@ fn remove(name: &str, console: &Console) -> Result<()> {
     config.remove_context(name)?;
     config.save()?;
 
-    console.success(&format!("Removed context '{name}'"));
+    console.success(&format!("Removed context '{name}'"))?;
 
     Ok(())
 }

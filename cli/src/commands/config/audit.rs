@@ -23,7 +23,7 @@ pub(crate) async fn history(channel: Channel, limit: u32, console: &Console) -> 
     }
 
     if resp.entries.is_empty() {
-        console.line(Role::Muted, "No config history found.");
+        console.line(Role::Muted, "No config history found.")?;
         return Ok(());
     }
 
@@ -72,7 +72,7 @@ pub(crate) async fn diff(
 
                 (before, after)
             } else {
-                console.line(Role::Muted, "No previous entry to compare against.");
+                console.line(Role::Muted, "No previous entry to compare against.")?;
                 return Ok(());
             }
         }
@@ -86,7 +86,7 @@ pub(crate) async fn diff(
     let changes = config::system::diff(&from, &to).context("Failed to diff configs")?;
 
     if changes.is_empty() {
-        console.line(Role::Muted, "No differences found.");
+        console.line(Role::Muted, "No differences found.")?;
         return Ok(());
     }
 

@@ -30,7 +30,9 @@ impl AuthService for ServiceImpl {
         let fingerprint = csr::compute_fingerprint(&req.csr_pem)
             .map_err(|e| Status::invalid_argument(format!("Invalid CSR: {e}")))?;
 
-        if is_user_authorized(&fingerprint) {
+        let already_authorized = is_user_authorized(&fingerprint)
+            .map_err(|error| Status::internal(format!("Failed to check authorization: {error}")))?;
+        if already_authorized {
             return Err(Status::already_exists(
                 "A certificate with this fingerprint is already authorized",
             ));
@@ -63,9 +65,16 @@ impl AuthService for ServiceImpl {
     ) -> Result<Response<GetCsrStatusResponse>, Status> {
         let fingerprint = request.into_inner().fingerprint;
 
-        if let Some(auth) = config::auth::try_current()
-            && auth.revoked.contains(&fingerprint)
-        {
+        let revoked = match config::auth::try_current() {
+            Ok(auth) => auth.is_some_and(|auth| auth.revoked.contains(&fingerprint)),
+            Err(error) => {
+                return Err(Status::internal(format!(
+                    "Failed to reload auth config: {error}"
+                )));
+            }
+        };
+
+        if revoked {
             return Ok(Response::new(GetCsrStatusResponse {
                 status: CsrStatus::Rejected.into(),
                 cert_pem: String::new(),
@@ -188,9 +197,19 @@ impl AuthService for ServiceImpl {
         &self,
         _request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
-        let auth = config::auth::try_current().ok_or_else(|| {
-            Status::failed_precondition("System not installed - auth config not available")
-        })?;
+        let auth = match config::auth::try_current() {
+            Ok(Some(auth)) => auth,
+            Ok(None) => {
+                return Err(Status::failed_precondition(
+                    "System not installed - auth config not available",
+                ));
+            }
+            Err(error) => {
+                return Err(Status::internal(format!(
+                    "Failed to reload auth config: {error}"
+                )));
+            }
+        };
 
         let users: Vec<AuthorizedUser> = auth
             .users
@@ -316,12 +335,19 @@ fn sign_pending_csr(csr_pem: &str) -> Result<(String, String)> {
 }
 
 /// Checks if a fingerprint is already authorized.
-fn is_user_authorized(fingerprint: &str) -> bool {
-    config::auth::try_current().is_some_and(|auth| {
+fn is_user_authorized(fingerprint: &str) -> Result<bool> {
+    let auth = match config::auth::try_current() {
+        Ok(auth) => auth,
+        Err(error) => {
+            return Err(anyhow::anyhow!("Failed to reload auth config: {error}"));
+        }
+    };
+
+    Ok(auth.is_some_and(|auth| {
         auth.users
             .iter()
             .any(|user| user.fingerprint == fingerprint)
-    })
+    }))
 }
 
 /// Returns the path for a staging certificate.
@@ -349,7 +375,13 @@ fn add_user_to_auth(
     fingerprint: &str,
     permissions: Vec<config::permission::Permission>,
 ) -> Result<()> {
-    let mut auth = config::auth::try_current().map_or_default(|auth| (*auth).clone());
+    let mut auth = match config::auth::try_current() {
+        Ok(Some(auth)) => (*auth).clone(),
+        Ok(None) => config::auth::State::default(),
+        Err(error) => {
+            return Err(anyhow::anyhow!("Failed to reload auth config: {error}"));
+        }
+    };
 
     auth.users.push(config::auth::User {
         fingerprint: fingerprint.to_owned(),
@@ -364,8 +396,13 @@ fn add_user_to_auth(
 
 /// Revokes a user by adding their fingerprint to the revoked list.
 fn revoke_user(fingerprint: &str) -> Result<()> {
-    let mut auth =
-        config::auth::try_current().map_or_default(|auth| config::auth::State::clone(&auth));
+    let mut auth = match config::auth::try_current() {
+        Ok(Some(auth)) => config::auth::State::clone(&auth),
+        Ok(None) => config::auth::State::default(),
+        Err(error) => {
+            return Err(anyhow::anyhow!("Failed to reload auth config: {error}"));
+        }
+    };
 
     auth.users.retain(|user| user.fingerprint != fingerprint);
 

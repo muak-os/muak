@@ -93,7 +93,7 @@ async fn list(
     let disks = fetch(client).await?;
 
     if disks.is_empty() {
-        console.line(Role::Warn, "No disks found");
+        console.line(Role::Warn, "No disks found")?;
         return Ok(());
     }
 

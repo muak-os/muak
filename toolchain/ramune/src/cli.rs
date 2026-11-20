@@ -3,7 +3,7 @@
 use core::str::FromStr;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
@@ -101,7 +101,7 @@ where
     match run_from(args) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("Error: {error:?}");
+            drop(writeln!(std::io::stderr(), "Error: {error:?}"));
             1
         }
     }
@@ -167,11 +167,12 @@ fn run_create(files: &[FileEntry], output: &Path, compression_level: i32) -> Res
         .with_context(|| format!("Failed to read initramfs metadata: {}", output.display()))?
         .len();
 
-    println!(
+    writeln!(
+        std::io::stdout(),
         "Successfully created initramfs at {} ({} bytes)",
         output.display(),
         size
-    );
+    )?;
 
     Ok(())
 }

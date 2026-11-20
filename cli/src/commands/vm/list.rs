@@ -18,7 +18,7 @@ pub(super) async fn handle(client: &mut VmServiceClient<Channel>, console: &Cons
     let resp = response.into_inner();
 
     if resp.vms.is_empty() {
-        console.line(Role::Warn, "No VMs");
+        console.line(Role::Warn, "No VMs")?;
         return Ok(());
     }
 

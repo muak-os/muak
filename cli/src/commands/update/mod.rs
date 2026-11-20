@@ -98,7 +98,7 @@ pub(crate) async fn handle(
     let installed = fetch_installed_config(&mut client).await?;
     let payload = request_payload(version, config_path.as_deref(), &installed)?;
     if let Some(warning) = payload.warning.as_deref() {
-        console.warn(warning);
+        console.warn(warning)?;
     }
 
     let steps = console.steps()?;
@@ -145,7 +145,7 @@ pub(crate) async fn handle(
 
     if let Some(message) = noop {
         steps.finish()?;
-        console.success(&message);
+        console.success(&message)?;
 
         return Ok(());
     }
@@ -195,7 +195,7 @@ pub(crate) async fn handle(
 
     wait_for_update_completion(ctx, &update_id, steps).await?;
 
-    console.success(&format!("Update {update_id} committed successfully!"));
+    console.success(&format!("Update {update_id} committed successfully!"))?;
 
     Ok(())
 }

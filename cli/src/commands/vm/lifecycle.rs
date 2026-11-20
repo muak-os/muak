@@ -19,7 +19,7 @@ pub(super) async fn handle_start(
     let resp = response.into_inner();
 
     if resp.success {
-        console.success(&format!("Started VM: {vm_id}"));
+        console.success(&format!("Started VM: {vm_id}"))?;
         Ok(())
     } else {
         Err(anyhow::anyhow!("Failed to start VM: {}", resp.error))
@@ -42,7 +42,7 @@ pub(super) async fn handle_stop(
     let resp = response.into_inner();
 
     if resp.success {
-        console.success(&format!("Stopped VM: {vm_id}"));
+        console.success(&format!("Stopped VM: {vm_id}"))?;
         Ok(())
     } else {
         Err(anyhow::anyhow!("Failed to stop VM: {}", resp.error))
@@ -63,7 +63,7 @@ pub(super) async fn handle_delete(
     let resp = response.into_inner();
 
     if resp.success {
-        console.success(&format!("Deleted VM: {vm_id}"));
+        console.success(&format!("Deleted VM: {vm_id}"))?;
 
         Ok(())
     } else {

@@ -245,14 +245,14 @@ impl link::Ops for MockNetlinkOps {
         &self,
         interfaces: &[(u32, &str)],
         _timeout: Duration,
-    ) -> impl Future<Output = HashMap<u32, bool>> {
+    ) -> impl Future<Output = link::Result<HashMap<u32, bool>>> {
         let state = self.lock();
         let result = interfaces
             .iter()
             .map(|&(idx, name)| (idx, state.links.get(name).is_some_and(|link| link.up)))
             .collect();
 
-        std::future::ready(result)
+        std::future::ready(Ok(result))
     }
 }
 

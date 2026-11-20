@@ -81,15 +81,15 @@ impl Ops for Rtnl {
             bridge_name,
         )
         .await?;
-        transfer_ip_to_bridge(&self.handle, phys_index, br_index, bridge_name, gateway).await
+
+        transfer_ip_to_bridge(&self.handle, phys_index, br_index, gateway).await
     }
 
     async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> Result<()> {
-        println!("Attaching {iface_name} to bridge {bridge_name}");
         let iface_index = link::handle::get_index(&self.handle, iface_name).await?;
         let bridge_index = link::handle::get_index(&self.handle, bridge_name).await?;
         link::handle::set_master(&self.handle, iface_index, bridge_index).await?;
-        println!("{iface_name} attached to bridge {bridge_name}");
+
         Ok(())
     }
 }
@@ -170,8 +170,6 @@ async fn enslave_interface_to_bridge(
 
     let _result = link::handle::bring_up(handle, phys_index).await;
 
-    println!("Enslaved {physical_iface} to bridge {bridge_name}");
-
     Ok(())
 }
 
@@ -179,7 +177,6 @@ async fn transfer_ip_to_bridge(
     handle: &Handle,
     phys_index: u32,
     br_index: u32,
-    bridge_name: &str,
     gateway: Option<Ipv4Addr>,
 ) -> Result<()> {
     let phys_ip = address::handle::find_ipv4(handle, phys_index).await?;
@@ -193,10 +190,7 @@ async fn transfer_ip_to_bridge(
 
         if let Some(gw) = gateway {
             route::add_default_route(handle, gw).await?;
-            println!("Restored default route via {gw}");
         }
-
-        println!("Transferred IP {ip}/{prefix} to bridge {bridge_name}");
     }
 
     Ok(())

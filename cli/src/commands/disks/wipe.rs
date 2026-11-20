@@ -73,10 +73,10 @@ pub(crate) async fn handle(
                 "WARNING: This will {}",
                 preview_resp.message.trim_start_matches("Would ")
             ),
-        );
+        )?;
     }
 
-    console.info(&preview_resp.message);
+    console.info(&preview_resp.message)?;
 
     if args.dry_run {
         return Ok(());
@@ -104,7 +104,7 @@ pub(crate) async fn handle(
         return Err(failure(&resp).into());
     }
 
-    console.success(&resp.message);
+    console.success(&resp.message)?;
 
     Ok(())
 }

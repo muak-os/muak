@@ -182,10 +182,10 @@ fn exit_code(error: &anyhow::Error) -> i32 {
 
 // Handles and displays errors with user-friendly messages.
 fn handle_error(error: &anyhow::Error, console: &Console) {
-    match error.downcast_ref::<tonic::Status>() {
+    drop(match error.downcast_ref::<tonic::Status>() {
         Some(status) => console.error(status_message(status)),
         None => console.error(&format!("{error:#}")),
-    }
+    });
 }
 
 // Maps a gRPC status to a user-facing message.
