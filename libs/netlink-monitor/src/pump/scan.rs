@@ -2,32 +2,32 @@
 
 use std::collections::HashMap;
 
-use netlink::link::device;
-use rtnetlink::Handle;
-use rtnetlink::packet_route::link::{LinkFlags, LinkMessage};
-use tokio_stream::StreamExt as _;
+use netlink::link;
+use netlink::link::device::{self, Device};
+use rtnetlink::packet_route::link::LinkMessage;
 
-use crate::{Failure, Result};
+use crate::Result;
 
 pub(super) async fn initial_scan(
-    handle: &Handle,
+    link: &impl link::Ops,
     link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
-    let mut links = handle.link().get().execute();
-    while let Some(link_msg) = links.try_next().await.map_err(Failure::List)? {
-        let Some((name, index, _)) = extract_link_info(&link_msg) else {
-            continue;
-        };
+    for Device {
+        index,
+        name,
+        carrier,
+        admin_up,
+        ..
+    } in link.devices().await?
+    {
         if !device::is_ethernet(&name) {
             continue;
         }
-        let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
-        let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
-        link_states.insert(index, has_carrier);
+        link_states.insert(index, carrier);
         println!(
             "Initial state: {name} (index {index}) = admin:{} carrier:{}",
-            if is_admin_up { "up" } else { "down" },
-            if has_carrier { "yes" } else { "no" }
+            if admin_up { "up" } else { "down" },
+            if carrier { "yes" } else { "no" }
         );
     }
 
