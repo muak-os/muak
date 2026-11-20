@@ -24,7 +24,7 @@ use rustix::net::{
 };
 use tokio::io::unix::AsyncFd;
 use tokio::task::spawn_blocking;
-use tokio::time::{Instant, timeout};
+use tokio::time::{Instant, sleep, timeout};
 
 use super::state::{AddressState, Expiring, ManagedAddress, ManagedDns, ManagedRouter};
 use super::{create_icmpv6_filter, set_icmpv6_filter};
@@ -63,6 +63,7 @@ pub struct Manager {
     ifindex: u32,
     socket: AsyncFd<OwnedFd>,
     solicited: bool,
+    solicitation_attempt: u32,
     config: Arc<network::Config>,
 
     address: Option<ManagedAddress>,
@@ -108,6 +109,7 @@ impl Manager {
             ifindex,
             socket,
             solicited: false,
+            solicitation_attempt: 0,
             config,
             address: None,
             router: None,
@@ -115,18 +117,26 @@ impl Manager {
         })
     }
 
-    /// Performs the initial RS/RA solicitation on first call, then returns monitoring events.
+    /// Performs the initial RS/RA solicitation, then returns monitoring events.
+    ///
+    /// `solicited` is set only after `initial_solicitation` returns, on success and on
+    /// failure, so a completed failure is not retried. A future dropped before it
+    /// returns resumes from the attempt it had reached, and a manager therefore
+    /// never sends more than `MAX_RTR_SOLICITATIONS` router solicitations.
+    /// A cancellation shortens the remaining listening window, which is the accepted
+    /// cost of that bound.
     pub async fn next_event(&mut self) -> SlaacEvent {
         if self.solicited {
             return next_monitoring_event(self).await;
         }
-        self.solicited = true;
-        match initial_solicitation(self).await {
+        let event = match initial_solicitation(self).await {
             Ok(event) => event,
             Err(e) => SlaacEvent::Failed {
                 reason: e.to_string(),
             },
-        }
+        };
+        self.solicited = true;
+        event
     }
 }
 
@@ -157,18 +167,32 @@ async fn initial_solicitation(manager: &mut Manager) -> Result<SlaacEvent> {
     let rs_packet = router_solicitation(Ipv6Addr::UNSPECIFIED, &manager.mac);
     let dest = create_all_routers_sockaddr(manager.ifindex);
 
-    for attempt in 1..=MAX_RTR_SOLICITATIONS {
+    let mut last_error = None;
+
+    while manager.solicitation_attempt < MAX_RTR_SOLICITATIONS {
+        manager.solicitation_attempt = manager.solicitation_attempt.saturating_add(1);
+        let attempt = manager.solicitation_attempt;
         kmsg::info!(
             "SLAAC: sending RS on {} (attempt {attempt}/{MAX_RTR_SOLICITATIONS})",
             manager.interface
         );
 
-        sendto(
+        if let Err(error) = sendto(
             manager.socket.get_ref(),
             &rs_packet,
             SendFlags::empty(),
             &dest,
-        )?;
+        ) {
+            kmsg::warn!(
+                "SLAAC: RS send failed on {} (attempt {attempt}/{MAX_RTR_SOLICITATIONS}): {error}",
+                manager.interface
+            );
+            last_error = Some(error);
+            pause_before_retry(attempt).await;
+            continue;
+        }
+
+        last_error = None;
 
         if let Ok(ra) = wait_for_ra(manager, RTR_SOLICITATION_INTERVAL).await {
             return process_initial_ra(manager, &ra);
@@ -178,7 +202,27 @@ async fn initial_solicitation(manager: &mut Manager) -> Result<SlaacEvent> {
         }
     }
 
-    bail!("no Router Advertisement received after {MAX_RTR_SOLICITATIONS} attempts")
+    Err(anyhow::anyhow!(solicitation_failure(
+        &manager.interface,
+        last_error
+    )))
+}
+
+async fn pause_before_retry(attempt: u32) {
+    if attempt < MAX_RTR_SOLICITATIONS {
+        sleep(RTR_SOLICITATION_INTERVAL).await;
+    }
+}
+
+fn solicitation_failure(interface: &str, last_error: Option<Errno>) -> String {
+    match last_error {
+        Some(error) => format!(
+            "could not send RS on {interface} on the last of {MAX_RTR_SOLICITATIONS} attempts: {error}"
+        ),
+        None => format!(
+            "no Router Advertisement received on {interface} after {MAX_RTR_SOLICITATIONS} attempts"
+        ),
+    }
 }
 
 async fn wait_for_ra(manager: &Manager, wait_timeout: Duration) -> Result<RouterAdvertisement> {
@@ -497,4 +541,54 @@ fn create_all_routers_sockaddr(ifindex: u32) -> SocketAddrV6 {
 
 fn byte_at(data: &[u8], index: usize) -> u8 {
     data.get(index).copied().unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solicitation_failure_reports_send_error() {
+        // ARRANGE
+        let last_error = Some(Errno::ADDRNOTAVAIL);
+        let expected = format!(
+            "could not send RS on eth0 on the last of {MAX_RTR_SOLICITATIONS} attempts: {}",
+            Errno::ADDRNOTAVAIL
+        );
+
+        // ACT
+        let reason = solicitation_failure("eth0", last_error);
+
+        // ASSERT
+        assert_eq!(reason, expected);
+    }
+
+    #[test]
+    fn solicitation_failure_reports_missing_ra() {
+        // ARRANGE
+        let last_error = None;
+        let expected = format!(
+            "no Router Advertisement received on eth0 after {MAX_RTR_SOLICITATIONS} attempts"
+        );
+
+        // ACT
+        let reason = solicitation_failure("eth0", last_error);
+
+        // ASSERT
+        assert_eq!(reason, expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pause_before_retry_skips_the_last_attempt() {
+        // ARRANGE
+        let start = Instant::now();
+
+        // ACT
+        pause_before_retry(1).await;
+        pause_before_retry(2).await;
+        pause_before_retry(MAX_RTR_SOLICITATIONS).await;
+
+        // ASSERT
+        assert_eq!(start.elapsed(), RTR_SOLICITATION_INTERVAL * 2);
+    }
 }
