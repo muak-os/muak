@@ -218,8 +218,8 @@ async fn actor_select(
     let mut expire_fut = core::pin::pin!(poll_opt(expire));
 
     core::future::poll_fn(|cx| {
-        if let core::task::Poll::Ready(Some(cmd)) = cmd_fut.as_mut().poll(cx) {
-            return core::task::Poll::Ready(Some(ActorEvent::Command(cmd)));
+        if let core::task::Poll::Ready(command) = cmd_fut.as_mut().poll(cx) {
+            return core::task::Poll::Ready(command.map(ActorEvent::Command));
         }
         match dhcp_fut.as_mut().poll(cx) {
             core::task::Poll::Ready(Some(lease)) => {
@@ -272,5 +272,47 @@ async fn dhcp_acquire(dhcp: &mut Option<Manager>) -> Option<Lease> {
     match dhcp.as_mut() {
         Some(mgr) => mgr.acquire().await.ok(),
         None => core::future::pending().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::time::Duration;
+
+    use tokio::sync::mpsc;
+    use tokio::time::timeout;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn actor_select_returns_none_when_commands_close() {
+        // ARRANGE
+        let (tx, mut cmd_rx) = mpsc::channel(1);
+        let mut dhcp = None;
+        let mut slaac = None;
+        let mut renew = None;
+        let mut rebind = None;
+        let mut expire = None;
+        drop(tx);
+
+        // ACT
+        let outcome = timeout(
+            Duration::from_secs(1),
+            actor_select(
+                &mut cmd_rx,
+                &mut dhcp,
+                &mut slaac,
+                &mut renew,
+                &mut rebind,
+                &mut expire,
+            ),
+        )
+        .await;
+
+        // ASSERT
+        assert!(
+            matches!(outcome, Ok(None)),
+            "a closed command channel must end the actor loop"
+        );
     }
 }
