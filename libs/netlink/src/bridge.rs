@@ -71,7 +71,7 @@ impl Ops for Rtnl {
         gateway: Option<Ipv4Addr>,
         stp: bool,
     ) -> Result<()> {
-        let phys_index = link::get_index(&self.handle, physical_iface).await?;
+        let phys_index = link::handle::get_index(&self.handle, physical_iface).await?;
         let br_index = create_or_reconfigure_bridge(&self.handle, bridge_name, stp).await?;
         enslave_interface_to_bridge(
             &self.handle,
@@ -86,9 +86,9 @@ impl Ops for Rtnl {
 
     async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> Result<()> {
         println!("Attaching {iface_name} to bridge {bridge_name}");
-        let iface_index = link::get_index(&self.handle, iface_name).await?;
-        let bridge_index = link::get_index(&self.handle, bridge_name).await?;
-        link::set_master(&self.handle, iface_index, bridge_index).await?;
+        let iface_index = link::handle::get_index(&self.handle, iface_name).await?;
+        let bridge_index = link::handle::get_index(&self.handle, bridge_name).await?;
+        link::handle::set_master(&self.handle, iface_index, bridge_index).await?;
         println!("{iface_name} attached to bridge {bridge_name}");
         Ok(())
     }
@@ -99,9 +99,9 @@ async fn create_or_reconfigure_bridge(
     bridge_name: &str,
     stp: bool,
 ) -> Result<u32> {
-    if link::exists(handle, bridge_name).await? {
-        let index = link::get_index(handle, bridge_name).await?;
-        link::bring_up(handle, index).await?;
+    if link::handle::exists(handle, bridge_name).await? {
+        let index = link::handle::get_index(handle, bridge_name).await?;
+        link::handle::bring_up(handle, index).await?;
         return Ok(index);
     }
 
@@ -124,9 +124,9 @@ async fn create_bridge(handle: &Handle, bridge_name: &str, stp: bool) -> Result<
 
     retry::wait_for_condition(
         || async {
-            if link::exists(handle, bridge_name).await.ok()? {
-                let index = link::get_index(handle, bridge_name).await.ok()?;
-                link::bring_up(handle, index).await.ok()?;
+            if link::handle::exists(handle, bridge_name).await.ok()? {
+                let index = link::handle::get_index(handle, bridge_name).await.ok()?;
+                link::handle::bring_up(handle, index).await.ok()?;
                 Some(index)
             } else {
                 None
@@ -147,20 +147,20 @@ async fn enslave_interface_to_bridge(
     physical_iface: &str,
     bridge_name: &str,
 ) -> Result<()> {
-    let already_enslaved = match link::master_index(handle, phys_index).await {
+    let already_enslaved = match link::handle::master_index(handle, phys_index).await {
         Ok(Some(master)) => master == br_index,
         _ => false,
     };
 
     if already_enslaved {
-        let _result = link::bring_up(handle, phys_index).await;
+        let _result = link::handle::bring_up(handle, phys_index).await;
         return Ok(());
     }
 
-    let _result = link::bring_down(handle, phys_index).await;
+    let _result = link::handle::bring_down(handle, phys_index).await;
 
     retry::run(
-        || async { link::set_master(handle, phys_index, br_index).await },
+        || async { link::handle::set_master(handle, phys_index, br_index).await },
         ENSLAVE_RETRIES,
         ENSLAVE_RETRY_DELAY_MS,
         &format!("failed to enslave {physical_iface} to {bridge_name}"),
@@ -168,7 +168,7 @@ async fn enslave_interface_to_bridge(
     .await
     .map_err(Failure::Retry)?;
 
-    let _result = link::bring_up(handle, phys_index).await;
+    let _result = link::handle::bring_up(handle, phys_index).await;
 
     println!("Enslaved {physical_iface} to bridge {bridge_name}");
 
@@ -182,14 +182,14 @@ async fn transfer_ip_to_bridge(
     bridge_name: &str,
     gateway: Option<Ipv4Addr>,
 ) -> Result<()> {
-    let phys_ip = address::find_ipv4(handle, phys_index).await?;
-    let has_bridge_ip = address::has_ipv4(handle, br_index).await?;
+    let phys_ip = address::handle::find_ipv4(handle, phys_index).await?;
+    let has_bridge_ip = address::handle::has_ipv4(handle, br_index).await?;
 
     if let Some((ip, prefix)) = phys_ip
         && !has_bridge_ip
     {
-        address::remove_ipv4(handle, phys_index, ip).await?;
-        address::add_ipv4(handle, br_index, ip, prefix).await?;
+        address::handle::remove_ipv4(handle, phys_index, ip).await?;
+        address::handle::add_ipv4(handle, br_index, ip, prefix).await?;
 
         if let Some(gw) = gateway {
             route::add_default_route(handle, gw).await?;

@@ -19,7 +19,7 @@ use commands::SupervisorCommand;
 use config::system::network;
 use netdev::Ops;
 use netlink::Rtnl;
-use netlink::link::Name;
+use netlink::link::ifname::Name;
 use netlink_monitor::{Config, Event};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, interval, sleep};

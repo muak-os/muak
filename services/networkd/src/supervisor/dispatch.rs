@@ -2,7 +2,8 @@
 
 use mac::format as format_mac;
 use netdev::Ops;
-use netlink::link::{Name, State};
+use netlink::link::ifname::Name;
+use netlink::link::state::State;
 use netlink_monitor::Event;
 
 use super::{NetworkSupervisor, failover};

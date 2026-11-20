@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use ::dhcp_client::lease::Lease;
 use config::system::network;
 use netlink::address::IpConfig;
-use netlink::link::State;
+use netlink::link::state::State;
 use networkd::interface::commands::ApplyMode;
 use networkd::interface::lifecycle::DhcpState;
 use tokio::sync::oneshot;

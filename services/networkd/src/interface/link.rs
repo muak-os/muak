@@ -2,7 +2,7 @@
 
 use ::dhcp_client::connector::Connector;
 use netdev::Ops;
-use netlink::link::State;
+use netlink::link::state::State;
 
 use super::Actor;
 use crate::interface::dhcp;

@@ -9,7 +9,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use netdev::interface::{self, Ethernet};
-use netlink::link::{self, Device, Failure, Name, State};
+use netlink::link::device::Device;
+use netlink::link::ifname::Name;
+use netlink::link::state::State;
+use netlink::link::{self, Failure};
 use netlink::{address, bridge, route};
 
 /// Holds in-memory link and route state for deterministic tests.

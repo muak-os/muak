@@ -1,132 +1,12 @@
-//! IPv4 and IPv6 address management.
+//! Address operations executed against a shared netlink connection handle.
 
-use core::future::Future;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use rtnetlink::Handle;
 use rtnetlink::packet_route::address::AddressAttribute;
-use thiserror::Error;
 use tokio_stream::StreamExt as _;
 
-use crate::Rtnl;
-
-/// Address management failure conditions.
-#[derive(Debug, Error)]
-pub enum Failure {
-    /// Failed to add IPv4 address.
-    #[error("failed to add IPv4 address: {0}")]
-    AddIpv4(#[source] rtnetlink::Error),
-    /// Failed to remove IPv4 address.
-    #[error("failed to remove IPv4 address: {0}")]
-    RemoveIpv4(#[source] rtnetlink::Error),
-    /// Failed to add IPv6 address.
-    #[error("failed to add IPv6 address: {0}")]
-    AddIpv6(#[source] rtnetlink::Error),
-    /// Failed to remove IPv6 address.
-    #[error("failed to remove IPv6 address: {0}")]
-    RemoveIpv6(#[source] rtnetlink::Error),
-    /// Failed to enumerate addresses.
-    #[error("failed to enumerate addresses: {0}")]
-    List(#[source] rtnetlink::Error),
-}
-
-/// Address management result type.
-pub type Result<T> = core::result::Result<T, Failure>;
-
-/// IPv4 address configuration acquired via DHCP or static assignment.
-#[derive(Debug, Clone)]
-pub struct IpConfig {
-    /// IPv4 address.
-    pub address: Ipv4Addr,
-    /// Prefix length in bits.
-    pub prefix_len: u8,
-    /// Optional default gateway.
-    pub gateway: Option<Ipv4Addr>,
-    /// DNS server addresses.
-    pub dns: Vec<Ipv4Addr>,
-}
-
-/// IPv6 address configuration acquired via SLAAC or static assignment.
-#[derive(Debug, Clone)]
-pub struct Ipv6Config {
-    /// IPv6 address.
-    pub address: Ipv6Addr,
-    /// Prefix length in bits.
-    pub prefix_len: u8,
-    /// Optional default gateway.
-    pub gateway: Option<Ipv6Addr>,
-    /// DNS server addresses.
-    pub dns: Vec<Ipv6Addr>,
-}
-
-/// Trait covering all address-layer netlink operations.
-pub trait Ops: Clone + Send + Sync + 'static {
-    /// Adds or confirms an IPv4 address on an interface.
-    fn add_ipv4(
-        &self,
-        index: u32,
-        ip: Ipv4Addr,
-        prefix: u8,
-    ) -> impl Future<Output = Result<()>> + Send;
-
-    /// Adds or confirms an IPv4 address on an interface.
-    fn ensure_ipv4(
-        &self,
-        index: u32,
-        ip: Ipv4Addr,
-        prefix: u8,
-    ) -> impl Future<Output = Result<()>> + Send;
-
-    /// Adds or confirms an IPv6 address on an interface.
-    fn ensure_ipv6(
-        &self,
-        index: u32,
-        ip: Ipv6Addr,
-        prefix: u8,
-    ) -> impl Future<Output = Result<()>> + Send;
-
-    /// Returns the first IPv4 address on an interface, if any.
-    fn find_ipv4(&self, index: u32) -> impl Future<Output = Result<Option<(Ipv4Addr, u8)>>> + Send;
-
-    /// Returns whether an interface has at least one IPv4 address.
-    fn has_ipv4(&self, index: u32) -> impl Future<Output = Result<bool>> + Send;
-
-    /// Removes an IPv4 address from an interface.
-    fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> impl Future<Output = Result<()>> + Send;
-
-    /// Removes an IPv6 address from an interface.
-    fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> impl Future<Output = Result<()>> + Send;
-}
-
-impl Ops for Rtnl {
-    async fn ensure_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
-        ensure_ipv4(&self.handle, index, ip, prefix).await
-    }
-
-    async fn find_ipv4(&self, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
-        find_ipv4(&self.handle, index).await
-    }
-
-    async fn has_ipv4(&self, index: u32) -> Result<bool> {
-        has_ipv4(&self.handle, index).await
-    }
-
-    async fn add_ipv4(&self, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
-        add_ipv4(&self.handle, index, ip, prefix).await
-    }
-
-    async fn remove_ipv4(&self, index: u32, ip: Ipv4Addr) -> Result<()> {
-        remove_ipv4(&self.handle, index, ip).await
-    }
-
-    async fn ensure_ipv6(&self, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
-        ensure_ipv6(&self.handle, index, ip, prefix).await
-    }
-
-    async fn remove_ipv6(&self, index: u32, ip: Ipv6Addr) -> Result<()> {
-        remove_ipv6(&self.handle, index, ip).await
-    }
-}
+use super::{Failure, Result};
 
 /// Finds the first non-link-local IPv4 address and prefix length on a given interface.
 pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
@@ -201,7 +81,12 @@ pub(crate) async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Re
 }
 
 /// Adds an IPv4 address only if it is not already present with the same prefix.
-async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> Result<()> {
+pub(crate) async fn ensure_ipv4(
+    handle: &Handle,
+    index: u32,
+    ip: Ipv4Addr,
+    prefix: u8,
+) -> Result<()> {
     if let Some((existing_ip, existing_prefix)) = find_ipv4(handle, index).await?
         && existing_ip == ip
         && existing_prefix == prefix
@@ -216,7 +101,13 @@ async fn ensure_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: u8) -> R
         .map_err(Failure::AddIpv4)
 }
 
-async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
+/// Adds an IPv6 address only if it is not already present with the same prefix.
+pub(crate) async fn ensure_ipv6(
+    handle: &Handle,
+    index: u32,
+    ip: Ipv6Addr,
+    prefix: u8,
+) -> Result<()> {
     let mut addrs = handle.address().get().execute();
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
@@ -238,7 +129,8 @@ async fn ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> R
         .map_err(Failure::AddIpv6)
 }
 
-async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
+/// Removes a specific IPv6 address from the given interface (no-op if absent).
+pub(crate) async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
     let mut addrs = handle.address().get().execute();
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
@@ -283,7 +175,11 @@ fn find_v6_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv6Addr> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use rtnetlink::packet_route::address::AddressAttribute;
+
+    use super::{find_v4_in_attributes, find_v6_in_attributes};
 
     #[test]
     fn find_v4_in_attributes_returns_first_ipv4_address() {

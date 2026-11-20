@@ -3,8 +3,10 @@
 use core::cmp::Ordering;
 use core::future::Future;
 
-use netlink::Rtnl;
-use netlink::link::{self, Device, Name, State, is_ethernet};
+use netlink::link::device::{Device, is_ethernet};
+use netlink::link::ifname::Name;
+use netlink::link::state::State;
+use netlink::{Rtnl, link};
 use thiserror::Error;
 
 /// Interface enumeration failures.
@@ -15,7 +17,7 @@ pub enum Failure {
     List(#[from] link::Failure),
     /// Kernel returned invalid interface name.
     #[error("kernel returned invalid interface name: {0}")]
-    InvalidName(#[from] link::InvalidName),
+    InvalidName(#[from] link::ifname::InvalidName),
 }
 
 /// Interface enumeration result type.
@@ -175,7 +177,7 @@ fn to_ethernet(device: Device) -> Result<Option<Ethernet>> {
 
 #[cfg(test)]
 mod tests {
-    use netlink::link::State as LinkStateKind;
+    use netlink::link::state::State as LinkStateKind;
 
     use super::*;
 

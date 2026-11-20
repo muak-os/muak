@@ -4,7 +4,8 @@ mod scan;
 
 use std::collections::HashMap;
 
-use netlink::link::{Name, is_ethernet};
+use netlink::link::device;
+use netlink::link::ifname::Name;
 use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::packet_route::RouteNetlinkMessage;
@@ -78,7 +79,7 @@ async fn handle_new_link(
     let Some((raw_name, index, mac)) = scan::extract_link_info(&msg) else {
         return Ok(());
     };
-    if !is_ethernet(&raw_name) {
+    if !device::is_ethernet(&raw_name) {
         return Ok(());
     }
 
@@ -160,7 +161,7 @@ async fn handle_del_link(
     let Some((raw_name, index, _)) = scan::extract_link_info(&msg) else {
         return Ok(());
     };
-    if !is_ethernet(&raw_name) {
+    if !device::is_ethernet(&raw_name) {
         return Ok(());
     }
     link_states.remove(&index);

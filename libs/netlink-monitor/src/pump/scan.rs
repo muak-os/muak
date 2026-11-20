@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use netlink::link::{self, is_ethernet};
+use netlink::link::device;
 use rtnetlink::Handle;
 use rtnetlink::packet_route::link::{LinkFlags, LinkMessage};
 use tokio_stream::StreamExt as _;
@@ -18,7 +18,7 @@ pub(super) async fn initial_scan(
         let Some((name, index, _)) = extract_link_info(&link_msg) else {
             continue;
         };
-        if !is_ethernet(&name) {
+        if !device::is_ethernet(&name) {
             continue;
         }
         let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
@@ -36,8 +36,8 @@ pub(super) async fn initial_scan(
 
 pub(super) fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
     let index = msg.header.index;
-    let name = link::extract_name(msg)?;
-    let mac = link::extract_mac(msg);
+    let name = device::extract_name(msg)?;
+    let mac = device::extract_mac(msg);
 
     Some((name, index, mac))
 }

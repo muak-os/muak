@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use core::time::Duration;
 
 use config::system::network;
-use netlink::link::Name;
+use netlink::link::ifname::Name;
 use netlink_monitor::Event;
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
