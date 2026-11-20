@@ -159,7 +159,7 @@ impl NetworkActorHandle {
     ///
     /// # Errors
     ///
-    /// Returns the underlying initialization error once retries are exhausted.
+    /// Returns an error when the supervisor command channel is closed.
     pub async fn initialize_with_retry(&self) -> Result<()> {
         let base_delay = Duration::from_secs(1);
         let max_delay = Duration::from_secs(10);
@@ -175,6 +175,10 @@ impl NetworkActorHandle {
         rx.await??;
 
         Ok(())
+    }
+
+    fn is_closed(&self) -> bool {
+        self.tx.is_closed()
     }
 }
 
