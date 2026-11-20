@@ -3,6 +3,7 @@
 mod commands;
 mod discovery;
 mod dispatch;
+mod dns;
 mod failover;
 mod monitor;
 mod provision;
@@ -11,7 +12,6 @@ mod snapshot;
 mod state;
 
 use alloc::sync::Arc;
-use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::collections::HashMap;
 
@@ -117,50 +117,13 @@ impl<N: Ops> NetworkSupervisor<N> {
                 .values()
                 .map(|handle| Arc::clone(&handle.state_rx.borrow())),
         );
-        self.flush_dns();
+        dns::flush(self);
         self.publish_state();
     }
 
     /// Publishes the current aggregated state to subscribers.
     fn publish_state(&self) {
         drop(self.watch_tx.send(self.state.clone()));
-    }
-
-    /// Flushes DNS configuration based on the primary interface's state with fallback.
-    fn flush_dns(&mut self) {
-        let Some(primary) = self.state.primary.as_ref() else {
-            return;
-        };
-        let Some(handle) = self.interfaces.get(primary) else {
-            return;
-        };
-        let (v4, v6) = self.collect_dns(handle);
-        if self.dns.is_unchanged(&v4, &v6) {
-            return;
-        }
-        self.apply_dns(v4, v6);
-    }
-
-    fn collect_dns(&self, handle: &ActorHandle) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
-        let snap = handle.state_rx.borrow();
-        let ipv4_dns = snap
-            .ip
-            .as_ref()
-            .filter(|ip| !ip.dns.is_empty())
-            .map_or_else(|| self.config.ipv4_dns().collect(), |ip| ip.dns.clone());
-        let ipv6_dns = snap
-            .ipv6
-            .as_ref()
-            .filter(|ip| !ip.dns.is_empty())
-            .map_or_else(|| self.config.ipv6_dns().collect(), |ip| ip.dns.clone());
-
-        (ipv4_dns, ipv6_dns)
-    }
-
-    fn apply_dns(&mut self, ipv4_dns: Vec<Ipv4Addr>, ipv6_dns: Vec<Ipv6Addr>) {
-        if let Err(e) = self.dns.update(ipv4_dns, ipv6_dns) {
-            kmsg::warn!("Failed to write DNS: {e}");
-        }
     }
 
     fn get_primary_name(&self) -> Result<Name> {
@@ -325,7 +288,7 @@ async fn supervisor_loop<N: Ops>(
             }
             SupervisorEvent::PrimaryChanged => {
                 maybe_failover_primary(&mut supervisor).await;
-                supervisor.flush_dns();
+                dns::flush(&mut supervisor);
             }
             SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
