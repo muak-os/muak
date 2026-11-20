@@ -37,8 +37,9 @@ async fn process_message(
     let NetlinkPayload::InnerMessage(route_msg) = message.payload else {
         return;
     };
-    if let Err(e) = handle_message(route_msg, tx, config, link_states).await {
-        println!("Error handling netlink message: {e}");
+    if let Err(error) = handle_message(route_msg, tx, config, link_states).await {
+        // A failed send means the receiver is gone (monitor shutting down), so the error is dropped.
+        let _send_failed = tx.send(Event::Error(error)).await.is_err();
     }
 }
 
@@ -103,10 +104,8 @@ async fn handle_new_link(
     };
     link_states.insert(index, carrier_present);
     if carrier_present {
-        println!("Carrier detected: {name} (index {index})");
         let _send_failed = tx.send(Event::Up { name, index }).await.is_err();
     } else {
-        println!("Carrier lost: {name} (index {index})");
         let _send_failed = tx.send(Event::Down { name, index }).await.is_err();
     }
     Ok(())
@@ -131,10 +130,6 @@ async fn emit_link_added(
     let Some(name) = Name::new(raw_name).ok() else {
         return;
     };
-    println!(
-        "New link added: {name} (index {index}, MAC {})",
-        mac::format(&mac_addr)
-    );
     let _send_failed = tx
         .send(Event::Added {
             name,
@@ -164,7 +159,6 @@ async fn handle_del_link(
     let Some(name) = Name::new(raw_name).ok() else {
         return Ok(());
     };
-    println!("Link deleted: {name} (index {index})");
     let _send_failed = tx.send(Event::Deleted { name, index }).await.is_err();
     Ok(())
 }

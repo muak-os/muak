@@ -1,4 +1,4 @@
-//! Netlink event consumer: dispatches received `NetworkEvent`s to supervisor state handlers.
+//! Netlink event consumer: dispatches received netlink events to supervisor state handlers.
 
 use mac::format as format_mac;
 use netdev::Ops;
@@ -20,6 +20,7 @@ pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, 
             on_link_added(supervisor, name, index, mac);
         }
         Event::Deleted { name, index } => on_link_deleted(supervisor, name, index).await,
+        Event::Error(error) => kmsg::warn!("Network event monitor error: {error}"),
     }
 }
 

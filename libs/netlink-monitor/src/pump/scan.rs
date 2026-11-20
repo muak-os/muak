@@ -21,7 +21,6 @@ pub(crate) async fn initial_scan(
         index,
         name,
         carrier,
-        admin_up,
         ..
     } in link.devices().await?
     {
@@ -29,11 +28,6 @@ pub(crate) async fn initial_scan(
             continue;
         }
         link_states.insert(index, carrier);
-        println!(
-            "Initial state: {name} (index {index}) = admin:{} carrier:{}",
-            if admin_up { "up" } else { "down" },
-            if carrier { "yes" } else { "no" }
-        );
     }
 
     Ok(())

@@ -159,14 +159,6 @@ fn to_ethernet(device: Device) -> Result<Option<Ethernet>> {
         (false, _) => State::Down,
     };
 
-    println!(
-        "Discovered interface: {} (index {}, MAC {}, state: {})",
-        name,
-        device.index,
-        mac::format(&device.mac),
-        link_state
-    );
-
     Ok(Some(Ethernet::new(
         name,
         device.index,

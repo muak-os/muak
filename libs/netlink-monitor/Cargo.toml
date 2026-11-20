@@ -18,7 +18,6 @@ tokio-stream = { workspace = true }
 thiserror = { workspace = true }
 
 # Internal
-mac = { workspace = true }
 netlink = { workspace = true }
 
 # Networking

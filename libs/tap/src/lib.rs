@@ -59,8 +59,6 @@ fn build_ifreq_name(tap_name: &str) -> [u8; 16] {
 ///
 /// Returns an error when the tun device cannot be opened or the required ioctls fail.
 pub fn create(tap_name: &str) -> Result<()> {
-    println!("Creating TAP device: {tap_name}");
-
     let file = open(TUN_DEVICE, OFlags::RDWR, Mode::empty()).map_err(Failure::OpenTun)?;
 
     let ifr = IfReq {
@@ -89,8 +87,6 @@ pub fn create(tap_name: &str) -> Result<()> {
     }
     .map_err(Failure::IoctlSetPersist)?;
 
-    println!("Persistent TAP device {tap_name} created");
-
     Ok(())
 }
 
@@ -112,7 +108,6 @@ pub async fn setup_on_bridge<L: link::Ops>(
 
     let bridge_index = link.index(bridge_name).await?;
     link.set_master(index, bridge_index).await?;
-    println!("{tap_name} attached to bridge {bridge_name}");
 
     Ok(index)
 }
@@ -123,13 +118,8 @@ pub async fn setup_on_bridge<L: link::Ops>(
 ///
 /// Returns an error when deleting an existing TAP device fails.
 pub async fn remove<L: link::Ops>(link: &L, tap_name: &str) -> Result<()> {
-    println!("Deleting TAP device: {tap_name}");
-
     if let Ok(index) = link.index(tap_name).await {
         link.delete(index).await?;
-        println!("TAP device {tap_name} deleted");
-    } else {
-        println!("TAP device {tap_name} does not exist");
     }
 
     Ok(())

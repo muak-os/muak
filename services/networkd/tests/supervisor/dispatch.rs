@@ -3,7 +3,7 @@
 use core::time::Duration;
 
 use netlink::link::ifname::Name;
-use netlink_monitor::Event;
+use netlink_monitor::{Event, Failure};
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
@@ -221,6 +221,44 @@ async fn rapid_link_events_do_not_crash_supervisor() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
+    drop(event_tx);
+}
+
+#[tokio::test]
+async fn monitor_error_event_keeps_supervisor_responsive() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    let idx = mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, Some(event_rx), config, Resolver::default())
+        .expect("start failed");
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    // ACT
+    event_tx
+        .send(Event::Error(Failure::Connection(std::io::Error::other(
+            "mock monitor failure",
+        ))))
+        .await
+        .expect("send error event failed");
+    let name = Name::new("eth0").expect("valid name");
+    event_tx
+        .send(Event::Up { name, index: idx })
+        .await
+        .expect("send event failed");
+
+    sleep(Duration::from_millis(100)).await;
+    let reconciled = timeout(Duration::from_secs(5), handle.reconcile()).await;
+
+    // ASSERT
+    assert!(
+        reconciled.is_ok() && reconciled.expect("timeout").is_ok(),
+        "supervisor should keep processing events after a monitor error"
+    );
     drop(event_tx);
 }
 

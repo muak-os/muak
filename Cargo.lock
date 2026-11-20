@@ -1381,7 +1381,6 @@ dependencies = [
 name = "netdev"
 version = "0.0.0"
 dependencies = [
- "mac",
  "netlink",
  "thiserror 2.0.21",
 ]
@@ -1400,7 +1399,6 @@ dependencies = [
 name = "netlink-monitor"
 version = "0.0.0"
 dependencies = [
- "mac",
  "netlink",
  "rtnetlink",
  "thiserror 2.0.21",

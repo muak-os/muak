@@ -26,8 +26,8 @@ pub enum Failure {
 /// Monitor operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
-/// An event emitted by the network monitor when a link changes state.
-#[derive(Debug, Clone)]
+/// An event emitted by the network monitor.
+#[derive(Debug)]
 pub enum Event {
     /// Interface carrier detected.
     Up {
@@ -59,6 +59,8 @@ pub enum Event {
         /// Kernel interface index.
         index: u32,
     },
+    /// Monitor failed to handle a netlink message.
+    Error(Failure),
 }
 
 /// Controls which categories of events the monitor emits.
