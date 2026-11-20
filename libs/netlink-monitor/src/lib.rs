@@ -6,6 +6,7 @@ mod pump;
 
 use std::io;
 
+use netlink::Rtnl;
 use netlink::link::ifname::Name;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -18,7 +19,7 @@ pub enum Failure {
     Connection(#[source] io::Error),
     /// Failed to enumerate links.
     #[error("failed to enumerate links: {0}")]
-    List(#[source] rtnetlink::Error),
+    List(#[from] netlink::link::Failure),
 }
 
 /// Monitor operation result type.
@@ -90,8 +91,10 @@ pub fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
         let () = connection.await;
     });
 
+    let rtnl = Rtnl::new(handle);
+
     tokio::spawn(async move {
-        pump::run(&config, &handle, &mut messages, &tx).await;
+        pump::run(&config, &rtnl, &mut messages, &tx).await;
     });
 
     println!("Network event monitor started");

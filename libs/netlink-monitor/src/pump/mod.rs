@@ -4,9 +4,9 @@ mod scan;
 
 use std::collections::HashMap;
 
+use netlink::link;
 use netlink::link::device;
 use netlink::link::ifname::Name;
-use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::link::{LinkFlags, LinkMessage};
@@ -18,7 +18,7 @@ use crate::{Config, Event, Result};
 
 pub(super) async fn run<S>(
     config: &Config,
-    handle: &Handle,
+    link: &impl link::Ops,
     messages: &mut S,
     tx: &mpsc::Sender<Event>,
 ) where
@@ -26,7 +26,7 @@ pub(super) async fn run<S>(
 {
     let mut link_states: HashMap<u32, bool> = HashMap::new();
 
-    if let Err(e) = scan::initial_scan(handle, &mut link_states).await {
+    if let Err(e) = scan::initial_scan(link, &mut link_states).await {
         println!("Initial interface scan failed: {e}");
     }
 
