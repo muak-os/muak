@@ -251,7 +251,7 @@ pub async fn start() -> Result<NetworkActorHandle> {
     let event_rx = start_events_monitor().await?;
     let config = Arc::new(network()?.clone());
 
-    start_with(ops, Some(event_rx), config, Resolver::default())
+    start_with(ops, event_rx, config, Resolver::default())
 }
 
 /// Starts the supervisor with injected dependencies.
@@ -261,7 +261,7 @@ pub async fn start() -> Result<NetworkActorHandle> {
 /// Returns an error if the supervisor command channel cannot be created.
 pub fn start_with<N: Ops>(
     ops: N,
-    event_rx: Option<mpsc::Receiver<Event>>,
+    event_rx: mpsc::Receiver<Event>,
     config: Arc<network::Config>,
     dns: Resolver,
 ) -> Result<NetworkActorHandle> {
@@ -276,7 +276,7 @@ pub fn start_with<N: Ops>(
 fn run<N: Ops>(
     ops: N,
     cmd_rx: mpsc::Receiver<SupervisorCommand>,
-    event_rx: Option<mpsc::Receiver<Event>>,
+    event_rx: mpsc::Receiver<Event>,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
@@ -289,7 +289,7 @@ fn run<N: Ops>(
 async fn supervisor_loop<N: Ops>(
     ops: N,
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
-    mut event_rx: Option<mpsc::Receiver<Event>>,
+    mut event_rx: mpsc::Receiver<Event>,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
@@ -343,18 +343,13 @@ async fn maybe_failover_primary<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
 /// Waits for the next command, netlink event, primary snapshot change, or reconcile tick.
 async fn supervisor_select(
     cmd_rx: &mut mpsc::Receiver<SupervisorCommand>,
-    event_rx: &mut Option<mpsc::Receiver<Event>>,
+    event_rx: &mut mpsc::Receiver<Event>,
     primary_snap_rx: &mut Option<watch::Receiver<Arc<Snapshot>>>,
 
     reconcile: &mut Interval,
 ) -> Option<SupervisorEvent> {
     let mut cmd_fut = core::pin::pin!(cmd_rx.recv());
-    let mut event_fut = core::pin::pin!(async {
-        match event_rx.as_mut() {
-            Some(rx) => rx.recv().await,
-            None => core::future::pending().await,
-        }
-    });
+    let mut event_fut = core::pin::pin!(event_rx.recv());
     let mut snap_fut = core::pin::pin!(async {
         match primary_snap_rx.as_mut() {
             Some(rx) => rx.changed().await,

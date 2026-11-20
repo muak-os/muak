@@ -225,13 +225,8 @@ async fn provision_static_ipv4_initializes() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_static_ipv4(),
-        Resolver::default(),
-    )
-    .expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config_static_ipv4(), Resolver::default())
+        .expect("start failed");
 
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -248,13 +243,8 @@ async fn provision_static_ipv4_named_interface_not_found_still_initializes() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(
-        mock,
-        Some(event_rx),
-        config_static_ipv4(),
-        Resolver::default(),
-    )
-    .expect("start failed");
+    let handle = supervisor::start_with(mock, event_rx, config_static_ipv4(), Resolver::default())
+        .expect("start failed");
 
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
@@ -274,7 +264,7 @@ async fn provision_dhcp_sends_configure_dhcp_command() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_dhcp(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_dhcp(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -295,7 +285,7 @@ async fn provision_static_ipv6_sends_configure_command() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_ipv6(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_ipv6(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -316,7 +306,7 @@ async fn provision_slaac_autoconf_sends_configure_slaac() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_slaac(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_slaac(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -337,7 +327,7 @@ async fn provision_named_interface_resolves_by_name() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_named(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_named(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -358,7 +348,7 @@ async fn provision_named_interface_not_found_still_initializes() {
     mock.add_link("eth1", [0xBB; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_named(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_named(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -379,7 +369,7 @@ async fn provision_no_ip_config_still_initializes() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_none(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_none(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -400,7 +390,7 @@ async fn provision_bridge_with_auto_port() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, Some(event_rx), config_bridge(), Resolver::default())
+    let handle = supervisor::start_with(mock, event_rx, config_bridge(), Resolver::default())
         .expect("start failed");
 
     // ACT
@@ -423,7 +413,7 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
     let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
-        Some(event_rx),
+        event_rx,
         config_bridge_multiport(),
         Resolver::default(),
     )
@@ -449,7 +439,7 @@ async fn provision_bridge_named_port_resolves_by_name() {
     let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
-        Some(event_rx),
+        event_rx,
         config_bridge_named_port(),
         Resolver::default(),
     )
@@ -475,7 +465,7 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
     let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
         mock,
-        Some(event_rx),
+        event_rx,
         config_bridge_empty_port(),
         Resolver::default(),
     )
