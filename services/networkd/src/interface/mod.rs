@@ -88,7 +88,6 @@ impl<N: Ops> Actor<N> {
         ActorHandle { cmd_tx, state_rx }
     }
 
-    /// Rehydrates runtime-only state from a persisted interface snapshot.
     async fn run<C: Connector>(mut self, connector: C) {
         kmsg::info!("Actor started for {}", self.snapshot.name);
         actor_loop(&mut self, &connector).await;

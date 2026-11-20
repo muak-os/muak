@@ -161,4 +161,12 @@ async fn shutdown_command_stops_actor() {
     // ASSERT
     let result = handle.cmd_tx.send(Command::LinkUp).await;
     assert!(result.is_err(), "channel should be closed after shutdown");
+
+    let mut state_rx = handle.state_rx.clone();
+    state_rx.borrow_and_update();
+    let ended = timeout(Duration::from_secs(1), state_rx.changed()).await;
+    assert!(
+        ended.is_ok_and(|result| result.is_err()),
+        "the actor task must end once its command channel closes"
+    );
 }
