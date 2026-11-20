@@ -253,7 +253,7 @@ async fn supervisor_loop<N: Ops>(
         )
         .await;
         let Some(event) = event else {
-            println!("Network supervisor shutting down");
+            kmsg::info!("Network supervisor shutting down");
             break;
         };
 
