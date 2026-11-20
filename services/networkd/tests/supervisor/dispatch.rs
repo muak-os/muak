@@ -416,11 +416,7 @@ async fn monitor_closed_event_renews_the_subscription() {
 #[tokio::test(start_paused = true)]
 async fn monitor_retries_a_failed_renewal_on_the_reconcile_tick() {
     // ARRANGE
-    // No interface config keeps the interface actor idle, so the paused clock advances.
-    let mut cfg = network::Config::default();
-    cfg.dns.clear();
-    cfg.interfaces.clear();
-    let config = Arc::new(cfg);
+    let config = make_config();
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
     let source = FakeMonitor::new();
@@ -434,14 +430,12 @@ async fn monitor_retries_a_failed_renewal_on_the_reconcile_tick() {
         .initialize_with_retry()
         .await
         .expect("initialize failed");
-    // Let the interval consume its immediate first tick before the closed event arrives.
     sleep(Duration::from_secs(1)).await;
 
     event_tx
         .send(Event::Error(Failure::Closed))
         .await
         .expect("send failed");
-    // The real monitor drops its sender right after the closed event, so the receiver is closed.
     drop(event_tx);
 
     // ACT

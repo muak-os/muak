@@ -266,17 +266,17 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     let mut reconcile = interval(RECONCILE_INTERVAL);
 
     loop {
-        let mut primary_snap_rx = supervisor
+        let primary_snap_rx = supervisor
             .state
             .primary
             .as_ref()
-            .and_then(|primary| supervisor.interfaces.get(primary))
-            .map(|handle| handle.state_rx.clone());
+            .and_then(|primary| supervisor.interfaces.get_mut(primary))
+            .map(|handle| &mut handle.state_rx);
 
         let event = selection::wait(
             &mut cmd_rx,
             events.receiver(),
-            &mut primary_snap_rx,
+            primary_snap_rx,
             &mut reconcile,
         )
         .await;
