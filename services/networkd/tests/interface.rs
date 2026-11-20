@@ -11,7 +11,7 @@ use std::os::fd::{FromRawFd as _, IntoRawFd as _, OwnedFd};
 use std::sync::{Mutex, MutexGuard};
 
 use config::system::network;
-use dhcp::connector::Connector;
+use dhcp_client::connector::Connector;
 use netdev::interface as net_iface;
 use netdev::interface::Ethernet;
 use netlink::link::{self, Device, Failure, Name, State};
@@ -29,7 +29,7 @@ use tokio::time::timeout;
 struct MockDhcpConnector;
 
 impl Connector for MockDhcpConnector {
-    async fn create_raw(&self, _interface: &str) -> dhcp::Result<Socket> {
+    async fn create_raw(&self, _interface: &str) -> dhcp_client::Result<Socket> {
         let udp = UdpSocket::bind("127.0.0.1:0").await?;
         let std_udp = udp.into_std()?;
         std_udp.set_nonblocking(true)?;
@@ -40,7 +40,11 @@ impl Connector for MockDhcpConnector {
         Ok(Socket::from_fd(fd, 0)?)
     }
 
-    async fn create_unicast(&self, _interface: &str, _src_ip: Ipv4Addr) -> dhcp::Result<UdpSocket> {
+    async fn create_unicast(
+        &self,
+        _interface: &str,
+        _src_ip: Ipv4Addr,
+    ) -> dhcp_client::Result<UdpSocket> {
         Ok(UdpSocket::bind("127.0.0.1:0").await?)
     }
 }

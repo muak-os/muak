@@ -4,7 +4,7 @@ use core::net::Ipv4Addr;
 use core::time::Duration;
 use std::time::SystemTime;
 
-use ::dhcp::lease::Lease;
+use ::dhcp_client::lease::Lease;
 use config::system::network;
 use netlink::address::IpConfig;
 use netlink::link::State;

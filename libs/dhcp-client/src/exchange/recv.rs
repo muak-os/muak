@@ -3,14 +3,16 @@
 use core::net::Ipv4Addr;
 use core::time::Duration;
 
+use dhcp_proto::{DHCP_CLIENT_PORT, ParsedOptions, header, message_type, validate};
 use ip::v4::udp;
 use packet::raw::Socket;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use crate::wire::options::ParsedOptions;
-use crate::wire::{DHCP_CLIENT_PORT, TIMEOUT_SECS, header, message_type, validate};
 use crate::{Failure, Result};
+
+// Seconds to wait for a server response.
+const TIMEOUT_SECS: u64 = 10;
 
 pub(super) async fn raw(
     socket: &Socket,
@@ -33,7 +35,7 @@ pub(super) async fn raw(
         }
         match validate::response(payload, xid, expected) {
             Ok(options) => return Ok((header::yiaddr(payload), options)),
-            Err(Failure::Nak) => return Err(Failure::Nak),
+            Err(dhcp_proto::Failure::Nak) => return Err(Failure::Nak),
             Err(_other) => {}
         }
     }
@@ -47,7 +49,9 @@ pub(super) async fn ack(
     let read = timeout(Duration::from_secs(TIMEOUT_SECS), socket.recv(frame))
         .await
         .map_err(|_elapsed| Failure::Timeout)??;
-    let received = frame.get(..read).ok_or(Failure::ResponseTooShort(read))?;
+    let received = frame
+        .get(..read)
+        .ok_or(dhcp_proto::Failure::ResponseTooShort(read))?;
     let options = validate::response(received, xid, message_type::ACK)?;
 
     Ok((header::yiaddr(received), options))

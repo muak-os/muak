@@ -17,7 +17,7 @@ tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "
 anyhow = { workspace = true }
 
 # Internal
-dhcp = { workspace = true }
+dhcp-client = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 config = { workspace = true }

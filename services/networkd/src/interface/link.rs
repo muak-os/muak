@@ -1,6 +1,6 @@
 //! Link-state event handlers for a per-interface actor.
 
-use ::dhcp::connector::Connector;
+use ::dhcp_client::connector::Connector;
 use netdev::Ops;
 use netlink::link::State;
 

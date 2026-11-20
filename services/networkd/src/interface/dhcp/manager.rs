@@ -4,9 +4,9 @@ use core::future::Future;
 use core::time::Duration;
 
 use anyhow::Result;
-use dhcp::connector::Connector;
-use dhcp::lease::Lease;
-use dhcp::{MAX_FRAME_LEN, MAX_MESSAGE_LEN, Scratch};
+use dhcp_client::connector::Connector;
+use dhcp_client::lease::Lease;
+use dhcp_client::{MAX_FRAME_LEN, MAX_MESSAGE_LEN, Scratch};
 use packet::raw::Socket;
 use tokio::time::sleep;
 
@@ -69,7 +69,7 @@ struct Run<'a> {
 
 impl DoraAttempt for Run<'_> {
     async fn attempt(&mut self) -> Result<Lease> {
-        dhcp::exchange::acquire(
+        dhcp_client::exchange::acquire(
             self.socket,
             self.mac,
             Scratch::new(&mut *self.msg, &mut *self.frame),
