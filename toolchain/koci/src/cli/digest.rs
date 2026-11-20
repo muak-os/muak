@@ -2,6 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use koci::registry;
+use tui::console::Console;
 
 /// Arguments of the `digest` subcommand.
 #[derive(clap::Args, Debug)]
@@ -16,12 +17,12 @@ pub(super) struct Args {
 }
 
 /// Execute the `digest` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, console: &Console) -> Result<()> {
     let Args { image, tag } = args;
 
     let digest =
         registry::manifest_digest(&format!("{image}:{tag}")).context("Failed to resolve digest")?;
-    println!("{digest}");
+    console.write(&format!("{digest}\n"))?;
 
     Ok(())
 }

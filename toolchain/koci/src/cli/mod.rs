@@ -7,6 +7,7 @@ mod progress;
 mod pull;
 mod push;
 mod repack;
+mod report;
 mod sign;
 
 use std::ffi::OsString;
@@ -126,7 +127,7 @@ fn run_command(command: Command, console: &Console) -> Result<()> {
         Command::Merge(args) => merge::run(args, console),
         Command::Push(args) => push::run(args, console),
         Command::Copy(args) => copy::run(args, console),
-        Command::Digest(args) => digest::run(args),
+        Command::Digest(args) => digest::run(args, console),
         Command::Repack(args) => repack::run(args, console),
     }
 }

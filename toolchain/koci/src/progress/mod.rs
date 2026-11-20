@@ -1,6 +1,5 @@
 //! Structured progress reporting.
 
-pub mod report;
 #[cfg(feature = "copy")]
 pub(crate) mod tracker;
 

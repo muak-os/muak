@@ -13,6 +13,7 @@ use koci::arch::Arch;
 use koci::pull;
 use tui::console::Console;
 use tui::output::Flags;
+use tui::style::Role;
 use wizard::domain::profile::Profile;
 use wizard::request::Request;
 use wizard::resolver::{self, discover};
@@ -109,26 +110,32 @@ pub fn run() -> i32 {
 
 fn run_command(command: Command, console: &Console) -> Result<()> {
     match command {
-        Command::ProfileId { profile } => run_profile_id(&profile),
+        Command::ProfileId { profile } => run_profile_id(&profile, console),
         Command::Resolve {
             profile,
             version,
             registry,
             arch,
-        } => run_resolve(&profile, &version, &registry, arch),
+        } => run_resolve(&profile, &version, &registry, arch, console),
         Command::Build(args) => build::run(&args, console),
     }
 }
 
-fn run_profile_id(profile_path: &Path) -> Result<()> {
+fn run_profile_id(profile_path: &Path, console: &Console) -> Result<()> {
     let bytes = std::fs::read(profile_path)?;
     let spec = Profile::from_toml(&bytes)?;
-    println!("{}", spec.profile_id()?);
+    console.write(&format!("{}\n", spec.profile_id()?))?;
 
     Ok(())
 }
 
-fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -> Result<()> {
+fn run_resolve(
+    profile_path: &Path,
+    version: &str,
+    registry: &str,
+    arch: Arch,
+    console: &Console,
+) -> Result<()> {
     let bytes = std::fs::read(profile_path)
         .with_context(|| format!("read profile {}", profile_path.display()))?;
     let profile = Profile::from_toml(&bytes)?;
@@ -136,26 +143,48 @@ fn run_resolve(profile_path: &Path, version: &str, registry: &str, arch: Arch) -
     let mut resolved = resolver::plan(&request, &profile)?;
     discover::layout(&mut resolved, pull::Strategy::Network)?;
 
-    println!("profile id: {}", resolved.profile_id());
-    println!("resolution id: {}", resolved.resolution_id());
-    println!("disk layout: {}", resolved.build().layout().name());
-    println!("resolved installer: {}", resolved.build().installer());
-    println!(
-        "resolved kernel: {} -> {}",
-        resolved.build().kernel().image(),
-        resolved.build().kernel().source()
-    );
+    info(console, &format!("profile id: {}", resolved.profile_id()))?;
+    info(
+        console,
+        &format!("resolution id: {}", resolved.resolution_id()),
+    )?;
+    info(
+        console,
+        &format!("disk layout: {}", resolved.build().layout().name()),
+    )?;
+    info(
+        console,
+        &format!("resolved installer: {}", resolved.build().installer()),
+    )?;
+    info(
+        console,
+        &format!(
+            "resolved kernel: {} -> {}",
+            resolved.build().kernel().image(),
+            resolved.build().kernel().source()
+        ),
+    )?;
     for ext in resolved.build().extensions() {
-        println!(" resolved extension: {} -> {}", ext.name(), ext.source());
+        info(
+            console,
+            &format!(" resolved extension: {} -> {}", ext.name(), ext.source()),
+        )?;
     }
     if let Some(ov) = resolved.build().overlay() {
-        println!(
-            "  resolved overlay: {}/{} -> {}",
-            ov.image(),
-            ov.name(),
-            ov.source_ref()
-        );
+        info(
+            console,
+            &format!(
+                "  resolved overlay: {}/{} -> {}",
+                ov.image(),
+                ov.name(),
+                ov.source_ref()
+            ),
+        )?;
     }
 
     Ok(())
+}
+
+fn info(console: &Console, message: &str) -> Result<()> {
+    Ok(console.line(Role::Info, message)?)
 }

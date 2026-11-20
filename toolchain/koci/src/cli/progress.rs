@@ -4,13 +4,14 @@ use std::error::Error;
 use std::io;
 
 use anyhow::{Context as _, Result};
-use koci::progress::report::Plain;
 use koci::progress::{Event, Noop, Reporter};
 use koci::ui::Terminal;
 use tui::console::Console;
 use tui::live::session::Session;
 use tui::live::steps::Handle;
 use tui::output::{Mode, Output};
+
+use super::report::Plain;
 
 // Reporter selected by the resolved output mode.
 enum Live {
@@ -63,9 +64,7 @@ fn starts_steps(output: Output) -> bool {
 fn reporter(output: Output, handle: Option<Handle>) -> io::Result<Live> {
     match output.mode {
         Mode::Quiet => Ok(Live::Quiet(Noop)),
-        Mode::Plain => Ok(Live::Plain(Plain {
-            verbose: output.verbose,
-        })),
+        Mode::Plain => Ok(Live::Plain(Plain { output })),
         Mode::Rich => {
             let handle =
                 handle.ok_or_else(|| io::Error::other("rich output did not start steps"))?;
