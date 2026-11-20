@@ -94,7 +94,8 @@ where
     match run_from(args) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("Error: {error:?}");
+            let console = Console::detect(Flags::default());
+            drop(console.error(&format!("{error:?}")));
             1
         }
     }

@@ -18,7 +18,6 @@ use clap::{Parser, Subcommand};
 use oci::arch::Arch;
 use tui::console::Console;
 use tui::output::Flags;
-use tui::style;
 
 // Top-level CLI arguments.
 #[derive(Parser, Debug)]
@@ -76,7 +75,8 @@ where
                 return 0;
             }
 
-            eprintln!("{} {error:?}", style::stderr().error("Error:"));
+            let console = Console::detect(Flags::default());
+            drop(console.error(&format!("{error:?}")));
 
             1
         }
