@@ -44,8 +44,8 @@ members = [
     "libs/granola-macros",
     "libs/ip",
     "libs/netdev",
-    "libs/netlib",
     "libs/netlink",
+    "libs/netlink-monitor",
     "libs/oci",
     "libs/oci-client",
     "libs/packet",
@@ -95,8 +95,8 @@ kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
 mac = { path = "libs/mac" }
 netdev = { path = "libs/netdev" }
-netlib = { path = "libs/netlib" }
 netlink = { path = "libs/netlink" }
+netlink-monitor = { path = "libs/netlink-monitor" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
 packet = { path = "libs/packet" }

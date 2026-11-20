@@ -1379,11 +1379,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "netlib"
+name = "netlink"
 version = "0.0.0"
 dependencies = [
- "mac",
- "netlink",
  "rtnetlink",
  "thiserror 2.0.21",
  "tokio",
@@ -1391,9 +1389,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "netlink"
+name = "netlink-monitor"
 version = "0.0.0"
 dependencies = [
+ "mac",
+ "netlink",
  "rtnetlink",
  "thiserror 2.0.21",
  "tokio",
@@ -1461,8 +1461,8 @@ dependencies = [
  "libc",
  "mac",
  "netdev",
- "netlib",
  "netlink",
+ "netlink-monitor",
  "packet",
  "rustix",
  "slaac",
