@@ -20,7 +20,7 @@ pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, 
             on_link_added(supervisor, name, index, mac);
         }
         Event::Deleted { name, index } => on_link_deleted(supervisor, name, index).await,
-        Event::Error { index, failure } => on_monitor_error(supervisor, index, failure).await,
+        Event::Error(failure) => on_monitor_error(supervisor, failure).await,
     }
 }
 
@@ -107,15 +107,9 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
     supervisor.sync_and_publish();
 }
 
-async fn on_monitor_error<N: Ops>(
-    supervisor: &mut NetworkSupervisor<N>,
-    index: Option<u32>,
-    failure: Failure,
-) {
-    match index {
-        Some(index) => kmsg::warn!("Network event monitor error (index {index}): {failure}"),
-        None => kmsg::warn!("Network event monitor error: {failure}"),
-    }
-
+// Logs a monitor failure and reconciles immediately. A lost or stalled link event
+// could otherwise delay failover until the next periodic reconcile.
+async fn on_monitor_error<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failure: Failure) {
+    kmsg::warn!("Network event monitor error: {failure}");
     reconcile::run(supervisor).await;
 }

@@ -240,10 +240,9 @@ async fn monitor_error_event_keeps_supervisor_responsive() {
 
     // ACT
     event_tx
-        .send(Event::Error {
-            index: None,
-            failure: Failure::Connection(std::io::Error::other("mock monitor failure")),
-        })
+        .send(Event::Error(Failure::Connection(std::io::Error::other(
+            "mock monitor failure",
+        ))))
         .await
         .expect("send error event failed");
     let name = Name::new("eth0").expect("valid name");
@@ -298,10 +297,7 @@ async fn monitor_error_event_reconciles_immediately() {
 
     // ACT
     event_tx
-        .send(Event::Error {
-            index: Some(idx),
-            failure: Failure::Message(netlink::link::Failure::NotFound("mock".to_owned())),
-        })
+        .send(Event::Error(Failure::Overrun))
         .await
         .expect("send error event failed");
 
