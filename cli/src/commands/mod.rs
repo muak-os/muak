@@ -145,7 +145,7 @@ async fn handle_offline_cmd(cli: &Cli, console: &Console) -> Result<bool> {
         Commands::Config {
             action: config::Action::Generate,
         } if !cli.insecure => {
-            print!("{}", ::config::system::serialize_default());
+            console.write(&::config::system::serialize_default())?;
             Ok(true)
         }
         Commands::Context { action } => {

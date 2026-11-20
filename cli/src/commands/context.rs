@@ -76,7 +76,7 @@ fn list(console: &Console) -> Result<()> {
         } else {
             console.paint("insecure", Role::Warn).to_string()
         };
-        println!("{marker} {name} ({}) [{creds}]", ctx.endpoint);
+        console.write(&format!("{marker} {name} ({}) [{creds}]\n", ctx.endpoint))?;
     }
 
     Ok(())
@@ -105,21 +105,24 @@ fn info(console: &Console) -> Result<()> {
         return Ok(());
     };
 
-    println!("{}: {name}", console.paint("Context", Role::Label));
-    println!(
-        "{}: {}",
+    console.write(&format!(
+        "{}: {name}\n",
+        console.paint("Context", Role::Label)
+    ))?;
+    console.write(&format!(
+        "{}: {}\n",
         console.paint("Endpoint", Role::Label),
         ctx.endpoint
-    );
+    ))?;
     let cred_status = if ctx.has_credentials() {
         console.paint("mTLS configured", Role::Positive).to_string()
     } else {
         console.paint("None (insecure)", Role::Warn).to_string()
     };
-    println!(
-        "{}: {cred_status}",
+    console.write(&format!(
+        "{}: {cred_status}\n",
         console.paint("Credentials", Role::Label)
-    );
+    ))?;
 
     Ok(())
 }

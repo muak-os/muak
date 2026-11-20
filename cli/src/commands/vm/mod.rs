@@ -90,7 +90,7 @@ pub(crate) async fn handle(
             lifecycle::handle_stop(client, vm_id, force, console).await
         }
         Action::Delete { vm_id } => lifecycle::handle_delete(client, vm_id, console).await,
-        Action::Logs { vm_id, tail } => logs::handle(client, vm_id, tail).await,
+        Action::Logs { vm_id, tail } => logs::handle(client, vm_id, tail, console).await,
         Action::List => list::handle(client, console).await,
     }
 }

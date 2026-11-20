@@ -1,5 +1,3 @@
-use std::io::Write as _;
-
 use anyhow::Result;
 use tonic::transport::Channel;
 use tui::console::Console;
@@ -113,7 +111,7 @@ fn print_entry(console: &Console, entry: &LogEntry) -> std::io::Result<()> {
         Ok(Level::Error) => console.line(Role::ErrorText, &line),
         Ok(Level::Warn) => console.line(Role::Warn, &line),
         Ok(Level::Debug) => console.line(Role::Muted, &line),
-        _ => writeln!(std::io::stdout(), "{line}"),
+        _ => console.line(Role::Info, &line),
     }
 }
 

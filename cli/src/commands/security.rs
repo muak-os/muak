@@ -30,7 +30,7 @@ pub(crate) async fn handle(
             console.line(Role::Header, "Security State")?;
 
             for line in report(console, &state) {
-                println!("{line}");
+                console.write(&format!("{line}\n"))?;
             }
         }
     }

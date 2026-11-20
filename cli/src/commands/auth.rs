@@ -58,29 +58,29 @@ async fn requests(channel: Channel, console: &Console) -> Result<()> {
     let csrs = response.into_inner().csrs;
 
     if csrs.is_empty() {
-        println!("No pending authentication requests.");
+        console.line(Role::Info, "No pending authentication requests.")?;
         return Ok(());
     }
 
     let count = csrs.len().to_string();
-    println!(
-        "{} pending authentication request(s):\n",
+    console.write(&format!(
+        "{} pending authentication request(s):\n\n",
         console.paint(&count, Role::Accent)
-    );
+    ))?;
 
     for csr in csrs {
         let display_fp = short_fingerprint(&csr.fingerprint);
-        println!(
-            "  {} (submitted: {})",
+        console.write(&format!(
+            "  {} (submitted: {})\n",
             console.paint(display_fp, Role::Highlight),
             csr.submitted_at
-        );
+        ))?;
     }
 
-    println!(
-        "\nTo approve: {} <fingerprint> --permissions admin",
+    console.write(&format!(
+        "\nTo approve: {} <fingerprint> --permissions admin\n",
         console.paint("muakctl auth approve", Role::Positive)
-    );
+    ))?;
 
     Ok(())
 }
@@ -125,18 +125,18 @@ async fn approve(
                 "Multiple CSRs match '{fingerprint}'. Please be more specific:"
             ))?;
             for csr in matching {
-                println!("  {}", csr.fingerprint);
+                console.line(Role::Info, &format!("  {}", csr.fingerprint))?;
             }
             return Ok(());
         }
     };
 
     let short_fp = short_fingerprint(&full_fingerprint).to_owned();
-    println!(
-        "Approving CSR: {}",
+    console.write(&format!(
+        "Approving CSR: {}\n",
         console.paint(&short_fp, Role::Highlight)
-    );
-    println!("Permissions: {perms:?}");
+    ))?;
+    console.line(Role::Info, &format!("Permissions: {perms:?}"))?;
 
     auth_client
         .approve_csr(ApproveCsrRequest {
@@ -146,7 +146,7 @@ async fn approve(
         .await
         .context("Failed to approve CSR")?;
 
-    println!();
+    console.write("\n")?;
     console.success("Certificate issued!")?;
 
     Ok(())
@@ -182,17 +182,17 @@ async fn revoke(channel: Channel, fingerprint: &str, console: &Console) -> Resul
                 "Multiple users match '{fingerprint}'. Please be more specific:"
             ))?;
             for user in matching {
-                println!("  {}", user.fingerprint);
+                console.line(Role::Info, &format!("  {}", user.fingerprint))?;
             }
             return Ok(());
         }
     };
 
     let short_fp = short_fingerprint(&full_fingerprint).to_owned();
-    println!(
-        "Revoking certificate: {}",
+    console.write(&format!(
+        "Revoking certificate: {}\n",
         console.paint(&short_fp, Role::Highlight)
-    );
+    ))?;
 
     auth_client
         .revoke_cert(RevokeCertRequest {
@@ -218,34 +218,34 @@ async fn list(channel: Channel, console: &Console) -> Result<()> {
     let inner = response.into_inner();
 
     if inner.users.is_empty() {
-        println!("No authorized users.");
+        console.line(Role::Info, "No authorized users.")?;
     } else {
         let count = inner.users.len().to_string();
-        println!(
-            "{} authorized user(s):\n",
+        console.write(&format!(
+            "{} authorized user(s):\n\n",
             console.paint(&count, Role::Accent)
-        );
+        ))?;
 
         for user in &inner.users {
             let display_fp = short_fingerprint(&user.fingerprint);
             let perms = user.permissions.join(", ");
-            println!(
-                "  {} [{}]",
+            console.write(&format!(
+                "  {} [{}]\n",
                 console.paint(display_fp, Role::Positive),
                 console.paint(&perms, Role::Muted)
-            );
+            ))?;
         }
     }
 
     if !inner.revoked_fingerprints.is_empty() {
         let count = inner.revoked_fingerprints.len().to_string();
-        println!(
-            "\n{} revoked certificate(s):",
+        console.write(&format!(
+            "\n{} revoked certificate(s):\n",
             console.paint(&count, Role::Negative)
-        );
+        ))?;
         for fp in &inner.revoked_fingerprints {
             let display_fp = short_fingerprint(fp);
-            println!("  {}", console.paint(display_fp, Role::Muted));
+            console.write(&format!("  {}\n", console.paint(display_fp, Role::Muted)))?;
         }
     }
 
@@ -257,20 +257,20 @@ pub(crate) async fn enroll(endpoint: &str, console: &Console) -> Result<()> {
     let mut config = ClientConfig::load()?;
 
     if config.has_credentials_for_endpoint(endpoint) {
-        println!("Already authenticated to {endpoint}.");
-        println!(
-            "Use '{}' to re-enroll.",
+        console.line(Role::Info, &format!("Already authenticated to {endpoint}."))?;
+        console.write(&format!(
+            "Use '{}' to re-enroll.\n",
             console.paint("muakctl context remove <name>", Role::Accent)
-        );
+        ))?;
         return Ok(());
     }
 
     let (fingerprint, key_pem, server_fingerprint) =
         if let Some(pending) = config.get_pending(endpoint) {
-            println!(
-                "Resuming pending enrollment for {}",
+            console.write(&format!(
+                "Resuming pending enrollment for {}\n",
                 console.paint(endpoint, Role::Accent)
-            );
+            ))?;
             let key_pem = pending.key_pem()?;
             (
                 pending.fingerprint.clone(),
@@ -278,11 +278,11 @@ pub(crate) async fn enroll(endpoint: &str, console: &Console) -> Result<()> {
                 pending.server_fingerprint.clone(),
             )
         } else {
-            println!("Generating key pair...");
+            console.line(Role::Info, "Generating key pair...")?;
             let (key_pem, csr_pem) = csr::generate("muak-client")?;
             let fingerprint = csr::compute_fingerprint(&csr_pem)?;
 
-            println!("Submitting certificate request...");
+            console.line(Role::Info, "Submitting certificate request...")?;
             let (channel, server_fp) = connect_tls_insecure(endpoint, 30).await?;
             let mut client = AuthServiceClient::new(channel);
 
@@ -298,15 +298,15 @@ pub(crate) async fn enroll(endpoint: &str, console: &Console) -> Result<()> {
         };
 
     let display_fp = short_fingerprint(&fingerprint);
-    println!(
-        "\nFingerprint: {}",
+    console.write(&format!(
+        "\nFingerprint: {}\n",
         console.paint(display_fp, Role::Highlight)
-    );
-    println!(
-        "Ask an admin to run: {} {}...",
+    ))?;
+    console.write(&format!(
+        "Ask an admin to run: {} {}...\n",
         console.paint("muakctl auth approve", Role::Positive),
         display_fp
-    );
+    ))?;
 
     wait_for_approval(
         endpoint,
@@ -376,7 +376,7 @@ async fn wait_for_approval(
             }
             CsrStatus::NotFound => {
                 spinner.fail("CSR not found on server (may have expired).")?;
-                println!("Run the command again to submit a new request.");
+                console.line(Role::Info, "Run the command again to submit a new request.")?;
                 let mut config = ClientConfig::load()?;
                 config.cancel_enrollment(endpoint);
                 config.save()?;

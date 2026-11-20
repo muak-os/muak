@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tonic::transport::Channel;
+use tui::console::Console;
 
 use crate::client::vm_service::GetVmSerialLogRequest;
 use crate::client::vm_service::vm_service_client::VmServiceClient;
@@ -9,6 +10,7 @@ pub(super) async fn handle(
     client: &mut VmServiceClient<Channel>,
     vm_id: String,
     tail: i64,
+    console: &Console,
 ) -> Result<()> {
     let request = tonic::Request::new(GetVmSerialLogRequest {
         vm_id: vm_id.clone(),
@@ -19,7 +21,7 @@ pub(super) async fn handle(
     let resp = response.into_inner();
 
     if resp.error.is_empty() {
-        print!("{}", resp.output);
+        console.write(&resp.output)?;
         Ok(())
     } else {
         Err(anyhow::anyhow!(

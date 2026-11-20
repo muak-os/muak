@@ -22,7 +22,11 @@ pub(crate) async fn fetch_server(channel: Channel) -> Option<String> {
 /// Handles the `version` command: prints client/server versions and any warnings.
 pub(crate) async fn handle(channel: Channel, console: &Console) -> Result<()> {
     let client_ver = env!("CARGO_PKG_VERSION");
-    println!("{} {}", console.paint("Client:", Role::Label), client_ver);
+    console.write(&format!(
+        "{} {}\n",
+        console.paint("Client:", Role::Label),
+        client_ver
+    ))?;
 
     match fetch_server(channel).await {
         None => {
@@ -30,7 +34,11 @@ pub(crate) async fn handle(channel: Channel, console: &Console) -> Result<()> {
                 .warn("server does not support version reporting (consider updating the server)")?;
         }
         Some(ref server_ver) => {
-            println!("{} {}", console.paint("Server:", Role::Label), server_ver);
+            console.write(&format!(
+                "{} {}\n",
+                console.paint("Server:", Role::Label),
+                server_ver
+            ))?;
             print_compat_warning(console, client_ver, server_ver);
         }
     }

@@ -38,14 +38,14 @@ pub enum Action {
 /// Handles config subcommands.
 pub(crate) async fn handle(channel: Channel, action: Action, console: &Console) -> Result<()> {
     match action {
-        Action::Generate => generate(channel).await,
+        Action::Generate => generate(channel, console).await,
         Action::Get { from, output } => get(channel, from, output, console).await,
         Action::History { limit } => audit::history(channel, limit, console).await,
         Action::Diff { from, to } => audit::diff(channel, from, to, console).await,
     }
 }
 
-async fn generate(channel: Channel) -> Result<()> {
+async fn generate(channel: Channel, console: &Console) -> Result<()> {
     let mut client = ProvisionServiceClient::new(channel);
     let resp = client
         .get_default_config(tonic::Request::new(GetDefaultConfigRequest {}))
@@ -56,7 +56,7 @@ async fn generate(channel: Channel) -> Result<()> {
     }
 
     let config = String::from_utf8(resp.config).context("Invalid UTF-8 in config")?;
-    print!("{config}");
+    console.write(&config)?;
     Ok(())
 }
 
@@ -78,7 +78,7 @@ async fn get(
                 .with_context(|| format!("Failed to write config to {}", path.display()))?;
             console.success(&format!("Config written to {}", path.display()))?;
         }
-        None => print!("{config}"),
+        None => console.write(&config)?,
     }
 
     Ok(())
