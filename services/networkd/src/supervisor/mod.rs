@@ -14,7 +14,7 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::collections::HashMap;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use commands::SupervisorCommand;
 use config::system::network;
 use netdev::Ops;
@@ -32,6 +32,8 @@ use crate::supervisor::snapshot::NetworkSnapshot;
 use crate::supervisor::state::NetworkState;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
+const MONITOR_MAX_ATTEMPTS: u8 = 3;
+const MONITOR_RETRY_DELAY_MS: u64 = 100;
 
 struct NetworkSupervisor<N: Ops> {
     ops: N,
@@ -397,10 +399,13 @@ fn retry_delay(base: Duration, max: Duration, attempt: u32) -> Duration {
 }
 
 async fn start_events_monitor() -> Result<mpsc::Receiver<Event>> {
-    let config = Config::default();
-    let rx = netlink_monitor::start(config)
-        .await
-        .context("failed to start network event monitor")?;
+    let rx = netlink::retry::run(
+        || netlink_monitor::start(Config::default()),
+        MONITOR_MAX_ATTEMPTS,
+        MONITOR_RETRY_DELAY_MS,
+        "failed to start network event monitor",
+    )
+    .await?;
     println!("Network event monitoring enabled");
 
     Ok(rx)
