@@ -238,11 +238,11 @@ impl NetworkActorHandle {
     }
 }
 
-/// Starts the network supervisor with the rtnetlink backend.
+/// Starts the network supervisor with a live `netlink` connection.
 ///
 /// # Errors
 ///
-/// Returns an error if the rtnetlink connection cannot be established.
+/// Returns an error if the `netlink` connection cannot be established.
 pub fn start() -> Result<NetworkActorHandle> {
     let ops = Rtnl::connect()?;
     let event_rx = start_events_monitor();
