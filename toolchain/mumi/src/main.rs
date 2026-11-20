@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "the built image path is the command result and belongs on the console"
+)]
+
 pub mod cli;
 
 use std::io::Write;
@@ -27,12 +32,11 @@ fn run(args: &cli::Args) -> Result<()> {
         &mut output,
     )?;
 
-    writeln!(
-        std::io::stdout(),
+    println!(
         "Created rootfs image at {} ({} bytes)",
         args.output.display(),
         output.metadata()?.len(),
-    )?;
+    );
 
     Ok(())
 }

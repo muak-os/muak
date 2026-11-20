@@ -1,5 +1,11 @@
 //! Provisioning daemon for Muak.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "service output is captured per service by PID 1; the logging facade is pending"
+)]
+
 mod cache;
 mod check;
 mod disk;

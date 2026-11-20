@@ -3,6 +3,12 @@
 //! Listens for kernel uevents and automatically loads appropriate kernel modules
 //! based on modalias matching.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "service output is captured per service by PID 1; the logging facade is pending"
+)]
+
 mod modules;
 mod uevent;
 

@@ -1,5 +1,11 @@
 //! Workload daemon for Muak - Manages virtual machines and their life cycle.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "service output is captured per service by PID 1; the logging facade is pending"
+)]
+
 mod actor;
 mod disk;
 mod hypervisor;

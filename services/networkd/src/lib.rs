@@ -1,5 +1,11 @@
 //! Network daemon library.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "service output is captured per service by PID 1; the logging facade is pending"
+)]
+
 extern crate alloc;
 
 pub mod dns;

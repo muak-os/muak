@@ -4,6 +4,12 @@
 //! when available (see `host.clock`), or SNTP against a configured NTP
 //! server. Uses simple direct clock setting (no PLL).
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "service output is captured per service by PID 1; the logging facade is pending"
+)]
+
 mod clock;
 mod hypervisor;
 mod ntp;
