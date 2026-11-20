@@ -67,3 +67,9 @@ pub fn canonical_on_disk(document: &Document, root: &Path, release: &str) -> Res
 
     Ok(on_disk == canonical(document)?)
 }
+
+/// Fully qualified `repository:tag` reference behind the registry prefix.
+#[must_use = "callers need the reference to resolve the digest"]
+pub(crate) fn reference(prefix: &str, repository: &str, tag: &str) -> String {
+    format!("{prefix}/{repository}:{tag}")
+}

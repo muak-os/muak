@@ -30,14 +30,15 @@ anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
-koci = { workspace = true, features = ["push"], optional = true }
+koci = { workspace = true, optional = true }
 
 # Utilities
 semver = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["dep:anyhow", "dep:clap", "dep:koci", "koci/pull", "koci/push"]
+publisher = ["dep:koci", "koci/pull", "koci/push"]
+cli = ["publisher", "dep:anyhow", "dep:clap"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

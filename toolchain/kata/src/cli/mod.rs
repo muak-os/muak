@@ -3,12 +3,17 @@
 mod compose;
 mod publish;
 mod remove;
+mod report;
 mod verify;
 
 use std::ffi::OsString;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use kata::progress::Reporter;
+
+// Default registry prefix when `REGISTRY` is unset or empty.
+const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
 
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -38,7 +43,9 @@ where
     T: Into<OsString> + Clone,
 {
     let args = Args::parse_from(args);
-    run_command(args.command)
+    let reporter = report::Plain;
+
+    run_command(args.command, &reporter)
 }
 
 /// Runs the CLI with the given arguments and returns an exit code.
@@ -63,12 +70,26 @@ pub(crate) fn run() -> i32 {
     run_with(std::env::args_os())
 }
 
-fn run_command(command: Command) -> Result<()> {
+/// Registry prefix for catalog images: `REGISTRY`, then the default.
+#[must_use = "callers need the prefix to build image references"]
+pub(crate) fn registry_prefix() -> String {
+    std::env::var("REGISTRY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_REGISTRY.to_owned())
+}
+
+/// Parse an architecture name into the architecture recorded in the image config.
+pub(crate) fn parse_arch(arch: &str) -> Result<koci::arch::Arch, String> {
+    arch.parse()
+}
+
+fn run_command(command: Command, reporter: &dyn Reporter) -> Result<()> {
     match command {
-        Command::Verify(args) => verify::run(args),
-        Command::Publish(args) => publish::run(args),
-        Command::Compose(args) => compose::run(args),
-        Command::Remove(args) => remove::run(args),
+        Command::Verify(args) => verify::run(args, reporter),
+        Command::Publish(args) => publish::run(args, reporter),
+        Command::Compose(args) => compose::run(args, reporter),
+        Command::Remove(args) => remove::run(args, reporter),
     }
 }
 

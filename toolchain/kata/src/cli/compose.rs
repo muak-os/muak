@@ -2,8 +2,11 @@
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use kata::ops::compose::plan::Selections;
-use kata::ops::compose::{self, Policy};
+use kata::compose::plan::Selections;
+use kata::compose::{self, Policy};
+use kata::progress::Reporter;
+
+use crate::cli::registry_prefix;
 
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]
@@ -40,7 +43,7 @@ pub(super) struct Args {
 }
 
 /// Execute the `compose` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, reporter: &dyn Reporter) -> Result<()> {
     let Args {
         release,
         dir,
@@ -53,20 +56,21 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let selections = Selections {
         sets: parse_pairs(&sets).context("Invalid set selection")?,
     };
+    let registry = registry_prefix();
 
-    let written = compose::run(&compose::Input {
-        dir,
-        from_line,
-        release,
-        selections,
-        policy: if auto { Policy::Auto } else { Policy::Carried },
-        force,
-    })
+    compose::run(
+        &compose::Input {
+            dir,
+            registry: &registry,
+            from_line,
+            release,
+            selections,
+            policy: if auto { Policy::Auto } else { Policy::Carried },
+            force,
+        },
+        reporter,
+    )
     .context("Failed to compose line")?;
-
-    for path in written {
-        println!("Wrote {path}");
-    }
 
     Ok(())
 }

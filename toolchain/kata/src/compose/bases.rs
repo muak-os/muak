@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use super::merge::Bases;
+use crate::compose::lines;
 use crate::error::{KataError, Result};
-use crate::ops::compose::lines;
 use crate::repository;
 use crate::schema::documents::Document;
 use crate::schema::kinds::Kind;

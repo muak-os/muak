@@ -2,7 +2,8 @@
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use kata::ops::remove;
+use kata::progress::Reporter;
+use kata::remove;
 use kata::schema::view::Role;
 
 /// Arguments of the `remove` subcommand.
@@ -30,7 +31,7 @@ pub(super) struct Args {
 }
 
 /// Execute the `remove` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, reporter: &dyn Reporter) -> Result<()> {
     let Args {
         role,
         name,
@@ -40,15 +41,17 @@ pub(crate) fn run(args: Args) -> Result<()> {
     } = args;
 
     let role = Role::parse(&role).context("Invalid role")?;
-    let identity = remove::run(&remove::Input {
-        dir,
-        role,
-        name,
-        source,
-        release,
-    })
+    remove::run(
+        &remove::Input {
+            dir,
+            role,
+            name,
+            source,
+            release,
+        },
+        reporter,
+    )
     .context("Failed to remove entry")?;
-    println!("Removed {identity}");
 
     Ok(())
 }
