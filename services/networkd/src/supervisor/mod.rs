@@ -182,6 +182,12 @@ impl NetworkActorHandle {
     }
 }
 
+/// Subscribes to network link events.
+pub trait Source {
+    /// Opens a new subscription, retrying until it succeeds.
+    fn subscribe(&self) -> impl Future<Output = Result<mpsc::Receiver<Event>>> + Send;
+}
+
 /// Starts the network supervisor with a live `netlink` connection.
 ///
 /// Must be called from within a Tokio runtime.
@@ -209,31 +215,48 @@ pub fn start_with<N: Ops>(
     config: Arc<network::Config>,
     dns: Resolver,
 ) -> Result<NetworkActorHandle> {
+    start_with_source(ops, event_rx, monitor::Live, config, dns)
+}
+
+/// Starts the supervisor with injected dependencies and event source.
+///
+/// # Errors
+///
+/// Returns an error if the supervisor command channel cannot be created.
+pub fn start_with_source<N: Ops, M: Source + Send + Sync + 'static>(
+    ops: N,
+    event_rx: mpsc::Receiver<Event>,
+    source: M,
+    config: Arc<network::Config>,
+    dns: Resolver,
+) -> Result<NetworkActorHandle> {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
     let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
 
-    run(ops, cmd_rx, event_rx, watch_tx, config, dns);
+    run(ops, cmd_rx, event_rx, source, watch_tx, config, dns);
 
     Ok(NetworkActorHandle { tx: cmd_tx })
 }
 
-fn run<N: Ops>(
+fn run<N: Ops, M: Source + Send + Sync + 'static>(
     ops: N,
     cmd_rx: mpsc::Receiver<SupervisorCommand>,
     event_rx: mpsc::Receiver<Event>,
+    source: M,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
 ) {
     tokio::spawn(supervisor_loop(
-        ops, cmd_rx, event_rx, watch_tx, config, dns,
+        ops, cmd_rx, event_rx, source, watch_tx, config, dns,
     ));
 }
 
-async fn supervisor_loop<N: Ops>(
+async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     ops: N,
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
     mut event_rx: mpsc::Receiver<Event>,
+    source: M,
     watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
@@ -264,7 +287,7 @@ async fn supervisor_loop<N: Ops>(
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
             SupervisorEvent::Netlink(event) => {
-                monitor::handle_event(&mut supervisor, &mut event_rx, event).await;
+                monitor::handle_event(&mut supervisor, &mut event_rx, &source, event).await;
             }
             SupervisorEvent::PrimaryChanged => {
                 failover::switch_if_needed(&mut supervisor).await;

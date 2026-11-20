@@ -358,13 +358,20 @@ async fn monitor_closed_event_renews_the_subscription() {
     let config = make_config();
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
+    let source = FakeMonitor::new();
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle =
-        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+        supervisor::start_with_source(mock, event_rx, source.clone(), config, Resolver::default())
+            .expect("start failed");
 
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
+    assert_eq!(
+        source.subscribe_calls(),
+        0,
+        "the initial receiver comes from the test, not from the source"
+    );
 
     // ACT
     event_tx
@@ -374,25 +381,34 @@ async fn monitor_closed_event_renews_the_subscription() {
     let limit = Duration::from_secs(5);
     let step = Duration::from_millis(10);
     let mut waited = Duration::ZERO;
-    let mut disconnected = false;
-    while !disconnected && waited < limit {
-        disconnected = matches!(
-            timeout(step, event_tx.send(Event::Error(Failure::Overrun))).await,
-            Ok(Err(_))
-        );
+    while source.subscribe_calls() == 0 && waited < limit {
         sleep(step).await;
         waited += step;
     }
 
     // ASSERT
+    assert_eq!(
+        source.subscribe_calls(),
+        1,
+        "supervisor must renew the monitor subscription after the stream closed"
+    );
+    assert!(
+        source.send(Event::Error(Failure::Closed)),
+        "the renewed subscription must accept events"
+    );
+    let mut waited = Duration::ZERO;
+    while source.subscribe_calls() < 2 && waited < limit {
+        sleep(step).await;
+        waited += step;
+    }
+    assert_eq!(
+        source.subscribe_calls(),
+        2,
+        "events delivered on the renewed subscription must reach the supervisor"
+    );
     let alive = timeout(Duration::from_secs(5), handle.reconcile()).await;
     assert!(
         alive.is_ok() && alive.expect("timeout").is_ok(),
         "supervisor must stay alive after renewing the monitor"
     );
-    assert!(
-        disconnected,
-        "supervisor must renew the monitor subscription after the stream closed"
-    );
-    drop(event_tx);
 }

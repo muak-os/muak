@@ -24,6 +24,7 @@ use alloc::sync::Arc;
 use config::system::network;
 use netlink::address::Ops as _;
 
+use self::fixtures::monitor::FakeMonitor;
 use self::fixtures::netlink::MockNetlinkOps;
 
 fn make_config() -> Arc<network::Config> {
