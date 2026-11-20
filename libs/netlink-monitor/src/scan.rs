@@ -1,19 +1,13 @@
-//! Link enumeration used to seed the pump with initial interface state.
+//! Link enumeration used to seed the monitor with initial interface state.
 
 use std::collections::HashMap;
 
 use netlink::link;
 use netlink::link::device::{self, Device};
-use rtnetlink::packet_route::link::LinkMessage;
 
 use crate::Result;
 
-/// Enumerates the current ethernet links and records their carrier state.
-///
-/// # Errors
-///
-/// Returns an error when the link enumeration fails.
-pub(crate) async fn initial_scan(
+pub(super) async fn state(
     link: &impl link::Ops,
     link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
@@ -31,14 +25,6 @@ pub(crate) async fn initial_scan(
     }
 
     Ok(())
-}
-
-pub(super) fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
-    let index = msg.header.index;
-    let name = device::extract_name(msg)?;
-    let mac = device::extract_mac(msg);
-
-    Some((name, index, mac))
 }
 
 #[cfg(test)]
@@ -104,13 +90,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initial_scan_propagates_enumeration_failure() {
+    async fn state_propagates_enumeration_failure() {
         // ARRANGE
         let ops = FailingOps;
         let mut link_states = HashMap::new();
 
         // ACT
-        let result = initial_scan(&ops, &mut link_states).await;
+        let result = state(&ops, &mut link_states).await;
 
         // ASSERT
         assert!(result.is_err());

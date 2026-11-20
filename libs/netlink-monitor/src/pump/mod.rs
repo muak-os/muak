@@ -1,7 +1,5 @@
 //! Netlink message pump that turns link notifications into monitor events.
 
-pub(super) mod scan;
-
 use std::collections::HashMap;
 
 use netlink::link::device;
@@ -70,7 +68,7 @@ async fn handle_new_link(
     config: &Config,
     link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
-    let Some((raw_name, index, mac)) = scan::extract_link_info(&msg) else {
+    let Some((raw_name, index, mac)) = extract_link_info(&msg) else {
         return Ok(());
     };
     if !device::is_ethernet(&raw_name) {
@@ -146,7 +144,7 @@ async fn handle_del_link(
     config: &Config,
     link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
-    let Some((raw_name, index, _)) = scan::extract_link_info(&msg) else {
+    let Some((raw_name, index, _)) = extract_link_info(&msg) else {
         return Ok(());
     };
     if !device::is_ethernet(&raw_name) {
@@ -161,6 +159,14 @@ async fn handle_del_link(
     };
     let _send_failed = tx.send(Event::Deleted { name, index }).await.is_err();
     Ok(())
+}
+
+fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
+    let index = msg.header.index;
+    let name = device::extract_name(msg)?;
+    let mac = device::extract_mac(msg);
+
+    Some((name, index, mac))
 }
 
 #[cfg(test)]

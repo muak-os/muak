@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod pump;
+mod scan;
 
 use std::collections::HashMap;
 use std::io;
@@ -99,7 +100,7 @@ pub async fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
 
     let rtnl = Rtnl::new(handle);
     let mut link_states: HashMap<u32, bool> = HashMap::new();
-    pump::scan::initial_scan(&rtnl, &mut link_states).await?;
+    scan::state(&rtnl, &mut link_states).await?;
 
     tokio::spawn(async move {
         pump::run(&config, &mut messages, &tx, link_states).await;
