@@ -20,7 +20,7 @@ use config::system::network;
 use netdev::Ops;
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
-use netlink_monitor::{Config, Event};
+use netlink_monitor::{Config, Event, Failure};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, interval, sleep};
 
@@ -321,13 +321,28 @@ async fn supervisor_loop<N: Ops>(
 
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
-            SupervisorEvent::Netlink(event) => dispatch::handle_event(&mut supervisor, event).await,
+            SupervisorEvent::Netlink(event) => {
+                handle_netlink_event(&mut supervisor, &mut event_rx, event).await;
+            }
             SupervisorEvent::PrimaryChanged => {
                 maybe_failover_primary(&mut supervisor).await;
                 supervisor.flush_dns();
             }
             SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
+    }
+}
+
+// Dispatches a monitor event and renews the subscription when the stream closed.
+async fn handle_netlink_event<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    event_rx: &mut mpsc::Receiver<Event>,
+    event: Event,
+) {
+    let closed = matches!(&event, Event::Error(Failure::Closed));
+    dispatch::handle_event(supervisor, event).await;
+    if closed {
+        renew_events_monitor(event_rx).await;
     }
 }
 
@@ -409,4 +424,14 @@ async fn start_events_monitor() -> Result<mpsc::Receiver<Event>> {
     println!("Network event monitoring enabled");
 
     Ok(rx)
+}
+
+// Renews the monitor subscription after its event stream closed. A failed renewal keeps
+// the closed receiver, so the periodic reconcile still converges known interfaces, but a
+// hot-plugged link would not be discovered until the process restarts.
+async fn renew_events_monitor(event_rx: &mut mpsc::Receiver<Event>) {
+    match start_events_monitor().await {
+        Ok(rx) => *event_rx = rx,
+        Err(e) => kmsg::warn!("Failed to renew network event monitor: {e}"),
+    }
 }

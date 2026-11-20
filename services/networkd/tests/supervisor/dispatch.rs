@@ -351,3 +351,48 @@ async fn link_added_when_no_primary_assigns_as_primary() {
     // ASSERT
     drop(event_tx);
 }
+
+#[tokio::test]
+async fn monitor_closed_event_renews_the_subscription() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle =
+        supervisor::start_with(mock, event_rx, config, Resolver::default()).expect("start failed");
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    // ACT
+    event_tx
+        .send(Event::Error(Failure::Closed))
+        .await
+        .expect("send failed");
+    let limit = Duration::from_secs(5);
+    let step = Duration::from_millis(10);
+    let mut waited = Duration::ZERO;
+    let mut disconnected = false;
+    while !disconnected && waited < limit {
+        disconnected = matches!(
+            timeout(step, event_tx.send(Event::Error(Failure::Overrun))).await,
+            Ok(Err(_))
+        );
+        sleep(step).await;
+        waited += step;
+    }
+
+    // ASSERT
+    let alive = timeout(Duration::from_secs(5), handle.reconcile()).await;
+    assert!(
+        alive.is_ok() && alive.expect("timeout").is_ok(),
+        "supervisor must stay alive after renewing the monitor"
+    );
+    assert!(
+        disconnected,
+        "supervisor must renew the monitor subscription after the stream closed"
+    );
+    drop(event_tx);
+}
