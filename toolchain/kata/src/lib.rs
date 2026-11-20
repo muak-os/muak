@@ -2,20 +2,20 @@
 
 #![warn(missing_docs)]
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 extern crate alloc;
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub mod compose;
 pub mod error;
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub mod progress;
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub mod publish;
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub mod remove;
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub mod repository;
 pub mod schema;
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub mod verify;

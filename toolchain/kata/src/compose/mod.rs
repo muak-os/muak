@@ -34,9 +34,11 @@ pub enum Policy {
 }
 
 /// One `kata compose` request.
-pub struct Input {
+pub struct Input<'a> {
     /// Docs root holding the release lines.
     pub dir: PathBuf,
+    /// Registry prefix for catalog images.
+    pub registry: &'a str,
     /// Lineage parent line; defaults to the newest line other than `release`.
     pub from_line: Option<String>,
     /// Release line being composed.
@@ -56,8 +58,9 @@ pub struct Input {
 /// Returns an error when the lineage or publication gates refuse the
 /// composition, a selection or carried pin cannot be resolved, or a document
 /// fails verification. Nothing is written when any gate or verification fails.
-pub fn run(input: &Input, reporter: &dyn Reporter) -> Result<Vec<PathBuf>> {
+pub fn run(input: &Input<'_>, reporter: &dyn Reporter) -> Result<Vec<PathBuf>> {
     validate_release(&input.release)?;
+    let registry = input.registry;
 
     let parent = parent_line(&input.dir, &input.release, input.from_line.as_deref())?;
     let parent_docs = parent
@@ -67,12 +70,12 @@ pub fn run(input: &Input, reporter: &dyn Reporter) -> Result<Vec<PathBuf>> {
     let output = output_documents(&input.dir, &input.release)?;
     let (mut bases, origins) = merge::assemble(&output, parent_docs.as_ref(), &input.release);
     let resolve = |repository: &str, tag: &str| {
-        let line_reference = reference(repository, tag);
+        let line_reference = reference(registry, repository, tag);
         koci::registry::manifest_digest(&line_reference)
             .map_err(|error| KataError::Registry(error.to_string()))
     };
-    let policy =
-        (input.policy == Policy::Auto).then_some(|repository: &str| auto::newest_tag(repository));
+    let policy = (input.policy == Policy::Auto)
+        .then_some(|repository: &str| auto::newest_tag(registry, repository));
     let plan = plan::build(
         &mut bases,
         &origins,
@@ -82,12 +85,12 @@ pub fn run(input: &Input, reporter: &dyn Reporter) -> Result<Vec<PathBuf>> {
         policy.as_ref().map(coerce),
     )?;
 
-    gate_publication(&plan.documents, &input.release, input.force)?;
+    gate_publication(&plan.documents, &input.release, registry, input.force)?;
     for document in &plan.documents {
         if let Document::Core(ref core) = *document {
             documents::ensure_resolvable(core)?;
         }
-        verify::verify_document(document)?;
+        verify::verify_document(document, registry)?;
     }
     let written = write_documents(&plan.documents, &input.dir, &input.release)?;
     reporter.report(Event::Composed {
@@ -105,13 +108,18 @@ fn coerce<F: Fn(&str) -> Result<String>>(policy: &F) -> &Auto<'_> {
     policy
 }
 
-fn gate_publication(documents: &[Document], release: &str, force: bool) -> Result<()> {
+fn gate_publication(
+    documents: &[Document],
+    release: &str,
+    registry: &str,
+    force: bool,
+) -> Result<()> {
     if force {
         return Ok(());
     }
 
     for document in documents {
-        let line_reference = reference(document.kind().dir(), release);
+        let line_reference = reference(registry, document.kind().dir(), release);
         if koci::registry::manifest_exists(&line_reference)
             .map_err(|error| KataError::Registry(error.to_string()))?
         {

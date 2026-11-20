@@ -37,7 +37,8 @@ semver = { workspace = true }
 
 [features]
 default = ["cli"]
-cli = ["dep:anyhow", "dep:clap", "dep:koci", "koci/pull", "koci/push"]
+publisher = ["dep:koci", "koci/pull", "koci/push"]
+cli = ["publisher", "dep:anyhow", "dep:clap"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

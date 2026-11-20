@@ -10,6 +10,9 @@ use std::ffi::OsString;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+// Default registry prefix when `REGISTRY` is unset or empty.
+const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
+
 #[derive(Parser, Debug)]
 #[command(name = env!("CARGO_PKG_NAME"))]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -61,6 +64,20 @@ where
 #[must_use = "callers must propagate the process exit code"]
 pub(crate) fn run() -> i32 {
     run_with(std::env::args_os())
+}
+
+/// Registry prefix for catalog images: `REGISTRY`, then the default.
+#[must_use = "callers need the prefix to build image references"]
+pub(crate) fn registry_prefix() -> String {
+    std::env::var("REGISTRY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_REGISTRY.to_owned())
+}
+
+/// Parse an architecture name into the architecture recorded in the image config.
+pub(crate) fn parse_arch(arch: &str) -> Result<koci::arch::Arch, String> {
+    arch.parse()
 }
 
 fn run_command(command: Command) -> Result<()> {

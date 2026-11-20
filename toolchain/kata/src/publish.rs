@@ -1,7 +1,7 @@
 //! Building and pushing catalog OCI images.
 
 use alloc::collections::BTreeMap;
-use std::path::Path;
+use std::path::PathBuf;
 
 use koci::arch::Arch;
 use koci::{pull, push, registry};
@@ -24,6 +24,22 @@ pub struct Published {
     pub digest: String,
 }
 
+/// One `kata publish` request.
+pub struct Input<'a> {
+    /// Catalog repository root.
+    pub dir: PathBuf,
+    /// Release line to publish.
+    pub release: String,
+    /// Channel tags to move to this release.
+    pub channels: Vec<String>,
+    /// Registry prefix for catalog images.
+    pub registry: &'a str,
+    /// Architecture recorded in the image config.
+    pub arch: Arch,
+    /// Replace an already-published line (dev scratch registries only).
+    pub force: bool,
+}
+
 /// Publish every kind's catalog image with a document for `release`, moving
 /// each `channels` tag to it.
 ///
@@ -32,16 +48,12 @@ pub struct Published {
 /// Returns an error when the root is unusable, no document exists, a document is not canonical,
 /// an entry fails verification, a published line would be mutated, a channel would move backwards,
 /// or the registry push fails.
-pub fn run(
-    root: &Path,
-    release: &str,
-    channels: &[String],
-    force: bool,
-    reporter: &dyn Reporter,
-) -> Result<Vec<Published>> {
+pub fn run(input: &Input<'_>, reporter: &dyn Reporter) -> Result<Vec<Published>> {
+    let root = &input.dir;
+    let release = &input.release;
     repository::require_root(root)?;
     validate_release(release)?;
-    for channel in channels {
+    for channel in &input.channels {
         validate_release(channel)?;
     }
     let kinds: Vec<Kind> = Kind::publish()
@@ -56,13 +68,13 @@ pub fn run(
 
     let mut published = Vec::new();
     for kind in kinds {
-        published.push(publish_one(root, release, kind, channels, force, reporter)?);
+        published.push(publish_one(input, kind, reporter)?);
     }
 
     Ok(published)
 }
 
-fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
+fn fetch_document_bytes(input: &Input<'_>, reference: &str) -> Result<Option<Vec<u8>>> {
     if !registry::manifest_exists(reference)
         .map_err(|error| KataError::Registry(error.to_string()))?
     {
@@ -72,7 +84,7 @@ fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
     let mut bytes: Option<Vec<u8>> = None;
     pull::files(
         reference,
-        &Arch::Amd64,
+        &input.arch,
         None,
         pull::Strategy::Network,
         &koci::progress::Noop,
@@ -91,8 +103,13 @@ fn fetch_document_bytes(reference: &str) -> Result<Option<Vec<u8>>> {
     Ok(bytes)
 }
 
-fn served_document(line_reference: &str, kind: Kind, release: &str) -> Result<Option<Document>> {
-    match fetch_document_bytes(line_reference)? {
+fn served_document(
+    input: &Input<'_>,
+    line_reference: &str,
+    kind: Kind,
+    release: &str,
+) -> Result<Option<Document>> {
+    match fetch_document_bytes(input, line_reference)? {
         Some(bytes) => Ok(Some(from_toml(kind, &bytes, release)?)),
         None => Ok(None),
     }
@@ -115,9 +132,14 @@ fn ensure_channel_forward(channel: &str, served: &str, release: &str) -> Result<
     Ok(())
 }
 
-fn check_channel_forward(kind: Kind, release: &str, channel: &str) -> Result<()> {
-    let reference = repository::reference(kind.dir(), channel);
-    let Some(bytes) = fetch_document_bytes(&reference)? else {
+fn check_channel_forward(
+    input: &Input<'_>,
+    kind: Kind,
+    release: &str,
+    channel: &str,
+) -> Result<()> {
+    let reference = repository::reference(input.registry, kind.dir(), channel);
+    let Some(bytes) = fetch_document_bytes(input, &reference)? else {
         return Ok(());
     };
     let served = from_toml_tag(kind, &bytes, channel)
@@ -157,14 +179,9 @@ fn check_monotonic(kind: Kind, document: &Document, served: &Document) -> Result
     Ok(())
 }
 
-fn publish_one(
-    root: &Path,
-    release: &str,
-    kind: Kind,
-    channels: &[String],
-    force: bool,
-    reporter: &dyn Reporter,
-) -> Result<Published> {
+fn publish_one(input: &Input<'_>, kind: Kind, reporter: &dyn Reporter) -> Result<Published> {
+    let root = &input.dir;
+    let release = &input.release;
     let document = repository::load(kind, root, release)?;
     if !repository::canonical_on_disk(&document, root, release)? {
         return Err(KataError::Document(format!(
@@ -174,33 +191,33 @@ fn publish_one(
         )));
     }
 
-    verify::verify_document(&document)?;
+    verify::verify_document(&document, input.registry)?;
 
-    let line_reference = repository::reference(kind.dir(), release);
+    let line_reference = repository::reference(input.registry, kind.dir(), release);
     let line_published = registry::manifest_exists(&line_reference)
         .map_err(|error| KataError::Registry(error.to_string()))?;
 
-    if !force
+    if !input.force
         && line_published
-        && let Some(served) = served_document(&line_reference, kind, release)?
+        && let Some(served) = served_document(input, &line_reference, kind, release)?
     {
         check_monotonic(kind, &document, &served)?;
     }
 
-    if !force {
-        for channel in channels {
-            check_channel_forward(kind, release, channel)?;
+    if !input.force {
+        for channel in &input.channels {
+            check_channel_forward(input, kind, release, channel)?;
         }
     }
 
-    let image = format!("{}/{}", repository::prefix(), kind.dir());
+    let image = format!("{}/{}", input.registry, kind.dir());
     let image_ref = format!("{image}:{release}");
     let mut tags = vec![release.to_owned()];
-    tags.extend(channels.iter().cloned());
+    tags.extend(input.channels.iter().cloned());
     let pushed = push::files(
         &image_ref,
         &tags,
-        &Arch::Amd64,
+        &input.arch,
         &[push::Entry {
             path: "catalog.toml".to_owned(),
             source: repository::document_path(kind, root, release),
@@ -212,7 +229,7 @@ fn publish_one(
         reference: &image_ref,
         digest: &pushed.digest,
     });
-    for channel in channels {
+    for channel in &input.channels {
         reporter.report(Event::ChannelMoved {
             image: &image,
             channel,

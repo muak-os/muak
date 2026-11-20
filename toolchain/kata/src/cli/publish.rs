@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use kata::publish;
+use koci::arch::Arch;
+
+use crate::cli::{parse_arch, registry_prefix};
 
 /// Arguments of the `publish` subcommand.
 #[derive(clap::Args, Debug)]
@@ -20,6 +23,10 @@ pub(super) struct Args {
     #[arg(long, value_name = "PATH", default_value = ".")]
     dir: PathBuf,
 
+    /// Architecture recorded in the image config.
+    #[arg(long, default_value = "amd64", value_parser = parse_arch)]
+    arch: Arch,
+
     /// Replace an already-published line (dev scratch registries only).
     #[arg(long, default_value_t = false)]
     force: bool,
@@ -31,11 +38,23 @@ pub(crate) fn run(args: Args) -> Result<()> {
         release,
         channel,
         dir,
+        arch,
         force,
     } = args;
+    let registry = registry_prefix();
 
-    let published = publish::run(&dir, &release, &channel, force, &kata::progress::Noop)
-        .context("Failed to publish catalog")?;
+    let published = publish::run(
+        &publish::Input {
+            dir,
+            release,
+            channels: channel,
+            registry: &registry,
+            arch,
+            force,
+        },
+        &kata::progress::Noop,
+    )
+    .context("Failed to publish catalog")?;
     for published in published {
         println!("Published {}", published.reference);
     }

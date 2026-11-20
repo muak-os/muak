@@ -8,9 +8,6 @@ use crate::schema::kinds::Kind;
 use crate::schema::parse::from_toml;
 use crate::schema::serialize::canonical;
 
-/// Default registry prefix when `REGISTRY` is unset or empty.
-const DEFAULT_REGISTRY: &str = "ghcr.io/muak-os";
-
 /// Ensure `root` names a usable catalog repository layout.
 ///
 /// # Errors
@@ -71,17 +68,8 @@ pub fn canonical_on_disk(document: &Document, root: &Path, release: &str) -> Res
     Ok(on_disk == canonical(document)?)
 }
 
-/// Registry prefix for digest resolution: `REGISTRY`, then the default.
-#[must_use = "callers need the prefix to build image references"]
-pub(crate) fn prefix() -> String {
-    std::env::var("REGISTRY")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_REGISTRY.to_owned())
-}
-
 /// Fully qualified `repository:tag` reference behind the registry prefix.
 #[must_use = "callers need the reference to resolve the digest"]
-pub(crate) fn reference(repository: &str, tag: &str) -> String {
-    format!("{}/{repository}:{tag}", prefix())
+pub(crate) fn reference(prefix: &str, repository: &str, tag: &str) -> String {
+    format!("{prefix}/{repository}:{tag}")
 }

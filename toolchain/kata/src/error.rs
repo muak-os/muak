@@ -28,7 +28,7 @@ pub enum DocumentError {
 pub type DocumentResult<T> = CoreResult<T, DocumentError>;
 
 /// Publisher-side error type.
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 #[derive(Error, Debug)]
 #[expect(
     clippy::module_name_repetitions,
@@ -63,5 +63,5 @@ pub enum KataError {
 }
 
 /// Result type alias for publisher operations.
-#[cfg(feature = "cli")]
+#[cfg(feature = "publisher")]
 pub type Result<T> = CoreResult<T, KataError>;

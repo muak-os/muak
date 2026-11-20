@@ -5,6 +5,8 @@ use clap::Parser;
 use kata::compose::plan::Selections;
 use kata::compose::{self, Policy};
 
+use crate::cli::registry_prefix;
+
 /// Arguments of the `compose` subcommand.
 #[derive(Parser, Debug)]
 pub(super) struct Args {
@@ -53,10 +55,12 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let selections = Selections {
         sets: parse_pairs(&sets).context("Invalid set selection")?,
     };
+    let registry = registry_prefix();
 
     let written = compose::run(
         &compose::Input {
             dir,
+            registry: &registry,
             from_line,
             release,
             selections,
