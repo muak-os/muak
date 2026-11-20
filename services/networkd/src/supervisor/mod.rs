@@ -4,6 +4,7 @@ mod commands;
 mod discovery;
 mod dispatch;
 mod failover;
+mod monitor;
 mod provision;
 mod reconcile;
 mod snapshot;
@@ -20,7 +21,7 @@ use config::system::network;
 use netdev::Ops;
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
-use netlink_monitor::{Config, Event, Failure};
+use netlink_monitor::Event;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, interval, sleep};
 
@@ -32,8 +33,6 @@ use crate::supervisor::snapshot::NetworkSnapshot;
 use crate::supervisor::state::NetworkState;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
-const MONITOR_MAX_ATTEMPTS: u8 = 3;
-const MONITOR_RETRY_DELAY_MS: u64 = 100;
 
 struct NetworkSupervisor<N: Ops> {
     ops: N,
@@ -250,7 +249,7 @@ impl NetworkActorHandle {
 /// network event monitor cannot be started.
 pub async fn start() -> Result<NetworkActorHandle> {
     let ops = Rtnl::connect()?;
-    let event_rx = start_events_monitor().await?;
+    let event_rx = monitor::start().await?;
     let config = Arc::new(network()?.clone());
 
     start_with(ops, event_rx, config, Resolver::default())
@@ -322,7 +321,7 @@ async fn supervisor_loop<N: Ops>(
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
             SupervisorEvent::Netlink(event) => {
-                handle_netlink_event(&mut supervisor, &mut event_rx, event).await;
+                monitor::handle_event(&mut supervisor, &mut event_rx, event).await;
             }
             SupervisorEvent::PrimaryChanged => {
                 maybe_failover_primary(&mut supervisor).await;
@@ -330,19 +329,6 @@ async fn supervisor_loop<N: Ops>(
             }
             SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
-    }
-}
-
-// Dispatches a monitor event and renews the subscription when the stream closed.
-async fn handle_netlink_event<N: Ops>(
-    supervisor: &mut NetworkSupervisor<N>,
-    event_rx: &mut mpsc::Receiver<Event>,
-    event: Event,
-) {
-    let closed = matches!(&event, Event::Error(Failure::Closed));
-    dispatch::handle_event(supervisor, event).await;
-    if closed {
-        renew_events_monitor(event_rx).await;
     }
 }
 
@@ -411,27 +397,4 @@ fn retry_delay(base: Duration, max: Duration, attempt: u32) -> Duration {
     let multiplier = 1_u32 << attempt.saturating_sub(1).min(5);
 
     base.checked_mul(multiplier).unwrap_or(max).min(max)
-}
-
-async fn start_events_monitor() -> Result<mpsc::Receiver<Event>> {
-    let rx = netlink::retry::run(
-        || netlink_monitor::start(Config::default()),
-        MONITOR_MAX_ATTEMPTS,
-        MONITOR_RETRY_DELAY_MS,
-        "failed to start network event monitor",
-    )
-    .await?;
-    println!("Network event monitoring enabled");
-
-    Ok(rx)
-}
-
-// Renews the monitor subscription after its event stream closed. A failed renewal keeps
-// the closed receiver, so the periodic reconcile still converges known interfaces, but a
-// hot-plugged link would not be discovered until the process restarts.
-async fn renew_events_monitor(event_rx: &mut mpsc::Receiver<Event>) {
-    match start_events_monitor().await {
-        Ok(rx) => *event_rx = rx,
-        Err(e) => kmsg::warn!("Failed to renew network event monitor: {e}"),
-    }
 }
