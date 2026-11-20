@@ -8,12 +8,10 @@ use koci::{pull, push, registry};
 
 use crate::error::{KataError, Result};
 use crate::progress::{self, Event, Reporter};
-use crate::schema::documents::Document;
+use crate::schema::documents::{DOCUMENT_PATH, Document};
 use crate::schema::kinds::Kind;
 use crate::schema::parse::{from_toml, from_toml_tag, release_version, validate_release};
 use crate::{repository, verify};
-
-const DOCUMENT_PATH: &str = "catalog.toml";
 
 /// Identity of a successfully published catalog image.
 #[derive(Debug)]
@@ -219,10 +217,10 @@ fn publish_one(input: &Input<'_>, kind: Kind, reporter: &dyn Reporter) -> Result
         &tags,
         &input.arch,
         &[push::Entry {
-            path: "catalog.toml".to_owned(),
+            path: DOCUMENT_PATH.to_owned(),
             source: repository::document_path(kind, root, release),
         }],
-        &progress::Registry(reporter),
+        &progress::Upload(reporter),
     )
     .map_err(|error| KataError::Registry(error.to_string()))?;
     reporter.report(Event::Published {

@@ -30,7 +30,7 @@ anyhow = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 # Internal
-koci = { workspace = true, features = ["push"], optional = true }
+koci = { workspace = true, optional = true }
 
 # Utilities
 semver = { workspace = true }

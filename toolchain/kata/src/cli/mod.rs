@@ -44,6 +44,7 @@ where
 {
     let args = Args::parse_from(args);
     let reporter = report::Plain;
+
     run_command(args.command, &reporter)
 }
 

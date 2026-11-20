@@ -122,20 +122,20 @@ fn verify_line(root: &Path, kind: Kind, release: &str, registry: &str) -> Result
         ));
     }
 
-    let verified = verify_document(&document, registry)?;
-
-    Ok(verified.len())
+    verify_document(&document, registry)
 }
 
 /// HEAD-check every entry of an in-memory document against the registry.
+///
+/// Returns the number of verified entries.
 ///
 /// # Errors
 ///
 /// Returns an error when a registry resolution fails or a pin does not match
 /// what the registry serves.
-pub(crate) fn verify_document(document: &Document, registry: &str) -> Result<Vec<String>> {
-    let mut verified: Vec<String> = Vec::new();
-    for check in checks(document) {
+pub(crate) fn verify_document(document: &Document, registry: &str) -> Result<usize> {
+    let entries = checks(document);
+    for check in &entries {
         let reference = repository::reference(registry, &check.repository, &check.tag);
         let actual = registry::manifest_digest(&reference)
             .map_err(|error| KataError::Registry(error.to_string()))?;
@@ -145,10 +145,9 @@ pub(crate) fn verify_document(document: &Document, registry: &str) -> Result<Vec
                 check.identity, check.digest
             )));
         }
-        verified.push(check.identity);
     }
 
-    Ok(verified)
+    Ok(entries.len())
 }
 
 /// Entries of a document as registry checks.

@@ -82,10 +82,10 @@ impl Reporter for Noop {
     fn report(&self, _event: Event<'_>) {}
 }
 
-/// koci progress reporter that forwards upload progress as catalog events.
-pub(crate) struct Registry<'a>(pub(crate) &'a dyn Reporter);
+/// koci push reporter that forwards upload progress as catalog events.
+pub(crate) struct Upload<'a>(pub(crate) &'a dyn Reporter);
 
-impl koci::progress::Reporter for Registry<'_> {
+impl koci::progress::Reporter for Upload<'_> {
     fn report(&self, event: koci::progress::Event<'_>) {
         match event {
             koci::progress::Event::Bytes { current, total, .. } => {
@@ -116,165 +116,67 @@ impl koci::progress::Reporter for Registry<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of_val;
-    use std::path::Path;
     use std::sync::Mutex;
 
     use koci::progress::Reporter as _;
 
-    use super::{Event, Noop, Registry, Reporter};
+    use super::{Event, Reporter, Upload};
 
     #[derive(Debug, Default)]
     struct Recorder {
-        labels: Mutex<Vec<String>>,
+        events: Mutex<Vec<String>>,
     }
 
     impl Recorder {
-        fn labels(&self) -> Vec<String> {
-            self.labels.lock().expect("recorder lock").clone()
+        fn events(&self) -> Vec<String> {
+            self.events.lock().expect("recorder lock").clone()
         }
     }
 
     impl Reporter for Recorder {
         fn report(&self, event: Event<'_>) {
-            let label = match event {
-                Event::Composed { release, entries } => format!("composed {release} {entries}"),
-                Event::Wrote { path } => format!("wrote {}", path.display()),
-                Event::Published { reference, digest } => format!("published {reference} {digest}"),
-                Event::ChannelMoved {
-                    image,
-                    channel,
-                    release,
-                } => format!("channel {image} {channel} {release}"),
-                Event::Verified { line, entries } => format!("verified {line} {entries}"),
-                Event::Removed { identity, digest } => format!("removed {identity} {digest}"),
-                Event::Upload { current, total } => format!("upload {current} {total}"),
-                Event::LayerUploaded { digest, size } => format!("layer {digest} {size}"),
-                Event::LayerSkipped { digest } => format!("skipped {digest}"),
-            };
-            self.labels.lock().expect("recorder lock").push(label);
+            self.events
+                .lock()
+                .expect("recorder lock")
+                .push(format!("{event:?}"));
         }
     }
 
-    fn every_event() -> [Event<'static>; 9] {
-        [
-            Event::Composed {
-                release: "1.0.0",
-                entries: 3,
-            },
-            Event::Wrote {
-                path: Path::new("catalog.toml"),
-            },
-            Event::Published {
-                reference: "ghcr.io/muak-os/kata:1.0.0",
-                digest: "sha256:aaaa",
-            },
-            Event::ChannelMoved {
-                image: "ghcr.io/muak-os/kata",
-                channel: "stable",
-                release: "1.0.0",
-            },
-            Event::Verified {
-                line: "1.0.0",
-                entries: 3,
-            },
-            Event::Removed {
-                identity: "x86_64/packages/core@1.0.0",
-                digest: "sha256:bbbb",
-            },
-            Event::Upload {
-                current: 64,
-                total: 128,
-            },
-            Event::LayerUploaded {
-                digest: "sha256:cccc",
-                size: 4096,
-            },
-            Event::LayerSkipped {
-                digest: "sha256:dddd",
-            },
-        ]
-    }
-
-    fn every_label() -> Vec<String> {
-        [
-            "composed 1.0.0 3",
-            "wrote catalog.toml",
-            "published ghcr.io/muak-os/kata:1.0.0 sha256:aaaa",
-            "channel ghcr.io/muak-os/kata stable 1.0.0",
-            "verified 1.0.0 3",
-            "removed x86_64/packages/core@1.0.0 sha256:bbbb",
-            "upload 64 128",
-            "layer sha256:cccc 4096",
-            "skipped sha256:dddd",
-        ]
-        .map(str::to_owned)
-        .to_vec()
-    }
-
     #[test]
-    fn recorder_preserves_event_order() {
+    fn upload_forwards_upload_progress_and_ignores_the_rest() {
         // ARRANGE
         let recorder = Recorder::default();
+        let upload = Upload(&recorder);
 
         // ACT
-        for event in every_event() {
-            recorder.report(event);
-        }
-
-        // ASSERT
-        assert_eq!(recorder.labels(), every_label());
-    }
-
-    #[test]
-    fn registry_forwards_upload_progress_and_ignores_the_rest() {
-        // ARRANGE
-        let recorder = Recorder::default();
-        let registry = Registry(&recorder);
-
-        // ACT
-        registry.report(koci::progress::Event::Bytes {
+        upload.report(koci::progress::Event::Bytes {
             phase: koci::progress::Phase::Upload,
             index: None,
             current: 64,
             total: 128,
         });
-        registry.report(koci::progress::Event::ItemDone {
+        upload.report(koci::progress::Event::ItemDone {
             phase: koci::progress::Phase::Upload,
             index: 1,
             size: 4096,
             digest: "sha256:cccc",
         });
-        registry.report(koci::progress::Event::ItemSkipped {
+        upload.report(koci::progress::Event::ItemSkipped {
             phase: koci::progress::Phase::Upload,
             digest: "sha256:dddd",
         });
-        registry.report(koci::progress::Event::Note { message: "ignored" });
+        upload.report(koci::progress::Event::Note { message: "ignored" });
 
         // ASSERT
         assert_eq!(
-            recorder.labels(),
+            recorder.events(),
             [
-                "upload 64 128",
-                "layer sha256:cccc 4096",
-                "skipped sha256:dddd"
+                "Upload { current: 64, total: 128 }",
+                "LayerUploaded { digest: \"sha256:cccc\", size: 4096 }",
+                "LayerSkipped { digest: \"sha256:dddd\" }",
             ]
             .map(str::to_owned)
             .to_vec()
         );
-    }
-
-    #[test]
-    fn noop_accepts_every_variant() {
-        // ARRANGE
-        let reporter: &dyn Reporter = &Noop;
-
-        // ACT
-        for event in every_event() {
-            reporter.report(event);
-        }
-
-        // ASSERT
-        assert_eq!(size_of_val(reporter), 0);
     }
 }

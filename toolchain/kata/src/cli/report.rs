@@ -119,6 +119,21 @@ mod tests {
     }
 
     #[test]
+    fn verified_renders_entries() {
+        // ARRANGE
+        let event = Event::Verified {
+            line: "core/v1.2.3",
+            entries: 5,
+        };
+
+        // ACT
+        let rendered = render(event);
+
+        // ASSERT
+        assert_eq!(rendered, "Verified core/v1.2.3 (5 entries)\n");
+    }
+
+    #[test]
     fn removed_renders_digest() {
         // ARRANGE
         let event = Event::Removed {

@@ -5,7 +5,6 @@
     reason = "command failures are reported on standard error"
 )]
 
-#[cfg(feature = "cli")]
 mod cli;
 
 fn main() {
