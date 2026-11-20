@@ -75,11 +75,14 @@ pub(crate) struct MockRegistry {
 }
 
 impl MockRegistry {
-    pub(crate) fn start(routes: HashMap<RouteKey, HttpResponse>) -> Result<Self, IoError> {
+    pub(crate) fn start(mut routes: HashMap<RouteKey, HttpResponse>) -> Result<Self, IoError> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
 
         let address = listener.local_addr()?.to_string();
+        routes
+            .entry(("GET".to_owned(), "/v2/".to_owned()))
+            .or_insert_with(HttpResponse::ok);
         let routes = Arc::new(Routes {
             fixed: routes,
             overrides: Mutex::new(HashMap::new()),

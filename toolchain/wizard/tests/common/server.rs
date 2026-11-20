@@ -32,11 +32,14 @@ pub(crate) struct MockRegistry {
 }
 
 impl MockRegistry {
-    pub(crate) fn start(routes: Routes) -> Result<Self, IoError> {
+    pub(crate) fn start(mut routes: Routes) -> Result<Self, IoError> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
 
         let address = listener.local_addr()?.to_string();
+        routes
+            .entry(("GET".to_owned(), "/v2/".to_owned()))
+            .or_insert_with(HttpResponse::ok);
         let routes = Arc::new(routes);
         let requests = Arc::new(Mutex::new(Vec::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -130,6 +133,17 @@ impl HttpResponse {
             status: 200,
             content_type: "application/octet-stream",
             body,
+            headers: Vec::new(),
+            delay: Duration::ZERO,
+        }
+    }
+
+    #[must_use = "the test needs the response to serve"]
+    pub(crate) fn ok() -> Self {
+        Self {
+            status: 200,
+            content_type: "text/plain",
+            body: Vec::new(),
             headers: Vec::new(),
             delay: Duration::ZERO,
         }
