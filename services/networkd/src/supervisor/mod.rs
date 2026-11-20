@@ -25,7 +25,7 @@ use netlink::Rtnl;
 use netlink::link::ifname::Name;
 use netlink_monitor::Event;
 use selection::SupervisorEvent;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
 
 use crate::dns::Resolver;
@@ -42,7 +42,6 @@ struct NetworkSupervisor<N: Ops> {
     config: Arc<network::Config>,
     state: NetworkSnapshot,
     interfaces: HashMap<Name, ActorHandle>,
-    watch_tx: watch::Sender<NetworkSnapshot>,
     dns: Resolver,
 }
 
@@ -52,18 +51,12 @@ pub struct NetworkActorHandle {
 }
 
 impl<N: Ops> NetworkSupervisor<N> {
-    fn new(
-        ops: N,
-        config: Arc<network::Config>,
-        watch_tx: watch::Sender<NetworkSnapshot>,
-        dns: Resolver,
-    ) -> Self {
+    fn new(ops: N, config: Arc<network::Config>, dns: Resolver) -> Self {
         Self {
             ops,
             config,
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
-            watch_tx,
             dns,
         }
     }
@@ -76,7 +69,6 @@ impl<N: Ops> NetworkSupervisor<N> {
         provision::interfaces(self).await;
 
         self.state.transition(NetworkState::Ready)?;
-        self.publish_state();
 
         kmsg::info!("Network initialization complete");
 
@@ -104,8 +96,8 @@ impl<N: Ops> NetworkSupervisor<N> {
         }
     }
 
-    /// Synchronizes the aggregated state from all interfaces and publishes it.
-    fn sync_and_publish(&mut self) {
+    // Aggregates the interface snapshots and flushes DNS from the primary.
+    fn sync_and_flush(&mut self) {
         self.state.interfaces.clear();
         self.state.interfaces.extend(
             self.interfaces
@@ -113,12 +105,6 @@ impl<N: Ops> NetworkSupervisor<N> {
                 .map(|handle| Arc::clone(&handle.state_rx.borrow())),
         );
         dns::flush(self);
-        self.publish_state();
-    }
-
-    /// Publishes the current aggregated state to subscribers.
-    fn publish_state(&self) {
-        drop(self.watch_tx.send(self.state.clone()));
     }
 
     fn get_primary_name(&self) -> Result<Name> {
@@ -231,9 +217,8 @@ pub fn start_with_source<N: Ops, M: Source + Send + Sync + 'static>(
     dns: Resolver,
 ) -> Result<NetworkActorHandle> {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
-    let (watch_tx, _) = watch::channel(NetworkSnapshot::empty());
 
-    run(ops, cmd_rx, event_rx, source, watch_tx, config, dns);
+    run(ops, cmd_rx, event_rx, source, config, dns);
 
     Ok(NetworkActorHandle { tx: cmd_tx })
 }
@@ -243,13 +228,10 @@ fn run<N: Ops, M: Source + Send + Sync + 'static>(
     cmd_rx: mpsc::Receiver<SupervisorCommand>,
     event_rx: mpsc::Receiver<Event>,
     source: M,
-    watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
 ) {
-    tokio::spawn(supervisor_loop(
-        ops, cmd_rx, event_rx, source, watch_tx, config, dns,
-    ));
+    tokio::spawn(supervisor_loop(ops, cmd_rx, event_rx, source, config, dns));
 }
 
 async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
@@ -257,11 +239,10 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
     event_rx: mpsc::Receiver<Event>,
     source: M,
-    watch_tx: watch::Sender<NetworkSnapshot>,
     config: Arc<network::Config>,
     dns: Resolver,
 ) {
-    let mut supervisor = NetworkSupervisor::new(ops, config, watch_tx, dns);
+    let mut supervisor = NetworkSupervisor::new(ops, config, dns);
     let mut events = monitor::Subscription::new(event_rx, source);
     let mut reconcile = interval(RECONCILE_INTERVAL);
 

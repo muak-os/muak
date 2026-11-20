@@ -36,8 +36,6 @@ pub(super) fn handle_primary_recovery<N: Ops>(supervisor: &mut NetworkSupervisor
     kmsg::info!("Primary interface {} recovered", name);
     if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
         kmsg::warn!("Unexpected state during primary recovery: {}", e);
-    } else {
-        supervisor.publish_state();
     }
 }
 
@@ -70,8 +68,6 @@ pub(super) fn handle_backup_recovery<N: Ops>(
 
     if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
         kmsg::warn!("Unexpected state restoring primary {}: {}", recovered, e);
-    } else {
-        supervisor.publish_state();
     }
 }
 
@@ -82,8 +78,6 @@ pub(super) async fn handle_primary_failure<N: Ops>(
     kmsg::warn!("Primary interface {} failed", name);
     if let Err(e) = supervisor.state.transition(NetworkState::Degraded) {
         kmsg::warn!("Unexpected state during primary failure: {}", e);
-    } else {
-        supervisor.publish_state();
     }
 
     try_failover_to_backup(supervisor, name).await;
@@ -147,7 +141,5 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
 
     if let Err(e) = supervisor.state.transition(NetworkState::Operational) {
         kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
-    } else {
-        supervisor.publish_state();
     }
 }

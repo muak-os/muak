@@ -10,7 +10,7 @@ use crate::statemachine::StateMachine as _;
 use crate::supervisor::state::NetworkState;
 
 /// Point-in-time view of the entire network subsystem.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) struct NetworkSnapshot {
     pub state: NetworkState,
     pub primary: Option<Name>,

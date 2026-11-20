@@ -46,7 +46,7 @@ pub(super) async fn run<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
         }
     }
 
-    supervisor.sync_and_publish();
+    supervisor.sync_and_flush();
 }
 
 /// Reapplies an Ethernet interface intent when the port still owns the configuration.

@@ -87,7 +87,7 @@ fn on_link_added<N: Ops>(
         supervisor.state.backups.insert(pos, name);
     }
 
-    supervisor.sync_and_publish();
+    supervisor.sync_and_flush();
 }
 
 async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
@@ -104,7 +104,7 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
         supervisor.state.backups.retain(|n| n != &name);
     }
 
-    supervisor.sync_and_publish();
+    supervisor.sync_and_flush();
 }
 
 // Logs a monitor failure and reconciles immediately. A lost or stalled link event

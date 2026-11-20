@@ -19,12 +19,10 @@ const CARRIER_TIMEOUT_SECS: u64 = 6;
 pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) -> Result<()> {
     kmsg::info!("Discovering ethernet interfaces");
     supervisor.state.transition(NetworkState::Initializing)?;
-    supervisor.publish_state();
 
     let mut discovered = supervisor.ops.discover_ethernet().await?;
     if discovered.is_empty() {
         supervisor.state.transition(NetworkState::Degraded)?;
-        supervisor.publish_state();
         bail!("no ethernet interfaces found");
     }
 
@@ -40,7 +38,6 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
     let any_carrier = carrier_states.values().any(|&has_carrier| has_carrier);
     if !any_carrier {
         supervisor.state.transition(NetworkState::Degraded)?;
-        supervisor.publish_state();
         bail!(
             "no carrier detected on any interface after {CARRIER_TIMEOUT_SECS}s - check cable connections"
         );
@@ -54,7 +51,7 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
     select_primary_interface(supervisor, &discovered)?;
 
     supervisor.state.transition(NetworkState::Operational)?;
-    supervisor.sync_and_publish();
+    supervisor.sync_and_flush();
     kmsg::info!(
         "Discovered {} interfaces, primary={:?}",
         discovered.len(),
