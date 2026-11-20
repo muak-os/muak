@@ -5,6 +5,10 @@
   - https://github.com/llvm/llvm-project/pull/148045
   - https://github.com/MicrosoftDocs/win32/pull/2075
 
+- Remove C compiler from build chain
+  - Use `graviola` instead of `ring` (removes support for rpi4, doesn't support RISC-V)
+  - Use `rust-backend` in `zstd` (worse perf and still needs a C compiler for x86)
+
 - Automatically bump toolchain in all organization on release
 
 - Enhance `e2e` tests
@@ -37,7 +41,7 @@
 - Enhance `koci`:
   - Support custom HTTP proxy
   - Support for self-signed certificates
-  - Add a new libs/sandbox to create `koci build` allowing us to replace `docker` and `podman` in our build chain
+  - `koci build` and `koci run` allowing us to replace `docker` and `podman` in our build chain
 
 - Sign all images in catalog (stub, kernel, sbcs etc)
   - Sign extensions and verify them for better supply chain security
@@ -60,7 +64,7 @@
     - RISC-V 64: `riscv64gc-unknown-none-elf`
 
 - Orchestrator for multiple node cluster to manage VMs, like Kubernetes but for VMs or like Proxmox VE cluster management
-  - WireGuard tunnel?
+  - WireGuard tunnel? (`tailcat` like)
   - Service accounts based on auth TOFU we have.
 
 - Update firmware with a simple `muakctl update --firmware` command (like `fwupd`)
