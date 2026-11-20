@@ -13,6 +13,8 @@
 extern crate alloc;
 
 pub mod error;
+#[cfg(feature = "cli")]
+pub mod progress;
 pub mod schema;
 
 #[cfg(feature = "cli")]
