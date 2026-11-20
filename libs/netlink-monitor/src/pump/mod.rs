@@ -148,13 +148,14 @@ async fn handle_del_link(
     config: &Config,
     link_states: &mut HashMap<u32, bool>,
 ) {
+    link_states.remove(&msg.header.index);
+
     let Some((raw_name, index, _)) = extract_link_info(&msg) else {
         return;
     };
     if !device::is_ethernet(&raw_name) {
         return;
     }
-    link_states.remove(&index);
     if !config.monitor_link_changes {
         return;
     }
@@ -360,7 +361,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_del_link_ignores_non_ethernet_and_missing_names() {
+    async fn handle_del_link_emits_no_event_for_non_ethernet_and_missing_names() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
         let mut states = HashMap::from([(1, true)]);
@@ -383,7 +384,10 @@ mod tests {
 
         // ASSERT
         rx.try_recv().unwrap_err();
-        assert!(states.contains_key(&1));
+        assert!(
+            !states.contains_key(&1),
+            "state is dropped before the ethernet filter, so a renamed link leaves nothing behind"
+        );
     }
 
     #[tokio::test]

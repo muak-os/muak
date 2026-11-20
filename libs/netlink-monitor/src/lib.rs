@@ -11,6 +11,7 @@ use std::io;
 
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
+use rtnetlink::MulticastGroup;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
@@ -93,8 +94,6 @@ impl Default for Config {
 
 /// Starts the network event monitor, returning a receiver of [`Event`] values.
 ///
-/// Must be called from within a Tokio runtime.
-///
 /// # Errors
 ///
 /// Returns an error when creating the netlink connection fails or when the
@@ -102,7 +101,8 @@ impl Default for Config {
 pub async fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
     let (tx, rx) = mpsc::channel(32);
     let (connection, handle, mut messages) =
-        rtnetlink::new_connection().map_err(Failure::Connection)?;
+        rtnetlink::new_multicast_connection(&[MulticastGroup::Link])
+            .map_err(Failure::Connection)?;
 
     tokio::spawn(async move {
         let () = connection.await;
