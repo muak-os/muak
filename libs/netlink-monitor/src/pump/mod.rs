@@ -35,9 +35,9 @@ async fn process_message(
     let NetlinkPayload::InnerMessage(route_msg) = message.payload else {
         return;
     };
-    if let Err(error) = handle_message(route_msg, tx, config, link_states).await {
-        // A failed send means the receiver is gone (monitor shutting down), so the error is dropped.
-        let _send_failed = tx.send(Event::Error(error)).await.is_err();
+    let index = link_index(&route_msg);
+    if let Err(failure) = handle_message(route_msg, tx, config, link_states).await {
+        let _dropped = tx.try_send(Event::Error { index, failure }).is_err();
     }
 }
 
@@ -106,6 +106,7 @@ async fn handle_new_link(
     } else {
         let _send_failed = tx.send(Event::Down { name, index }).await.is_err();
     }
+
     Ok(())
 }
 
@@ -158,7 +159,18 @@ async fn handle_del_link(
         return Ok(());
     };
     let _send_failed = tx.send(Event::Deleted { name, index }).await.is_err();
+
     Ok(())
+}
+
+fn link_index(msg: &RouteNetlinkMessage) -> Option<u32> {
+    if let &RouteNetlinkMessage::NewLink(ref link_msg)
+    | &RouteNetlinkMessage::DelLink(ref link_msg) = msg
+    {
+        return Some(link_msg.header.index);
+    }
+
+    None
 }
 
 fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
@@ -172,6 +184,7 @@ fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)
 #[cfg(test)]
 mod tests {
     use rtnetlink::packet_core::NetlinkHeader;
+    use rtnetlink::packet_route::address::AddressMessage;
     use rtnetlink::packet_route::link::LinkAttribute;
 
     use super::*;
@@ -215,6 +228,24 @@ mod tests {
             monitor_link_state: false,
             monitor_link_changes: true,
         }
+    }
+
+    #[test]
+    fn link_index_extracts_new_and_del_link_indices() {
+        // ARRANGE
+        let new_link = RouteNetlinkMessage::NewLink(link_message(Some("eth0"), 7, None, true));
+        let del_link = RouteNetlinkMessage::DelLink(link_message(Some("eth0"), 8, None, false));
+        let new_address = RouteNetlinkMessage::NewAddress(AddressMessage::default());
+
+        // ACT
+        let new_index = link_index(&new_link);
+        let del_index = link_index(&del_link);
+        let address_index = link_index(&new_address);
+
+        // ASSERT
+        assert_eq!(new_index, Some(7));
+        assert_eq!(del_index, Some(8));
+        assert_eq!(address_index, None);
     }
 
     #[tokio::test]

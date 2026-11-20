@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use netlink::link;
 use netlink::link::device::{self, Device};
 
-use crate::Result;
+use crate::{Failure, Result};
 
 pub(super) async fn state(
     link: &impl link::Ops,
@@ -16,7 +16,7 @@ pub(super) async fn state(
         name,
         carrier,
         ..
-    } in link.devices().await?
+    } in link.devices().await.map_err(Failure::List)?
     {
         if !device::is_ethernet(&name) {
             continue;

@@ -19,9 +19,12 @@ pub enum Failure {
     /// Failed to create netlink connection.
     #[error("failed to create netlink connection: {0}")]
     Connection(#[source] io::Error),
-    /// Failed to enumerate links.
+    /// Failed to enumerate links during the initial scan.
     #[error("failed to enumerate links: {0}")]
-    List(#[from] netlink::link::Failure),
+    List(#[source] netlink::link::Failure),
+    /// Failed to handle or inspect a link message.
+    #[error("failed to handle link message: {0}")]
+    Message(#[source] netlink::link::Failure),
 }
 
 /// Monitor operation result type.
@@ -61,7 +64,12 @@ pub enum Event {
         index: u32,
     },
     /// Monitor failed to handle a netlink message.
-    Error(Failure),
+    Error {
+        /// Kernel interface index of the message, when the message carried one.
+        index: Option<u32>,
+        /// Underlying monitor failure.
+        failure: Failure,
+    },
 }
 
 /// Controls which categories of events the monitor emits.
@@ -121,5 +129,32 @@ mod tests {
         // ASSERT
         assert!(config.monitor_link_state);
         assert!(config.monitor_link_changes);
+    }
+
+    #[test]
+    fn failure_message_reports_link_message_context() {
+        // ARRANGE
+        let failure = Failure::Message(netlink::link::Failure::NotFound("eth9".to_owned()));
+
+        // ACT
+        let text = failure.to_string();
+
+        // ASSERT
+        assert_eq!(text, "failed to handle link message: link 'eth9' not found");
+    }
+
+    #[test]
+    fn failure_list_reports_enumeration_context() {
+        // ARRANGE
+        let failure = Failure::List(netlink::link::Failure::NotFound("eth9".to_owned()));
+
+        // ACT
+        let text = failure.to_string();
+
+        // ASSERT
+        assert!(
+            text.starts_with("failed to enumerate links: "),
+            "got {text}"
+        );
     }
 }

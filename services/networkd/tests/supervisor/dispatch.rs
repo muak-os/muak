@@ -240,9 +240,10 @@ async fn monitor_error_event_keeps_supervisor_responsive() {
 
     // ACT
     event_tx
-        .send(Event::Error(Failure::Connection(std::io::Error::other(
-            "mock monitor failure",
-        ))))
+        .send(Event::Error {
+            index: None,
+            failure: Failure::Connection(std::io::Error::other("mock monitor failure")),
+        })
         .await
         .expect("send error event failed");
     let name = Name::new("eth0").expect("valid name");
@@ -259,6 +260,56 @@ async fn monitor_error_event_keeps_supervisor_responsive() {
         reconciled.is_ok() && reconciled.expect("timeout").is_ok(),
         "supervisor should keep processing events after a monitor error"
     );
+    drop(event_tx);
+}
+
+#[tokio::test]
+async fn monitor_error_event_reconciles_immediately() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    let idx = mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default())
+        .expect("start failed");
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    let addr = (core::net::Ipv4Addr::new(10, 0, 0, 2), 24);
+    let limit = Duration::from_secs(5);
+    let step = Duration::from_millis(10);
+    let mut waited = Duration::ZERO;
+    while !ipv4_addrs(&mock, idx).contains(&addr) && waited < limit {
+        sleep(step).await;
+        waited += step;
+    }
+    assert!(
+        ipv4_addrs(&mock, idx).contains(&addr),
+        "provisioning must apply {addr:?}"
+    );
+
+    mock.remove_ipv4(idx, addr.0).await.expect("remove failed");
+    assert!(
+        !ipv4_addrs(&mock, idx).contains(&addr),
+        "drift must be removed before the error event"
+    );
+
+    // ACT
+    event_tx
+        .send(Event::Error {
+            index: Some(idx),
+            failure: Failure::Message(netlink::link::Failure::NotFound("mock".to_owned())),
+        })
+        .await
+        .expect("send error event failed");
+
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    let addrs = ipv4_addrs(&mock, idx);
+    assert!(addrs.contains(&addr), "expected {addr:?} in {addrs:?}");
     drop(event_tx);
 }
 

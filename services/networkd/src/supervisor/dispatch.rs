@@ -4,9 +4,9 @@ use mac::format as format_mac;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
-use netlink_monitor::Event;
+use netlink_monitor::{Event, Failure};
 
-use super::{NetworkSupervisor, failover};
+use super::{NetworkSupervisor, failover, reconcile};
 use crate::interface::commands::Command;
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
@@ -20,7 +20,7 @@ pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, 
             on_link_added(supervisor, name, index, mac);
         }
         Event::Deleted { name, index } => on_link_deleted(supervisor, name, index).await,
-        Event::Error(error) => kmsg::warn!("Network event monitor error: {error}"),
+        Event::Error { index, failure } => on_monitor_error(supervisor, index, failure).await,
     }
 }
 
@@ -105,4 +105,17 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
     }
 
     supervisor.sync_and_publish();
+}
+
+async fn on_monitor_error<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    index: Option<u32>,
+    failure: Failure,
+) {
+    match index {
+        Some(index) => kmsg::warn!("Network event monitor error (index {index}): {failure}"),
+        None => kmsg::warn!("Network event monitor error: {failure}"),
+    }
+
+    reconcile::run(supervisor).await;
 }
