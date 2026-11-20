@@ -4,6 +4,7 @@ use anyhow::{Context as _, Result};
 use clap::Parser;
 use kata::compose::plan::Selections;
 use kata::compose::{self, Policy};
+use kata::progress::Reporter;
 
 use crate::cli::registry_prefix;
 
@@ -42,7 +43,7 @@ pub(super) struct Args {
 }
 
 /// Execute the `compose` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, reporter: &dyn Reporter) -> Result<()> {
     let Args {
         release,
         dir,
@@ -57,7 +58,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
     };
     let registry = registry_prefix();
 
-    let written = compose::run(
+    compose::run(
         &compose::Input {
             dir,
             registry: &registry,
@@ -67,13 +68,9 @@ pub(crate) fn run(args: Args) -> Result<()> {
             policy: if auto { Policy::Auto } else { Policy::Carried },
             force,
         },
-        &kata::progress::Noop,
+        reporter,
     )
     .context("Failed to compose line")?;
-
-    for path in written {
-        println!("Wrote {}", path.display());
-    }
 
     Ok(())
 }

@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
+use kata::progress::Reporter;
 use kata::verify;
 
 use crate::cli::registry_prefix;
@@ -20,19 +21,11 @@ pub(super) struct Args {
 }
 
 /// Execute the `verify` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, reporter: &dyn Reporter) -> Result<()> {
     let Args { release, dir } = args;
 
-    let verified = verify::run(
-        &dir,
-        release.as_deref(),
-        &registry_prefix(),
-        &kata::progress::Noop,
-    )
-    .context("Verification failed")?;
-    for verified in verified {
-        println!("Verified {}", verified.line);
-    }
+    verify::run(&dir, release.as_deref(), &registry_prefix(), reporter)
+        .context("Verification failed")?;
 
     Ok(())
 }

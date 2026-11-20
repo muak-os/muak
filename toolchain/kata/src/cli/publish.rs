@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
+use kata::progress::Reporter;
 use kata::publish;
 use koci::arch::Arch;
 
@@ -33,7 +34,7 @@ pub(super) struct Args {
 }
 
 /// Execute the `publish` subcommand.
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(args: Args, reporter: &dyn Reporter) -> Result<()> {
     let Args {
         release,
         channel,
@@ -43,7 +44,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
     } = args;
     let registry = registry_prefix();
 
-    let published = publish::run(
+    publish::run(
         &publish::Input {
             dir,
             release,
@@ -52,12 +53,9 @@ pub(crate) fn run(args: Args) -> Result<()> {
             arch,
             force,
         },
-        &kata::progress::Noop,
+        reporter,
     )
     .context("Failed to publish catalog")?;
-    for published in published {
-        println!("Published {}", published.reference);
-    }
 
     Ok(())
 }
