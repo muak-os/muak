@@ -19,7 +19,8 @@ use crate::{Failure, Result, Scratch};
 ///
 /// Returns [`Failure::Timeout`] when a response does not arrive in time, [`Failure::Nak`] when
 /// the server refuses the request, [`Failure::MissingServerId`] when the offer carries no server
-/// identifier, and any message, framing or socket failure of the exchange.
+/// identifier, [`Failure::MissingAddress`] when a response carries no usable address, and any
+/// message, framing or socket failure of the exchange.
 pub async fn acquire(socket: &Socket, mac: [u8; 6], scratch: Scratch<'_>) -> Result<Lease> {
     let Scratch { msg, frame } = scratch;
     let xid = xid::generate()?;
@@ -34,7 +35,8 @@ pub async fn acquire(socket: &Socket, mac: [u8; 6], scratch: Scratch<'_>) -> Res
     )
     .await?;
 
-    let (offered_ip, offer) = recv::raw(socket, frame, xid, message_type::OFFER).await?;
+    let (offered, offer) = recv::raw(socket, frame, xid, message_type::OFFER).await?;
+    let offered_ip = lease_address(offered, None)?;
     let server_id = offer.server_id.ok_or(Failure::MissingServerId)?;
 
     let request = builder::request(
@@ -53,7 +55,8 @@ pub async fn acquire(socket: &Socket, mac: [u8; 6], scratch: Scratch<'_>) -> Res
     )
     .await?;
 
-    let (assigned_ip, ack) = recv::raw(socket, frame, xid, message_type::ACK).await?;
+    let (received, ack) = recv::raw(socket, frame, xid, message_type::ACK).await?;
+    let assigned_ip = lease_address(received, Some(offered_ip))?;
 
     Ok(Lease::from_ack(
         SystemTime::now(),
@@ -82,7 +85,8 @@ pub async fn renew(
     let request = builder::request(msg, xid, mac, assigned, builder::Mode::Unicast)?;
     socket.send_to(request, (server, DHCP_SERVER_PORT)).await?;
 
-    let (assigned_ip, ack) = recv::ack(socket, frame, xid).await?;
+    let (received, ack) = recv::ack(socket, frame, xid, server).await?;
+    let assigned_ip = lease_address(received, Some(assigned))?;
 
     Ok(Lease::from_ack(SystemTime::now(), assigned_ip, server, ack))
 }
@@ -106,9 +110,18 @@ pub async fn rebind(
     let request = builder::request(msg, xid, mac, assigned, builder::Mode::Broadcast)?;
     send(socket, request, assigned, Ipv4Addr::BROADCAST, frame).await?;
 
-    let (assigned_ip, ack) = recv::raw(socket, frame, xid, message_type::ACK).await?;
+    let (received, ack) = recv::raw(socket, frame, xid, message_type::ACK).await?;
+    let assigned_ip = lease_address(received, Some(assigned))?;
 
     Ok(Lease::from_ack(SystemTime::now(), assigned_ip, server, ack))
+}
+
+fn lease_address(received: Ipv4Addr, fallback: Option<Ipv4Addr>) -> Result<Ipv4Addr> {
+    if !received.is_unspecified() {
+        return Ok(received);
+    }
+
+    fallback.ok_or(Failure::MissingAddress)
 }
 
 async fn send(
@@ -130,4 +143,49 @@ async fn send(
     socket.send_to(wrapped, ETH_BROADCAST).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use core::net::Ipv4Addr;
+
+    use super::lease_address;
+    use crate::Failure;
+
+    #[test]
+    fn lease_address_prefers_received() {
+        // ARRANGE
+        let received = Ipv4Addr::new(10, 0, 0, 5);
+        let fallback = Some(Ipv4Addr::new(10, 0, 0, 9));
+
+        // ACT
+        let result = lease_address(received, fallback);
+
+        // ASSERT
+        assert!(matches!(result, Ok(address) if address == received));
+    }
+
+    #[test]
+    fn lease_address_uses_fallback_for_zero() {
+        // ARRANGE
+        let fallback = Some(Ipv4Addr::new(10, 0, 0, 9));
+
+        // ACT
+        let result = lease_address(Ipv4Addr::UNSPECIFIED, fallback);
+
+        // ASSERT
+        assert!(matches!(result, Ok(address) if address == Ipv4Addr::new(10, 0, 0, 9)));
+    }
+
+    #[test]
+    fn lease_address_fails_without_fallback() {
+        // ARRANGE
+        let received = Ipv4Addr::UNSPECIFIED;
+
+        // ACT
+        let result = lease_address(received, None);
+
+        // ASSERT
+        assert!(matches!(result, Err(Failure::MissingAddress)));
+    }
 }
