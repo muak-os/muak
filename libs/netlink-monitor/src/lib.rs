@@ -6,7 +6,7 @@ mod pump;
 
 use std::io;
 
-use netlink::link::Name;
+use netlink::link::ifname::Name;
 use thiserror::Error;
 use tokio::sync::mpsc;
 

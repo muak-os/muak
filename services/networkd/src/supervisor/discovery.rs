@@ -5,7 +5,7 @@ use core::time::Duration;
 use anyhow::{Result, bail};
 use netdev::Ops;
 use netdev::interface::{Ethernet, Selector};
-use netlink::link::State;
+use netlink::link::state::State;
 
 use super::NetworkSupervisor;
 use crate::interface::lifecycle::Lifecycle;

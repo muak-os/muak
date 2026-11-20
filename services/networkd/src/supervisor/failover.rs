@@ -1,7 +1,7 @@
 //! Primary/backup promotion and failover policy for the network supervisor.
 
 use netdev::Ops;
-use netlink::link::Name;
+use netlink::link::ifname::Name;
 
 use super::NetworkSupervisor;
 use crate::interface::commands::{ApplyMode, Command};

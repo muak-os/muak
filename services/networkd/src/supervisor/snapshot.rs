@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 
 use anyhow::Result;
-use netlink::link::Name;
+use netlink::link::ifname::Name;
 
 use crate::interface::snapshot::Snapshot;
 use crate::statemachine::StateMachine as _;

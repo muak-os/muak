@@ -3,7 +3,8 @@
 use anyhow::Result;
 use dhcp_client::lease::Lease;
 use netlink::address::{IpConfig, Ipv6Config};
-use netlink::link::{Name, State};
+use netlink::link::ifname::Name;
+use netlink::link::state::State;
 
 use super::lifecycle::{DhcpState, Lifecycle};
 use crate::statemachine::StateMachine as _;

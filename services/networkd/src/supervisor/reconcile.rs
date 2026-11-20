@@ -3,7 +3,8 @@
 use anyhow::Result;
 use config::system::network;
 use netdev::Ops;
-use netlink::link::{Name, State};
+use netlink::link::ifname::Name;
+use netlink::link::state::State;
 use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
 
 use super::{NetworkSupervisor, provision};

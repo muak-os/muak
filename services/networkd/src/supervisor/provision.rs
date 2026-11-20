@@ -8,7 +8,7 @@ use config::system::network::{
     BridgeConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
 };
 use netdev::Ops;
-use netlink::link::Name;
+use netlink::link::ifname::Name;
 use tokio::sync::{oneshot, watch};
 
 use super::NetworkSupervisor;
