@@ -14,7 +14,7 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use commands::SupervisorCommand;
 use config::system::network;
 use netdev::Ops;
@@ -240,15 +240,18 @@ impl NetworkActorHandle {
 
 /// Starts the network supervisor with a live `netlink` connection.
 ///
+/// Must be called from within a Tokio runtime.
+///
 /// # Errors
 ///
-/// Returns an error if the `netlink` connection cannot be established.
-pub fn start() -> Result<NetworkActorHandle> {
+/// Returns an error if the `netlink` connection cannot be established or the
+/// network event monitor cannot be started.
+pub async fn start() -> Result<NetworkActorHandle> {
     let ops = Rtnl::connect()?;
-    let event_rx = start_events_monitor();
+    let event_rx = start_events_monitor().await?;
     let config = Arc::new(network()?.clone());
 
-    start_with(ops, event_rx, config, Resolver::default())
+    start_with(ops, Some(event_rx), config, Resolver::default())
 }
 
 /// Starts the supervisor with injected dependencies.
@@ -398,16 +401,12 @@ fn retry_delay(base: Duration, max: Duration, attempt: u32) -> Duration {
     base.checked_mul(multiplier).unwrap_or(max).min(max)
 }
 
-fn start_events_monitor() -> Option<mpsc::Receiver<Event>> {
+async fn start_events_monitor() -> Result<mpsc::Receiver<Event>> {
     let config = Config::default();
-    match netlink_monitor::start(config) {
-        Ok(rx) => {
-            println!("Network event monitoring enabled");
-            Some(rx)
-        }
-        Err(e) => {
-            eprintln!("Failed to start network monitor: {e}");
-            None
-        }
-    }
+    let rx = netlink_monitor::start(config)
+        .await
+        .context("failed to start network event monitor")?;
+    println!("Network event monitoring enabled");
+
+    Ok(rx)
 }

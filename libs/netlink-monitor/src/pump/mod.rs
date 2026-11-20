@@ -1,10 +1,9 @@
 //! Netlink message pump that turns link notifications into monitor events.
 
-mod scan;
+pub(super) mod scan;
 
 use std::collections::HashMap;
 
-use netlink::link;
 use netlink::link::device;
 use netlink::link::ifname::Name;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
@@ -18,18 +17,12 @@ use crate::{Config, Event, Result};
 
 pub(super) async fn run<S>(
     config: &Config,
-    link: &impl link::Ops,
     messages: &mut S,
     tx: &mpsc::Sender<Event>,
+    mut link_states: HashMap<u32, bool>,
 ) where
     S: Stream<Item = (NetlinkMessage<RouteNetlinkMessage>, SocketAddr)> + Unpin,
 {
-    let mut link_states: HashMap<u32, bool> = HashMap::new();
-
-    if let Err(e) = scan::initial_scan(link, &mut link_states).await {
-        println!("Initial interface scan failed: {e}");
-    }
-
     while let Some((message, _)) = messages.next().await {
         process_message(message, tx, config, &mut link_states).await;
     }

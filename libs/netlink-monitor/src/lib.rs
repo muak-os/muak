@@ -4,6 +4,7 @@
 
 mod pump;
 
+use std::collections::HashMap;
 use std::io;
 
 use netlink::Rtnl;
@@ -79,10 +80,13 @@ impl Default for Config {
 
 /// Starts the network event monitor, returning a receiver of [`Event`] values.
 ///
+/// Must be called from within a Tokio runtime.
+///
 /// # Errors
 ///
-/// Returns an error when creating the netlink connection fails.
-pub fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
+/// Returns an error when creating the netlink connection fails or when the
+/// initial link scan fails.
+pub async fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
     let (tx, rx) = mpsc::channel(32);
     let (connection, handle, mut messages) =
         rtnetlink::new_connection().map_err(Failure::Connection)?;
@@ -92,12 +96,13 @@ pub fn start(config: Config) -> Result<mpsc::Receiver<Event>> {
     });
 
     let rtnl = Rtnl::new(handle);
+    let mut link_states: HashMap<u32, bool> = HashMap::new();
+    pump::scan::initial_scan(&rtnl, &mut link_states).await?;
 
     tokio::spawn(async move {
-        pump::run(&config, &rtnl, &mut messages, &tx).await;
+        pump::run(&config, &mut messages, &tx, link_states).await;
     });
 
-    println!("Network event monitor started");
     Ok(rx)
 }
 

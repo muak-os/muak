@@ -11,7 +11,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.status("Initializing network subsystem", Health::Healthy)?;
 
-    let handle = supervisor::start()?;
+    let handle = supervisor::start().await?;
 
     notifier.status("Setting up network", Health::Healthy)?;
     handle.initialize_with_retry().await?;
