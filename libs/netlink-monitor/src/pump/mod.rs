@@ -1,8 +1,10 @@
 //! Netlink message pump that turns link notifications into monitor events.
 
+mod scan;
+
 use std::collections::HashMap;
 
-use netlink::link::{self, Name, is_ethernet};
+use netlink::link::{Name, is_ethernet};
 use rtnetlink::Handle;
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::packet_route::RouteNetlinkMessage;
@@ -11,7 +13,7 @@ use rtnetlink::sys::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt as _};
 
-use crate::{Config, Event, Failure, Result};
+use crate::{Config, Event, Result};
 
 pub(super) async fn run<S>(
     config: &Config,
@@ -21,9 +23,9 @@ pub(super) async fn run<S>(
 ) where
     S: Stream<Item = (NetlinkMessage<RouteNetlinkMessage>, SocketAddr)> + Unpin,
 {
-    let mut link_states: HashMap<u32, (String, bool)> = HashMap::new();
+    let mut link_states: HashMap<u32, bool> = HashMap::new();
 
-    if let Err(e) = initial_scan(handle, &mut link_states).await {
+    if let Err(e) = scan::initial_scan(handle, &mut link_states).await {
         println!("Initial interface scan failed: {e}");
     }
 
@@ -32,35 +34,11 @@ pub(super) async fn run<S>(
     }
 }
 
-async fn initial_scan(
-    handle: &Handle,
-    link_states: &mut HashMap<u32, (String, bool)>,
-) -> Result<()> {
-    let mut links = handle.link().get().execute();
-    while let Some(link_msg) = links.try_next().await.map_err(Failure::List)? {
-        let Some((name, index, _)) = extract_link_info(&link_msg) else {
-            continue;
-        };
-        if !is_ethernet(&name) {
-            continue;
-        }
-        let has_carrier = link_msg.header.flags.contains(LinkFlags::LowerUp);
-        let is_admin_up = link_msg.header.flags.contains(LinkFlags::Up);
-        link_states.insert(index, (name.clone(), has_carrier));
-        println!(
-            "Initial state: {name} (index {index}) = admin:{} carrier:{}",
-            if is_admin_up { "up" } else { "down" },
-            if has_carrier { "yes" } else { "no" }
-        );
-    }
-    Ok(())
-}
-
 async fn process_message(
     message: NetlinkMessage<RouteNetlinkMessage>,
     tx: &mpsc::Sender<Event>,
     config: &Config,
-    link_states: &mut HashMap<u32, (String, bool)>,
+    link_states: &mut HashMap<u32, bool>,
 ) {
     let NetlinkPayload::InnerMessage(route_msg) = message.payload else {
         return;
@@ -74,16 +52,16 @@ async fn handle_message(
     msg: RouteNetlinkMessage,
     tx: &mpsc::Sender<Event>,
     config: &Config,
-    link_states: &mut HashMap<u32, (String, bool)>,
+    link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
+    if !config.monitor_link_changes && !config.monitor_link_state {
+        return Ok(());
+    }
+
     if let RouteNetlinkMessage::NewLink(link_msg) = msg {
-        if config.monitor_link_changes || config.monitor_link_state {
-            handle_new_link(link_msg, tx, link_states).await?;
-        }
-    } else if let RouteNetlinkMessage::DelLink(link_msg) = msg
-        && config.monitor_link_changes
-    {
-        handle_del_link(link_msg, tx, link_states).await?;
+        handle_new_link(link_msg, tx, config, link_states).await?;
+    } else if let RouteNetlinkMessage::DelLink(link_msg) = msg {
+        handle_del_link(link_msg, tx, config, link_states).await?;
     } else {
         return Ok(());
     }
@@ -91,19 +69,13 @@ async fn handle_message(
     Ok(())
 }
 
-fn extract_link_info(msg: &LinkMessage) -> Option<(String, u32, Option<[u8; 6]>)> {
-    let index = msg.header.index;
-    let name = link::extract_name(msg)?;
-    let mac = link::extract_mac(msg);
-    Some((name, index, mac))
-}
-
 async fn handle_new_link(
     msg: LinkMessage,
     tx: &mpsc::Sender<Event>,
-    link_states: &mut HashMap<u32, (String, bool)>,
+    config: &Config,
+    link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
-    let Some((raw_name, index, mac)) = extract_link_info(&msg) else {
+    let Some((raw_name, index, mac)) = scan::extract_link_info(&msg) else {
         return Ok(());
     };
     if !is_ethernet(&raw_name) {
@@ -112,22 +84,36 @@ async fn handle_new_link(
 
     let carrier_present = msg.header.flags.contains(LinkFlags::LowerUp);
 
-    match link_states.get(&index) {
-        Some(&(_, previous_carrier)) if carrier_present != previous_carrier => {
-            let Some(name) = Name::new(raw_name.clone()).ok() else {
-                return Ok(());
-            };
-            if carrier_present {
-                println!("Carrier detected: {name} (index {index})");
-                let _send_failed = tx.send(Event::Up { name, index }).await.is_err();
-            } else {
-                println!("Carrier lost: {name} (index {index})");
-                let _send_failed = tx.send(Event::Down { name, index }).await.is_err();
-            }
-            link_states.insert(index, (raw_name, carrier_present));
-        }
-        Some(_) => {}
-        None => emit_link_added(raw_name, index, mac, carrier_present, tx, link_states).await,
+    let Some(previous_carrier) = link_states.get(&index).copied() else {
+        emit_link_added(
+            raw_name,
+            index,
+            mac,
+            carrier_present,
+            tx,
+            config,
+            link_states,
+        )
+        .await;
+        return Ok(());
+    };
+    if carrier_present == previous_carrier {
+        return Ok(());
+    }
+    if !config.monitor_link_state {
+        link_states.insert(index, carrier_present);
+        return Ok(());
+    }
+    let Some(name) = Name::new(raw_name).ok() else {
+        return Ok(());
+    };
+    link_states.insert(index, carrier_present);
+    if carrier_present {
+        println!("Carrier detected: {name} (index {index})");
+        let _send_failed = tx.send(Event::Up { name, index }).await.is_err();
+    } else {
+        println!("Carrier lost: {name} (index {index})");
+        let _send_failed = tx.send(Event::Down { name, index }).await.is_err();
     }
     Ok(())
 }
@@ -138,46 +124,54 @@ async fn emit_link_added(
     mac: Option<[u8; 6]>,
     carrier_present: bool,
     tx: &mpsc::Sender<Event>,
-    link_states: &mut HashMap<u32, (String, bool)>,
+    config: &Config,
+    link_states: &mut HashMap<u32, bool>,
 ) {
-    if let Some(mac_addr) = mac {
-        let Some(name) = Name::new(raw_name.clone()).ok() else {
-            link_states.insert(index, (raw_name, carrier_present));
-            return;
-        };
-        println!(
-            "New link added: {name} (index {index}, MAC {})",
-            mac::format(&mac_addr)
-        );
-        let _send_failed = tx
-            .send(Event::Added {
-                name,
-                index,
-                mac: mac_addr,
-            })
-            .await
-            .is_err();
+    link_states.insert(index, carrier_present);
+    if !config.monitor_link_changes {
+        return;
     }
-    link_states.insert(index, (raw_name, carrier_present));
+    let Some(mac_addr) = mac else {
+        return;
+    };
+    let Some(name) = Name::new(raw_name).ok() else {
+        return;
+    };
+    println!(
+        "New link added: {name} (index {index}, MAC {})",
+        mac::format(&mac_addr)
+    );
+    let _send_failed = tx
+        .send(Event::Added {
+            name,
+            index,
+            mac: mac_addr,
+        })
+        .await
+        .is_err();
 }
 
 async fn handle_del_link(
     msg: LinkMessage,
     tx: &mpsc::Sender<Event>,
-    link_states: &mut HashMap<u32, (String, bool)>,
+    config: &Config,
+    link_states: &mut HashMap<u32, bool>,
 ) -> Result<()> {
-    let Some((raw_name, index, _)) = extract_link_info(&msg) else {
+    let Some((raw_name, index, _)) = scan::extract_link_info(&msg) else {
         return Ok(());
     };
     if !is_ethernet(&raw_name) {
         return Ok(());
     }
-    let Some(name) = Name::new(raw_name.clone()).ok() else {
+    link_states.remove(&index);
+    if !config.monitor_link_changes {
+        return Ok(());
+    }
+    let Some(name) = Name::new(raw_name).ok() else {
         return Ok(());
     };
     println!("Link deleted: {name} (index {index})");
     let _send_failed = tx.send(Event::Deleted { name, index }).await.is_err();
-    link_states.remove(&index);
     Ok(())
 }
 
@@ -215,40 +209,54 @@ mod tests {
         }
     }
 
+    fn state_only() -> Config {
+        Config {
+            monitor_link_state: true,
+            monitor_link_changes: false,
+        }
+    }
+
+    fn changes_only() -> Config {
+        Config {
+            monitor_link_state: false,
+            monitor_link_changes: true,
+        }
+    }
+
     #[tokio::test]
     async fn handle_new_link_emits_up_on_carrier_gain() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(2, ("eth0".to_owned(), false))]);
+        let mut states = HashMap::from([(2, false)]);
         let link = link_message(Some("eth0"), 2, None, true);
 
         // ACT
-        handle_new_link(link, &tx, &mut states)
+        handle_new_link(link, &tx, &config(), &mut states)
             .await
             .expect("event should handle");
         let event = rx.recv().await.expect("event should be sent");
 
         // ASSERT
         assert!(matches!(event, Event::Up { ref name, index } if name == "eth0" && index == 2));
-        assert_eq!(states.get(&2), Some(&("eth0".to_owned(), true)));
+        assert_eq!(states.get(&2), Some(&true));
     }
 
     #[tokio::test]
     async fn handle_new_link_emits_down_on_carrier_loss() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(2, ("eth0".to_owned(), true))]);
+        let mut states = HashMap::from([(2, true)]);
         let link = link_message(Some("eth0"), 2, None, false);
 
         // ACT
-        handle_new_link(link, &tx, &mut states)
+        handle_new_link(link, &tx, &config(), &mut states)
             .await
             .expect("event should handle");
         let event = rx.recv().await.expect("event should be sent");
 
         // ASSERT
         assert!(matches!(event, Event::Down { ref name, index } if name == "eth0" && index == 2));
-        assert_eq!(states.get(&2), Some(&("eth0".to_owned(), false)));
+        assert_eq!(states.get(&2), Some(&false));
     }
 
     #[tokio::test]
@@ -260,7 +268,7 @@ mod tests {
         let link = link_message(Some("eth0"), 2, Some(mac), true);
 
         // ACT
-        handle_new_link(link, &tx, &mut states)
+        handle_new_link(link, &tx, &config(), &mut states)
             .await
             .expect("event should handle");
         let event = rx.recv().await.expect("event should be sent");
@@ -268,7 +276,7 @@ mod tests {
         // ASSERT
         assert!(matches!(event, Event::Added { ref name, index, mac: got }
             if name == "eth0" && index == 2 && got == mac));
-        assert_eq!(states.get(&2), Some(&("eth0".to_owned(), true)));
+        assert_eq!(states.get(&2), Some(&true));
     }
 
     #[tokio::test]
@@ -279,13 +287,13 @@ mod tests {
         let link = link_message(Some("eth0"), 2, None, false);
 
         // ACT
-        handle_new_link(link, &tx, &mut states)
+        handle_new_link(link, &tx, &config(), &mut states)
             .await
             .expect("event should handle");
 
         // ASSERT
         rx.try_recv().unwrap_err();
-        assert_eq!(states.get(&2), Some(&("eth0".to_owned(), false)));
+        assert_eq!(states.get(&2), Some(&false));
     }
 
     #[tokio::test]
@@ -295,12 +303,22 @@ mod tests {
         let mut states = HashMap::new();
 
         // ACT
-        handle_new_link(link_message(Some("lo"), 1, None, true), &tx, &mut states)
-            .await
-            .expect("event should handle");
-        handle_new_link(link_message(None, 2, None, true), &tx, &mut states)
-            .await
-            .expect("event should handle");
+        handle_new_link(
+            link_message(Some("lo"), 1, None, true),
+            &tx,
+            &config(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        handle_new_link(
+            link_message(None, 2, None, true),
+            &tx,
+            &config(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
 
         // ASSERT
         rx.try_recv().unwrap_err();
@@ -311,28 +329,28 @@ mod tests {
     async fn handle_new_link_ignores_unchanged_carrier() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(2, ("eth0".to_owned(), true))]);
+        let mut states = HashMap::from([(2, true)]);
         let link = link_message(Some("eth0"), 2, None, true);
 
         // ACT
-        handle_new_link(link, &tx, &mut states)
+        handle_new_link(link, &tx, &config(), &mut states)
             .await
             .expect("event should handle");
 
         // ASSERT
         rx.try_recv().unwrap_err();
-        assert_eq!(states.get(&2), Some(&("eth0".to_owned(), true)));
+        assert_eq!(states.get(&2), Some(&true));
     }
 
     #[tokio::test]
     async fn handle_del_link_emits_deleted_and_removes_state() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(2, ("eth0".to_owned(), true))]);
+        let mut states = HashMap::from([(2, true)]);
         let link = link_message(Some("eth0"), 2, None, false);
 
         // ACT
-        handle_del_link(link, &tx, &mut states)
+        handle_del_link(link, &tx, &config(), &mut states)
             .await
             .expect("event should handle");
         let event = rx.recv().await.expect("event should be sent");
@@ -348,15 +366,25 @@ mod tests {
     async fn handle_del_link_ignores_non_ethernet_and_missing_names() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(1, ("lo".to_owned(), true))]);
+        let mut states = HashMap::from([(1, true)]);
 
         // ACT
-        handle_del_link(link_message(Some("lo"), 1, None, false), &tx, &mut states)
-            .await
-            .expect("event should handle");
-        handle_del_link(link_message(None, 2, None, false), &tx, &mut states)
-            .await
-            .expect("event should handle");
+        handle_del_link(
+            link_message(Some("lo"), 1, None, false),
+            &tx,
+            &config(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        handle_del_link(
+            link_message(None, 2, None, false),
+            &tx,
+            &config(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
 
         // ASSERT
         rx.try_recv().unwrap_err();
@@ -364,10 +392,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_message_removes_state_on_delete_when_link_changes_disabled() {
+        // ARRANGE
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut states = HashMap::from([(2, true)]);
+        let mac = [1, 2, 3, 4, 5, 6];
+
+        // ACT
+        handle_message(
+            RouteNetlinkMessage::DelLink(link_message(Some("eth0"), 2, None, true)),
+            &tx,
+            &state_only(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        handle_message(
+            RouteNetlinkMessage::NewLink(link_message(Some("eth0"), 2, Some(mac), false)),
+            &tx,
+            &config(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        let event = rx.recv().await.expect("event should be sent");
+
+        // ASSERT
+        assert!(matches!(event, Event::Added { ref name, index, mac: got }
+            if name == "eth0" && index == 2 && got == mac));
+        assert_eq!(states.get(&2), Some(&false));
+    }
+
+    #[tokio::test]
+    async fn handle_message_records_state_without_added_when_changes_disabled() {
+        // ARRANGE
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut states = HashMap::new();
+        let mac = [1, 2, 3, 4, 5, 6];
+
+        // ACT
+        handle_message(
+            RouteNetlinkMessage::NewLink(link_message(Some("eth0"), 2, Some(mac), false)),
+            &tx,
+            &state_only(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        handle_message(
+            RouteNetlinkMessage::NewLink(link_message(Some("eth0"), 2, None, true)),
+            &tx,
+            &state_only(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        let event = rx.recv().await.expect("event should be sent");
+
+        // ASSERT
+        assert!(matches!(event, Event::Up { ref name, index } if name == "eth0" && index == 2));
+        rx.try_recv().unwrap_err();
+        assert_eq!(states.get(&2), Some(&true));
+    }
+
+    #[tokio::test]
+    async fn handle_message_skips_state_events_when_link_state_disabled() {
+        // ARRANGE
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut states = HashMap::new();
+        let mac = [1, 2, 3, 4, 5, 6];
+
+        // ACT
+        handle_message(
+            RouteNetlinkMessage::NewLink(link_message(Some("eth0"), 2, Some(mac), false)),
+            &tx,
+            &changes_only(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        handle_message(
+            RouteNetlinkMessage::NewLink(link_message(Some("eth0"), 2, None, true)),
+            &tx,
+            &changes_only(),
+            &mut states,
+        )
+        .await
+        .expect("event should handle");
+        let event = rx.recv().await.expect("event should be sent");
+
+        // ASSERT
+        assert!(matches!(event, Event::Added { ref name, index, mac: got }
+            if name == "eth0" && index == 2 && got == mac));
+        rx.try_recv().unwrap_err();
+        assert_eq!(states.get(&2), Some(&true));
+    }
+
+    #[tokio::test]
     async fn handle_message_respects_config_flags() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(2, ("eth0".to_owned(), false))]);
+        let mut states = HashMap::from([(2, false)]);
         let disabled = Config {
             monitor_link_state: false,
             monitor_link_changes: false,
@@ -385,14 +510,14 @@ mod tests {
 
         // ASSERT
         rx.try_recv().unwrap_err();
-        assert_eq!(states.get(&2), Some(&("eth0".to_owned(), false)));
+        assert_eq!(states.get(&2), Some(&false));
     }
 
     #[tokio::test]
     async fn process_message_dispatches_inner_messages_only() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
-        let mut states = HashMap::from([(2, ("eth0".to_owned(), false))]);
+        let mut states = HashMap::from([(2, false)]);
         let message = NetlinkMessage::new(
             NetlinkHeader::default(),
             NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(link_message(
