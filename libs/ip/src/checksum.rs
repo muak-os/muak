@@ -7,9 +7,6 @@ pub fn sum(data: &[u8]) -> u16 {
 }
 
 /// Computes the 16 bit one's complement checksum of `chunks` summed as one stream.
-///
-/// Every chunk must have an even length, since the checksum is defined over 16 bit words, so a
-/// pseudo header and a payload can be summed without being concatenated.
 #[must_use = "callers need the checksum"]
 pub fn sum_chunks(chunks: &[&[u8]]) -> u16 {
     debug_assert!(

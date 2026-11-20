@@ -11,10 +11,6 @@ const ALL_ROUTERS: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
 const NEXT_HEADER_ICMPV6: u8 = 58;
 
 /// Constructs an `ICMPv6` Router Solicitation packet.
-///
-/// `source` is the address the datagram will be sent from. The source link-layer address option
-/// is included only when `source` is not the unspecified address, because RFC 4861 section 4.1
-/// forbids the option when the IP source address is unspecified.
 #[must_use = "dropping it means no solicitation is sent"]
 pub fn router_solicitation(source: Ipv6Addr, mac: &[u8; 6]) -> Vec<u8> {
     let mut pkt = Vec::with_capacity(16);

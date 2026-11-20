@@ -27,6 +27,9 @@ pub enum Failure {
     /// Offer carries no server identifier option.
     #[error("no server identifier in DHCPOFFER")]
     MissingServerId,
+    /// The response carried no usable address and no fallback address was available.
+    #[error("DHCP response carried no usable address")]
+    MissingAddress,
     /// Message construction or response validation failed.
     #[error("{0}")]
     Proto(#[source] dhcp_proto::Failure),

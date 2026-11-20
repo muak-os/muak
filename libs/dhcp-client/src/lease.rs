@@ -57,6 +57,7 @@ impl Lease {
         });
         let renewal = lease_seconds.saturating_div(2);
         let rebind = lease_seconds.saturating_mul(7).saturating_div(8);
+        let server_ip = options.server_id.unwrap_or(server_ip);
 
         Self {
             obtained_at,
@@ -158,6 +159,57 @@ mod tests {
         );
         assert!(lease.gateway.is_none());
         assert_eq!(lease.dns_servers, Vec::<Ipv4Addr>::new());
+    }
+
+    #[test]
+    fn from_ack_adopts_server_identifier() {
+        // ARRANGE
+        let started_with = Ipv4Addr::new(192, 168, 1, 1);
+        let answered_by = Ipv4Addr::new(192, 168, 1, 254);
+        let options = ParsedOptions {
+            message_type: Some(message_type::ACK),
+            server_id: Some(answered_by),
+            subnet_mask: None,
+            router: None,
+            dns_servers: Vec::new(),
+            lease_time: None,
+        };
+
+        // ACT
+        let lease = Lease::from_ack(
+            SystemTime::UNIX_EPOCH,
+            Ipv4Addr::new(10, 0, 0, 1),
+            started_with,
+            options,
+        );
+
+        // ASSERT
+        assert_eq!(lease.server_ip, answered_by);
+    }
+
+    #[test]
+    fn from_ack_keeps_server_without_identifier() {
+        // ARRANGE
+        let started_with = Ipv4Addr::new(192, 168, 1, 1);
+        let options = ParsedOptions {
+            message_type: Some(message_type::ACK),
+            server_id: None,
+            subnet_mask: None,
+            router: None,
+            dns_servers: Vec::new(),
+            lease_time: None,
+        };
+
+        // ACT
+        let lease = Lease::from_ack(
+            SystemTime::UNIX_EPOCH,
+            Ipv4Addr::new(10, 0, 0, 1),
+            started_with,
+            options,
+        );
+
+        // ASSERT
+        assert_eq!(lease.server_ip, started_with);
     }
 
     #[test]
