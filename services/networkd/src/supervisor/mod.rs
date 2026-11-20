@@ -8,6 +8,7 @@ mod failover;
 mod monitor;
 mod provision;
 mod reconcile;
+mod selection;
 mod snapshot;
 mod state;
 
@@ -22,8 +23,9 @@ use netdev::Ops;
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
 use netlink_monitor::Event;
+use selection::SupervisorEvent;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{Interval, interval, sleep};
+use tokio::time::{interval, sleep};
 
 use crate::dns::Resolver;
 use crate::interface::commands::Command;
@@ -46,14 +48,6 @@ struct NetworkSupervisor<N: Ops> {
 #[derive(Clone)]
 pub struct NetworkActorHandle {
     tx: mpsc::Sender<SupervisorCommand>,
-}
-
-/// A single event selected from the supervisor's input sources.
-enum SupervisorEvent {
-    Command(SupervisorCommand),
-    Netlink(Event),
-    PrimaryChanged,
-    ReconcileTick,
 }
 
 impl<N: Ops> NetworkSupervisor<N> {
@@ -269,7 +263,7 @@ async fn supervisor_loop<N: Ops>(
             .and_then(|primary| supervisor.interfaces.get(primary))
             .map(|handle| handle.state_rx.clone());
 
-        let event = supervisor_select(
+        let event = selection::wait(
             &mut cmd_rx,
             &mut event_rx,
             &mut primary_snap_rx,
@@ -287,59 +281,12 @@ async fn supervisor_loop<N: Ops>(
                 monitor::handle_event(&mut supervisor, &mut event_rx, event).await;
             }
             SupervisorEvent::PrimaryChanged => {
-                maybe_failover_primary(&mut supervisor).await;
+                failover::switch_if_needed(&mut supervisor).await;
                 dns::flush(&mut supervisor);
             }
             SupervisorEvent::ReconcileTick => reconcile::run(&mut supervisor).await,
         }
     }
-}
-
-// Fails over when the elected primary's interface exhausted its DHCP attempts.
-async fn maybe_failover_primary<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
-    if !failover::is_primary_failed(supervisor) {
-        return;
-    }
-    let Some(primary) = supervisor.state.primary.clone() else {
-        return;
-    };
-    failover::handle_primary_failure(supervisor, &primary).await;
-}
-
-/// Waits for the next command, netlink event, primary snapshot change, or reconcile tick.
-async fn supervisor_select(
-    cmd_rx: &mut mpsc::Receiver<SupervisorCommand>,
-    event_rx: &mut mpsc::Receiver<Event>,
-    primary_snap_rx: &mut Option<watch::Receiver<Arc<Snapshot>>>,
-
-    reconcile: &mut Interval,
-) -> Option<SupervisorEvent> {
-    let mut cmd_fut = core::pin::pin!(cmd_rx.recv());
-    let mut event_fut = core::pin::pin!(event_rx.recv());
-    let mut snap_fut = core::pin::pin!(async {
-        match primary_snap_rx.as_mut() {
-            Some(rx) => rx.changed().await,
-            None => core::future::pending().await,
-        }
-    });
-    let mut tick_fut = core::pin::pin!(reconcile.tick());
-
-    core::future::poll_fn(|cx| {
-        if let core::task::Poll::Ready(Some(cmd)) = cmd_fut.as_mut().poll(cx) {
-            return core::task::Poll::Ready(Some(SupervisorEvent::Command(cmd)));
-        }
-        if let core::task::Poll::Ready(Some(event)) = event_fut.as_mut().poll(cx) {
-            return core::task::Poll::Ready(Some(SupervisorEvent::Netlink(event)));
-        }
-        if let core::task::Poll::Ready(Ok(())) = snap_fut.as_mut().poll(cx) {
-            return core::task::Poll::Ready(Some(SupervisorEvent::PrimaryChanged));
-        }
-        if tick_fut.as_mut().poll(cx).is_ready() {
-            return core::task::Poll::Ready(Some(SupervisorEvent::ReconcileTick));
-        }
-        core::task::Poll::Pending
-    })
-    .await
 }
 
 async fn initialize_with_retry(

@@ -89,6 +89,17 @@ pub(super) async fn handle_primary_failure<N: Ops>(
     try_failover_to_backup(supervisor, name).await;
 }
 
+/// Switches the primary when the elected primary's interface has exhausted its DHCP attempts.
+pub(super) async fn switch_if_needed<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
+    if !is_primary_failed(supervisor) {
+        return;
+    }
+    let Some(primary) = supervisor.state.primary.clone() else {
+        return;
+    };
+    handle_primary_failure(supervisor, &primary).await;
+}
+
 pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: &Name) {
     kmsg::info!("Primary interface {} removed", name);
 
