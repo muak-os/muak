@@ -82,6 +82,15 @@ impl Console {
         writeln!(std::io::stdout(), "{}", self.paint(message, role))
     }
 
+    /// Writes `message` to standard output verbatim, without a trailing newline, even when quiet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when writing to standard output fails.
+    pub fn write(&self, message: &str) -> std::io::Result<()> {
+        std::io::stdout().write_all(message.as_bytes())
+    }
+
     /// Formats a `Warning:` line for standard error.
     #[must_use = "callers need the styled text to print it"]
     pub fn warning(&self, message: &str) -> String {
