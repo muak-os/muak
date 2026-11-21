@@ -1,13 +1,11 @@
 //! Supervisor event selection: waits for the next command, monitor event, L3 owner change, or reconcile tick.
 
-use alloc::sync::Arc;
-
 use netlink_monitor::Event;
+use netstack::interface::Snapshot;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Interval;
 
 use super::commands::SupervisorCommand;
-use crate::interface::snapshot::Snapshot;
 
 /// A single event selected from the supervisor's input sources.
 pub(super) enum SupervisorEvent {
@@ -21,7 +19,7 @@ pub(super) enum SupervisorEvent {
 pub(super) async fn wait(
     cmd_rx: &mut mpsc::Receiver<SupervisorCommand>,
     event_rx: &mut mpsc::Receiver<Event>,
-    owner_snap_rx: Option<&mut watch::Receiver<Arc<Snapshot>>>,
+    owner_snap_rx: Option<&mut watch::Receiver<Snapshot>>,
     reconcile: &mut Interval,
 ) -> Option<SupervisorEvent> {
     let mut cmd_fut = core::pin::pin!(cmd_rx.recv());

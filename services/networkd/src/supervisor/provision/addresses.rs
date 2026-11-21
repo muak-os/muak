@@ -1,15 +1,18 @@
 //! Address provisioning helpers for the network supervisor.
 
+use alloc::vec::Vec;
+
 use anyhow::Result;
 #[cfg(feature = "ipv6")]
 use config::system::network::Ipv6InterfaceConfig;
 use config::system::network::{InterfaceConfig, Ipv4InterfaceConfig};
 use netdev::Ops;
 use netlink::link::ifname::Name;
+use netstack::interface::Command;
+use netstack::provision;
 
 use super::super::NetworkSupervisor;
-use super::{actor_index, resolve_name, resolve_owner, send_command};
-use crate::interface::commands::{ApplyMode, Command};
+use super::{handle, resolve_name, resolve_owner, send_command};
 
 // Applies every configured address to the interface that owns L3.
 pub(super) async fn apply_all<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
@@ -32,98 +35,90 @@ async fn apply<N: Ops>(
     let owner = resolve_owner(supervisor, &name);
     supervisor.ops.ensure_up(name.as_str()).await?;
 
-    if let Some(ipv4_cfg) = iface_cfg.ipv4.as_ref() {
-        let index = actor_index(supervisor, &owner)?;
-        ipv4(supervisor, &owner, index, ipv4_cfg).await?;
-    }
-
-    #[cfg(feature = "ipv6")]
-    if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
-        let index = actor_index(supervisor, &owner)?;
-        ipv6(supervisor, &owner, index, ipv6_cfg).await?;
-    }
-
-    Ok(())
+    configure(supervisor, &owner, iface_cfg).await
 }
 
-async fn ipv4<N: Ops>(
+/// Sends the address configuration declared on `iface_cfg` to `owner`.
+pub(in crate::supervisor) async fn configure<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
-    iface_name: &Name,
-    index: u32,
-    ipv4_cfg: &Ipv4InterfaceConfig,
+    owner: &Name,
+    iface_cfg: &InterfaceConfig,
 ) -> Result<()> {
-    let actor_handle = supervisor
-        .interfaces
-        .get(iface_name)
-        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
+    let v4 = iface_cfg
+        .ipv4
+        .as_ref()
+        .and_then(|cfg| v4_config(supervisor, cfg));
+    #[cfg(feature = "ipv6")]
+    let v6 = iface_cfg
+        .ipv6
+        .as_ref()
+        .and_then(|cfg| v6_config(supervisor, cfg));
+    #[cfg(not(feature = "ipv6"))]
+    let v6: Option<provision::v6::Config> = None;
 
-    kmsg::info!("Configuring IPv4 on interface: {iface_name}");
-
-    if ipv4_cfg.dhcp {
-        send_command(
-            actor_handle,
-            Command::ConfigureDhcp {
-                mode: ApplyMode::Provision,
-            },
-            iface_name,
-        )
-        .await?;
+    if v4.is_none() && v6.is_none() {
         return Ok(());
     }
 
-    if !ipv4_cfg.addresses.is_empty() {
-        send_command(
-            actor_handle,
-            Command::ConfigureStaticIpv4 {
-                mode: ApplyMode::Provision,
-                index,
-                addresses: ipv4_cfg.addresses.clone(),
-                gateway: ipv4_cfg.gateway,
-            },
-            iface_name,
-        )
-        .await?;
+    let target = handle(supervisor, owner)?;
+    send_command(target, Command::Configure { v4, v6 }, owner).await
+}
+
+fn v4_config<N: Ops>(
+    supervisor: &NetworkSupervisor<N>,
+    cfg: &Ipv4InterfaceConfig,
+) -> Option<provision::v4::Config> {
+    let dns = supervisor.config.ipv4_dns().collect();
+    if cfg.dhcp {
+        return Some(provision::v4::Config {
+            addresses: Vec::new(),
+            gateway: None,
+            dns,
+            dhcp: true,
+        });
+    }
+    if cfg.addresses.is_empty() {
+        return None;
     }
 
-    Ok(())
+    Some(provision::v4::Config {
+        addresses: cfg
+            .addresses
+            .iter()
+            .map(|cidr| (cidr.address, cidr.prefix))
+            .collect(),
+        gateway: cfg.gateway,
+        dns,
+        dhcp: false,
+    })
 }
 
 #[cfg(feature = "ipv6")]
-async fn ipv6<N: Ops>(
+fn v6_config<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
-    iface_name: &Name,
-    index: u32,
-    ipv6_cfg: &Ipv6InterfaceConfig,
-) -> Result<()> {
-    let actor_handle = supervisor
-        .interfaces
-        .get(iface_name)
-        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
-
-    if !ipv6_cfg.addresses.is_empty() {
-        send_command(
-            actor_handle,
-            Command::ConfigureStaticIpv6 {
-                mode: ApplyMode::Provision,
-                index,
-                addresses: ipv6_cfg.addresses.clone(),
-                gateway: ipv6_cfg.gateway,
-            },
-            iface_name,
-        )
-        .await?;
-        return Ok(());
+    cfg: &Ipv6InterfaceConfig,
+) -> Option<provision::v6::Config> {
+    let dns = supervisor.config.ipv6_dns().collect();
+    if !cfg.addresses.is_empty() {
+        return Some(provision::v6::Config {
+            addresses: cfg
+                .addresses
+                .iter()
+                .map(|cidr| (cidr.address, cidr.prefix))
+                .collect(),
+            gateway: cfg.gateway,
+            dns,
+            autoconf: false,
+        });
     }
-    if ipv6_cfg.autoconf && supervisor.config.ipv6 {
-        send_command(
-            actor_handle,
-            Command::ConfigureSlaac {
-                mode: ApplyMode::Provision,
-            },
-            iface_name,
-        )
-        .await?;
+    if cfg.autoconf && supervisor.config.ipv6 {
+        return Some(provision::v6::Config {
+            addresses: Vec::new(),
+            gateway: None,
+            dns,
+            autoconf: true,
+        });
     }
 
-    Ok(())
+    None
 }

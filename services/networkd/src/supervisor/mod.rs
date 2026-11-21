@@ -1,4 +1,4 @@
-//! Network supervisor that routes events, manages per-interface actors, and aggregates state.
+//! Network supervisor that routes events, drives interface controllers, and aggregates state.
 
 mod carrier;
 mod commands;
@@ -7,11 +7,13 @@ mod dispatch;
 mod dns;
 mod failover;
 mod monitor;
+mod owner;
 mod provision;
 mod reconcile;
 mod retry;
 mod selection;
 mod snapshot;
+mod view;
 
 use alloc::sync::Arc;
 use core::fmt;
@@ -22,18 +24,17 @@ use anyhow::Result;
 use commands::SupervisorCommand;
 use config::system::network;
 use netdev::Ops;
+use netdev::interface::Ethernet;
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use netlink_monitor::Event;
+use netstack::interface::{Command, Handle, Interface};
 use selection::SupervisorEvent;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
 
 use crate::dns::Resolver;
-use crate::interface::commands::Command;
-use crate::interface::snapshot::Snapshot;
-use crate::interface::{Actor, ActorHandle};
 use crate::statemachine::StateMachine;
 use crate::supervisor::snapshot::NetworkSnapshot;
 
@@ -96,7 +97,8 @@ struct NetworkSupervisor<N: Ops> {
     ops: N,
     config: Arc<network::Config>,
     state: NetworkSnapshot,
-    interfaces: HashMap<Name, ActorHandle>,
+    interfaces: HashMap<Name, Handle>,
+    owners: HashMap<Name, Name>,
     dns: Resolver,
     processed_events: u64,
 }
@@ -114,6 +116,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             config,
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
+            owners: HashMap::new(),
             dns,
             processed_events: 0,
         }
@@ -136,8 +139,9 @@ impl<N: Ops> NetworkSupervisor<N> {
     async fn reset(&mut self) {
         let handles: Vec<_> = self.interfaces.drain().map(|(_, handle)| handle).collect();
         for handle in handles {
-            drop(handle.cmd_tx.send(Command::Shutdown).await);
+            drop(handle.command_tx.send(Command::Shutdown).await);
         }
+        self.owners.clear();
         self.state = NetworkSnapshot::empty();
     }
 
@@ -165,12 +169,10 @@ impl<N: Ops> NetworkSupervisor<N> {
     }
 
     fn status(&self) -> Status {
-        let owner = failover::l3_owner(&self.state, &self.interfaces);
-        let owner_link = owner.and_then(|owner| {
-            self.interfaces
-                .get(owner)
-                .map(|handle| handle.state_rx.borrow().link)
-        });
+        let owner = owner::l3_owner(&self.state, &self.interfaces, &self.owners);
+        let owner_link = owner
+            .and_then(|owner| self.interfaces.get(owner))
+            .map(|handle| handle.snapshot_rx.borrow().link);
         Status {
             state: self.state.state,
             primary: self.state.primary.clone(),
@@ -181,15 +183,18 @@ impl<N: Ops> NetworkSupervisor<N> {
         }
     }
 
-    fn spawn_interface_actor(&mut self, snapshot: Snapshot) {
-        let name = snapshot.name.clone();
-        let actor_handle = Actor::spawn(snapshot, self.ops.clone(), Arc::clone(&self.config));
-        self.interfaces.insert(name, actor_handle);
+    fn spawn_interface(&mut self, link: Ethernet) {
+        let name = link.name.clone();
+        let handle = Interface::spawn(self.ops.clone(), link);
+        self.owners
+            .entry(name.clone())
+            .or_insert_with(|| name.clone());
+        self.interfaces.insert(name, handle);
     }
 
     async fn send_to_interface(&self, name: &Name, cmd: Command) {
         if let Some(handle) = self.interfaces.get(name) {
-            drop(handle.cmd_tx.send(cmd).await);
+            drop(handle.command_tx.send(cmd).await);
         }
     }
 }
@@ -309,11 +314,16 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     reconcile.tick().await;
 
     loop {
-        let owner = failover::l3_owner(&supervisor.state, &supervisor.interfaces).cloned();
+        let owner = owner::l3_owner(
+            &supervisor.state,
+            &supervisor.interfaces,
+            &supervisor.owners,
+        )
+        .cloned();
         let owner_snap_rx = owner
             .as_ref()
             .and_then(|owner| supervisor.interfaces.get_mut(owner))
-            .map(|handle| &mut handle.state_rx);
+            .map(|handle| &mut handle.snapshot_rx);
 
         let event = selection::wait(
             &mut cmd_rx,

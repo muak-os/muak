@@ -9,8 +9,5 @@
 extern crate alloc;
 
 pub mod dns;
-pub mod interface;
-#[cfg(feature = "ipv6")]
-pub mod slaac;
 pub mod statemachine;
 pub mod supervisor;

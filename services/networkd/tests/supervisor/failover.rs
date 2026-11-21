@@ -855,3 +855,63 @@ async fn port_flap_with_a_remaining_port_keeps_the_owner_up() {
     );
     drop(event_tx);
 }
+
+#[tokio::test]
+async fn bridge_recovery_keeps_the_promoted_primary() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], true);
+    mock.add_link("eth2", [0xCC; 6], true);
+    let bridge_name = Name::new("br0").expect("valid name");
+    let first_backup = Name::new("eth1").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+    let br_index = link_index(&mock, "br0").expect("the bridge must exist");
+
+    // ACT
+    event_tx
+        .send(Event::Down {
+            name: bridge_name.clone(),
+            index: br_index,
+        })
+        .await
+        .expect("send event failed");
+    wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Operational
+            && status.owner_link == Some(State::Up)
+    })
+    .await;
+
+    // ASSERT
+    let promoted = handle.status().await.expect("status query failed");
+    assert_eq!(
+        promoted.primary,
+        Some(first_backup.clone()),
+        "the bridge recovering must not promote a second backup"
+    );
+
+    // ACT
+    let before = promoted.processed_events;
+    event_tx
+        .send(Event::Up {
+            name: bridge_name,
+            index: br_index,
+        })
+        .await
+        .expect("send event failed");
+    let status = wait_for_events(&handle, before).await;
+
+    // ASSERT
+    assert_eq!(
+        status.primary,
+        Some(first_backup),
+        "recovering the bridge must not change the primary"
+    );
+    drop(event_tx);
+}

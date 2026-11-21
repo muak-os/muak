@@ -1474,15 +1474,13 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "dhcp-client",
  "granola",
  "kmsg",
  "mac",
  "netdev",
  "netlink",
  "netlink-monitor",
- "packet",
- "slaac",
+ "netstack",
  "tempfile",
  "tokio",
 ]

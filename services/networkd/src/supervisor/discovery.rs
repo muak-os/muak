@@ -8,8 +8,6 @@ use netdev::interface::{Ethernet, Selector};
 use netlink::link::state::State;
 
 use super::{NetworkSupervisor, dns};
-use crate::interface::lifecycle::Lifecycle;
-use crate::interface::snapshot::Snapshot;
 use crate::supervisor::NetworkState;
 
 /// Timeout for carrier detection when probing interfaces.
@@ -47,7 +45,7 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
         iface.link_state = carrier_link_state(carrier_states.get(&iface.index));
     }
 
-    spawn_interface_actors(supervisor, &discovered);
+    spawn_interfaces(supervisor, &discovered);
     select_primary_interface(supervisor, &discovered)?;
 
     supervisor.state.transition(NetworkState::Operational)?;
@@ -61,21 +59,9 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
     Ok(())
 }
 
-fn spawn_interface_actors<N: Ops>(supervisor: &mut NetworkSupervisor<N>, discovered: &[Ethernet]) {
+fn spawn_interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>, discovered: &[Ethernet]) {
     for iface in discovered {
-        let snapshot = Snapshot {
-            name: iface.name.clone(),
-            state: Lifecycle::Discovered,
-            index: iface.index,
-            mac: iface.mac_address,
-            link: iface.link_state,
-            ip: None,
-            lease: None,
-            dhcp_state: None,
-            ipv6: None,
-            l3_owner: iface.name.clone(),
-        };
-        supervisor.spawn_interface_actor(snapshot);
+        supervisor.spawn_interface(iface.clone());
     }
 }
 
