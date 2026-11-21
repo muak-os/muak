@@ -38,3 +38,8 @@ where
         sleep(POLL_PAUSE).await;
     }
 }
+
+/// Waits until the supervisor has dispatched more than `previous` netlink events.
+pub(crate) async fn wait_for_events(handle: &NetworkActorHandle, previous: u64) -> Status {
+    wait_for(handle, |status| status.processed_events > previous).await
+}

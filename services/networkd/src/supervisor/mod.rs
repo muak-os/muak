@@ -84,6 +84,8 @@ pub struct Status {
     /// Uplink candidates in failover preference order; entries are not
     /// guaranteed to be currently eligible.
     pub backups: Vec<Name>,
+    /// Netlink events dispatched since the supervisor started.
+    pub processed_events: u64,
 }
 
 struct NetworkSupervisor<N: Ops> {
@@ -92,6 +94,7 @@ struct NetworkSupervisor<N: Ops> {
     state: NetworkSnapshot,
     interfaces: HashMap<Name, ActorHandle>,
     dns: Resolver,
+    processed_events: u64,
 }
 
 #[derive(Clone)]
@@ -108,6 +111,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
             dns,
+            processed_events: 0,
         }
     }
 
@@ -162,6 +166,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             primary: self.state.primary.clone(),
             owner: failover::l3_owner(&self.state, &self.interfaces).cloned(),
             backups: self.state.backups.clone(),
+            processed_events: self.processed_events,
         }
     }
 
@@ -311,7 +316,10 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
 
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
-            SupervisorEvent::Netlink(event) => events.handle(&mut supervisor, event).await,
+            SupervisorEvent::Netlink(event) => {
+                events.handle(&mut supervisor, event).await;
+                supervisor.processed_events = supervisor.processed_events.saturating_add(1);
+            }
             SupervisorEvent::OwnerChanged => {
                 failover::switch_if_needed(&mut supervisor).await;
                 failover::recover_if_possible(&mut supervisor);

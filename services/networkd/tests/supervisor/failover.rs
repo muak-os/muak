@@ -6,10 +6,10 @@ use netlink::link::ifname::Name;
 use netlink_monitor::Event;
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 
 use super::*;
-use crate::fixtures::status::wait_for;
+use crate::fixtures::status::{wait_for, wait_for_events};
 
 #[tokio::test]
 async fn primary_link_down_triggers_failover_handling() {
@@ -36,8 +36,6 @@ async fn primary_link_down_triggers_failover_handling() {
         .await
         .expect("send event failed");
 
-    sleep(Duration::from_millis(200)).await;
-
     // ASSERT
     let status = wait_for(&handle, |status| {
         status.primary.as_ref() == Some(&backup_name)
@@ -57,6 +55,8 @@ async fn primary_link_down_then_up_triggers_recovery() {
     let mock = MockNetlinkOps::new();
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
     mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
@@ -64,37 +64,53 @@ async fn primary_link_down_then_up_triggers_recovery() {
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = Name::new("eth0").expect("valid name");
-
     // ACT
+    let before = handle
+        .status()
+        .await
+        .expect("the supervisor must stay responsive")
+        .processed_events;
     event_tx
         .send(Event::Down {
-            name: name.clone(),
+            name: primary_name.clone(),
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+    wait_for_events(&handle, before).await;
+
+    event_tx
+        .send(Event::Up {
+            name: primary_name.clone(),
             index: idx0,
         })
         .await
         .expect("send event failed");
 
-    sleep(Duration::from_millis(100)).await;
-
-    event_tx
-        .send(Event::Up { name, index: idx0 })
-        .await
-        .expect("send event failed");
-
-    sleep(Duration::from_millis(100)).await;
-
     // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Operational
+            && status.primary.as_ref() == Some(&primary_name)
+    })
+    .await;
+    assert_eq!(
+        status.backups,
+        vec![backup_name],
+        "the recovered interface must reclaim the primary role"
+    );
+
     drop(event_tx);
 }
 
 #[tokio::test]
-async fn backup_link_recovery_triggers_promotion() {
+async fn backup_recovery_keeps_the_configured_primary() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
     let idx1 = mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
@@ -102,20 +118,30 @@ async fn backup_link_recovery_triggers_promotion() {
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let backup_name = Name::new("eth1").expect("valid name");
-
     // ACT
+    let before = handle
+        .status()
+        .await
+        .expect("the supervisor must stay responsive")
+        .processed_events;
     event_tx
         .send(Event::Up {
-            name: backup_name,
+            name: backup_name.clone(),
             index: idx1,
         })
         .await
         .expect("send event failed");
-
-    sleep(Duration::from_millis(100)).await;
+    let status = wait_for_events(&handle, before).await;
 
     // ASSERT
+    assert_eq!(
+        status.primary,
+        Some(primary_name),
+        "a configured primary must not be replaced"
+    );
+    assert_eq!(status.state, supervisor::NetworkState::Ready);
+    assert_eq!(status.backups, vec![backup_name]);
+
     drop(event_tx);
 }
 
@@ -134,6 +160,7 @@ async fn primary_deleted_promotes_backup() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     let name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     // ACT
     event_tx
@@ -141,9 +168,16 @@ async fn primary_deleted_promotes_backup() {
         .await
         .expect("send event failed");
 
-    sleep(Duration::from_millis(200)).await;
-
     // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&backup_name)
+    })
+    .await;
+    assert_eq!(status.state, supervisor::NetworkState::Ready);
+    assert!(
+        status.backups.is_empty(),
+        "the promoted backup must leave no backups behind"
+    );
     drop(event_tx);
 }
 
@@ -167,8 +201,6 @@ async fn single_interface_deleted_leaves_no_primary() {
         .send(Event::Deleted { name, index: idx0 })
         .await
         .expect("send event failed");
-
-    sleep(Duration::from_millis(200)).await;
 
     // ASSERT
     let status = wait_for(&handle, |status| {
@@ -209,8 +241,6 @@ async fn all_interfaces_deleted_degrades_supervisor() {
         .await
         .expect("send");
 
-    sleep(Duration::from_millis(100)).await;
-
     let name1 = Name::new("eth1").expect("valid name");
     event_tx
         .send(Event::Deleted {
@@ -220,14 +250,14 @@ async fn all_interfaces_deleted_degrades_supervisor() {
         .await
         .expect("send");
 
-    sleep(Duration::from_millis(200)).await;
-
     // ASSERT
+    let status = wait_for(&handle, |status| status.primary.is_none()).await;
+    assert_eq!(status.state, supervisor::NetworkState::Degraded);
     drop(event_tx);
 }
 
 #[tokio::test]
-async fn rapid_primary_failover_and_recovery() {
+async fn repeated_failover_and_recovery_converges() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
@@ -240,14 +270,15 @@ async fn rapid_primary_failover_and_recovery() {
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
-    let name = Name::new("eth0").expect("valid name");
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     // ACT
     for _ in 0_i32..5_i32 {
         drop(
             event_tx
                 .send(Event::Down {
-                    name: name.clone(),
+                    name: primary_name.clone(),
                     index: idx0,
                 })
                 .await,
@@ -255,16 +286,20 @@ async fn rapid_primary_failover_and_recovery() {
         drop(
             event_tx
                 .send(Event::Up {
-                    name: name.clone(),
+                    name: primary_name.clone(),
                     index: idx0,
                 })
                 .await,
         );
     }
 
-    sleep(Duration::from_millis(300)).await;
-
     // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Operational
+            && status.primary.as_ref() == Some(&primary_name)
+    })
+    .await;
+    assert_eq!(status.backups, vec![backup_name]);
     drop(event_tx);
 }
 
@@ -284,23 +319,32 @@ async fn primary_link_up_when_ready_keeps_supervisor_alive() {
     let name = Name::new("eth0").expect("valid name");
 
     // ACT
+    let before = handle
+        .status()
+        .await
+        .expect("the supervisor must stay responsive")
+        .processed_events;
     event_tx
-        .send(Event::Up { name, index: idx0 })
+        .send(Event::Up {
+            name: name.clone(),
+            index: idx0,
+        })
         .await
         .expect("send failed");
-
-    sleep(Duration::from_millis(200)).await;
+    let status = wait_for_events(&handle, before).await;
 
     // ASSERT
-    timeout(Duration::from_secs(5), handle.reconcile())
-        .await
-        .expect("reconcile timed out")
-        .expect("the supervisor must stay responsive");
+    assert_eq!(
+        status.state,
+        supervisor::NetworkState::Ready,
+        "a link-up while ready must not change readiness"
+    );
+    assert_eq!(status.primary, Some(name));
     drop(event_tx);
 }
 
 #[tokio::test]
-async fn primary_down_then_backup_up_keeps_supervisor_alive() {
+async fn primary_recovery_restores_operational() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
@@ -319,29 +363,60 @@ async fn primary_down_then_backup_up_keeps_supervisor_alive() {
     // ACT
     event_tx
         .send(Event::Down {
-            name: primary_name,
+            name: primary_name.clone(),
             index: idx0,
         })
         .await
         .expect("send failed");
+    let status = wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&backup_name)
+    })
+    .await;
+    assert_eq!(
+        status.backups,
+        vec![primary_name.clone()],
+        "the failed primary becomes the only backup"
+    );
 
-    sleep(Duration::from_millis(100)).await;
+    event_tx
+        .send(Event::Down {
+            name: backup_name.clone(),
+            index: idx1,
+        })
+        .await
+        .expect("send failed");
+    // Orders the recovery event after the failure it has to undo.
+    let before = status.processed_events;
+    let degraded = wait_for_events(&handle, before).await;
+    assert_eq!(
+        degraded.state,
+        supervisor::NetworkState::Degraded,
+        "the last uplink going down must degrade the network"
+    );
+    assert_eq!(
+        degraded.primary,
+        Some(backup_name.clone()),
+        "the only uplink stays elected while it is down"
+    );
 
     event_tx
         .send(Event::Up {
-            name: backup_name,
+            name: backup_name.clone(),
             index: idx1,
         })
         .await
         .expect("send failed");
 
-    sleep(Duration::from_millis(200)).await;
-
     // ASSERT
-    timeout(Duration::from_secs(5), handle.reconcile())
-        .await
-        .expect("reconcile timed out")
-        .expect("the supervisor must stay responsive");
+    let status = wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Operational
+            && status.primary.as_ref() == Some(&backup_name)
+    })
+    .await;
+    assert!(
+        status.backups.contains(&primary_name),
+        "the failed primary must remain a backup"
+    );
     drop(event_tx);
 }
 
@@ -362,6 +437,11 @@ async fn double_link_down_keeps_the_primary() {
     let name = Name::new("eth0").expect("valid name");
 
     // ACT
+    let before = handle
+        .status()
+        .await
+        .expect("the supervisor must stay responsive")
+        .processed_events;
     event_tx
         .send(Event::Down {
             name: name.clone(),
@@ -369,8 +449,7 @@ async fn double_link_down_keeps_the_primary() {
         })
         .await
         .expect("send failed");
-
-    sleep(Duration::from_millis(100)).await;
+    let status = wait_for_events(&handle, before).await;
 
     event_tx
         .send(Event::Down {
@@ -379,8 +458,8 @@ async fn double_link_down_keeps_the_primary() {
         })
         .await
         .expect("send failed");
-
-    sleep(Duration::from_millis(200)).await;
+    let before = status.processed_events;
+    wait_for_events(&handle, before).await;
 
     // ASSERT
     let status = wait_for(&handle, |status| {
@@ -417,8 +496,10 @@ async fn delete_last_interface_when_degraded_keeps_supervisor_alive() {
         })
         .await
         .expect("send failed");
-
-    sleep(Duration::from_millis(100)).await;
+    wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Degraded
+    })
+    .await;
 
     event_tx
         .send(Event::Deleted {
@@ -428,12 +509,8 @@ async fn delete_last_interface_when_degraded_keeps_supervisor_alive() {
         .await
         .expect("send failed");
 
-    sleep(Duration::from_millis(200)).await;
-
     // ASSERT
-    timeout(Duration::from_secs(5), handle.reconcile())
-        .await
-        .expect("reconcile timed out")
-        .expect("the supervisor must stay responsive");
+    let status = wait_for(&handle, |status| status.primary.is_none()).await;
+    assert_eq!(status.state, supervisor::NetworkState::Degraded);
     drop(event_tx);
 }

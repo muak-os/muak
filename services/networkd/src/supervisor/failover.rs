@@ -11,6 +11,7 @@ use super::snapshot::NetworkSnapshot;
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
+use crate::interface::snapshot::Snapshot;
 
 pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
     supervisor.state.primary.as_ref() == Some(name)
@@ -67,11 +68,11 @@ pub(super) fn handle_backup_recovery<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     recovered: &Name,
 ) {
-    let eligible = supervisor
+    let owning = supervisor
         .interfaces
         .get(recovered)
-        .is_some_and(is_eligible_backup);
-    if !eligible {
+        .is_some_and(|handle| owns_l3(&handle.state_rx.borrow()));
+    if !owning {
         return;
     }
 
@@ -96,6 +97,10 @@ pub(super) fn handle_backup_recovery<N: Ops>(
     supervisor.state.backups.retain(|n| n != recovered);
     supervisor.state.backups.push(current_primary);
     supervisor.state.primary = Some(recovered.clone());
+
+    if let Some(handle) = supervisor.interfaces.get_mut(recovered) {
+        handle.state_rx.borrow_and_update();
+    }
 
     if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state restoring primary {}: {}", recovered, e);
@@ -161,10 +166,14 @@ pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<
     }
 }
 
+fn owns_l3(snapshot: &Snapshot) -> bool {
+    snapshot.l3_owner == snapshot.name
+}
+
 fn is_eligible_backup(handle: &ActorHandle) -> bool {
     let snapshot = handle.state_rx.borrow();
 
-    snapshot.l3_owner == snapshot.name && snapshot.link == State::Up
+    owns_l3(&snapshot) && snapshot.link == State::Up
 }
 
 async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed: &Name) {
@@ -265,6 +274,24 @@ mod tests {
             "a link without carrier must not be a backup"
         );
         assert!(ready_eligible, "a configured link with carrier is eligible");
+    }
+
+    #[test]
+    fn owns_l3_rejects_a_bridge_slave() {
+        // ARRANGE
+        let slave = handle("eth0", State::Up, "br0");
+        let owner = handle("eth0", State::Down, "eth0");
+
+        // ACT
+        let slave_owns_l3 = owns_l3(&slave.state_rx.borrow());
+        let owner_owns_l3 = owns_l3(&owner.state_rx.borrow());
+
+        // ASSERT
+        assert!(!slave_owns_l3, "a bridge slave must not own its L3 state");
+        assert!(
+            owner_owns_l3,
+            "an interface named after its L3 owner owns L3 regardless of carrier"
+        );
     }
 
     #[test]
