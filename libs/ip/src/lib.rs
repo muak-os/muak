@@ -19,9 +19,11 @@ pub enum Failure {
     #[error("truncated buffer: {0} bytes available, {1} bytes required")]
     Truncated(usize, usize),
     /// IPv4 IHL field declares a header that does not fit the buffer.
+    #[cfg(feature = "v4")]
     #[error("invalid IPv4 header length {0}")]
     BadIhl(usize),
     /// IPv4 protocol field is not UDP.
+    #[cfg(feature = "v4")]
     #[error("non-UDP protocol {0}")]
     NotUdp(u8),
     /// A length does not fit the narrowest length field that must carry it.
