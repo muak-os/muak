@@ -95,7 +95,10 @@ pub(in crate::supervisor) async fn configure<N: Ops>(
         },
         owner,
     )
-    .await
+    .await?;
+    kmsg::info!("Configuration sent to {}", owner.as_str());
+
+    Ok(())
 }
 
 #[cfg(feature = "ipv4")]

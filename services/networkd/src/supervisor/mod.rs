@@ -7,6 +7,7 @@ mod dispatch;
 mod dns;
 mod failover;
 mod monitor;
+mod notice;
 mod owner;
 mod provision;
 mod reconcile;
@@ -184,7 +185,11 @@ impl<N: Ops> NetworkSupervisor<N> {
 
     fn spawn_interface(&mut self, link: Ethernet) {
         let name = link.name.clone();
-        let (handle, _notices) = Interface::spawn(self.ops.clone(), link);
+        let (handle, notices) = Interface::spawn(self.ops.clone(), link);
+        #[cfg(feature = "ipv4")]
+        tokio::spawn(notice::log_v4(name.clone(), notices.v4));
+        #[cfg(feature = "ipv6")]
+        tokio::spawn(notice::log_v6(name.clone(), notices.v6));
         self.owners
             .entry(name.clone())
             .or_insert_with(|| name.clone());

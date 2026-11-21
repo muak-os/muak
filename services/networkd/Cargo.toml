@@ -35,5 +35,6 @@ netstack = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+dhcp-client = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

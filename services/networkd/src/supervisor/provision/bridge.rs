@@ -43,6 +43,10 @@ pub(in crate::supervisor) async fn ensure<N: Ops>(
     if !supervisor.interfaces.contains_key(&bridge_name) {
         let link = Ethernet::new(bridge_name.clone(), index, bridge.mac, bridge.link);
         supervisor.spawn_interface(link);
+        kmsg::info!(
+            "Bridge {bridge_name} ready with port {} (index {index})",
+            port.as_str()
+        );
     }
 
     supervisor.owners.insert(port, bridge_name.clone());
