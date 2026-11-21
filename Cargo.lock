@@ -1455,6 +1455,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "netstack"
+version = "0.0.0"
+dependencies = [
+ "dhcp-client",
+ "netlink",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "networkd"
 version = "0.0.0"
 dependencies = [

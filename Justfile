@@ -355,16 +355,16 @@ _feature-check flags *pkgs:
         for pkg in {{ pkgs }}; do
             extra=""
             case "$pkg" in
-                firmware | sbolt | partdev | packet) extra="--exclude-no-default-features" ;;
+                firmware | sbolt | partdev | packet | netstack) extra="--exclude-no-default-features" ;;
             esac
             cargo hack check {{ target }} --each-feature {{ flags }} --keep-going $extra -p "$pkg"
         done
     else
         cargo hack check {{ target }} --each-feature {{ flags }} --keep-going \
             --workspace --exclude e2e --exclude firmware --exclude sbolt \
-            --exclude partdev --exclude packet
+            --exclude partdev --exclude packet --exclude netstack
         cargo hack check {{ target }} --each-feature {{ flags }} --keep-going \
-            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet
+            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet -p netstack
     fi
 
 # Check every feature combination compiles (e.g., just features or just features yuki).

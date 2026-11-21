@@ -1,0 +1,26 @@
+[package]
+name = "netstack"
+description = "Address-method state machines and family-neutral interface controller"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["ipv4", "ipv6"]
+ipv4 = ["dep:dhcp-client"]
+ipv6 = []
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+dhcp-client = { workspace = true, optional = true }
+netlink = { workspace = true }
+
+[lints]
+workspace = true
