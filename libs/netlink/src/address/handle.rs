@@ -7,9 +7,35 @@ use rtnetlink::packet_route::address::AddressAttribute;
 use tokio_stream::StreamExt as _;
 
 use super::{Failure, Result};
+use crate::retry;
+
+const DUMP_ATTEMPTS: u8 = 3;
+const DUMP_RETRY_DELAY_MS: u64 = 50;
+const DUMP_INTERRUPTED: i32 = -16;
 
 /// Finds the first non-link-local IPv4 address and prefix length on a given interface.
 pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
+    retry::while_retriable(
+        || scan_ipv4(handle, index),
+        is_dump_interrupted,
+        DUMP_ATTEMPTS,
+        DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+/// Returns true if the interface has at least one IPv4 address assigned.
+pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
+    retry::while_retriable(
+        || scan_has_ipv4(handle, index),
+        is_dump_interrupted,
+        DUMP_ATTEMPTS,
+        DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
     let mut addrs = handle.address().get().execute();
 
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
@@ -24,8 +50,7 @@ pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv
     Ok(None)
 }
 
-/// Returns true if the interface has at least one IPv4 address assigned.
-pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
+async fn scan_has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
     let mut addrs = handle.address().get().execute();
 
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
@@ -42,6 +67,14 @@ pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
     }
 
     Ok(false)
+}
+
+fn is_dump_interrupted(failure: &Failure) -> bool {
+    matches!(
+        failure,
+        Failure::List(rtnetlink::Error::NetlinkError(error))
+            if error.raw_code() == DUMP_INTERRUPTED
+    )
 }
 
 /// Adds an IPv4 address with prefix length to the given interface.
@@ -176,10 +209,41 @@ fn find_v6_in_attributes(attributes: &[AddressAttribute]) -> Option<Ipv6Addr> {
 #[cfg(test)]
 mod tests {
     use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use core::num::NonZeroI32;
 
+    use rtnetlink::packet_core::ErrorMessage;
     use rtnetlink::packet_route::address::AddressAttribute;
 
-    use super::{find_v4_in_attributes, find_v6_in_attributes};
+    use super::{find_v4_in_attributes, find_v6_in_attributes, is_dump_interrupted};
+    use crate::address::Failure;
+
+    #[test]
+    fn is_dump_interrupted_matches_busy_error() {
+        // ARRANGE
+        let mut message = ErrorMessage::default();
+        message.code = NonZeroI32::new(-16_i32);
+        let failure = Failure::List(rtnetlink::Error::NetlinkError(message));
+
+        // ACT
+        let interrupted = is_dump_interrupted(&failure);
+
+        // ASSERT
+        assert!(interrupted);
+    }
+
+    #[test]
+    fn is_dump_interrupted_rejects_other_errors() {
+        // ARRANGE
+        let mut message = ErrorMessage::default();
+        message.code = NonZeroI32::new(-95_i32);
+        let failure = Failure::List(rtnetlink::Error::NetlinkError(message));
+
+        // ACT
+        let interrupted = is_dump_interrupted(&failure);
+
+        // ASSERT
+        assert!(!interrupted);
+    }
 
     #[test]
     fn find_v4_in_attributes_returns_first_ipv4_address() {

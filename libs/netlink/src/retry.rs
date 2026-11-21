@@ -85,6 +85,36 @@ where
     }
 }
 
+/// Retries an operation while `is_retriable` accepts its error.
+///
+/// # Errors
+///
+/// Returns the last error when an attempt is not retriable or when every attempt fails.
+pub async fn while_retriable<F, Fut, T, E, P>(
+    operation: F,
+    is_retriable: P,
+    max_retries: u8,
+    delay_ms: u64,
+) -> core::result::Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = core::result::Result<T, E>>,
+    P: Fn(&E) -> bool,
+{
+    let mut remaining = max_retries.max(1);
+
+    loop {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(error) if remaining > 1 && is_retriable(&error) => {
+                remaining = remaining.saturating_sub(1);
+            }
+            Err(error) => return Err(error),
+        }
+        sleep(Duration::from_millis(delay_ms)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::future::ready;
@@ -134,6 +164,66 @@ mod tests {
         // ASSERT
         assert_eq!(result.expect("operation should succeed"), 42_i32);
         assert_eq!(tries.load(Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn while_retriable_returns_first_success_without_retrying() {
+        // ARRANGE
+        let tries = AtomicU8::new(0);
+        let next_try = || tries.fetch_add(1, Relaxed);
+        let operation = || ready(Ok::<_, u8>(next_try()));
+
+        // ACT
+        let result = while_retriable(operation, |_| true, 3, 0).await;
+
+        // ASSERT
+        assert_eq!(result, Ok(0));
+        assert_eq!(tries.load(Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn while_retriable_succeeds_after_retriable_failures() {
+        // ARRANGE
+        let tries = AtomicU8::new(0);
+        let next_try = || tries.fetch_add(1, Relaxed);
+        let operation = || ready(next_try().ge(&2).then_some(7_i32).ok_or("busy"));
+
+        // ACT
+        let result = while_retriable(operation, |error| *error == "busy", 3, 0).await;
+
+        // ASSERT
+        assert_eq!(result, Ok(7_i32));
+        assert_eq!(tries.load(Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn while_retriable_returns_immediately_on_non_retriable_error() {
+        // ARRANGE
+        let tries = AtomicU8::new(0);
+        let next_try = || tries.fetch_add(1, Relaxed);
+        let operation = || ready(Err::<(), _>(next_try()));
+
+        // ACT
+        let result = while_retriable(operation, |error| *error == u8::MAX, 3, 0).await;
+
+        // ASSERT
+        assert_eq!(result, Err(0_u8));
+        assert_eq!(tries.load(Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn while_retriable_returns_last_error_after_exhausting_attempts() {
+        // ARRANGE
+        let tries = AtomicU8::new(0);
+        let next_try = || tries.fetch_add(1, Relaxed);
+        let operation = || ready(Err::<(), _>(next_try()));
+
+        // ACT
+        let result = while_retriable(operation, |_| true, 3, 0).await;
+
+        // ASSERT
+        assert_eq!(result, Err(2_u8));
+        assert_eq!(tries.load(Relaxed), 3);
     }
 
     #[tokio::test]
