@@ -64,8 +64,8 @@ async fn ethernet<N: Ops>(
     }
 
     if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
-        let index = provision::actor_index(supervisor, &iface_name)?;
-        ipv6(supervisor, &iface_name, index, ipv6_cfg).await?;
+        let index = provision::actor_index(supervisor, &target)?;
+        ipv6(supervisor, &target, index, ipv6_cfg).await?;
     }
 
     Ok(ReconcileDisposition::Applied)

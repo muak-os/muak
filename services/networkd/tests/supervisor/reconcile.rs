@@ -376,6 +376,42 @@ async fn reconcile_reapplies_bridge_own_ipv4() {
 }
 
 #[tokio::test]
+async fn reconcile_keeps_ipv6_on_the_bridge() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    let eth0_index = mock.add_link("eth0", [0xAA; 6], true);
+
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(
+        mock.clone(),
+        event_rx,
+        config_bridge_ipv6(),
+        Resolver::default(),
+    );
+    handle.initialize_with_retry().await.expect("init failed");
+    sleep(Duration::from_millis(100)).await;
+    let br0_index = link_index(&mock, "br0").expect("bridge should exist");
+
+    mock.remove_ipv6(br0_index, "2001:db8::2".parse().expect("valid ipv6"))
+        .await
+        .expect("remove failed");
+
+    // ACT
+    handle.reconcile().await.expect("reconcile failed");
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    assert!(
+        ipv6_addrs(&mock, br0_index).contains(&("2001:db8::2".parse().expect("valid ipv6"), 64)),
+        "reconcile must keep static IPv6 on the bridge"
+    );
+    assert!(
+        ipv6_addrs(&mock, eth0_index).is_empty(),
+        "reconcile must not move IPv6 onto the port"
+    );
+}
+
+#[tokio::test]
 async fn reconcile_repoints_a_configured_bridge() {
     // ARRANGE
     let mock = MockNetlinkOps::new();

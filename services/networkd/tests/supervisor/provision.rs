@@ -9,7 +9,10 @@ use networkd::supervisor;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
-use super::{MockNetlinkOps, config_bridge, ipv4_addrs, link_index, master_index};
+use super::{
+    MockNetlinkOps, config_bridge, config_bridge_ipv6, ipv4_addrs, ipv6_addrs, link_index,
+    master_index,
+};
 
 /// Asserts that the configured static IPv4 landed on `br0` and not on its port.
 fn assert_l3_on_bridge(mock: &MockNetlinkOps) {
@@ -421,6 +424,39 @@ async fn provision_bridge_with_auto_port() {
         "initialization should succeed with bridge config"
     );
     assert_l3_on_bridge(&mock);
+}
+
+#[tokio::test]
+async fn provision_bridge_applies_ipv6_to_the_bridge() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    let eth0_index = mock.add_link("eth0", [0xAA; 6], true);
+
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(
+        mock.clone(),
+        event_rx,
+        config_bridge_ipv6(),
+        Resolver::default(),
+    );
+
+    // ACT
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    let br0_index = link_index(&mock, "br0").expect("bridge should exist");
+    result
+        .expect("should not time out")
+        .expect("initialization should succeed with bridge IPv6 config");
+    assert!(
+        ipv6_addrs(&mock, br0_index).contains(&("2001:db8::2".parse().expect("valid ipv6"), 64)),
+        "static IPv6 should land on the bridge"
+    );
+    assert!(
+        ipv6_addrs(&mock, eth0_index).is_empty(),
+        "the port must not carry IPv6 addresses"
+    );
 }
 
 #[tokio::test]

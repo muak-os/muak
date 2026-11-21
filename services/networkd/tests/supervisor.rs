@@ -82,6 +82,22 @@ fn config_bridge() -> Arc<network::Config> {
     Arc::new(cfg)
 }
 
+fn config_bridge_ipv6() -> Arc<network::Config> {
+    let mut cfg = (*config_bridge()).clone();
+    if let Some(port) = cfg.interfaces.first_mut() {
+        port.ipv6 = Some(network::Ipv6InterfaceConfig {
+            autoconf: false,
+            addresses: vec![network::Cidr6 {
+                address: core::net::Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 2),
+                prefix: 64,
+            }],
+            gateway: Some(core::net::Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1)),
+        });
+    }
+
+    Arc::new(cfg)
+}
+
 fn ipv4_addrs(
     mock: &MockNetlinkOps,
     index: u32,

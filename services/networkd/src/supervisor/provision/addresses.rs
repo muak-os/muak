@@ -36,8 +36,8 @@ async fn apply<N: Ops>(
     }
 
     if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
-        let index = actor_index(supervisor, &name)?;
-        ipv6(supervisor, &name, index, ipv6_cfg).await?;
+        let index = actor_index(supervisor, &owner)?;
+        ipv6(supervisor, &owner, index, ipv6_cfg).await?;
     }
 
     Ok(())
