@@ -1475,7 +1475,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "dhcp-client",
  "granola",
  "kmsg",
  "mac",
