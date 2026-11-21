@@ -147,7 +147,7 @@ impl<N: Ops> Interface<N> {
                 v6,
             } => {
                 #[cfg(feature = "ipv4")]
-                self.configure_v4(v4);
+                self.configure_v4(v4).await;
                 #[cfg(feature = "ipv6")]
                 self.configure_v6(v6);
                 self.refresh_index().await;
@@ -173,13 +173,24 @@ impl<N: Ops> Interface<N> {
     }
 
     #[cfg(feature = "ipv4")]
-    fn configure_v4(&mut self, config: Option<provision::v4::Config>) {
+    async fn configure_v4(&mut self, config: Option<provision::v4::Config>) {
         let Some(config) = config else {
             return;
         };
-        let mut method = v4::Method::from_config(config);
-        method.on_command(provision::Command::Start);
-        self.v4 = Some(method);
+        match v4::Method::from_config(config, &self.link).await {
+            Ok(mut method) => {
+                method.on_command(provision::Command::Start);
+                self.v4 = Some(method);
+            }
+            Err(failure) => {
+                kmsg::warn!(
+                    "netstack: IPv4 method setup failed on {}: {failure}",
+                    self.link.name
+                );
+                self.v4 = None;
+                self.v4_state = State::Degraded;
+            }
+        }
     }
 
     #[cfg(feature = "ipv6")]
