@@ -1,7 +1,4 @@
 //! Family-neutral interface controller.
-//!
-//! The controller owns one interface's link state, its active address methods,
-//! and publishes a [`Snapshot`] whenever anything changes.
 
 mod event;
 mod intent;

@@ -1,4 +1,4 @@
-//! L3 ownership: the interface that carries addresses for the elected primary.
+//! L3 ownership of the interface that carries addresses for the elected primary.
 
 use std::collections::HashMap;
 
@@ -7,8 +7,7 @@ use netstack::interface::Handle;
 
 use super::NetworkSnapshot;
 
-/// Returns the interface that owns L3: the recorded bridge when present,
-/// otherwise the primary's L3 owner.
+/// Returns the interface that owns L3.
 pub(super) fn l3_owner<'a>(
     state: &'a NetworkSnapshot,
     interfaces: &'a HashMap<Name, Handle>,

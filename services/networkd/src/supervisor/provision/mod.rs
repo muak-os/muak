@@ -70,6 +70,7 @@ pub(super) fn bridge_port<N: Ops>(
 ) -> Result<Name> {
     let primary = supervisor.get_primary_name()?;
     let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);
+
     Name::new(&*port_name).map_err(Into::into)
 }
 
@@ -80,6 +81,7 @@ pub(super) async fn send_command(handle: &Handle, cmd: Command, name: &Name) -> 
         .send(cmd)
         .await
         .map_err(|error| anyhow::anyhow!("interface handle gone: {name}: {error}"))?;
+
     Ok(())
 }
 

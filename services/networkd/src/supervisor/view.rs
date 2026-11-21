@@ -14,6 +14,7 @@ pub(super) fn is_configured(snapshot: &Snapshot) -> bool {
     if snapshot.v6_state == MethodState::Bound {
         return true;
     }
+
     false
 }
 
@@ -27,6 +28,7 @@ pub(super) fn is_active(snapshot: &Snapshot) -> bool {
     if snapshot.v6_state != MethodState::Stopped {
         return true;
     }
+
     false
 }
 
@@ -40,6 +42,7 @@ pub(super) fn is_degraded(snapshot: &Snapshot) -> bool {
     if snapshot.v6_state == MethodState::Degraded {
         return true;
     }
+
     false
 }
 
@@ -53,6 +56,7 @@ pub(super) const fn has_method_view(snapshot: &Snapshot) -> bool {
     if snapshot.v6.is_some() {
         return true;
     }
+
     false
 }
 
