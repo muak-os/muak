@@ -1,10 +1,13 @@
 //! Primary/backup promotion and failover policy for the network supervisor.
 
+use std::collections::HashMap;
+
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
 
 use super::NetworkSupervisor;
+use super::snapshot::NetworkSnapshot;
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
@@ -14,16 +17,18 @@ pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, na
 }
 
 /// Returns the interface that owns L3, following the primary's bridge ownership.
-pub(super) fn l3_owner<N: Ops>(supervisor: &NetworkSupervisor<N>) -> Option<&Name> {
-    let primary = supervisor.state.primary.as_ref()?;
-    let snapshot = supervisor.interfaces.get(primary)?.state_rx.borrow();
+pub(super) fn l3_owner<'a>(
+    state: &'a NetworkSnapshot,
+    interfaces: &'a HashMap<Name, ActorHandle>,
+) -> Option<&'a Name> {
+    let primary = state.primary.as_ref()?;
+    let snapshot = interfaces.get(primary)?.state_rx.borrow();
     if snapshot.l3_owner == snapshot.name {
         return Some(primary);
     }
 
     Some(
-        supervisor
-            .interfaces
+        interfaces
             .get_key_value(&snapshot.l3_owner)
             .map_or(primary, |(name, _)| name),
     )
@@ -31,7 +36,7 @@ pub(super) fn l3_owner<N: Ops>(supervisor: &NetworkSupervisor<N>) -> Option<&Nam
 
 /// Returns true when the L3 owner's interface is failed or down.
 pub(super) fn is_owner_failed<N: Ops>(supervisor: &NetworkSupervisor<N>) -> bool {
-    let Some(owner) = l3_owner(supervisor) else {
+    let Some(owner) = l3_owner(&supervisor.state, &supervisor.interfaces) else {
         return false;
     };
     supervisor.interfaces.get(owner).is_some_and(|handle| {
@@ -125,7 +130,7 @@ pub(super) fn recover_if_possible<N: Ops>(supervisor: &mut NetworkSupervisor<N>)
     if supervisor.state.is_operational() {
         return;
     }
-    let Some(owner) = l3_owner(supervisor) else {
+    let Some(owner) = l3_owner(&supervisor.state, &supervisor.interfaces) else {
         return;
     };
     let healthy = supervisor.interfaces.get(owner).is_some_and(|handle| {
@@ -260,5 +265,58 @@ mod tests {
             "a link without carrier must not be a backup"
         );
         assert!(ready_eligible, "a configured link with carrier is eligible");
+    }
+
+    #[test]
+    fn l3_owner_follows_bridge_ownership() {
+        // ARRANGE
+        let mut state = NetworkSnapshot::empty();
+        state.primary = Some(Name::new("eth0").expect("valid name"));
+        let interfaces = HashMap::from([
+            (
+                Name::new("eth0").expect("valid name"),
+                handle("eth0", State::Up, "br0"),
+            ),
+            (
+                Name::new("br0").expect("valid name"),
+                handle("br0", State::Up, "br0"),
+            ),
+        ]);
+
+        // ACT
+        let owner = l3_owner(&state, &interfaces);
+
+        // ASSERT
+        assert_eq!(owner.map(Name::as_str), Some("br0"));
+    }
+
+    #[test]
+    fn l3_owner_falls_back_to_primary_without_bridge_actor() {
+        // ARRANGE
+        let mut state = NetworkSnapshot::empty();
+        state.primary = Some(Name::new("eth0").expect("valid name"));
+        let interfaces = HashMap::from([(
+            Name::new("eth0").expect("valid name"),
+            handle("eth0", State::Up, "br0"),
+        )]);
+
+        // ACT
+        let owner = l3_owner(&state, &interfaces);
+
+        // ASSERT
+        assert_eq!(owner.map(Name::as_str), Some("eth0"));
+    }
+
+    #[test]
+    fn l3_owner_is_none_without_primary() {
+        // ARRANGE
+        let state = NetworkSnapshot::empty();
+        let interfaces = HashMap::new();
+
+        // ACT
+        let owner = l3_owner(&state, &interfaces);
+
+        // ASSERT
+        assert_eq!(owner.map(Name::as_str), None);
     }
 }

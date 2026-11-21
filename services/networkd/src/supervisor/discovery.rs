@@ -10,7 +10,7 @@ use netlink::link::state::State;
 use super::{NetworkSupervisor, dns};
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
-use crate::supervisor::state::NetworkState;
+use crate::supervisor::NetworkState;
 
 /// Timeout for carrier detection when probing interfaces.
 const CARRIER_TIMEOUT_SECS: u64 = 6;

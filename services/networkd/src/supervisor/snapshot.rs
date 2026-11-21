@@ -4,7 +4,7 @@ use anyhow::Result;
 use netlink::link::ifname::Name;
 
 use crate::statemachine::StateMachine as _;
-use crate::supervisor::state::NetworkState;
+use crate::supervisor::NetworkState;
 
 /// Point-in-time view of the network subsystem's readiness and interface election.
 #[derive(Debug)]
@@ -49,7 +49,7 @@ impl NetworkSnapshot {
 
     /// Advances the network state, logging, and validating the transition.
     pub(super) fn transition(&mut self, to: NetworkState) -> Result<()> {
-        let from = self.state.clone();
+        let from = self.state;
         self.state
             .transition(to)
             .map_err(|e| anyhow::anyhow!("{e}"))?;

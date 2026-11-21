@@ -11,6 +11,7 @@ mod supervisor {
     mod lifecycle;
     mod provision;
     mod reconcile;
+    mod status;
 
     pub(super) use networkd::supervisor;
 

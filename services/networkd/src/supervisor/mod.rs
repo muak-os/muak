@@ -11,9 +11,9 @@ mod reconcile;
 mod retry;
 mod selection;
 mod snapshot;
-mod state;
 
 use alloc::sync::Arc;
+use core::fmt;
 use core::time::Duration;
 use std::collections::HashMap;
 
@@ -32,10 +32,59 @@ use crate::dns::Resolver;
 use crate::interface::commands::Command;
 use crate::interface::snapshot::Snapshot;
 use crate::interface::{Actor, ActorHandle};
+use crate::statemachine::StateMachine;
 use crate::supervisor::snapshot::NetworkSnapshot;
-use crate::supervisor::state::NetworkState;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Status of the entire network subsystem.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NetworkState {
+    Uninitialized,
+    Initializing,
+    Operational,
+    Ready,
+    Degraded,
+}
+
+impl StateMachine for NetworkState {
+    fn valid_next_states(&self) -> &'static [Self] {
+        match *self {
+            Self::Uninitialized => &[Self::Initializing],
+            Self::Initializing => &[Self::Operational, Self::Degraded],
+            Self::Operational => &[Self::Ready, Self::Degraded],
+            Self::Ready => &[Self::Degraded],
+            Self::Degraded => &[Self::Initializing, Self::Operational],
+        }
+    }
+}
+
+impl fmt::Display for NetworkState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::Uninitialized => "Uninitialized",
+            Self::Initializing => "Initializing",
+            Self::Operational => "Operational",
+            Self::Ready => "Ready",
+            Self::Degraded => "Degraded",
+        })
+    }
+}
+
+/// Point-in-time status of the network supervisor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Status {
+    /// Global readiness.
+    pub state: NetworkState,
+    /// Elected uplink, i.e. the interface `auto` resolves to.
+    pub primary: Option<Name>,
+    /// Interface that currently owns L3: the bridge once it has been
+    /// provisioned, otherwise the primary.
+    pub owner: Option<Name>,
+    /// Uplink candidates in failover preference order; entries are not
+    /// guaranteed to be currently eligible.
+    pub backups: Vec<Name>,
+}
 
 struct NetworkSupervisor<N: Ops> {
     ops: N,
@@ -94,6 +143,9 @@ impl<N: Ops> NetworkSupervisor<N> {
                 reconcile::run(self).await;
                 let _sent = reply.send(());
             }
+            SupervisorCommand::Status { reply } => {
+                drop(reply.send(self.status()));
+            }
         }
     }
 
@@ -102,6 +154,15 @@ impl<N: Ops> NetworkSupervisor<N> {
             .primary
             .clone()
             .ok_or_else(|| anyhow::anyhow!("no primary interface"))
+    }
+
+    fn status(&self) -> Status {
+        Status {
+            state: self.state.state,
+            primary: self.state.primary.clone(),
+            owner: failover::l3_owner(&self.state, &self.interfaces).cloned(),
+            backups: self.state.backups.clone(),
+        }
     }
 
     fn spawn_interface_actor(&mut self, snapshot: Snapshot) {
@@ -129,6 +190,17 @@ impl NetworkActorHandle {
         rx.await?;
 
         Ok(())
+    }
+
+    /// Returns the supervisor's current view of the network.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the supervisor command channel is closed.
+    pub async fn status(&self) -> Result<Status> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(SupervisorCommand::Status { reply }).await?;
+        Ok(rx.await?)
     }
 
     /// Initializes the network, retrying with exponential backoff until success.
@@ -219,7 +291,7 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     let mut reconcile = interval(RECONCILE_INTERVAL);
 
     loop {
-        let owner = failover::l3_owner(&supervisor).cloned();
+        let owner = failover::l3_owner(&supervisor.state, &supervisor.interfaces).cloned();
         let owner_snap_rx = owner
             .as_ref()
             .and_then(|owner| supervisor.interfaces.get_mut(owner))
@@ -250,5 +322,98 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
                 events.retry_if_closed().await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_snap() -> NetworkSnapshot {
+        NetworkSnapshot::empty()
+    }
+
+    #[test]
+    fn network_state_display() {
+        // ACT / ASSERT
+        assert_eq!(NetworkState::Uninitialized.to_string(), "Uninitialized");
+        assert_eq!(NetworkState::Initializing.to_string(), "Initializing");
+        assert_eq!(NetworkState::Operational.to_string(), "Operational");
+        assert_eq!(NetworkState::Ready.to_string(), "Ready");
+        assert_eq!(NetworkState::Degraded.to_string(), "Degraded");
+    }
+
+    #[test]
+    fn valid_transitions_succeed() {
+        let pairs = [
+            (NetworkState::Uninitialized, NetworkState::Initializing),
+            (NetworkState::Initializing, NetworkState::Operational),
+            (NetworkState::Initializing, NetworkState::Degraded),
+            (NetworkState::Operational, NetworkState::Ready),
+            (NetworkState::Operational, NetworkState::Degraded),
+            (NetworkState::Ready, NetworkState::Degraded),
+            (NetworkState::Degraded, NetworkState::Initializing),
+            (NetworkState::Degraded, NetworkState::Operational),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut snap = empty_snap();
+            snap.state = from;
+
+            // ACT
+            let result = snap.transition(to);
+
+            // ASSERT
+            assert!(result.is_ok(), "{from} -> {to} should be valid");
+            assert_eq!(snap.state, to);
+        }
+    }
+
+    #[test]
+    fn invalid_transitions_return_error() {
+        let pairs = [
+            (NetworkState::Uninitialized, NetworkState::Operational),
+            (NetworkState::Uninitialized, NetworkState::Ready),
+            (NetworkState::Uninitialized, NetworkState::Degraded),
+            (NetworkState::Initializing, NetworkState::Ready),
+            (NetworkState::Initializing, NetworkState::Uninitialized),
+            (NetworkState::Operational, NetworkState::Uninitialized),
+            (NetworkState::Operational, NetworkState::Initializing),
+            (NetworkState::Ready, NetworkState::Operational),
+            (NetworkState::Ready, NetworkState::Uninitialized),
+            (NetworkState::Ready, NetworkState::Initializing),
+            (NetworkState::Degraded, NetworkState::Ready),
+            (NetworkState::Degraded, NetworkState::Uninitialized),
+        ];
+
+        for (from, to) in pairs {
+            // ARRANGE
+            let mut snap = empty_snap();
+            snap.state = from;
+
+            // ACT
+            let result = snap.transition(to);
+
+            // ASSERT
+            assert!(result.is_err(), "{from} -> {to} should be invalid");
+            assert_eq!(
+                snap.state, from,
+                "state must not change on invalid transition"
+            );
+        }
+    }
+
+    #[test]
+    fn transition_does_not_mutate_state_on_error() {
+        // ARRANGE
+        let mut snap = empty_snap();
+        snap.state = NetworkState::Ready;
+
+        // ACT
+        let _result = snap.transition(NetworkState::Initializing);
+
+        // ASSERT
+        assert_eq!(snap.state, NetworkState::Ready);
     }
 }

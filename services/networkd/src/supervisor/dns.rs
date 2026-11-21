@@ -8,7 +8,7 @@ use super::{ActorHandle, NetworkSupervisor, failover};
 
 /// Flushes DNS configuration based on the L3 owner's state with fallback.
 pub(super) fn flush<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
-    let Some(owner) = failover::l3_owner(supervisor) else {
+    let Some(owner) = failover::l3_owner(&supervisor.state, &supervisor.interfaces) else {
         return;
     };
     let Some(handle) = supervisor.interfaces.get(owner) else {
