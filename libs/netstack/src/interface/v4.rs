@@ -2,7 +2,7 @@
 
 use netdev::interface::Ethernet;
 
-use crate::transport::dhcp::System;
+use crate::transport::dhcp::{Exchange, System};
 use crate::{provision, view};
 
 /// IPv4 address method the controller drives.
@@ -10,7 +10,7 @@ pub enum Method {
     /// Static address method.
     Static(provision::v4::Static),
     /// `DHCPv4` address method.
-    Dhcp(provision::v4::Dhcp<System>),
+    Dhcp(provision::v4::Dhcp<Exchange<System>>),
 }
 
 impl Method {
@@ -24,7 +24,7 @@ impl Method {
         link: &Ethernet,
     ) -> Result<Self, provision::Failure> {
         if config.dhcp {
-            let exchange = System::open(link.name.as_str())
+            let exchange = Exchange::open(link.name.as_str())
                 .await
                 .map_err(|error| provision::Failure::Protocol(error.to_string()))?;
             let method = provision::v4::Dhcp::new(exchange, link.name.as_str(), link.mac_address);

@@ -1459,6 +1459,8 @@ name = "netstack"
 version = "0.0.0"
 dependencies = [
  "dhcp-client",
+ "dhcp-proto",
+ "ip",
  "kmsg",
  "netdev",
  "netlink",
