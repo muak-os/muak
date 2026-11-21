@@ -173,7 +173,7 @@ mod tests {
     async fn expect_intent(method: &mut Static<TestFamily>) -> Intent {
         match method.next_event().await {
             Event::Intent(intent) => intent,
-            Event::State(_) | Event::Failed(_) => panic!("expected intent"),
+            Event::State(_) | Event::Warning(_) | Event::Failed(_) => panic!("expected intent"),
         }
     }
 

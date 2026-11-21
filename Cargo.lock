@@ -1461,7 +1461,6 @@ dependencies = [
  "dhcp-client",
  "dhcp-proto",
  "ip",
- "kmsg",
  "netdev",
  "netlink",
  "packet",

@@ -1,6 +1,7 @@
 //! Lease lifecycle transitions and timer-driven `DHCPv4` exchanges.
 
 use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::string::String;
 use core::time::Duration;
 
@@ -11,7 +12,7 @@ use tokio::time::{Instant, sleep, sleep_until};
 use super::dhcp::Phase;
 use super::timer::Deadlines;
 use super::{Dhcp, Exchange, intent};
-use crate::provision::{Event, State};
+use crate::provision::{Event, Failure, State};
 
 const MAX_ATTEMPTS: u32 = 3;
 const RETRY_BASE: Duration = Duration::from_secs(2);
@@ -81,13 +82,10 @@ impl<E: Exchange> Dhcp<E> {
     }
 
     fn degrade(&mut self, error: &DhcpFailure) {
-        kmsg::warn!(
-            "netstack: DHCP acquisition failed on {}: {error}",
-            self.interface
-        );
         self.phase = Phase::Degraded;
         self.deadlines.disarm();
-        self.queue.push_back(Event::State(State::Degraded));
+        self.queue
+            .push_back(Event::Failed(Failure::Protocol(error.to_string())));
     }
 
     pub(super) fn reconcile(&mut self) {
@@ -143,7 +141,10 @@ impl<E: Exchange> Dhcp<E> {
             Ok(lease) => self.bind(lease),
             Err(DhcpFailure::Nak) => self.begin_acquire(),
             Err(error) => {
-                kmsg::warn!("netstack: DHCP renew failed on {}: {error}", self.interface);
+                self.queue.push_back(Event::Warning(format!(
+                    "DHCP renew failed on {}: {error}",
+                    self.interface
+                )));
                 self.deadlines.skip_renew();
                 self.phase = Phase::Bound;
             }
@@ -168,10 +169,10 @@ impl<E: Exchange> Dhcp<E> {
             Ok(lease) => self.bind(lease),
             Err(DhcpFailure::Nak) => self.begin_acquire(),
             Err(error) => {
-                kmsg::warn!(
-                    "netstack: DHCP rebind failed on {}: {error}",
+                self.queue.push_back(Event::Warning(format!(
+                    "DHCP rebind failed on {}: {error}",
                     self.interface
-                );
+                )));
                 self.deadlines.wait_expiry();
                 self.phase = Phase::Bound;
             }

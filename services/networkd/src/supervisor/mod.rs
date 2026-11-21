@@ -184,7 +184,7 @@ impl<N: Ops> NetworkSupervisor<N> {
 
     fn spawn_interface(&mut self, link: Ethernet) {
         let name = link.name.clone();
-        let handle = Interface::spawn(self.ops.clone(), link);
+        let (handle, _notices) = Interface::spawn(self.ops.clone(), link);
         self.owners
             .entry(name.clone())
             .or_insert_with(|| name.clone());

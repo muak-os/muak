@@ -141,10 +141,7 @@ impl<T: Transport + Send> Slaac<T> {
 
     async fn solicit(&mut self) {
         if let Err(reason) = solicit::initial(self).await {
-            kmsg::info!(
-                "netstack: SLAAC on {}: {reason}, continuing to listen",
-                self.interface
-            );
+            self.queue.push_back(Event::Warning(reason));
         }
         self.solicited = true;
     }
@@ -272,6 +269,21 @@ mod tests {
             packet.extend(server.octets());
         }
         packet
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn missing_router_advertisement_warns() {
+        // ARRANGE
+        let transport = MockTransport::default();
+        let mut method = new_method(transport);
+
+        // ACT
+        method.on_command(Command::Start);
+        let event = method.next_event().await;
+
+        // ASSERT
+        assert!(matches!(event, Event::Warning(_)));
+        assert!(method.view().is_none());
     }
 
     #[tokio::test(start_paused = true)]

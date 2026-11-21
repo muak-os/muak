@@ -74,7 +74,7 @@ mod tests {
 
     use dhcp_client::Failure as DhcpFailure;
     use dhcp_client::lease::Lease;
-    use tokio::time::{advance, timeout};
+    use tokio::time::advance;
 
     use super::{Dhcp, Exchange};
     use crate::provision::{Command, Event, Intent, Method as _, State};
@@ -153,10 +153,6 @@ mod tests {
             renew: Mutex::new(renew.into()),
             rebind: Mutex::new(rebind.into()),
         }
-    }
-
-    async fn quiet_for(method: &mut Dhcp<Mock>, window: Duration) -> Option<Event> {
-        timeout(window, method.next_event()).await.ok()
     }
 
     fn lease(address: Ipv4Addr) -> Lease {
@@ -312,14 +308,14 @@ mod tests {
 
         // ACT
         advance(Duration::from_secs(50)).await;
-        let quiet = quiet_for(&mut method, Duration::from_secs(10)).await;
+        let warning = method.next_event().await;
         let after_failed_renew = method.view();
         advance(Duration::from_secs(27)).await;
         let events = next_until_state(&mut method, State::Bound).await;
         let view = method.view();
 
         // ASSERT
-        assert!(quiet.is_none(), "a failed renew emits no event");
+        assert!(matches!(warning, Event::Warning(_)));
         assert!(matches!(
             after_failed_renew,
             Some(V4State::Dhcp {
@@ -354,7 +350,7 @@ mod tests {
 
         // ACT
         advance(Duration::from_secs(87)).await;
-        let quiet = quiet_for(&mut method, Duration::from_secs(5)).await;
+        let warning = method.next_event().await;
         advance(Duration::from_secs(13)).await;
         let first = method.next_event().await;
         let second = method.next_event().await;
@@ -362,7 +358,7 @@ mod tests {
         let view = method.view();
 
         // ASSERT
-        assert!(quiet.is_none(), "a failed rebind emits no event");
+        assert!(matches!(warning, Event::Warning(_)));
         assert!(matches!(
             first,
             Event::Intent(Intent::Deconfigure(config))

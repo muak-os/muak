@@ -5,9 +5,21 @@ use core::net::IpAddr;
 
 use netdev::Ops;
 
-use super::Interface;
+#[cfg(feature = "ipv4")]
+use super::V4Notice;
+#[cfg(feature = "ipv6")]
+use super::V6Notice;
+use super::{Interface, notice};
 use crate::provision;
 use crate::provision::AddressConfig;
+
+#[derive(Clone, Copy)]
+enum Family {
+    #[cfg(feature = "ipv4")]
+    V4,
+    #[cfg(feature = "ipv6")]
+    V6,
+}
 
 pub(super) async fn apply<N: Ops>(interface: &mut Interface<N>, intent: provision::Intent) {
     match intent {
@@ -25,12 +37,12 @@ async fn ensure_address<N: Ops>(interface: &mut Interface<N>, config: AddressCon
         #[cfg(feature = "ipv4")]
         IpAddr::V4(address) => {
             let result = interface.ops.ensure_ipv4(index, address, prefix_len).await;
-            report(interface, result, "ensure IPv4");
+            report(interface, result, "ensure IPv4", Family::V4);
         }
         #[cfg(feature = "ipv6")]
         IpAddr::V6(address) => {
             let result = interface.ops.ensure_ipv6(index, address, prefix_len).await;
-            report(interface, result, "ensure IPv6");
+            report(interface, result, "ensure IPv6", Family::V6);
         }
         #[cfg(not(all(feature = "ipv4", feature = "ipv6")))]
         _ => {}
@@ -43,12 +55,12 @@ async fn remove_address<N: Ops>(interface: &mut Interface<N>, config: AddressCon
         #[cfg(feature = "ipv4")]
         IpAddr::V4(address) => {
             let result = interface.ops.remove_ipv4(index, address).await;
-            report(interface, result, "remove IPv4");
+            report(interface, result, "remove IPv4", Family::V4);
         }
         #[cfg(feature = "ipv6")]
         IpAddr::V6(address) => {
             let result = interface.ops.remove_ipv6(index, address).await;
-            report(interface, result, "remove IPv6");
+            report(interface, result, "remove IPv6", Family::V6);
         }
         #[cfg(not(all(feature = "ipv4", feature = "ipv6")))]
         _ => {}
@@ -60,12 +72,12 @@ async fn ensure_route<N: Ops>(interface: &mut Interface<N>, gateway: IpAddr) {
         #[cfg(feature = "ipv4")]
         IpAddr::V4(gateway) => {
             let result = interface.ops.ensure_default_route(gateway).await;
-            report(interface, result, "ensure default route");
+            report(interface, result, "ensure default route", Family::V4);
         }
         #[cfg(feature = "ipv6")]
         IpAddr::V6(gateway) => {
             let result = interface.ops.ensure_default_route_v6(gateway).await;
-            report(interface, result, "ensure default route");
+            report(interface, result, "ensure default route", Family::V6);
         }
         #[cfg(not(all(feature = "ipv4", feature = "ipv6")))]
         _ => {}
@@ -78,7 +90,7 @@ async fn remove_route<N: Ops>(interface: &mut Interface<N>, gateway: IpAddr) {
         IpAddr::V4(_) => {}
         IpAddr::V6(gateway) => {
             let result = interface.ops.remove_default_route_v6(gateway).await;
-            report(interface, result, "remove default route");
+            report(interface, result, "remove default route", Family::V6);
         }
     }
 }
@@ -86,8 +98,19 @@ async fn remove_route<N: Ops>(interface: &mut Interface<N>, gateway: IpAddr) {
 #[cfg(not(feature = "ipv6"))]
 async fn remove_route<N: Ops>(_: &mut Interface<N>, _: IpAddr) {}
 
-fn report<N: Ops, T, E: Display>(interface: &Interface<N>, result: Result<T, E>, action: &str) {
+fn report<N: Ops, T, E: Display>(
+    interface: &Interface<N>,
+    result: Result<T, E>,
+    action: &str,
+    family: Family,
+) {
     if let Err(error) = result {
-        kmsg::warn!("netstack: {action} on {}: {error}", interface.link.name);
+        let warning = alloc::format!("{action} on {}: {error}", interface.link.name);
+        match family {
+            #[cfg(feature = "ipv4")]
+            Family::V4 => notice::notify_v4(interface, V4Notice::Warning(warning)),
+            #[cfg(feature = "ipv6")]
+            Family::V6 => notice::notify_v6(interface, V6Notice::Warning(warning)),
+        }
     }
 }

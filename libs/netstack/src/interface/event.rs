@@ -9,7 +9,7 @@ use netdev::Ops;
 use super::v4;
 #[cfg(feature = "ipv6")]
 use super::v6;
-use super::{Interface, intent};
+use super::{Interface, command, intent, notice};
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use crate::provision;
 
@@ -53,32 +53,47 @@ pub(super) async fn select<N: Ops>(interface: &mut Interface<N>) -> Option<Selec
 pub(super) async fn handle_v4<N: Ops>(interface: &mut Interface<N>, event: provision::Event) {
     match event {
         provision::Event::Intent(intent) => intent::apply(interface, intent).await,
-        provision::Event::State(state) => interface.v4_state = state,
-        provision::Event::Failed(failure) => {
-            kmsg::warn!(
-                "netstack: IPv4 method failed on {}: {failure}",
-                interface.link.name
-            );
-            interface.v4_state = provision::State::Degraded;
+        provision::Event::State(state) => notice::transition_v4(interface, state),
+        provision::Event::Warning(text) => {
+            notice::notify_v4(interface, super::V4Notice::Warning(text));
         }
+        provision::Event::Failed(failure) => notice::fail_v4(interface, failure.to_string()),
     }
-    interface.publish();
+    command::publish(interface);
 }
 
 #[cfg(feature = "ipv6")]
 pub(super) async fn handle_v6<N: Ops>(interface: &mut Interface<N>, event: provision::Event) {
     match event {
         provision::Event::Intent(intent) => intent::apply(interface, intent).await,
-        provision::Event::State(state) => interface.v6_state = state,
-        provision::Event::Failed(failure) => {
-            kmsg::warn!(
-                "netstack: IPv6 method failed on {}: {failure}",
-                interface.link.name
-            );
-            interface.v6_state = provision::State::Degraded;
+        provision::Event::State(state) => notice::transition_v6(interface, state),
+        provision::Event::Warning(text) => {
+            notice::notify_v6(interface, super::V6Notice::Warning(text));
+        }
+        provision::Event::Failed(failure) => notice::fail_v6(interface, failure.to_string()),
+    }
+    command::publish(interface);
+}
+
+#[cfg(feature = "ipv4")]
+pub(super) async fn configure_v4<N: Ops>(
+    interface: &mut Interface<N>,
+    config: Option<provision::v4::Config>,
+) {
+    let Some(config) = config else {
+        return;
+    };
+    match v4::Method::from_config(config, &interface.link).await {
+        Ok(mut method) => {
+            method.on_command(provision::Command::Start);
+            interface.v4 = Some(method);
+            interface.v4_configured = false;
+        }
+        Err(failure) => {
+            interface.v4 = None;
+            notice::fail_v4(interface, failure.to_string());
         }
     }
-    interface.publish();
 }
 
 #[cfg(feature = "ipv6")]
@@ -93,11 +108,11 @@ pub(super) fn configure_v6<N: Ops>(
         Ok(mut method) => {
             method.on_command(provision::Command::Start);
             interface.v6 = Some(method);
+            interface.v6_configured = false;
         }
         Err(error) => {
-            kmsg::warn!("netstack: IPv6 method on {}: {error}", interface.link.name);
             interface.v6 = None;
-            interface.v6_state = provision::State::Degraded;
+            notice::fail_v6(interface, error.to_string());
         }
     }
 }

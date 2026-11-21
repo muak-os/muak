@@ -1,16 +1,19 @@
 //! Family-neutral interface controller.
 
+mod command;
 mod event;
 mod intent;
+mod notice;
 #[cfg(feature = "ipv4")]
 pub mod v4;
 #[cfg(feature = "ipv6")]
 pub mod v6;
 
+use alloc::string::String;
+
 use netdev::Ops;
 use netdev::interface::Ethernet;
 use netlink::link::state::State as LinkState;
-use provision::State;
 use tokio::sync::{mpsc, watch};
 
 use crate::{provision, view};
@@ -47,13 +50,13 @@ pub struct Snapshot {
     pub v4: Option<view::V4State>,
     /// IPv4 provisioning phase.
     #[cfg(feature = "ipv4")]
-    pub v4_state: State,
+    pub v4_state: provision::State,
     /// IPv6 method view, when enabled and configured.
     #[cfg(feature = "ipv6")]
     pub v6: Option<view::V6State>,
     /// IPv6 provisioning phase.
     #[cfg(feature = "ipv6")]
-    pub v6_state: State,
+    pub v6_state: provision::State,
 }
 
 /// Handle used to drive and observe an interface controller.
@@ -62,6 +65,34 @@ pub struct Handle {
     pub command_tx: mpsc::Sender<Command>,
     /// Channel publishing interface snapshots.
     pub snapshot_rx: watch::Receiver<Snapshot>,
+}
+
+/// Transitional notice emitted by an interface controller.
+pub enum Notice<V> {
+    /// Method lifecycle state changed.
+    State(provision::State),
+    /// Family configuration became available.
+    Configured(V),
+    /// Non-fatal family warning.
+    Warning(String),
+}
+
+/// IPv4 transition notice.
+#[cfg(feature = "ipv4")]
+pub type V4Notice = Notice<view::V4State>;
+
+/// IPv6 transition notice.
+#[cfg(feature = "ipv6")]
+pub type V6Notice = Notice<view::V6State>;
+
+/// Transition notice receivers, one per enabled family.
+pub struct Notices {
+    /// IPv4 transition notices.
+    #[cfg(feature = "ipv4")]
+    pub v4: mpsc::Receiver<V4Notice>,
+    /// IPv6 transition notices.
+    #[cfg(feature = "ipv6")]
+    pub v6: mpsc::Receiver<V6Notice>,
 }
 
 /// Family-neutral controller for one interface.
@@ -75,27 +106,39 @@ pub struct Interface<N: Ops> {
     snapshot_tx: watch::Sender<Snapshot>,
     command_rx: mpsc::Receiver<Command>,
     #[cfg(feature = "ipv4")]
-    v4_state: State,
+    v4_state: provision::State,
     #[cfg(feature = "ipv6")]
-    v6_state: State,
+    v6_state: provision::State,
+    #[cfg(feature = "ipv4")]
+    v4_notice_tx: mpsc::Sender<V4Notice>,
+    #[cfg(feature = "ipv6")]
+    v6_notice_tx: mpsc::Sender<V6Notice>,
+    #[cfg(feature = "ipv4")]
+    v4_configured: bool,
+    #[cfg(feature = "ipv6")]
+    v6_configured: bool,
 }
 
 impl<N: Ops> Interface<N> {
-    /// Spawns a controller for the given link and returns its handle.
-    pub fn spawn(ops: N, link: Ethernet) -> Handle {
+    /// Spawns a controller for the given link and returns its handle and notices.
+    pub fn spawn(ops: N, link: Ethernet) -> (Handle, Notices) {
         let snapshot = Snapshot {
             link: link.link_state,
             #[cfg(feature = "ipv4")]
             v4: None,
             #[cfg(feature = "ipv4")]
-            v4_state: State::Stopped,
+            v4_state: provision::State::Stopped,
             #[cfg(feature = "ipv6")]
             v6: None,
             #[cfg(feature = "ipv6")]
-            v6_state: State::Stopped,
+            v6_state: provision::State::Stopped,
         };
         let (command_tx, command_rx) = mpsc::channel(32);
         let (snapshot_tx, snapshot_rx) = watch::channel(snapshot);
+        #[cfg(feature = "ipv4")]
+        let (v4_notice_tx, v4_notice_rx) = mpsc::channel(32);
+        #[cfg(feature = "ipv6")]
+        let (v6_notice_tx, v6_notice_rx) = mpsc::channel(32);
 
         let controller = Self {
             link,
@@ -107,134 +150,31 @@ impl<N: Ops> Interface<N> {
             snapshot_tx,
             command_rx,
             #[cfg(feature = "ipv4")]
-            v4_state: State::Stopped,
+            v4_state: provision::State::Stopped,
             #[cfg(feature = "ipv6")]
-            v6_state: State::Stopped,
-        };
-        tokio::spawn(controller.run());
-
-        Handle {
-            command_tx,
-            snapshot_rx,
-        }
-    }
-
-    async fn run(mut self) {
-        while let Some(event) = event::select(&mut self).await {
-            self.handle(event).await;
-        }
-    }
-
-    async fn handle(&mut self, selected: event::Selected) {
-        match selected {
-            event::Selected::Command(command) => self.dispatch(command).await,
+            v6_state: provision::State::Stopped,
             #[cfg(feature = "ipv4")]
-            event::Selected::V4(event) => event::handle_v4(self, event).await,
+            v4_notice_tx,
             #[cfg(feature = "ipv6")]
-            event::Selected::V6(event) => event::handle_v6(self, event).await,
-        }
-    }
+            v6_notice_tx,
+            #[cfg(feature = "ipv4")]
+            v4_configured: false,
+            #[cfg(feature = "ipv6")]
+            v6_configured: false,
+        };
+        tokio::spawn(command::run(controller));
 
-    async fn dispatch(&mut self, command: Command) {
-        match command {
-            Command::Configure {
+        (
+            Handle {
+                command_tx,
+                snapshot_rx,
+            },
+            Notices {
                 #[cfg(feature = "ipv4")]
-                v4,
+                v4: v4_notice_rx,
                 #[cfg(feature = "ipv6")]
-                v6,
-            } => {
-                #[cfg(feature = "ipv4")]
-                self.configure_v4(v4).await;
-                #[cfg(feature = "ipv6")]
-                event::configure_v6(self, v6);
-                self.refresh_index().await;
-                self.publish();
-            }
-            Command::Reconcile => self.forward(provision::Command::Reconcile),
-            Command::LinkUp => {
-                self.link.link_state = LinkState::Up;
-                self.forward(provision::Command::LinkUp);
-                self.publish();
-            }
-            Command::LinkDown => {
-                self.link.link_state = LinkState::Down;
-                self.forward(provision::Command::LinkDown);
-                self.publish();
-            }
-            Command::Shutdown => {
-                self.stop_families();
-                self.publish();
-                self.command_rx.close();
-            }
-        }
-    }
-
-    #[cfg(feature = "ipv4")]
-    async fn configure_v4(&mut self, config: Option<provision::v4::Config>) {
-        let Some(config) = config else {
-            return;
-        };
-        match v4::Method::from_config(config, &self.link).await {
-            Ok(mut method) => {
-                method.on_command(provision::Command::Start);
-                self.v4 = Some(method);
-            }
-            Err(failure) => {
-                kmsg::warn!(
-                    "netstack: IPv4 method setup failed on {}: {failure}",
-                    self.link.name
-                );
-                self.v4 = None;
-                self.v4_state = State::Degraded;
-            }
-        }
-    }
-
-    fn stop_families(&mut self) {
-        #[cfg(feature = "ipv4")]
-        {
-            self.v4 = None;
-            self.v4_state = State::Stopped;
-        }
-        #[cfg(feature = "ipv6")]
-        {
-            self.v6 = None;
-            self.v6_state = State::Stopped;
-        }
-    }
-
-    fn forward(&mut self, command: provision::Command) {
-        #[cfg(feature = "ipv4")]
-        if let Some(method) = self.v4.as_mut() {
-            method.on_command(command);
-        }
-        #[cfg(feature = "ipv6")]
-        if let Some(method) = self.v6.as_mut() {
-            method.on_command(command);
-        }
-    }
-
-    async fn refresh_index(&mut self) {
-        match self.ops.ensure_up(self.link.name.as_str()).await {
-            Ok(index) => self.link.index = index,
-            Err(error) => {
-                kmsg::warn!("netstack: ensure link {} is up: {error}", self.link.name);
-            }
-        }
-    }
-
-    fn publish(&self) {
-        let snapshot = Snapshot {
-            link: self.link.link_state,
-            #[cfg(feature = "ipv4")]
-            v4: self.v4.as_ref().and_then(v4::Method::view),
-            #[cfg(feature = "ipv4")]
-            v4_state: self.v4_state,
-            #[cfg(feature = "ipv6")]
-            v6: self.v6.as_ref().and_then(v6::Method::view),
-            #[cfg(feature = "ipv6")]
-            v6_state: self.v6_state,
-        };
-        drop(self.snapshot_tx.send(snapshot));
+                v6: v6_notice_rx,
+            },
+        )
     }
 }

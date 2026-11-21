@@ -80,6 +80,8 @@ pub enum Event {
     Intent(Intent),
     /// Method changed lifecycle phase.
     State(State),
+    /// Method reported a non-fatal issue.
+    Warning(String),
     /// Method failed.
     Failed(Failure),
 }

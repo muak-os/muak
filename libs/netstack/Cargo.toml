@@ -24,7 +24,6 @@ thiserror = { workspace = true }
 # Internal
 dhcp-client = { workspace = true, optional = true }
 dhcp-proto = { workspace = true, optional = true }
-kmsg = { workspace = true }
 netdev = { workspace = true }
 netlink = { workspace = true }
 packet = { workspace = true, optional = true }
