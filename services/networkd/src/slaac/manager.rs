@@ -63,7 +63,6 @@ pub struct Manager {
     ifindex: u32,
     socket: AsyncFd<OwnedFd>,
     solicited: bool,
-    configured: bool,
     solicitation_attempt: u32,
     config: Arc<network::Config>,
 
@@ -110,7 +109,6 @@ impl Manager {
             ifindex,
             socket,
             solicited: false,
-            configured: false,
             solicitation_attempt: 0,
             config,
             address: None,
@@ -167,16 +165,6 @@ async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {
 
         if let Some(e) = event {
             return e;
-        }
-
-        if is_expired(
-            manager.configured,
-            manager.address.is_some(),
-            manager.router.is_some(),
-        ) {
-            return SlaacEvent::Failed {
-                reason: "all IPv6 configuration expired".to_owned(),
-            };
         }
     }
 }
@@ -333,7 +321,7 @@ fn process_initial_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Result
         manager
             .config
             .ipv6_dns()
-            .map(|server| ManagedDns::new(server, u64::MAX))
+            .map(|server| ManagedDns::new(server, u64::from(u32::MAX)))
             .collect()
     } else {
         ra.dns_servers
@@ -352,7 +340,6 @@ fn process_initial_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Result
     );
 
     let prefix_len = managed_addr.prefix_len;
-    manager.configured = true;
     manager.address = Some(managed_addr);
     manager.router = Some(managed_router);
     manager.dns_servers = dns_servers;
@@ -397,7 +384,6 @@ fn process_unsolicited_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Op
         router.refresh_lifetime(u64::from(ra.router_lifetime));
     }
 
-    manager.configured = true;
     refresh_address_from_ra(manager, ra);
 
     if !ra.dns_servers.is_empty() {
@@ -410,10 +396,6 @@ fn process_unsolicited_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Op
     }
 
     None
-}
-
-fn is_expired(configured: bool, has_address: bool, has_router: bool) -> bool {
-    configured && !has_address && !has_router
 }
 
 fn handle_timer_expiration(manager: &mut Manager) -> Option<SlaacEvent> {
@@ -474,7 +456,7 @@ fn handle_timer_expiration(manager: &mut Manager) -> Option<SlaacEvent> {
         manager.dns_servers = manager
             .config
             .ipv6_dns()
-            .map(|server| ManagedDns::new(server, u64::MAX))
+            .map(|server| ManagedDns::new(server, u64::from(u32::MAX)))
             .collect();
     }
 
@@ -604,25 +586,6 @@ mod tests {
 
         // ASSERT
         assert_eq!(reason, expected);
-    }
-
-    #[test]
-    fn expiry_requires_previous_configuration() {
-        // ARRANGE
-        let cases = [
-            (false, false, false),
-            (true, false, false),
-            (true, true, false),
-            (true, false, true),
-        ];
-
-        // ACT
-        let results = cases.map(|(configured, has_address, has_router)| {
-            is_expired(configured, has_address, has_router)
-        });
-
-        // ASSERT
-        assert_eq!(results, [false, true, false, false]);
     }
 
     #[tokio::test(start_paused = true)]

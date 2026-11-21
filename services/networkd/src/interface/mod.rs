@@ -35,7 +35,6 @@ pub struct Actor<N: Ops> {
     dhcp: Option<Manager>,
     dhcp_enabled: bool,
     slaac_enabled: bool,
-    slaac_attempted_at: Option<tokio::time::Instant>,
     timers: LeaseTimers,
     slaac: Option<SlaacManager>,
 }
@@ -82,7 +81,6 @@ impl<N: Ops> Actor<N> {
             dhcp: None,
             dhcp_enabled: false,
             slaac_enabled: false,
-            slaac_attempted_at: None,
             timers: LeaseTimers::new(),
             slaac: None,
         };

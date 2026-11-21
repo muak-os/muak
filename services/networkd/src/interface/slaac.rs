@@ -2,37 +2,18 @@
 
 use alloc::sync::Arc;
 use core::net::Ipv6Addr;
-use core::time::Duration;
 
 use netdev::Ops;
 use netlink::address::Ipv6Config;
-use tokio::time::Instant;
 
 use super::Actor;
 use crate::interface::commands::ApplyMode;
 use crate::slaac::manager::{Manager as SlaacManager, SlaacEvent};
 
-// A SLAAC start is retried only once the previous attempt is this old.
-const SOLICITATION_RETRY: Duration = Duration::from_secs(300);
-
-/// Returns true when solicitation may start: IPv6 is enabled and nothing is running.
-pub(super) fn should_start(enabled: bool, running: bool) -> bool {
-    enabled && !running
-}
-
-/// Returns true when a previous attempt is old enough to be retried.
-pub(super) fn retry_due(last: Option<Instant>, now: Instant) -> bool {
-    last.is_none_or(|at| now.duration_since(at) >= SOLICITATION_RETRY)
-}
-
 /// Applies SLAAC configuration in the selected mode.
 pub(super) async fn apply<N: Ops>(actor: &mut Actor<N>, mode: ApplyMode) {
     match mode {
-        ApplyMode::Provision => {
-            if should_start(actor.slaac_enabled, actor.slaac.is_some()) {
-                start(actor).await;
-            }
-        }
+        ApplyMode::Provision => start(actor).await,
         ApplyMode::Reconcile => reconcile(actor).await,
     }
 }
@@ -45,7 +26,6 @@ pub(super) async fn start<N: Ops>(actor: &mut Actor<N>) {
         Ok(mgr) => {
             kmsg::info!("Starting SLAAC on {}", actor.snapshot.name);
             actor.slaac = Some(mgr);
-            actor.slaac_attempted_at = Some(Instant::now());
         }
         Err(e) => {
             kmsg::info!(
@@ -57,7 +37,7 @@ pub(super) async fn start<N: Ops>(actor: &mut Actor<N>) {
     }
 }
 
-/// Reapplies the current IPv6 snapshot, restarting SLAAC only when no manager runs and retry is due.
+/// Reapplies the applied IPv6 configuration.
 pub(super) async fn reconcile<N: Ops>(actor: &mut Actor<N>) {
     if let Some(ipv6) = actor.snapshot.ipv6.clone() {
         let index = actor.snapshot.index;
@@ -69,12 +49,6 @@ pub(super) async fn reconcile<N: Ops>(actor: &mut Actor<N>) {
         if applied.is_ok() && !actor.ensure_configured_state() {
             actor.publish_snapshot();
         }
-    }
-
-    if should_start(actor.slaac_enabled, actor.slaac.is_some())
-        && retry_due(actor.slaac_attempted_at, Instant::now())
-    {
-        start(actor).await;
     }
 }
 
@@ -183,45 +157,4 @@ fn on_dns_updated<N: Ops>(actor: &mut Actor<N>, servers: Vec<Ipv6Addr>) {
     kmsg::info!("IPv6 DNS updated: {} servers", servers.len());
     ipv6.dns = servers;
     actor.publish_snapshot();
-}
-
-#[cfg(test)]
-mod tests {
-    use core::time::Duration;
-
-    use tokio::time::Instant;
-
-    use super::{SOLICITATION_RETRY, retry_due, should_start};
-
-    #[test]
-    fn solicitation_start_requires_enabled_and_idle() {
-        // ARRANGE
-        let cases = [(true, false), (true, true), (false, false), (false, true)];
-
-        // ACT
-        let results = cases.map(|(enabled, running)| should_start(enabled, running));
-
-        // ASSERT
-        assert_eq!(results, [true, false, false, false]);
-    }
-
-    #[test]
-    fn retry_is_bounded() {
-        // ARRANGE
-        let now = Instant::now();
-        let fresh = Some(now - Duration::from_secs(1));
-        let expired = Some(now - SOLICITATION_RETRY);
-        let stale = Some(now - SOLICITATION_RETRY - Duration::from_secs(60));
-
-        // ACT
-        let results = [
-            retry_due(None, now),
-            retry_due(fresh, now),
-            retry_due(expired, now),
-            retry_due(stale, now),
-        ];
-
-        // ASSERT
-        assert_eq!(results, [true, false, true, true]);
-    }
 }
