@@ -289,3 +289,41 @@ async fn link_up_on_failed_restarts_acquisition() {
     // ASSERT
     wait_for_state(&handle, Lifecycle::Configuring).await;
 }
+
+#[tokio::test]
+async fn link_up_on_degraded_static_interface_restores_configured() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    let idx = mock.add_link("eth8", [0x88; 6], true);
+    let mut snapshot = make_snapshot(Name::new("eth8").expect("valid name"), idx, [0x88; 6]);
+    snapshot.state = Lifecycle::Configured;
+    let handle = Actor::spawn_with(snapshot, mock, make_config(), MockDhcpConnector);
+
+    handle
+        .cmd_tx
+        .send(Command::LinkDown)
+        .await
+        .expect("send failed");
+    wait_for_state(&handle, Lifecycle::Degraded).await;
+    let mut rx = handle.state_rx.clone();
+    rx.borrow_and_update();
+
+    // ACT
+    handle
+        .cmd_tx
+        .send(Command::LinkUp)
+        .await
+        .expect("send failed");
+
+    // ASSERT
+    rx.changed()
+        .await
+        .expect("the actor must publish the link-up");
+    let snap = rx.borrow().clone();
+    assert_eq!(snap.state, Lifecycle::Configured);
+    assert_eq!(snap.link, State::Up);
+    assert_eq!(
+        snap.dhcp_state, None,
+        "a static interface must not start DHCP on link-up"
+    );
+}

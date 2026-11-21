@@ -514,3 +514,62 @@ async fn delete_last_interface_when_degraded_keeps_supervisor_alive() {
     assert_eq!(status.state, supervisor::NetworkState::Degraded);
     drop(event_tx);
 }
+
+#[tokio::test]
+async fn primary_failure_rebridges_the_backup_port() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    let br_index = link_index(&mock, "br0").expect("the bridge must exist");
+    let static_ipv4 = (core::net::Ipv4Addr::new(10, 0, 0, 2), 24);
+    assert_eq!(
+        master_index(&mock, "eth0"),
+        Some(br_index),
+        "the initial primary must be the bridge port"
+    );
+    assert!(
+        ipv4_addrs(&mock, br_index).contains(&static_ipv4),
+        "the bridge must hold the static IPv4 before failover"
+    );
+
+    // ACT
+    event_tx
+        .send(Event::Down {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+
+    // ASSERT
+    wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&backup_name)
+            && status.state == supervisor::NetworkState::Operational
+    })
+    .await;
+    assert_eq!(
+        master_index(&mock, "eth1"),
+        Some(br_index),
+        "the promoted backup must become the bridge port"
+    );
+    assert_eq!(
+        master_index(&mock, "eth0"),
+        None,
+        "the failed port must be detached from the bridge"
+    );
+    assert!(
+        ipv4_addrs(&mock, br_index).contains(&static_ipv4),
+        "the bridge must keep the same IPv4 after being re-pointed"
+    );
+}

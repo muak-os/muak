@@ -27,27 +27,31 @@ pub(super) async fn bridge<N: Ops>(
     bridge_name: &str,
     bridge_cfg: &BridgeConfig,
 ) -> Result<()> {
-    let (port_iface_name, _) = bridge_port_handle(supervisor, bridge_cfg)?;
-
-    let actor_handle = supervisor
-        .interfaces
-        .get(&port_iface_name)
-        .ok_or_else(|| anyhow::anyhow!("bridge port '{port_iface_name}' not found"))?;
-
-    let (reply_tx, reply_rx) = oneshot::channel();
-    send_command(
-        actor_handle,
-        Command::ConfigureBridge {
-            bridge_name: bridge_name.to_owned(),
-            stp: bridge_cfg.stp,
-            reply: reply_tx,
-        },
-        &port_iface_name,
-    )
-    .await?;
-
-    let bridge_snapshot = reply_rx.await??;
+    let bridge_snapshot = configure_bridge(supervisor, bridge_name, bridge_cfg)
+        .await?
+        .await??;
     supervisor.spawn_interface_actor(bridge_snapshot);
+
+    Ok(())
+}
+
+/// Points an existing bridge at its resolved port, reusing the bridge actor when present and spawning it when absent.
+pub(super) async fn reattach<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    bridge_name: &str,
+    bridge_cfg: &BridgeConfig,
+) -> Result<()> {
+    let bridge_snapshot = configure_bridge(supervisor, bridge_name, bridge_cfg)
+        .await?
+        .await??;
+    if !supervisor.interfaces.contains_key(&bridge_snapshot.name) {
+        supervisor.spawn_interface_actor(bridge_snapshot);
+    }
+
+    // The bridge's carrier returns when the new port is attached, but the monitor
+    // only reports ethernet names, so the bridge never gets its own link-up event.
+    let bridge = Name::new(bridge_name)?;
+    supervisor.send_to_interface(&bridge, Command::LinkUp).await;
 
     Ok(())
 }
@@ -134,6 +138,34 @@ pub(super) async fn respawn_actor<N: Ops>(
         drop(existing.cmd_tx.send(Command::Shutdown).await);
     }
     supervisor.spawn_interface_actor(snapshot);
+}
+
+// Asks a bridge port actor to attach its bridge and returns the bridge snapshot reply.
+async fn configure_bridge<N: Ops>(
+    supervisor: &NetworkSupervisor<N>,
+    bridge_name: &str,
+    bridge_cfg: &BridgeConfig,
+) -> Result<oneshot::Receiver<Result<Snapshot>>> {
+    let (port_iface_name, _) = bridge_port_handle(supervisor, bridge_cfg)?;
+
+    let actor_handle = supervisor
+        .interfaces
+        .get(&port_iface_name)
+        .ok_or_else(|| anyhow::anyhow!("bridge port '{port_iface_name}' not found"))?;
+
+    let (reply_tx, reply_rx) = oneshot::channel();
+    send_command(
+        actor_handle,
+        Command::ConfigureBridge {
+            bridge_name: bridge_name.to_owned(),
+            stp: bridge_cfg.stp,
+            reply: reply_tx,
+        },
+        &port_iface_name,
+    )
+    .await?;
+
+    Ok(reply_rx)
 }
 
 // Creates every configured bridge before any address is applied to its owner.

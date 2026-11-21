@@ -36,7 +36,7 @@ async fn on_link_up<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, i
         return;
     }
     if supervisor.state.backups.contains(&name) {
-        failover::handle_backup_recovery(supervisor, &name);
+        failover::handle_backup_recovery(supervisor, &name).await;
     }
 }
 
@@ -109,7 +109,7 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
     drop(actor_handle.cmd_tx.send(Command::Shutdown).await);
 
     if failover::is_primary_interface(supervisor, &name) {
-        failover::handle_primary_removed(supervisor, &name);
+        failover::handle_primary_removed(supervisor, &name).await;
     } else {
         supervisor.state.backups.retain(|n| n != &name);
     }

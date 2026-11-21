@@ -2,16 +2,16 @@
 
 use std::collections::HashMap;
 
+use config::system::network::InterfaceKind;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
 
-use super::NetworkSupervisor;
 use super::snapshot::NetworkSnapshot;
+use super::{NetworkSupervisor, provision};
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
-use crate::interface::snapshot::Snapshot;
 
 pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
     supervisor.state.primary.as_ref() == Some(name)
@@ -64,18 +64,10 @@ pub(super) fn handle_primary_recovery<N: Ops>(supervisor: &mut NetworkSupervisor
 }
 
 /// Restores a recovered backup as primary, unless the current primary is healthy.
-pub(super) fn handle_backup_recovery<N: Ops>(
+pub(super) async fn handle_backup_recovery<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     recovered: &Name,
 ) {
-    let owning = supervisor
-        .interfaces
-        .get(recovered)
-        .is_some_and(|handle| owns_l3(&handle.state_rx.borrow()));
-    if !owning {
-        return;
-    }
-
     let Some(current_primary) = supervisor.state.primary.clone() else {
         return;
     };
@@ -98,9 +90,13 @@ pub(super) fn handle_backup_recovery<N: Ops>(
     supervisor.state.backups.push(current_primary);
     supervisor.state.primary = Some(recovered.clone());
 
+    // The promotion was decided on a link-up event; for an interface that owns
+    // its own L3 the supervisor may not have consumed the earlier link-down.
     if let Some(handle) = supervisor.interfaces.get_mut(recovered) {
         handle.state_rx.borrow_and_update();
     }
+
+    rebridge(supervisor, recovered).await;
 
     if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state restoring primary {}: {}", recovered, e);
@@ -150,13 +146,17 @@ pub(super) fn recover_if_possible<N: Ops>(supervisor: &mut NetworkSupervisor<N>)
     }
 }
 
-pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: &Name) {
+pub(super) async fn handle_primary_removed<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    name: &Name,
+) {
     kmsg::info!("Primary interface {} removed", name);
 
     if let Some(new_primary) = supervisor.state.backups.first().cloned() {
         kmsg::info!("Promoting {} to primary", new_primary);
         supervisor.state.primary = Some(new_primary.clone());
         supervisor.state.backups.retain(|n| n != &new_primary);
+        rebridge(supervisor, &new_primary).await;
     } else {
         kmsg::warn!("No backup interfaces available");
         supervisor.state.primary = None;
@@ -166,14 +166,8 @@ pub(super) fn handle_primary_removed<N: Ops>(supervisor: &mut NetworkSupervisor<
     }
 }
 
-fn owns_l3(snapshot: &Snapshot) -> bool {
-    snapshot.l3_owner == snapshot.name
-}
-
 fn is_eligible_backup(handle: &ActorHandle) -> bool {
-    let snapshot = handle.state_rx.borrow();
-
-    owns_l3(&snapshot) && snapshot.link == State::Up
+    handle.state_rx.borrow().link == State::Up
 }
 
 async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed: &Name) {
@@ -211,7 +205,9 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
     supervisor.state.backups.push(failed.clone());
     supervisor.state.primary = Some(new_primary.clone());
 
-    if !is_interface_configured(supervisor, &new_primary) {
+    if !rebridge(supervisor, &new_primary).await
+        && !is_interface_configured(supervisor, &new_primary)
+    {
         supervisor
             .send_to_interface(
                 &new_primary,
@@ -225,6 +221,37 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
     if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
     }
+}
+
+// Points the bridge that owns the current primary at the new primary port.
+async fn rebridge<N: Ops>(supervisor: &mut NetworkSupervisor<N>, port: &Name) -> bool {
+    let mut has_bridge = false;
+    let mut repointed = false;
+    let interfaces = supervisor.config.interfaces.clone();
+    for iface_cfg in &interfaces {
+        if iface_cfg.kind != InterfaceKind::Bridge {
+            continue;
+        }
+        let Some(bridge_cfg) = iface_cfg.bridge.clone() else {
+            continue;
+        };
+        has_bridge = true;
+        let Ok((port_name, _)) = provision::bridge_port_handle(supervisor, &bridge_cfg) else {
+            continue;
+        };
+        if &port_name != port {
+            continue;
+        }
+        if let Err(e) = provision::reattach(supervisor, &iface_cfg.name, &bridge_cfg).await {
+            kmsg::warn!("Failed to re-point {} at {}: {}", iface_cfg.name, port, e);
+        } else {
+            repointed = true;
+        }
+    }
+    if has_bridge && !repointed {
+        kmsg::warn!("No bridge owns promoted port {port}");
+    }
+    repointed
 }
 
 #[cfg(test)]
@@ -256,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_eligibility_requires_own_l3_and_carrier() {
+    fn backup_eligibility_requires_carrier() {
         // ARRANGE
         let slave = handle("eth1", State::Up, "br0");
         let down = handle("eth2", State::Down, "eth2");
@@ -268,30 +295,15 @@ mod tests {
         let ready_eligible = is_eligible_backup(&ready);
 
         // ASSERT
-        assert!(!slave_eligible, "a bridge slave must not be a backup");
+        assert!(
+            slave_eligible,
+            "a bridge slave with carrier is a valid backup port"
+        );
         assert!(
             !down_eligible,
             "a link without carrier must not be a backup"
         );
-        assert!(ready_eligible, "a configured link with carrier is eligible");
-    }
-
-    #[test]
-    fn owns_l3_rejects_a_bridge_slave() {
-        // ARRANGE
-        let slave = handle("eth0", State::Up, "br0");
-        let owner = handle("eth0", State::Down, "eth0");
-
-        // ACT
-        let slave_owns_l3 = owns_l3(&slave.state_rx.borrow());
-        let owner_owns_l3 = owns_l3(&owner.state_rx.borrow());
-
-        // ASSERT
-        assert!(!slave_owns_l3, "a bridge slave must not own its L3 state");
-        assert!(
-            owner_owns_l3,
-            "an interface named after its L3 owner owns L3 regardless of carrier"
-        );
+        assert!(ready_eligible, "a link with carrier is eligible");
     }
 
     #[test]

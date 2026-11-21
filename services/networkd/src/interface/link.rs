@@ -23,6 +23,11 @@ pub(super) async fn up<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C
         actor.publish_snapshot();
         return;
     }
+    if actor.snapshot.state == Lifecycle::Degraded && actor.snapshot.dhcp_state.is_none() {
+        actor.ensure_configured_state();
+        actor.publish_snapshot();
+        return;
+    }
     if let Err(e) = dhcp::do_full_dora(actor, connector).await {
         kmsg::warn!(
             "DHCP re-acquire failed on link-up for {}: {e}",

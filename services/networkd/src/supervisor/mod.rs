@@ -294,6 +294,8 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     let mut supervisor = NetworkSupervisor::new(ops, config, dns);
     let mut events = monitor::Subscription::new(event_rx, source);
     let mut reconcile = interval(RECONCILE_INTERVAL);
+    // Startup provisioning already applies intent, so skip the immediate first tick.
+    reconcile.tick().await;
 
     loop {
         let owner = failover::l3_owner(&supervisor.state, &supervisor.interfaces).cloned();
