@@ -182,6 +182,93 @@ async fn primary_deleted_promotes_backup() {
 }
 
 #[tokio::test]
+async fn primary_deletion_skips_a_carrier_less_backup() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    let idx1 = mock.add_link("eth1", [0xBB; 6], true);
+    mock.add_link("eth2", [0xCC; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let down_backup = Name::new("eth1").expect("valid name");
+    let healthy_backup = Name::new("eth2").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    let before = handle
+        .status()
+        .await
+        .expect("the supervisor must stay responsive")
+        .processed_events;
+    event_tx
+        .send(Event::Down {
+            name: down_backup.clone(),
+            index: idx1,
+        })
+        .await
+        .expect("send event failed");
+    wait_for_events(&handle, before).await;
+
+    // ACT
+    event_tx
+        .send(Event::Deleted {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+
+    // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&healthy_backup)
+    })
+    .await;
+    assert!(
+        status.backups.contains(&down_backup),
+        "a carrier-less backup must stay a backup instead of being promoted"
+    );
+    drop(event_tx);
+}
+
+#[tokio::test]
+async fn primary_deletion_without_an_eligible_backup_degrades() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], false);
+    let primary_name = Name::new("eth0").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    // ACT
+    event_tx
+        .send(Event::Deleted {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+
+    // ASSERT
+    let status = wait_for(&handle, |status| status.primary.is_none()).await;
+    assert_eq!(
+        status.state,
+        supervisor::NetworkState::Degraded,
+        "removing the primary without an eligible backup must degrade the network"
+    );
+    drop(event_tx);
+}
+
+#[tokio::test]
 async fn single_interface_deleted_leaves_no_primary() {
     // ARRANGE
     let config = make_config();

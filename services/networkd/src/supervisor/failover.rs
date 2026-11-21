@@ -150,13 +150,13 @@ pub(super) async fn handle_primary_removed<N: Ops>(
 ) {
     kmsg::info!("Primary interface {} removed", name);
 
-    if let Some(new_primary) = supervisor.state.backups.first().cloned() {
+    if let Some(new_primary) = first_eligible_backup(supervisor) {
         kmsg::info!("Promoting {} to primary", new_primary);
         supervisor.state.primary = Some(new_primary.clone());
         supervisor.state.backups.retain(|n| n != &new_primary);
         rebridge(supervisor, &new_primary).await;
     } else {
-        kmsg::warn!("No backup interfaces available");
+        kmsg::warn!("No eligible backup interface available");
         supervisor.state.primary = None;
         if let Err(e) = supervisor.state.ensure_degraded() {
             kmsg::warn!("Unexpected state during primary removal: {}", e);
@@ -168,32 +168,32 @@ fn is_eligible_backup(handle: &ActorHandle) -> bool {
     handle.state_rx.borrow().link == State::Up
 }
 
+fn is_eligible<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
+    supervisor
+        .interfaces
+        .get(name)
+        .is_some_and(is_eligible_backup)
+}
+
+fn first_eligible_backup<N: Ops>(supervisor: &NetworkSupervisor<N>) -> Option<Name> {
+    supervisor
+        .state
+        .backups
+        .iter()
+        .find(|backup| is_eligible(supervisor, backup))
+        .cloned()
+}
+
 async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failed: &Name) {
     let configured_backup = supervisor
         .state
         .backups
         .iter()
         .find(|backup| {
-            is_interface_configured(supervisor, backup)
-                && supervisor
-                    .interfaces
-                    .get(*backup)
-                    .is_some_and(is_eligible_backup)
+            is_interface_configured(supervisor, backup) && is_eligible(supervisor, backup)
         })
         .cloned();
-    let Some(new_primary) = configured_backup.or_else(|| {
-        supervisor
-            .state
-            .backups
-            .iter()
-            .find(|backup| {
-                supervisor
-                    .interfaces
-                    .get(*backup)
-                    .is_some_and(is_eligible_backup)
-            })
-            .cloned()
-    }) else {
+    let Some(new_primary) = configured_backup.or_else(|| first_eligible_backup(supervisor)) else {
         kmsg::info!("No backup available for failover");
         return;
     };
