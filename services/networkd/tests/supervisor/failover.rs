@@ -632,6 +632,7 @@ async fn primary_failure_rebridges_the_backup_port() {
     );
 
     // ACT
+    mock.set_carrier("eth0", false);
     event_tx
         .send(Event::Down {
             name: primary_name,
@@ -777,6 +778,7 @@ async fn repointing_the_bridge_keeps_the_owner_up() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
+    mock.set_carrier("eth0", false);
     event_tx
         .send(Event::Down {
             name: primary_name,
@@ -795,4 +797,61 @@ async fn repointing_the_bridge_keeps_the_owner_up() {
         Some(State::Up),
         "re-pointing the bridge at a live port must keep the owner up"
     );
+}
+
+#[tokio::test]
+async fn port_flap_with_a_remaining_port_keeps_the_owner_up() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    mock.enslave("eth1", "br0");
+    let status = handle.status().await.expect("status query failed");
+    assert_eq!(
+        status.owner_link,
+        Some(State::Up),
+        "the bridge must start up with two live ports"
+    );
+    let before = status.processed_events;
+
+    // ACT
+    mock.set_carrier("eth0", false);
+    event_tx
+        .send(Event::Down {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+    let status = wait_for_events(&handle, before).await;
+
+    // ASSERT
+    assert_eq!(
+        status.owner_link,
+        Some(State::Up),
+        "the aggregate carrier never dropped, so the owner must stay up"
+    );
+    assert!(
+        matches!(
+            status.state,
+            supervisor::NetworkState::Operational | supervisor::NetworkState::Ready
+        ),
+        "a port flap with a remaining port must not degrade the network, got {}",
+        status.state
+    );
+    assert_eq!(
+        status.owner,
+        Some(Name::new("br0").expect("valid name")),
+        "the bridge must keep owning L3"
+    );
+    drop(event_tx);
 }

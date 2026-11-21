@@ -27,8 +27,8 @@ pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, 
 async fn on_link_up<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
     kmsg::info!("Event: Link up {} (index {})", name, index);
     supervisor.send_to_interface(&name, Command::LinkUp).await;
-    if let Some(owner) = owner(supervisor, &name, index).await {
-        supervisor.send_to_interface(&owner, Command::LinkUp).await;
+    if enslaved_by_snapshot(supervisor, &name) || master_index(supervisor, index).await.is_some() {
+        carrier::refresh_owner(supervisor).await;
         return;
     }
     if failover::is_primary_interface(supervisor, &name) {
@@ -43,10 +43,8 @@ async fn on_link_up<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, i
 async fn on_link_down<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
     kmsg::info!("Event: Link down {} (index {})", name, index);
     supervisor.send_to_interface(&name, Command::LinkDown).await;
-    if let Some(owner) = owner(supervisor, &name, index).await {
-        supervisor
-            .send_to_interface(&owner, Command::LinkDown)
-            .await;
+    if enslaved_by_snapshot(supervisor, &name) || master_index(supervisor, index).await.is_some() {
+        carrier::refresh_owner(supervisor).await;
         return;
     }
     if failover::is_primary_interface(supervisor, &name) {
@@ -123,16 +121,11 @@ async fn on_monitor_error<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failure
     reconcile::run(supervisor).await;
 }
 
-async fn owner<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name, index: u32) -> Option<Name> {
-    if let Some(handle) = supervisor.interfaces.get(name) {
-        let owner = handle.state_rx.borrow().l3_owner.clone();
-        if &owner != name && supervisor.interfaces.contains_key(&owner) {
-            return Some(owner);
-        }
-    }
-    let master = master_index(supervisor, index).await?;
-
-    name_by_index(supervisor, master)
+fn enslaved_by_snapshot<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
+    supervisor
+        .interfaces
+        .get(name)
+        .is_some_and(|handle| handle.state_rx.borrow().l3_owner != *name)
 }
 
 async fn master_index<N: Ops>(supervisor: &NetworkSupervisor<N>, index: u32) -> Option<u32> {
@@ -143,12 +136,4 @@ async fn master_index<N: Ops>(supervisor: &NetworkSupervisor<N>, index: u32) -> 
             None
         }
     }
-}
-
-fn name_by_index<N: Ops>(supervisor: &NetworkSupervisor<N>, index: u32) -> Option<Name> {
-    supervisor
-        .interfaces
-        .iter()
-        .find(|&(_, handle)| handle.state_rx.borrow().index == index)
-        .map(|(name, _)| name.clone())
 }

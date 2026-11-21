@@ -102,6 +102,14 @@ impl MockNetlinkOps {
         drop_link(&mut state, index);
     }
 
+    /// Brings a named link down or back up, as the kernel would on a physical flap:
+    /// carrier and admin state change together.
+    pub(crate) fn set_carrier(&self, name: &str, up: bool) {
+        if let Some(link) = self.lock().links.get_mut(name) {
+            link.up = up;
+        }
+    }
+
     /// Adds a link with a deterministic index.
     pub(crate) fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
         let mut state = self.lock();
