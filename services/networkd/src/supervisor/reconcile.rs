@@ -4,13 +4,10 @@ use anyhow::Result;
 use config::system::network;
 use netdev::Ops;
 use netlink::link::ifname::Name;
-use netlink::link::state::State;
-use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
+use network::{InterfaceConfig, InterfaceKind};
 
 use super::{NetworkSupervisor, dns, provision};
 use crate::interface::commands::{ApplyMode, Command};
-use crate::interface::lifecycle::Lifecycle;
-use crate::interface::snapshot::Snapshot;
 
 /// Describes whether reconcile applied intent or skipped it deliberately.
 enum ReconcileDisposition {
@@ -74,7 +71,7 @@ async fn ethernet<N: Ops>(
     Ok(ReconcileDisposition::Applied)
 }
 
-/// Reapplies a bridge intent and refreshes the bridge actor when needed.
+/// Reapplies a bridge intent by re-pointing its actor at the resolved port.
 async fn bridge<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     iface_cfg: &InterfaceConfig,
@@ -82,34 +79,8 @@ async fn bridge<N: Ops>(
     let bridge_name = Name::new(iface_cfg.name.as_str())?;
     let bridge_cfg = iface_cfg.bridge.clone().unwrap_or_default();
 
-    let is_configured = supervisor
-        .interfaces
-        .get(&bridge_name)
-        .is_some_and(|handle| handle.state_rx.borrow().state == Lifecycle::Configured);
-
-    if is_configured {
-        return Ok(ReconcileDisposition::Skipped(
-            "bridge is already configured".to_owned(),
-        ));
-    }
-
-    if supervisor.interfaces.contains_key(&bridge_name) {
-        kmsg::info!("Reconciling bridge interface: {}", bridge_name);
-        let bridge_snapshot = bridge_snapshot(supervisor, &bridge_name, &bridge_cfg).await?;
-        provision::respawn_actor(supervisor, bridge_snapshot).await;
-        own_addresses(supervisor, iface_cfg, &bridge_name).await?;
-
-        return Ok(ReconcileDisposition::Applied);
-    }
-
-    let Some(port_iface_name) = ready_bridge_port(supervisor, &bridge_cfg) else {
-        return Ok(ReconcileDisposition::Skipped(
-            "bridge port is not ready".to_owned(),
-        ));
-    };
-
-    println!("Reconciling bridge interface: {bridge_name} via port {port_iface_name}");
-    provision::bridge(supervisor, bridge_name.as_str(), &bridge_cfg).await?;
+    println!("Reconciling bridge interface: {bridge_name}");
+    provision::bridge::reattach(supervisor, bridge_name.as_str(), &bridge_cfg).await?;
     own_addresses(supervisor, iface_cfg, &bridge_name).await?;
 
     Ok(ReconcileDisposition::Applied)
@@ -136,43 +107,6 @@ async fn own_addresses<N: Ops>(
     }
 
     Ok(())
-}
-
-/// Reapplies bridge configuration and returns the refreshed bridge snapshot.
-async fn bridge_snapshot<N: Ops>(
-    supervisor: &mut NetworkSupervisor<N>,
-    bridge_name: &Name,
-    bridge_cfg: &BridgeConfig,
-) -> Result<Snapshot> {
-    let bridge_handle = supervisor
-        .interfaces
-        .get(bridge_name)
-        .ok_or_else(|| anyhow::anyhow!("bridge interface '{bridge_name}' not found"))?;
-    let bridge_snapshot = bridge_handle.state_rx.borrow().clone();
-    let (port_iface_name, _) = provision::bridge_port_handle(supervisor, bridge_cfg)?;
-    let mac = supervisor
-        .ops
-        .ensure_bridge(
-            bridge_name.as_str(),
-            port_iface_name.as_str(),
-            bridge_cfg.stp,
-        )
-        .await?;
-
-    let index = supervisor.ops.index(bridge_name.as_str()).await?;
-
-    Ok(Snapshot {
-        name: bridge_name.clone(),
-        state: Lifecycle::Configured,
-        index,
-        mac,
-        link: State::Up,
-        ip: bridge_snapshot.ip.clone(),
-        lease: bridge_snapshot.lease.clone(),
-        dhcp_state: bridge_snapshot.dhcp_state.clone(),
-        ipv6: bridge_snapshot.ipv6.clone(),
-        l3_owner: bridge_name.clone(),
-    })
 }
 
 /// Reapplies IPv4 configuration for one interface.
@@ -259,21 +193,4 @@ async fn ipv6<N: Ops>(
     }
 
     Ok(())
-}
-
-/// Returns the bridge port name when the port is configured enough to reconcile the bridge.
-fn ready_bridge_port<N: Ops>(
-    supervisor: &NetworkSupervisor<N>,
-    bridge_cfg: &BridgeConfig,
-) -> Option<Name> {
-    let Ok((port_iface_name, state_rx)) = provision::bridge_port_handle(supervisor, bridge_cfg)
-    else {
-        return None;
-    };
-    let snap = state_rx.borrow();
-    if snap.link == State::Up {
-        return Some(port_iface_name);
-    }
-
-    None
 }

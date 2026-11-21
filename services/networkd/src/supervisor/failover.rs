@@ -90,8 +90,6 @@ pub(super) async fn handle_backup_recovery<N: Ops>(
     supervisor.state.backups.push(current_primary);
     supervisor.state.primary = Some(recovered.clone());
 
-    // The promotion was decided on a link-up event; for an interface that owns
-    // its own L3 the supervisor may not have consumed the earlier link-down.
     if let Some(handle) = supervisor.interfaces.get_mut(recovered) {
         handle.state_rx.borrow_and_update();
     }
@@ -242,7 +240,8 @@ async fn rebridge<N: Ops>(supervisor: &mut NetworkSupervisor<N>, port: &Name) ->
         if &port_name != port {
             continue;
         }
-        if let Err(e) = provision::reattach(supervisor, &iface_cfg.name, &bridge_cfg).await {
+        if let Err(e) = provision::bridge::reattach(supervisor, &iface_cfg.name, &bridge_cfg).await
+        {
             kmsg::warn!("Failed to re-point {} at {}: {}", iface_cfg.name, port, e);
         } else {
             repointed = true;

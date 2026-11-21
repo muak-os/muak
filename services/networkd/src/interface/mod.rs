@@ -33,6 +33,7 @@ pub struct Actor<N: Ops> {
     cmd_rx: mpsc::Receiver<Command>,
     snapshot_tx: watch::Sender<Arc<Snapshot>>,
     dhcp: Option<Manager>,
+    dhcp_enabled: bool,
     timers: LeaseTimers,
     slaac: Option<SlaacManager>,
 }
@@ -77,6 +78,7 @@ impl<N: Ops> Actor<N> {
             cmd_rx,
             snapshot_tx,
             dhcp: None,
+            dhcp_enabled: false,
             timers: LeaseTimers::new(),
             slaac: None,
         };
@@ -97,13 +99,17 @@ impl<N: Ops> Actor<N> {
     /// Runs the full DHCP re-acquisition when the lease expires.
     async fn dispatch<C: Connector>(&mut self, cmd: Command, connector: &C) {
         match cmd {
-            Command::ConfigureDhcp { mode } => dhcp::apply(self, mode, connector).await,
+            Command::ConfigureDhcp { mode } => {
+                self.dhcp_enabled = true;
+                dhcp::apply(self, mode, connector).await;
+            }
             Command::ConfigureStaticIpv4 {
                 mode,
                 index,
                 addresses,
                 gateway,
             } => {
+                self.dhcp_enabled = false;
                 r#static::apply_ipv4(self, index, &addresses, gateway, mode).await;
             }
             Command::ConfigureStaticIpv6 {

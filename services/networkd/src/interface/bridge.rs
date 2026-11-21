@@ -36,7 +36,7 @@ pub(super) async fn configure<N: Ops>(
     let br_iface_name =
         Name::new(bridge_name).with_context(|| format!("invalid bridge name: {bridge_name}"))?;
 
-    let bridge_snapshot = Snapshot {
+    let created = Snapshot {
         name: br_iface_name.clone(),
         state: Lifecycle::Discovered,
         index,
@@ -53,8 +53,8 @@ pub(super) async fn configure<N: Ops>(
     snapshot.ip = None;
     snapshot.lease = None;
     snapshot.dhcp_state = None;
-    snapshot.l3_owner = bridge_snapshot.name.clone();
+    snapshot.l3_owner = created.name.clone();
     actor.publish_snapshot();
 
-    Ok(bridge_snapshot)
+    Ok(created)
 }

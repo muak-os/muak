@@ -376,21 +376,31 @@ async fn reconcile_reapplies_bridge_own_ipv4() {
 }
 
 #[tokio::test]
-async fn reconcile_skips_configured_bridge() {
+async fn reconcile_repoints_a_configured_bridge() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default());
+    let handle = supervisor::start_with(
+        mock.clone(),
+        event_rx,
+        config_bridge_l3_on_bridge(),
+        Resolver::default(),
+    );
     handle.initialize_with_retry().await.expect("init failed");
     sleep(Duration::from_millis(100)).await;
     let br0_index = link_index(&mock, "br0").expect("bridge should exist");
     let ensure_calls = mock.ensure_bridge_calls();
+    let owner = handle.status().await.expect("status query failed").owner;
     assert_eq!(
-        ensure_calls, 1,
-        "provisioning should create the bridge once"
+        owner,
+        Some(Name::new("br0").expect("valid bridge name")),
+        "the bridge should own L3 after initialization"
+    );
+    assert!(
+        ipv4_addrs(&mock, br0_index).contains(&(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)),
+        "the bridge should have its static IPv4 after initialization"
     );
 
     // ACT
@@ -400,21 +410,21 @@ async fn reconcile_skips_configured_bridge() {
     // ASSERT
     assert_eq!(
         mock.ensure_bridge_calls(),
-        ensure_calls,
-        "configured bridge should be skipped"
+        ensure_calls + 1,
+        "reconcile must re-point a configured bridge"
     );
     assert_eq!(
         link_index(&mock, "br0"),
         Some(br0_index),
-        "bridge index should be unchanged"
+        "the kernel bridge index is unchanged"
     );
     assert_eq!(
-        master_index(&mock, "eth0"),
-        Some(br0_index),
-        "port should remain attached to the bridge"
+        handle.status().await.expect("status query failed").owner,
+        Some(Name::new("br0").expect("valid bridge name")),
+        "L3 ownership must stay on the bridge"
     );
     assert!(
         ipv4_addrs(&mock, br0_index).contains(&(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)),
-        "L3 intent should remain on the bridge"
+        "the bridge must keep its static IPv4"
     );
 }
