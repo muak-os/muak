@@ -1,55 +1,37 @@
 //! Primary/backup promotion and failover policy for the network supervisor.
 
-use std::collections::HashMap;
+#[cfg(feature = "ipv4")]
+use alloc::vec::Vec;
 
 use config::system::network::InterfaceKind;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
+#[cfg(feature = "ipv4")]
+use netstack::interface::Command;
+use netstack::interface::Handle;
+#[cfg(feature = "ipv4")]
+use netstack::provision as address;
 
-use super::snapshot::NetworkSnapshot;
-use super::{NetworkSupervisor, provision};
-use crate::interface::ActorHandle;
-use crate::interface::commands::{ApplyMode, Command};
-use crate::interface::lifecycle::Lifecycle;
+use super::{NetworkSupervisor, owner, provision, view};
 
 pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
     supervisor.state.primary.as_ref() == Some(name)
 }
 
-/// Returns the interface that owns L3: the recorded bridge when present, otherwise the primary's bridge ownership.
-pub(super) fn l3_owner<'a>(
-    state: &'a NetworkSnapshot,
-    interfaces: &'a HashMap<Name, ActorHandle>,
-) -> Option<&'a Name> {
-    if let Some(owner) = state.l3_owner.as_ref()
-        && interfaces.contains_key(owner)
-    {
-        return Some(owner);
-    }
-
-    let primary = state.primary.as_ref()?;
-    let snapshot = interfaces.get(primary)?.state_rx.borrow();
-    if snapshot.l3_owner == snapshot.name {
-        return Some(primary);
-    }
-
-    Some(
-        interfaces
-            .get_key_value(&snapshot.l3_owner)
-            .map_or(primary, |(name, _)| name),
-    )
-}
-
 /// Returns true when the L3 owner's interface is failed or down.
 pub(super) fn is_owner_failed<N: Ops>(supervisor: &NetworkSupervisor<N>) -> bool {
-    let Some(owner) = l3_owner(&supervisor.state, &supervisor.interfaces) else {
+    let Some(owner) = owner::l3_owner(
+        &supervisor.state,
+        &supervisor.interfaces,
+        &supervisor.owners,
+    ) else {
         return false;
     };
-    supervisor.interfaces.get(owner).is_some_and(|handle| {
-        let snapshot = handle.state_rx.borrow();
-        snapshot.state == Lifecycle::Failed || snapshot.link == State::Down
-    })
+    supervisor
+        .interfaces
+        .get(owner)
+        .is_some_and(|handle| view::is_failed(&handle.snapshot_rx.borrow()))
 }
 
 pub(super) fn is_interface_configured<N: Ops>(
@@ -59,7 +41,7 @@ pub(super) fn is_interface_configured<N: Ops>(
     supervisor
         .interfaces
         .get(name)
-        .is_some_and(|handle| handle.state_rx.borrow().state == Lifecycle::Configured)
+        .is_some_and(|handle| view::is_configured(&handle.snapshot_rx.borrow()))
 }
 
 pub(super) fn handle_primary_recovery<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: &Name) {
@@ -97,7 +79,7 @@ pub(super) async fn handle_backup_recovery<N: Ops>(
     supervisor.state.primary = Some(recovered.clone());
 
     if let Some(handle) = supervisor.interfaces.get_mut(recovered) {
-        handle.state_rx.borrow_and_update();
+        handle.snapshot_rx.borrow_and_update();
     }
 
     rebridge(supervisor, recovered).await;
@@ -135,12 +117,16 @@ pub(super) fn recover_if_possible<N: Ops>(supervisor: &mut NetworkSupervisor<N>)
     if supervisor.state.is_operational() {
         return;
     }
-    let Some(owner) = l3_owner(&supervisor.state, &supervisor.interfaces) else {
+    let Some(owner) = owner::l3_owner(
+        &supervisor.state,
+        &supervisor.interfaces,
+        &supervisor.owners,
+    ) else {
         return;
     };
     let healthy = supervisor.interfaces.get(owner).is_some_and(|handle| {
-        let snapshot = handle.state_rx.borrow();
-        snapshot.state == Lifecycle::Configured && snapshot.link == State::Up
+        let snapshot = handle.snapshot_rx.borrow();
+        view::is_configured(&snapshot) && snapshot.link == State::Up
     });
     if !healthy {
         return;
@@ -170,8 +156,8 @@ pub(super) async fn handle_primary_removed<N: Ops>(
     }
 }
 
-fn is_eligible_backup(handle: &ActorHandle) -> bool {
-    handle.state_rx.borrow().link == State::Up
+fn is_eligible_backup(handle: &Handle) -> bool {
+    handle.snapshot_rx.borrow().link == State::Up
 }
 
 fn is_eligible<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
@@ -209,21 +195,57 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
     supervisor.state.backups.push(failed.clone());
     supervisor.state.primary = Some(new_primary.clone());
 
+    #[cfg(feature = "ipv4")]
     if !rebridge(supervisor, &new_primary).await
         && !is_interface_configured(supervisor, &new_primary)
     {
-        supervisor
-            .send_to_interface(
-                &new_primary,
-                Command::ConfigureDhcp {
-                    mode: ApplyMode::Provision,
-                },
-            )
-            .await;
+        configure_promoted(supervisor, &new_primary).await;
     }
+    #[cfg(not(feature = "ipv4"))]
+    rebridge(supervisor, &new_primary).await;
 
     if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
+    }
+}
+
+// Starts DHCP on a promoted backup that has no bridge and no configuration yet.
+#[cfg(feature = "ipv4")]
+async fn configure_promoted<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) {
+    let interfaces = supervisor.config.interfaces.clone();
+    for iface_cfg in &interfaces {
+        if iface_cfg.kind != InterfaceKind::Ethernet {
+            continue;
+        }
+        let Ok(resolved) = provision::resolve_name(supervisor, &iface_cfg.name) else {
+            continue;
+        };
+        if &resolved != name {
+            continue;
+        }
+        let Some(ipv4) = iface_cfg.ipv4.as_ref() else {
+            return;
+        };
+        if !ipv4.dhcp {
+            return;
+        }
+        let config = address::v4::Config {
+            addresses: Vec::new(),
+            gateway: None,
+            dns: supervisor.config.ipv4_dns().collect(),
+            dhcp: true,
+        };
+        supervisor
+            .send_to_interface(
+                name,
+                Command::Configure {
+                    v4: Some(config),
+                    #[cfg(feature = "ipv6")]
+                    v6: None,
+                },
+            )
+            .await;
+        return;
     }
 }
 
@@ -240,14 +262,13 @@ async fn rebridge<N: Ops>(supervisor: &mut NetworkSupervisor<N>, port: &Name) ->
             continue;
         };
         has_bridge = true;
-        let Ok((port_name, _)) = provision::bridge_port_handle(supervisor, &bridge_cfg) else {
+        let Ok(port_name) = provision::bridge_port(supervisor, &bridge_cfg) else {
             continue;
         };
         if &port_name != port {
             continue;
         }
-        if let Err(e) = provision::bridge::reattach(supervisor, &iface_cfg.name, &bridge_cfg).await
-        {
+        if let Err(e) = provision::bridge::ensure(supervisor, &iface_cfg.name, &bridge_cfg).await {
             kmsg::warn!("Failed to re-point {} at {}: {}", iface_cfg.name, port, e);
         } else {
             repointed = true;
@@ -261,124 +282,47 @@ async fn rebridge<N: Ops>(supervisor: &mut NetworkSupervisor<N>, port: &Name) ->
 
 #[cfg(test)]
 mod tests {
-    use alloc::sync::Arc;
-
+    use netstack::interface::Snapshot;
     use tokio::sync::{mpsc, watch};
 
     use super::*;
-    use crate::interface::snapshot::Snapshot;
 
-    fn handle(name: &str, link: State, l3_owner: &str) -> ActorHandle {
+    fn handle(link: State) -> Handle {
         let snapshot = Snapshot {
-            name: Name::new(name).expect("valid name"),
-            state: Lifecycle::Configured,
-            index: 1,
-            mac: [0; 6],
             link,
-            ip: None,
-            lease: None,
-            dhcp_state: None,
-            ipv6: None,
-            l3_owner: Name::new(l3_owner).expect("valid name"),
+            #[cfg(feature = "ipv4")]
+            v4: None,
+            #[cfg(feature = "ipv4")]
+            v4_state: netstack::provision::State::Stopped,
+            #[cfg(feature = "ipv6")]
+            v6: None,
+            #[cfg(feature = "ipv6")]
+            v6_state: netstack::provision::State::Stopped,
         };
-        let (cmd_tx, _cmd_rx) = mpsc::channel(1);
-        let (_state_tx, state_rx) = watch::channel(Arc::new(snapshot));
+        let (command_tx, _command_rx) = mpsc::channel(1);
+        let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);
 
-        ActorHandle { cmd_tx, state_rx }
+        Handle {
+            command_tx,
+            snapshot_rx,
+        }
     }
 
     #[test]
     fn backup_eligibility_requires_carrier() {
         // ARRANGE
-        let slave = handle("eth1", State::Up, "br0");
-        let down = handle("eth2", State::Down, "eth2");
-        let ready = handle("eth3", State::Up, "eth3");
+        let down = handle(State::Down);
+        let ready = handle(State::Up);
 
         // ACT
-        let slave_eligible = is_eligible_backup(&slave);
         let down_eligible = is_eligible_backup(&down);
         let ready_eligible = is_eligible_backup(&ready);
 
         // ASSERT
         assert!(
-            slave_eligible,
-            "a bridge slave with carrier is a valid backup port"
-        );
-        assert!(
             !down_eligible,
             "a link without carrier must not be a backup"
         );
         assert!(ready_eligible, "a link with carrier is eligible");
-    }
-
-    #[test]
-    fn l3_owner_follows_bridge_ownership() {
-        // ARRANGE
-        let mut state = NetworkSnapshot::empty();
-        state.primary = Some(Name::new("eth0").expect("valid name"));
-        let interfaces = HashMap::from([
-            (
-                Name::new("eth0").expect("valid name"),
-                handle("eth0", State::Up, "br0"),
-            ),
-            (
-                Name::new("br0").expect("valid name"),
-                handle("br0", State::Up, "br0"),
-            ),
-        ]);
-
-        // ACT
-        let owner = l3_owner(&state, &interfaces);
-
-        // ASSERT
-        assert_eq!(owner.map(Name::as_str), Some("br0"));
-    }
-
-    #[test]
-    fn l3_owner_prefers_recorded_bridge_without_primary() {
-        // ARRANGE
-        let mut state = NetworkSnapshot::empty();
-        state.l3_owner = Some(Name::new("br0").expect("valid name"));
-        let interfaces = HashMap::from([(
-            Name::new("br0").expect("valid name"),
-            handle("br0", State::Up, "br0"),
-        )]);
-
-        // ACT
-        let owner = l3_owner(&state, &interfaces);
-
-        // ASSERT
-        assert_eq!(owner.map(Name::as_str), Some("br0"));
-    }
-
-    #[test]
-    fn l3_owner_falls_back_to_primary_without_bridge_actor() {
-        // ARRANGE
-        let mut state = NetworkSnapshot::empty();
-        state.primary = Some(Name::new("eth0").expect("valid name"));
-        state.l3_owner = Some(Name::new("br0").expect("valid name"));
-        let interfaces = HashMap::from([(
-            Name::new("eth0").expect("valid name"),
-            handle("eth0", State::Up, "br0"),
-        )]);
-
-        // ACT
-        let owner = l3_owner(&state, &interfaces);
-
-        // ASSERT
-        assert_eq!(owner.map(Name::as_str), Some("eth0"));
-    }
-
-    #[test]
-    fn l3_owner_is_none_without_primary() {
-        // ARRANGE
-        let state = NetworkSnapshot::empty();
-        let interfaces = HashMap::new();
-
-        // ACT
-        let owner = l3_owner(&state, &interfaces);
-
-        // ASSERT
-        assert_eq!(owner.map(Name::as_str), None);
     }
 }

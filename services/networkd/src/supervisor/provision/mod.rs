@@ -1,21 +1,17 @@
-//! Applies declarative interface configuration from the config file via interface actors.
+//! Applies declarative interface configuration from the config file.
 
 pub(super) mod addresses;
 pub(super) mod bridge;
 
 use alloc::borrow::Cow;
-use alloc::sync::Arc;
 
 use anyhow::Result;
 use config::system::network::{BridgeConfig, InterfaceKind};
 use netdev::Ops;
 use netlink::link::ifname::Name;
-use tokio::sync::watch;
+use netstack::interface::{Command, Handle};
 
 use super::NetworkSupervisor;
-use crate::interface::ActorHandle;
-use crate::interface::commands::Command;
-use crate::interface::snapshot::Snapshot;
 
 /// Applies declarative interface configuration from the config file.
 pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
@@ -56,43 +52,36 @@ pub(super) fn resolve_owner<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Na
     name.clone()
 }
 
-/// Returns the kernel index of a runtime interface actor.
-pub(super) fn actor_index<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> Result<u32> {
-    Ok(supervisor
+/// Returns the runtime handle for `name`, or an error when it is absent.
+pub(super) fn handle<'a, N: Ops>(
+    supervisor: &'a NetworkSupervisor<N>,
+    name: &Name,
+) -> Result<&'a Handle> {
+    supervisor
         .interfaces
         .get(name)
-        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {name}"))?
-        .state_rx
-        .borrow()
-        .index)
+        .ok_or_else(|| anyhow::anyhow!("interface not found: {name}"))
 }
 
-pub(super) fn bridge_port_handle<N: Ops>(
+/// Resolves the port a bridge should attach to, expanding the `auto` alias.
+pub(super) fn bridge_port<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     bridge_cfg: &BridgeConfig,
-) -> Result<(Name, watch::Receiver<Arc<Snapshot>>)> {
+) -> Result<Name> {
     let primary = supervisor.get_primary_name()?;
     let port_name = resolve_bridge_port(&bridge_cfg.port, &primary);
-    let port_iface_name = Name::new(&*port_name)?;
-    let actor_handle = supervisor
-        .interfaces
-        .get(&port_iface_name)
-        .ok_or_else(|| anyhow::anyhow!("bridge port '{port_name}' not found"))?;
 
-    Ok((port_iface_name, actor_handle.state_rx.clone()))
+    Name::new(&*port_name).map_err(Into::into)
 }
 
-/// Sends a command to an interface actor, mapping a closed channel to an error.
-pub(super) async fn send_command(
-    handle: &ActorHandle,
-    cmd: Command,
-    iface_name: &Name,
-) -> Result<()> {
+/// Sends a command to an interface handle, mapping a closed channel to an error.
+pub(super) async fn send_command(handle: &Handle, cmd: Command, name: &Name) -> Result<()> {
     handle
-        .cmd_tx
+        .command_tx
         .send(cmd)
         .await
-        .map_err(|error| anyhow::anyhow!("interface actor gone: {iface_name}: {error}"))?;
+        .map_err(|error| anyhow::anyhow!("interface handle gone: {name}: {error}"))?;
+
     Ok(())
 }
 

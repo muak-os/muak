@@ -1455,20 +1455,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "netstack"
+version = "0.0.0"
+dependencies = [
+ "dhcp-client",
+ "dhcp-proto",
+ "ip",
+ "kmsg",
+ "netdev",
+ "netlink",
+ "packet",
+ "slaac",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "networkd"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "config",
- "dhcp-client",
  "granola",
  "kmsg",
  "mac",
  "netdev",
  "netlink",
  "netlink-monitor",
- "packet",
- "slaac",
+ "netstack",
  "tempfile",
  "tokio",
 ]

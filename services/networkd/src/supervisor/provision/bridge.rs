@@ -3,12 +3,11 @@
 use anyhow::Result;
 use config::system::network::{BridgeConfig, InterfaceKind};
 use netdev::Ops;
-use tokio::sync::oneshot;
+use netdev::interface::Ethernet;
+use netlink::link::ifname::Name;
 
 use super::super::{NetworkSupervisor, carrier};
-use super::{bridge_port_handle, send_command};
-use crate::interface::commands::Command;
-use crate::interface::snapshot::Snapshot;
+use super::bridge_port;
 
 // Creates every configured bridge before any address is applied to its owner.
 pub(super) async fn configure_all<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
@@ -18,72 +17,41 @@ pub(super) async fn configure_all<N: Ops>(supervisor: &mut NetworkSupervisor<N>)
             continue;
         }
         let bridge_cfg = iface_cfg.bridge.clone().unwrap_or_default();
-        if let Err(e) = configure(supervisor, &iface_cfg.name, &bridge_cfg).await {
+        if let Err(e) = ensure(supervisor, &iface_cfg.name, &bridge_cfg).await {
             kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
         }
     }
 }
 
-/// Points an existing bridge at its resolved port, reusing the bridge actor when present and spawning it when absent.
-pub(in crate::supervisor) async fn reattach<N: Ops>(
+/// Ensures the kernel bridge exists with its port attached, reusing its handle.
+pub(in crate::supervisor) async fn ensure<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     bridge_name: &str,
     bridge_cfg: &BridgeConfig,
 ) -> Result<()> {
-    let snapshot = request(supervisor, bridge_name, bridge_cfg)
-        .await?
-        .await??;
-    let bridge = snapshot.name.clone();
-    if !supervisor.interfaces.contains_key(&snapshot.name) {
-        supervisor.spawn_interface_actor(snapshot);
+    let port = bridge_port(supervisor, bridge_cfg)?;
+    if !supervisor.interfaces.contains_key(&port) {
+        anyhow::bail!("bridge port '{port}' not found");
     }
-    supervisor.state.l3_owner = Some(bridge);
+    let bridge = supervisor
+        .ops
+        .ensure_bridge(bridge_name, port.as_str(), bridge_cfg.stp)
+        .await?;
+    let index = supervisor.ops.index(bridge_name).await?;
+    let bridge_name = Name::new(bridge_name)?;
+
+    if !supervisor.interfaces.contains_key(&bridge_name) {
+        let link = Ethernet::new(bridge_name.clone(), index, bridge.mac, bridge.link);
+        supervisor.spawn_interface(link);
+    }
+
+    supervisor.owners.insert(port, bridge_name.clone());
+    supervisor
+        .owners
+        .insert(bridge_name.clone(), bridge_name.clone());
+    supervisor.state.l3_owner = Some(bridge_name);
 
     carrier::refresh_owner(supervisor).await;
 
     Ok(())
-}
-
-async fn configure<N: Ops>(
-    supervisor: &mut NetworkSupervisor<N>,
-    bridge_name: &str,
-    bridge_cfg: &BridgeConfig,
-) -> Result<()> {
-    let snapshot = request(supervisor, bridge_name, bridge_cfg)
-        .await?
-        .await??;
-    // Multi-bridge configs are unsupported: the last ensured bridge wins.
-    supervisor.state.l3_owner = Some(snapshot.name.clone());
-    supervisor.spawn_interface_actor(snapshot);
-    carrier::refresh_owner(supervisor).await;
-
-    Ok(())
-}
-
-// Asks a bridge port actor to attach its bridge and returns the bridge snapshot reply.
-async fn request<N: Ops>(
-    supervisor: &NetworkSupervisor<N>,
-    bridge_name: &str,
-    bridge_cfg: &BridgeConfig,
-) -> Result<oneshot::Receiver<Result<Snapshot>>> {
-    let (port_iface_name, _) = bridge_port_handle(supervisor, bridge_cfg)?;
-
-    let actor_handle = supervisor
-        .interfaces
-        .get(&port_iface_name)
-        .ok_or_else(|| anyhow::anyhow!("bridge port '{port_iface_name}' not found"))?;
-
-    let (reply_tx, reply_rx) = oneshot::channel();
-    send_command(
-        actor_handle,
-        Command::ConfigureBridge {
-            bridge_name: bridge_name.to_owned(),
-            stp: bridge_cfg.stp,
-            reply: reply_tx,
-        },
-        &port_iface_name,
-    )
-    .await?;
-
-    Ok(reply_rx)
 }

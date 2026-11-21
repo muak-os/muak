@@ -349,25 +349,17 @@ deny *checks="advisories bans licenses sources":
 
 # Check every feature combination compiles (e.g., just features or just features yuki).
 [group('test')]
-[env("RUSTFLAGS", rustflags)]
 [script]
 features *pkgs:
     printf "{{ cyan }}Checking feature matrix{{ reset }}\n"
-    if [ -n "{{ pkgs }}" ]; then
-        for pkg in {{ pkgs }}; do
-            extra=""
-            case "$pkg" in
-                firmware | sbolt | partdev | packet) extra="--exclude-no-default-features" ;;
-            esac
-            cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
-        done
-    else
-        cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going \
-            --workspace --exclude e2e --exclude firmware --exclude sbolt \
-            --exclude partdev --exclude packet
-        cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going \
-            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet
-    fi
+    just _feature-check "--no-dev-deps" {{ pkgs }}
+
+# Check every feature combination compiles including tests (e.g., just features-test networkd).
+[group('test')]
+[script]
+features-test *pkgs:
+    printf "{{ cyan }}Checking feature matrix with tests{{ reset }}\n"
+    just _feature-check "--tests" {{ pkgs }}
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)
 [group('test')]
@@ -486,6 +478,26 @@ clean:
 # ─────────────────────────────────────────────────────────────────────────────
 # Private Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+[private]
+[env("RUSTFLAGS", rustflags)]
+[script]
+_feature-check flags *pkgs:
+    if [ -n "{{ pkgs }}" ]; then
+        for pkg in {{ pkgs }}; do
+            extra=""
+            case "$pkg" in
+                firmware | sbolt | partdev | packet | netstack | networkd) extra="--exclude-no-default-features" ;;
+            esac
+            cargo hack check {{ target }} --each-feature {{ flags }} --keep-going $extra -p "$pkg"
+        done
+    else
+        cargo hack check {{ target }} --each-feature {{ flags }} --keep-going \
+            --workspace --exclude e2e --exclude firmware --exclude sbolt \
+            --exclude partdev --exclude packet --exclude netstack --exclude networkd
+        cargo hack check {{ target }} --each-feature {{ flags }} --keep-going \
+            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet -p netstack -p networkd
+    fi
 
 [private]
 [script]

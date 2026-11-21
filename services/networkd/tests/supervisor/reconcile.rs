@@ -1,6 +1,5 @@
 //! Integration tests for supervisor reconciliation.
 
-use alloc::sync::Arc;
 use core::time::Duration;
 
 use config::system::network;
@@ -13,7 +12,7 @@ use tokio::time::sleep;
 use super::*;
 
 /// Returns a named static IPv4 test config for supervisor reconciliation.
-fn config_static_named() -> Arc<network::Config> {
+fn config_static_named() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -31,12 +30,12 @@ fn config_static_named() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
 /// Returns a named static IPv6 test config for supervisor reconciliation.
 #[cfg(feature = "ipv6")]
-fn config_static_ipv6_named() -> Arc<network::Config> {
+fn config_static_ipv6_named() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -54,11 +53,11 @@ fn config_static_ipv6_named() -> Arc<network::Config> {
         }),
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
 /// Returns a DHCP test config for supervisor reconciliation.
-fn config_dhcp_named() -> Arc<network::Config> {
+fn config_dhcp_named() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -73,11 +72,11 @@ fn config_dhcp_named() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
 /// Returns a bridge config whose L3 intent is declared on the bridge entry.
-fn config_bridge_l3_on_bridge() -> Arc<network::Config> {
+fn config_bridge_l3_on_bridge() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -105,11 +104,11 @@ fn config_bridge_l3_on_bridge() -> Arc<network::Config> {
             stp: false,
         }),
     });
-    Arc::new(cfg)
+    cfg
 }
 
 /// Returns a bridge config that targets an unresolved named port.
-fn config_bridge_missing_port() -> Arc<network::Config> {
+fn config_bridge_missing_port() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -123,7 +122,7 @@ fn config_bridge_missing_port() -> Arc<network::Config> {
             stp: false,
         }),
     });
-    Arc::new(cfg)
+    cfg
 }
 
 #[tokio::test]

@@ -44,6 +44,7 @@ impl Resolver {
     pub fn update(&mut self, v4: Vec<Ipv4Addr>, v6: Vec<Ipv6Addr>) -> Result<()> {
         self.v4 = v4;
         self.v6 = v6;
+
         write_resolv_conf(&self.resolv_conf, &self.tmp_path, &self.v4, &self.v6)
     }
 

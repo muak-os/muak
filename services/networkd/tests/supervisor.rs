@@ -1,7 +1,5 @@
 //! Integration tests for the network supervisor.
 
-extern crate alloc;
-
 #[cfg(test)]
 mod supervisor {
     mod discovery;
@@ -20,15 +18,13 @@ mod supervisor {
 
 mod fixtures;
 
-use alloc::sync::Arc;
-
 use config::system::network;
 use netlink::address::Ops as _;
 
 use self::fixtures::monitor::FakeMonitor;
 use self::fixtures::netlink::MockNetlinkOps;
 
-fn make_config() -> Arc<network::Config> {
+fn make_config() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -46,11 +42,11 @@ fn make_config() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
 /// Returns a config with a static IPv4 port and a bridge over it.
-fn config_bridge() -> Arc<network::Config> {
+fn config_bridge() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -79,12 +75,12 @@ fn config_bridge() -> Arc<network::Config> {
         }),
     });
 
-    Arc::new(cfg)
+    cfg
 }
 
 #[cfg(feature = "ipv6")]
-fn config_bridge_ipv6() -> Arc<network::Config> {
-    let mut cfg = (*config_bridge()).clone();
+fn config_bridge_ipv6() -> network::Config {
+    let mut cfg = config_bridge();
     if let Some(port) = cfg.interfaces.first_mut() {
         port.ipv6 = Some(network::Ipv6InterfaceConfig {
             autoconf: false,
@@ -96,7 +92,7 @@ fn config_bridge_ipv6() -> Arc<network::Config> {
         });
     }
 
-    Arc::new(cfg)
+    cfg
 }
 
 fn ipv4_addrs(

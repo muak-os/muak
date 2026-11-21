@@ -1,6 +1,5 @@
 //! Integration tests for `NetworkSupervisor` interface provisioning.
 
-use alloc::sync::Arc;
 use core::time::Duration;
 
 use config::system::network;
@@ -38,7 +37,7 @@ fn assert_l3_on_bridge(mock: &MockNetlinkOps) {
     );
 }
 
-fn config_static_ipv4() -> Arc<network::Config> {
+fn config_static_ipv4() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -56,10 +55,10 @@ fn config_static_ipv4() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
-fn config_dhcp() -> Arc<network::Config> {
+fn config_dhcp() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -74,11 +73,11 @@ fn config_dhcp() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
 #[cfg(feature = "ipv6")]
-fn config_ipv6() -> Arc<network::Config> {
+fn config_ipv6() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -96,11 +95,11 @@ fn config_ipv6() -> Arc<network::Config> {
         }),
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
 #[cfg(feature = "ipv6")]
-fn config_slaac() -> Arc<network::Config> {
+fn config_slaac() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.ipv6 = true;
@@ -116,10 +115,10 @@ fn config_slaac() -> Arc<network::Config> {
         }),
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
-fn config_named() -> Arc<network::Config> {
+fn config_named() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -137,10 +136,10 @@ fn config_named() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
-fn config_none() -> Arc<network::Config> {
+fn config_none() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -151,10 +150,10 @@ fn config_none() -> Arc<network::Config> {
         ipv6: None,
         bridge: None,
     });
-    Arc::new(cfg)
+    cfg
 }
 
-fn config_bridge_multiport() -> Arc<network::Config> {
+fn config_bridge_multiport() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -182,10 +181,10 @@ fn config_bridge_multiport() -> Arc<network::Config> {
             stp: false,
         }),
     });
-    Arc::new(cfg)
+    cfg
 }
 
-fn config_bridge_named_port() -> Arc<network::Config> {
+fn config_bridge_named_port() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -213,10 +212,10 @@ fn config_bridge_named_port() -> Arc<network::Config> {
             stp: false,
         }),
     });
-    Arc::new(cfg)
+    cfg
 }
 
-fn config_bridge_empty_port() -> Arc<network::Config> {
+fn config_bridge_empty_port() -> network::Config {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
     cfg.interfaces.clear();
@@ -244,7 +243,7 @@ fn config_bridge_empty_port() -> Arc<network::Config> {
             stp: false,
         }),
     });
-    Arc::new(cfg)
+    cfg
 }
 
 #[tokio::test]

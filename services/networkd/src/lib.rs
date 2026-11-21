@@ -8,9 +8,9 @@
 
 extern crate alloc;
 
+#[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
+compile_error!("enable at least one of the ipv4 or ipv6 features");
+
 pub mod dns;
-pub mod interface;
-#[cfg(feature = "ipv6")]
-pub mod slaac;
 pub mod statemachine;
 pub mod supervisor;

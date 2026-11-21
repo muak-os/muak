@@ -4,10 +4,10 @@ use anyhow::Result;
 use config::system::network;
 use netdev::Ops;
 use netlink::link::ifname::Name;
+use netstack::interface::Command;
 use network::{InterfaceConfig, InterfaceKind};
 
-use super::{NetworkSupervisor, dns, provision};
-use crate::interface::commands::{ApplyMode, Command};
+use super::{NetworkSupervisor, dns, provision, view};
 
 /// Describes whether reconcile applied intent or skipped it deliberately.
 enum ReconcileDisposition {
@@ -58,21 +58,12 @@ async fn ethernet<N: Ops>(
     println!("Reconciling ethernet interface: {iface_name}");
     supervisor.ops.ensure_up(iface_name.as_str()).await?;
 
-    if let Some(ipv4_cfg) = iface_cfg.ipv4.as_ref() {
-        let index = provision::actor_index(supervisor, &target)?;
-        ipv4(supervisor, &target, index, ipv4_cfg).await?;
-    }
-
-    #[cfg(feature = "ipv6")]
-    if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
-        let index = provision::actor_index(supervisor, &target)?;
-        ipv6(supervisor, &target, index, ipv6_cfg).await?;
-    }
+    reapply(supervisor, &target, iface_cfg).await?;
 
     Ok(ReconcileDisposition::Applied)
 }
 
-/// Reapplies a bridge intent by re-pointing its actor at the resolved port.
+/// Reapplies a bridge intent by re-attaching its port and its own addresses.
 async fn bridge<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     iface_cfg: &InterfaceConfig,
@@ -81,119 +72,27 @@ async fn bridge<N: Ops>(
     let bridge_cfg = iface_cfg.bridge.clone().unwrap_or_default();
 
     println!("Reconciling bridge interface: {bridge_name}");
-    provision::bridge::reattach(supervisor, bridge_name.as_str(), &bridge_cfg).await?;
-    own_addresses(supervisor, iface_cfg, &bridge_name).await?;
+    provision::bridge::ensure(supervisor, bridge_name.as_str(), &bridge_cfg).await?;
+    reapply(supervisor, &bridge_name, iface_cfg).await?;
 
     Ok(ReconcileDisposition::Applied)
 }
 
-/// Reapplies the address intent declared on the bridge entry to the bridge itself.
-async fn own_addresses<N: Ops>(
-    supervisor: &mut NetworkSupervisor<N>,
+// Reconciles a configured interface, or provisions a handle that lost its methods.
+async fn reapply<N: Ops>(
+    supervisor: &NetworkSupervisor<N>,
+    name: &Name,
     iface_cfg: &InterfaceConfig,
-    bridge_name: &Name,
 ) -> Result<()> {
-    if iface_cfg.ipv4.is_none() && iface_cfg.ipv6.is_none() {
+    if !provision::addresses::has_config(iface_cfg) {
         return Ok(());
     }
 
-    let index = provision::actor_index(supervisor, bridge_name)?;
-
-    if let Some(ipv4_cfg) = iface_cfg.ipv4.as_ref() {
-        ipv4(supervisor, bridge_name, index, ipv4_cfg).await?;
+    let handle = provision::handle(supervisor, name)?;
+    let active = view::is_active(&handle.snapshot_rx.borrow());
+    if active {
+        return provision::send_command(handle, Command::Reconcile, name).await;
     }
 
-    #[cfg(feature = "ipv6")]
-    if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
-        ipv6(supervisor, bridge_name, index, ipv6_cfg).await?;
-    }
-
-    Ok(())
-}
-
-/// Reapplies IPv4 configuration for one interface.
-async fn ipv4<N: Ops>(
-    supervisor: &NetworkSupervisor<N>,
-    iface_name: &Name,
-    index: u32,
-    ipv4_cfg: &network::Ipv4InterfaceConfig,
-) -> Result<()> {
-    let actor_handle = supervisor
-        .interfaces
-        .get(iface_name)
-        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
-
-    if ipv4_cfg.dhcp {
-        println!("Reconciling DHCP on {iface_name}");
-        provision::send_command(
-            actor_handle,
-            Command::ConfigureDhcp {
-                mode: ApplyMode::Reconcile,
-            },
-            iface_name,
-        )
-        .await?;
-        return Ok(());
-    }
-
-    if !ipv4_cfg.addresses.is_empty() {
-        println!("Reconciling static IPv4 on {iface_name}");
-        provision::send_command(
-            actor_handle,
-            Command::ConfigureStaticIpv4 {
-                mode: ApplyMode::Reconcile,
-                index,
-                addresses: ipv4_cfg.addresses.clone(),
-                gateway: ipv4_cfg.gateway,
-            },
-            iface_name,
-        )
-        .await?;
-    }
-
-    Ok(())
-}
-
-/// Reapplies IPv6 configuration for one interface.
-#[cfg(feature = "ipv6")]
-async fn ipv6<N: Ops>(
-    supervisor: &NetworkSupervisor<N>,
-    iface_name: &Name,
-    index: u32,
-    ipv6_cfg: &network::Ipv6InterfaceConfig,
-) -> Result<()> {
-    let actor_handle = supervisor
-        .interfaces
-        .get(iface_name)
-        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
-
-    if !ipv6_cfg.addresses.is_empty() {
-        println!("Reconciling static IPv6 on {iface_name}");
-        provision::send_command(
-            actor_handle,
-            Command::ConfigureStaticIpv6 {
-                mode: ApplyMode::Reconcile,
-                index,
-                addresses: ipv6_cfg.addresses.clone(),
-                gateway: ipv6_cfg.gateway,
-            },
-            iface_name,
-        )
-        .await?;
-        return Ok(());
-    }
-
-    if ipv6_cfg.autoconf && supervisor.config.ipv6 {
-        println!("Reconciling SLAAC on {iface_name}");
-        provision::send_command(
-            actor_handle,
-            Command::ConfigureSlaac {
-                mode: ApplyMode::Reconcile,
-            },
-            iface_name,
-        )
-        .await?;
-    }
-
-    Ok(())
+    provision::addresses::configure(supervisor, name, iface_cfg).await
 }

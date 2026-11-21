@@ -2,14 +2,13 @@
 
 use mac::format as format_mac;
 use netdev::Ops;
+use netdev::interface::Ethernet;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use netlink_monitor::{Event, Failure};
+use netstack::interface::Command;
 
-use super::{NetworkSupervisor, carrier, dns, failover, reconcile};
-use crate::interface::commands::Command;
-use crate::interface::lifecycle::Lifecycle;
-use crate::interface::snapshot::Snapshot;
+use super::{NetworkSupervisor, carrier, dns, failover, owner, reconcile};
 
 /// Dispatches a netlink event to the appropriate handler.
 pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, event: Event) {
@@ -69,19 +68,7 @@ fn on_link_added<N: Ops>(
         return;
     }
 
-    let snapshot = Snapshot {
-        name: name.clone(),
-        state: Lifecycle::Discovered,
-        index,
-        mac,
-        link: State::Up,
-        ip: None,
-        lease: None,
-        dhcp_state: None,
-        ipv6: None,
-        l3_owner: name.clone(),
-    };
-    supervisor.spawn_interface_actor(snapshot);
+    supervisor.spawn_interface(Ethernet::new(name.clone(), index, mac, State::Up));
 
     if supervisor.state.primary.is_none() {
         kmsg::info!("Assigning {} as primary interface", name);
@@ -101,10 +88,11 @@ fn on_link_added<N: Ops>(
 async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
     kmsg::info!("Event: Link deleted {} (index {})", name, index);
 
-    let Some(actor_handle) = supervisor.interfaces.remove(&name) else {
+    let Some(handle) = supervisor.interfaces.remove(&name) else {
         return;
     };
-    drop(actor_handle.cmd_tx.send(Command::Shutdown).await);
+    supervisor.owners.remove(&name);
+    drop(handle.command_tx.send(Command::Shutdown).await);
 
     if failover::is_primary_interface(supervisor, &name) {
         failover::handle_primary_removed(supervisor, &name).await;
@@ -122,10 +110,7 @@ async fn on_monitor_error<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failure
 }
 
 fn enslaved_by_snapshot<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
-    supervisor
-        .interfaces
-        .get(name)
-        .is_some_and(|handle| handle.state_rx.borrow().l3_owner != *name)
+    supervisor.interfaces.contains_key(name) && owner::is_enslaved(&supervisor.owners, name)
 }
 
 async fn master_index<N: Ops>(supervisor: &NetworkSupervisor<N>, index: u32) -> Option<u32> {

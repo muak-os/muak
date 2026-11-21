@@ -1,25 +1,35 @@
 //! Carrier-driven link reconciliation for the interface that owns L3.
 
 use netdev::Ops;
+use netstack::interface::Command;
 
-use super::{NetworkSupervisor, failover};
-use crate::interface::commands::Command;
-use crate::interface::lifecycle::Lifecycle;
+use super::{NetworkSupervisor, owner, view};
 
 /// Aligns the L3 owner's published link with the kernel after a topology change.
 pub(super) async fn refresh_owner<N: Ops>(supervisor: &NetworkSupervisor<N>) {
-    let Some(owner) = failover::l3_owner(&supervisor.state, &supervisor.interfaces).cloned() else {
+    let Some(owner) = owner::l3_owner(
+        &supervisor.state,
+        &supervisor.interfaces,
+        &supervisor.owners,
+    )
+    .cloned() else {
         return;
     };
     let Some(handle) = supervisor.interfaces.get(&owner) else {
         return;
     };
-    let (index, published, recovering) = {
-        let snapshot = handle.state_rx.borrow();
-        let recovering = matches!(snapshot.state, Lifecycle::Failed | Lifecycle::Degraded);
-        (snapshot.index, snapshot.link, recovering)
+    let (published, recovering) = {
+        let snapshot = handle.snapshot_rx.borrow();
+        (snapshot.link, view::is_degraded(&snapshot))
     };
 
+    let index = match supervisor.ops.index(owner.as_str()).await {
+        Ok(index) => index,
+        Err(e) => {
+            kmsg::warn!("Failed to query index of {owner}: {e}");
+            return;
+        }
+    };
     let devices = match supervisor.ops.devices().await {
         Ok(devices) => devices,
         Err(e) => {
