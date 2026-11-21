@@ -3,7 +3,6 @@
 use base64ct::{Base64, Encoding as _};
 use pbkdf2::pbkdf2_hmac_array;
 use sha2::Sha256;
-use subtle::ConstantTimeEq as _;
 
 use crate::error::{Luks2Error as Error, Result};
 use crate::metadata::Digest;
@@ -57,7 +56,7 @@ pub(crate) fn verify(volume_key: &[u8], digest: &Digest) -> Result<bool> {
     let computed: [u8; DIGEST_LEN] =
         pbkdf2_hmac_array::<Sha256, DIGEST_LEN>(volume_key, &salt, digest.iterations);
 
-    Ok(computed.as_slice().ct_eq(&expected).into())
+    Ok(computed.as_slice() == expected.as_slice())
 }
 
 #[cfg(test)]

@@ -146,7 +146,6 @@ rustls = { version = "0.23", default-features = false, features = ["std"] }
 sha2 = "0.11"
 signature = "3.0"
 spki = { version = "0.8", features = ["alloc", "pem"] }
-subtle = "2.6"
 webpki-roots = "1.0"
 x509-cert = { version = "0.3", features = ["builder"] }
 zeroize = "1.9"

@@ -17,7 +17,6 @@ base16ct = { workspace = true }
 getrandom = { workspace = true }
 pbkdf2 = { workspace = true }
 sha2 = { workspace = true }
-subtle = { workspace = true }
 zeroize = { workspace = true }
 
 # Encoding
