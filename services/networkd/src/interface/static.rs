@@ -108,13 +108,13 @@ async fn ensure<N: Ops>(
         StaticRequest::Ipv4 { addresses, gateway } => {
             ensure_ipv4_addresses(actor, index, addresses).await?;
             if let Some(gateway) = gateway {
-                actor.ops.ensure_default_route(gateway).await?;
+                let _added = actor.ops.ensure_default_route(gateway).await?;
             }
         }
         StaticRequest::Ipv6 { addresses, gateway } => {
             ensure_ipv6_addresses(actor, index, addresses).await?;
             if let Some(gateway) = gateway {
-                actor.ops.ensure_default_route_v6(gateway).await?;
+                let _added = actor.ops.ensure_default_route_v6(gateway).await?;
             }
         }
     }

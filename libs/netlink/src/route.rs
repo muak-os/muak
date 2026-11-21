@@ -32,12 +32,16 @@ pub type Result<T> = core::result::Result<T, Failure>;
 
 /// Trait covering all route-layer netlink operations.
 pub trait Ops: Clone + Send + Sync + 'static {
-    /// Adds or confirms the default IPv4 route via a gateway.
-    fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = Result<()>> + Send;
+    /// Ensures the default IPv4 route via a gateway exists, returning `true` when this call
+    /// added it and `false` when an existing default route via `gateway` was found.
+    fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = Result<bool>> + Send;
 
-    /// Adds or confirms the default IPv6 route via a gateway.
-    fn ensure_default_route_v6(&self, gateway: Ipv6Addr)
-    -> impl Future<Output = Result<()>> + Send;
+    /// Ensures the default IPv6 route via a gateway exists, returning `true` when this call
+    /// added it and `false` when an existing default route via `gateway` was found.
+    fn ensure_default_route_v6(
+        &self,
+        gateway: Ipv6Addr,
+    ) -> impl Future<Output = Result<bool>> + Send;
 
     /// Removes the default IPv6 route via a gateway.
     fn remove_default_route_v6(&self, gateway: Ipv6Addr)
@@ -45,11 +49,11 @@ pub trait Ops: Clone + Send + Sync + 'static {
 }
 
 impl Ops for Rtnl {
-    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> Result<()> {
+    async fn ensure_default_route(&self, gateway: Ipv4Addr) -> Result<bool> {
         ensure_default_route(&self.handle, gateway).await
     }
 
-    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> Result<()> {
+    async fn ensure_default_route_v6(&self, gateway: Ipv6Addr) -> Result<bool> {
         ensure_default_route_v6(&self.handle, gateway).await
     }
 
@@ -72,7 +76,7 @@ pub(crate) async fn add_default_route(handle: &Handle, gateway: Ipv4Addr) -> Res
         .map_err(Failure::AddDefaultRoute)
 }
 
-async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
+async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<bool> {
     retry::while_retriable(
         || scan_default_route(handle, gateway),
         is_dump_busy,
@@ -82,7 +86,7 @@ async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> 
     .await
 }
 
-async fn scan_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
+async fn scan_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<bool> {
     let mut routes = handle
         .route()
         .get(RouteMessageBuilder::<Ipv4Addr>::new().build())
@@ -91,13 +95,15 @@ async fn scan_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
         let is_default = route.header.destination_prefix_length == 0;
         let (has_nonzero_dest, existing_gw) = extract_ipv4_gateway(&route.attributes);
         if is_default && !has_nonzero_dest && existing_gw == Some(gateway) {
-            return Ok(());
+            return Ok(false);
         }
     }
-    add_default_route(handle, gateway).await
+    add_default_route(handle, gateway).await?;
+
+    Ok(true)
 }
 
-async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
+async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<bool> {
     retry::while_retriable(
         || scan_default_route_v6(handle, gateway),
         is_dump_busy,
@@ -107,7 +113,7 @@ async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<(
     .await
 }
 
-async fn scan_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
+async fn scan_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<bool> {
     let mut routes = handle
         .route()
         .get(RouteMessageBuilder::<Ipv6Addr>::new().build())
@@ -116,7 +122,7 @@ async fn scan_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()>
         let is_default = route.header.destination_prefix_length == 0;
         let (has_nonzero_dest, existing_gw) = extract_ipv6_gateway(&route.attributes);
         if is_default && !has_nonzero_dest && existing_gw == Some(gateway) {
-            return Ok(());
+            return Ok(false);
         }
     }
     handle
@@ -128,7 +134,9 @@ async fn scan_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()>
         )
         .execute()
         .await
-        .map_err(Failure::AddDefaultRouteV6)
+        .map_err(Failure::AddDefaultRouteV6)?;
+
+    Ok(true)
 }
 
 async fn remove_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {

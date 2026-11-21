@@ -100,9 +100,10 @@ async fn apply_ipv6_configuration<N: Ops>(
         .ensure_ipv6(index, ipv6.address, ipv6.prefix_len)
         .await?;
 
-    if let Some(gateway) = ipv6.gateway {
+    if let Some(gateway) = ipv6.gateway
+        && actor.ops.ensure_default_route_v6(gateway).await?
+    {
         kmsg::info!("Setting IPv6 default route via {}", gateway);
-        actor.ops.ensure_default_route_v6(gateway).await?;
     }
 
     Ok(())

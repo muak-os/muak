@@ -19,7 +19,7 @@ pub(super) async fn apply<N: Ops>(actor: &mut Actor<N>, index: u32, lease: &Leas
         .await?;
 
     if let Some(gw) = lease.gateway {
-        actor.ops.ensure_default_route(gw).await?;
+        let _added = actor.ops.ensure_default_route(gw).await?;
     } else {
         kmsg::info!(
             "No gateway in DHCP lease on {}, skipping default route",

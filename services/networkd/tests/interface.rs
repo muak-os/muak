@@ -360,19 +360,19 @@ impl address::Ops for MockNetlinkOps {
 }
 
 impl route::Ops for MockNetlinkOps {
-    fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = route::Result<()>> {
-        self.lock().default_routes_v4.insert(gateway);
+    fn ensure_default_route(&self, gateway: Ipv4Addr) -> impl Future<Output = route::Result<bool>> {
+        let inserted = self.lock().default_routes_v4.insert(gateway);
 
-        std::future::ready(Ok(()))
+        std::future::ready(Ok(inserted))
     }
 
     fn ensure_default_route_v6(
         &self,
         gateway: Ipv6Addr,
-    ) -> impl Future<Output = route::Result<()>> {
-        self.lock().default_routes_v6.insert(gateway);
+    ) -> impl Future<Output = route::Result<bool>> {
+        let inserted = self.lock().default_routes_v6.insert(gateway);
 
-        std::future::ready(Ok(()))
+        std::future::ready(Ok(inserted))
     }
 
     fn remove_default_route_v6(
