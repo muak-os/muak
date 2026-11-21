@@ -4,10 +4,9 @@ use core::net::Ipv6Addr;
 
 use ip::v6;
 
-use super::ROUTER_SOLICITATION;
+use super::{ALL_ROUTERS, ROUTER_SOLICITATION};
 
 const ND_OPT_SOURCE_LL_ADDR: u8 = 1;
-const ALL_ROUTERS: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
 const NEXT_HEADER_ICMPV6: u8 = 58;
 
 /// Constructs an `ICMPv6` Router Solicitation packet.

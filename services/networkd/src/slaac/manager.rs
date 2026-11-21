@@ -5,29 +5,18 @@ extern crate alloc;
 use alloc::sync::Arc;
 use core::net::Ipv6Addr;
 use core::time::Duration;
-use std::os::fd::OwnedFd;
 
 use ::slaac::address::generate;
-use ::slaac::icmpv6::ROUTER_ADVERTISEMENT;
 use ::slaac::icmpv6::build::router_solicitation;
 use ::slaac::icmpv6::parse::router_advertisement;
 use ::slaac::icmpv6::types::RouterAdvertisement;
+use ::slaac::icmpv6::{ALL_ROUTERS, ROUTER_ADVERTISEMENT};
 use anyhow::{Result, bail};
 use config::system::network;
-use packet::socket;
-use rustix::io::Errno;
-use rustix::net::ipproto::ICMPV6;
-use rustix::net::netdevice::name_to_index;
-use rustix::net::{
-    AddressFamily, RecvFlags, SendFlags, SocketAddrV6, SocketFlags, SocketType, recvfrom, sendto,
-    socket_with,
-};
-use tokio::io::unix::AsyncFd;
 use tokio::task::spawn_blocking;
 use tokio::time::{Instant, sleep, timeout};
 
 use super::state::{AddressState, Expiring, ManagedAddress, ManagedDns, ManagedRouter};
-use super::{create_icmpv6_filter, set_icmpv6_filter};
 
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 const MAX_RTR_SOLICITATIONS: u32 = 3;
@@ -60,8 +49,7 @@ pub enum SlaacEvent {
 pub struct Manager {
     interface: String,
     mac: [u8; 6],
-    ifindex: u32,
-    socket: AsyncFd<OwnedFd>,
+    socket: packet::icmpv6::Socket,
     solicited: bool,
     solicitation_attempt: u32,
     config: Arc<network::Config>,
@@ -84,29 +72,14 @@ impl Manager {
         config: Arc<network::Config>,
     ) -> Result<Self> {
         let iface_clone = interface.clone();
-        let (socket_fd, ifindex) = spawn_blocking(move || -> Result<_> {
-            let fd = socket_with(
-                AddressFamily::INET6,
-                SocketType::RAW,
-                SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
-                Some(ICMPV6),
-            )?;
-            socket::bind_device(&fd, &iface_clone)?;
-            let idx = name_to_index(&fd, &iface_clone)?;
-            let filter = create_icmpv6_filter();
-            set_icmpv6_filter(&fd, &filter)?;
-            Ok((fd, idx))
+        let socket = spawn_blocking(move || {
+            packet::icmpv6::Socket::open(&iface_clone, &[ROUTER_ADVERTISEMENT])
         })
         .await??;
-
-        // SAFETY: `socket_fd` uniquely owns the file descriptor and keeps it open for the
-        // lifetime of the returned `AsyncFd`, so `as_raw_fd` stays valid and unchanged.
-        let socket = unsafe { AsyncFd::register(socket_fd) }?;
 
         Ok(Self {
             interface,
             mac,
-            ifindex,
             socket,
             solicited: false,
             solicitation_attempt: 0,
@@ -178,7 +151,6 @@ async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {
 
 async fn initial_solicitation(manager: &mut Manager) -> Result<SlaacEvent> {
     let rs_packet = router_solicitation(Ipv6Addr::UNSPECIFIED, &manager.mac);
-    let dest = create_all_routers_sockaddr(manager.ifindex);
 
     let mut last_error = None;
 
@@ -190,12 +162,7 @@ async fn initial_solicitation(manager: &mut Manager) -> Result<SlaacEvent> {
             manager.interface
         );
 
-        if let Err(error) = sendto(
-            manager.socket.get_ref(),
-            &rs_packet,
-            SendFlags::empty(),
-            &dest,
-        ) {
+        if let Err(error) = manager.socket.send_to(ALL_ROUTERS, &rs_packet).await {
             kmsg::warn!(
                 "SLAAC: RS send failed on {} (attempt {attempt}/{MAX_RTR_SOLICITATIONS}): {error}",
                 manager.interface
@@ -227,7 +194,7 @@ async fn pause_before_retry(attempt: u32) {
     }
 }
 
-fn solicitation_failure(interface: &str, last_error: Option<Errno>) -> String {
+fn solicitation_failure(interface: &str, last_error: Option<packet::icmpv6::Failure>) -> String {
     match last_error {
         Some(error) => format!(
             "could not send RS on {interface} on the last of {MAX_RTR_SOLICITATIONS} attempts: {error}"
@@ -259,42 +226,15 @@ async fn wait_for_ra(manager: &Manager, wait_timeout: Duration) -> Result<Router
 }
 
 async fn try_recv_ra(manager: &Manager) -> Result<Option<RouterAdvertisement>> {
-    let mut guard = manager.socket.readable().await?;
-
     let mut buf = [0_u8; 1500];
 
-    let recv_result = guard.try_io(|inner| {
-        recvfrom(inner.get_ref(), &mut buf, RecvFlags::empty()).map_err(|error| match error {
-            Errno::WOULDBLOCK => std::io::Error::from(std::io::ErrorKind::WouldBlock),
-            _ => std::io::Error::from_raw_os_error(error.raw_os_error()),
-        })
-    });
+    let (len, source) = manager.socket.recv_from(&mut buf).await?;
 
-    let Ok(Ok((_, len, addr))) = recv_result else {
-        if let Ok(Err(error)) = recv_result {
-            bail!("recvfrom failed: {error}");
-        }
-        guard.clear_ready();
-        return Ok(None);
-    };
-
-    let Some(addr) = addr else {
-        if byte_at(&buf, 0) == ROUTER_ADVERTISEMENT {
-            let ra =
-                router_advertisement(buf.get(..len).unwrap_or_default(), Ipv6Addr::UNSPECIFIED)?;
-            return Ok(Some(ra));
-        }
-        return Ok(None);
-    };
-
-    if addr.address_family() != AddressFamily::INET6 || byte_at(&buf, 0) != ROUTER_ADVERTISEMENT {
+    if byte_at(&buf, 0) != ROUTER_ADVERTISEMENT {
         return Ok(None);
     }
 
-    let Ok(sockaddr_v6) = SocketAddrV6::try_from(addr) else {
-        return Ok(None);
-    };
-    let source = *sockaddr_v6.ip();
+    let source = source.unwrap_or(Ipv6Addr::UNSPECIFIED);
     let ra = router_advertisement(buf.get(..len).unwrap_or_default(), source)?;
 
     Ok(Some(ra))
@@ -545,17 +485,6 @@ fn next_timer_deadline(manager: &Manager) -> Instant {
     deadline
 }
 
-fn create_all_routers_sockaddr(ifindex: u32) -> SocketAddrV6 {
-    let all_routers = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
-    let std_sockaddr = SocketAddrV6::new(all_routers, 0, 0, ifindex);
-    SocketAddrV6::new(
-        *std_sockaddr.ip(),
-        std_sockaddr.port(),
-        std_sockaddr.flowinfo(),
-        std_sockaddr.scope_id(),
-    )
-}
-
 fn byte_at(data: &[u8], index: usize) -> u8 {
     data.get(index).copied().unwrap_or(0)
 }
@@ -567,10 +496,12 @@ mod tests {
     #[test]
     fn solicitation_failure_reports_send_error() {
         // ARRANGE
-        let last_error = Some(Errno::ADDRNOTAVAIL);
+        let last_error = Some(packet::icmpv6::Failure::Create(std::io::Error::from(
+            std::io::ErrorKind::AddrNotAvailable,
+        )));
         let expected = format!(
-            "could not send RS on eth0 on the last of {MAX_RTR_SOLICITATIONS} attempts: {}",
-            Errno::ADDRNOTAVAIL
+            "could not send RS on eth0 on the last of {MAX_RTR_SOLICITATIONS} attempts: failed to create raw ICMPv6 socket: {}",
+            std::io::Error::from(std::io::ErrorKind::AddrNotAvailable)
         );
 
         // ACT

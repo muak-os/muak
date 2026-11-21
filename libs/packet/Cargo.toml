@@ -10,8 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["v4"]
+default = ["v4", "v6"]
 v4 = []
+v6 = []
 
 [dependencies]
 # Asynchronous

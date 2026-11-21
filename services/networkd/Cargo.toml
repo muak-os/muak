@@ -11,7 +11,7 @@ categories.workspace = true
 
 [features]
 default = ["ipv6"]
-ipv6 = ["dep:slaac", "dep:rustix", "dep:libc"]
+ipv6 = ["dep:slaac", "packet/v6"]
 
 [dependencies]
 # Asynchronous
@@ -31,10 +31,6 @@ netlink = { workspace = true }
 netlink-monitor = { workspace = true }
 packet = { workspace = true, features = ["v4"] }
 slaac = { workspace = true, optional = true }
-
-# System/platform APIs
-rustix = { workspace = true, features = ["net", "event", "time"], optional = true }
-libc = { workspace = true, optional = true }
 
 [lints]
 workspace = true
