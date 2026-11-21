@@ -15,11 +15,16 @@ ipv4 = ["dep:dhcp-client"]
 ipv6 = []
 
 [dependencies]
+# Asynchronous
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+
 # Error handling
 thiserror = { workspace = true }
 
 # Internal
 dhcp-client = { workspace = true, optional = true }
+kmsg = { workspace = true }
+netdev = { workspace = true }
 netlink = { workspace = true }
 
 [dev-dependencies]

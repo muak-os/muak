@@ -39,7 +39,7 @@ impl Static {
     fn provision(&mut self) {
         self.started = true;
         for &(address, prefix_len) in &self.config.addresses {
-            let intent = Self::configure(address, prefix_len, self.config.gateway);
+            let intent = Self::configure(address, prefix_len);
             self.queue.push_back(Event::Intent(intent));
         }
         if let Some(gateway) = self.config.gateway {
@@ -54,7 +54,7 @@ impl Static {
     fn stop(&mut self) {
         self.started = false;
         for &(address, prefix_len) in &self.config.addresses {
-            let intent = Self::deconfigure(address, prefix_len, self.config.gateway);
+            let intent = Self::deconfigure(address, prefix_len);
             self.queue.push_back(Event::Intent(intent));
         }
         if let Some(gateway) = self.config.gateway {
@@ -66,19 +66,17 @@ impl Static {
         self.queue.push_back(Event::State(State::Stopped));
     }
 
-    fn configure(address: Ipv4Addr, prefix_len: u8, gateway: Option<Ipv4Addr>) -> Intent {
+    const fn configure(address: Ipv4Addr, prefix_len: u8) -> Intent {
         Intent::Configure(AddressConfig {
             address: IpAddr::V4(address),
             prefix_len,
-            gateway: gateway.map(IpAddr::V4),
         })
     }
 
-    fn deconfigure(address: Ipv4Addr, prefix_len: u8, gateway: Option<Ipv4Addr>) -> Intent {
+    const fn deconfigure(address: Ipv4Addr, prefix_len: u8) -> Intent {
         Intent::Deconfigure(AddressConfig {
             address: IpAddr::V4(address),
             prefix_len,
-            gateway: gateway.map(IpAddr::V4),
         })
     }
 }
@@ -255,7 +253,6 @@ mod tests {
         };
         assert_eq!(config.address, IpAddr::V4(address));
         assert_eq!(config.prefix_len, 24);
-        assert_eq!(config.gateway, Some(IpAddr::V4(GATEWAY)));
     }
 
     fn assert_deconfigure(intent: Intent, address: Ipv4Addr) {
@@ -264,6 +261,5 @@ mod tests {
         };
         assert_eq!(config.address, IpAddr::V4(address));
         assert_eq!(config.prefix_len, 24);
-        assert_eq!(config.gateway, Some(IpAddr::V4(GATEWAY)));
     }
 }

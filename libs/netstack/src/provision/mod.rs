@@ -18,8 +18,6 @@ pub struct AddressConfig {
     pub address: IpAddr,
     /// Prefix length in bits.
     pub prefix_len: u8,
-    /// Optional default gateway.
-    pub gateway: Option<IpAddr>,
 }
 
 /// Outcome a method asks the controller to apply or remove.

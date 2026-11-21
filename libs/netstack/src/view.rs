@@ -5,21 +5,6 @@ use alloc::vec::Vec;
 #[cfg(feature = "ipv6")]
 use core::net::Ipv6Addr;
 
-use netlink::link::state::State;
-
-/// Point-in-time view of an interface and its address methods.
-#[derive(Debug, Clone)]
-pub struct Snapshot {
-    /// Administrative and carrier state of the link.
-    pub link: State,
-    /// IPv4 method state, when enabled and configured.
-    #[cfg(feature = "ipv4")]
-    pub v4: Option<V4State>,
-    /// IPv6 method state, when enabled and configured.
-    #[cfg(feature = "ipv6")]
-    pub v6: Option<V6State>,
-}
-
 /// `DHCPv4` phase tracked by the v4 method.
 #[cfg(feature = "ipv4")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
