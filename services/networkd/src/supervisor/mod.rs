@@ -15,7 +15,6 @@ mod selection;
 mod snapshot;
 mod view;
 
-use alloc::sync::Arc;
 use core::fmt;
 use core::time::Duration;
 use std::collections::HashMap;
@@ -95,7 +94,7 @@ pub struct Status {
 
 struct NetworkSupervisor<N: Ops> {
     ops: N,
-    config: Arc<network::Config>,
+    config: network::Config,
     state: NetworkSnapshot,
     interfaces: HashMap<Name, Handle>,
     owners: HashMap<Name, Name>,
@@ -110,7 +109,7 @@ pub struct NetworkActorHandle {
 }
 
 impl<N: Ops> NetworkSupervisor<N> {
-    fn new(ops: N, config: Arc<network::Config>, dns: Resolver) -> Self {
+    fn new(ops: N, config: network::Config, dns: Resolver) -> Self {
         Self {
             ops,
             config,
@@ -269,7 +268,7 @@ pub trait Source {
 pub async fn start() -> Result<NetworkActorHandle> {
     let ops = Rtnl::connect()?;
     let event_rx = monitor::start().await?;
-    let config = Arc::new(network()?.clone());
+    let config = network()?.clone();
 
     Ok(start_with(ops, event_rx, config, Resolver::default()))
 }
@@ -278,7 +277,7 @@ pub async fn start() -> Result<NetworkActorHandle> {
 pub fn start_with<N: Ops>(
     ops: N,
     event_rx: mpsc::Receiver<Event>,
-    config: Arc<network::Config>,
+    config: network::Config,
     dns: Resolver,
 ) -> NetworkActorHandle {
     start_with_source(ops, event_rx, monitor::Live, config, dns)
@@ -289,7 +288,7 @@ pub fn start_with_source<N: Ops, M: Source + Send + Sync + 'static>(
     ops: N,
     event_rx: mpsc::Receiver<Event>,
     source: M,
-    config: Arc<network::Config>,
+    config: network::Config,
     dns: Resolver,
 ) -> NetworkActorHandle {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
@@ -304,7 +303,7 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     mut cmd_rx: mpsc::Receiver<SupervisorCommand>,
     event_rx: mpsc::Receiver<Event>,
     source: M,
-    config: Arc<network::Config>,
+    config: network::Config,
     dns: Resolver,
 ) {
     let mut supervisor = NetworkSupervisor::new(ops, config, dns);

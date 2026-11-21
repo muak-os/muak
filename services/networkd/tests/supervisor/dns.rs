@@ -1,6 +1,5 @@
 //! Integration tests verifying the supervisor writes DNS on behalf of the primary interface.
 
-use alloc::sync::Arc;
 use core::time::Duration;
 
 use config::system::network;
@@ -11,7 +10,7 @@ use tokio::time::timeout;
 
 use super::MockNetlinkOps;
 
-fn config_with_ipv4_dns() -> Arc<network::Config> {
+fn config_with_ipv4_dns() -> network::Config {
     let sys = config::system::parse_from_str(
         r#"
 api_version = "muak.dev/config/v1-beta"
@@ -33,10 +32,10 @@ ipv4.gateway = "10.0.0.1"
 "#,
     )
     .expect("valid config");
-    Arc::new(sys.network)
+    sys.network
 }
 
-fn config_with_ipv6_dns() -> Arc<network::Config> {
+fn config_with_ipv6_dns() -> network::Config {
     let sys = config::system::parse_from_str(
         r#"
 api_version = "muak.dev/config/v1-beta"
@@ -59,7 +58,7 @@ ipv6.addresses = ["fd00::2/64"]
 "#,
     )
     .expect("valid config");
-    Arc::new(sys.network)
+    sys.network
 }
 
 #[tokio::test]
