@@ -3,7 +3,7 @@
 use core::fmt;
 
 /// Administrative and carrier state of a network link.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
     /// Link is administratively up with carrier detected.
     Up,

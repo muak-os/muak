@@ -3,6 +3,7 @@
 use core::time::Duration;
 
 use netlink::link::ifname::Name;
+use netlink::link::state::State;
 use netlink_monitor::Event;
 use networkd::dns::Resolver;
 use tokio::sync::mpsc;
@@ -658,5 +659,140 @@ async fn primary_failure_rebridges_the_backup_port() {
     assert!(
         ipv4_addrs(&mock, br_index).contains(&static_ipv4),
         "the bridge must keep the same IPv4 after being re-pointed"
+    );
+}
+
+#[tokio::test]
+async fn deleting_the_bridge_port_reports_the_owner_down() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    let status = handle.status().await.expect("status query failed");
+    assert_eq!(
+        status.owner_link,
+        Some(State::Up),
+        "the bridge must start with the port's carrier"
+    );
+
+    // ACT
+    mock.remove_link("eth0");
+    event_tx
+        .send(Event::Deleted {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+
+    // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.owner_link == Some(State::Down) && status.state == supervisor::NetworkState::Degraded
+    })
+    .await;
+    assert_eq!(
+        status.owner,
+        Some(Name::new("br0").expect("valid name")),
+        "the configured bridge must keep owning L3 after its last port is removed"
+    );
+}
+
+#[tokio::test]
+async fn deleting_the_bridge_port_with_a_backup_keeps_the_owner_up() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    let br_index = link_index(&mock, "br0").expect("the bridge must exist");
+
+    // ACT
+    mock.remove_link("eth0");
+    event_tx
+        .send(Event::Deleted {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+
+    // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&backup_name)
+    })
+    .await;
+    assert_eq!(
+        status.owner,
+        Some(Name::new("br0").expect("valid name")),
+        "the bridge must keep owning L3 after being re-pointed"
+    );
+    assert_eq!(
+        status.owner_link,
+        Some(State::Up),
+        "re-pointing the bridge at a live port must keep the owner up"
+    );
+    assert_eq!(
+        master_index(&mock, "eth1"),
+        Some(br_index),
+        "the surviving backup must become the bridge port"
+    );
+    assert_eq!(
+        master_index(&mock, "eth0"),
+        None,
+        "the deleted port must not stay attached to the bridge"
+    );
+}
+
+#[tokio::test]
+async fn repointing_the_bridge_keeps_the_owner_up() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+
+    // ACT
+    event_tx
+        .send(Event::Down {
+            name: primary_name,
+            index: idx0,
+        })
+        .await
+        .expect("send event failed");
+
+    // ASSERT
+    let status = wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&backup_name)
+    })
+    .await;
+    assert_eq!(
+        status.owner_link,
+        Some(State::Up),
+        "re-pointing the bridge at a live port must keep the owner up"
     );
 }

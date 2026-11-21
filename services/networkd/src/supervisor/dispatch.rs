@@ -6,7 +6,7 @@ use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use netlink_monitor::{Event, Failure};
 
-use super::{NetworkSupervisor, dns, failover, reconcile};
+use super::{NetworkSupervisor, carrier, dns, failover, reconcile};
 use crate::interface::commands::Command;
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
@@ -114,6 +114,7 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
         supervisor.state.backups.retain(|n| n != &name);
     }
 
+    carrier::refresh_owner(supervisor).await;
     dns::flush(supervisor);
 }
 

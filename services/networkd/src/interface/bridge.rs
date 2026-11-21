@@ -3,7 +3,6 @@
 use anyhow::{Context as _, Result};
 use netdev::Ops;
 use netlink::link::ifname::Name;
-use netlink::link::state::State;
 
 use super::Actor;
 use crate::interface::lifecycle::Lifecycle;
@@ -20,7 +19,7 @@ pub(super) async fn configure<N: Ops>(
         bridge_name,
         actor.snapshot.name
     );
-    let mac = actor
+    let bridge = actor
         .ops
         .ensure_bridge(bridge_name, actor.snapshot.name.as_str(), stp)
         .await?;
@@ -40,8 +39,8 @@ pub(super) async fn configure<N: Ops>(
         name: br_iface_name.clone(),
         state: Lifecycle::Discovered,
         index,
-        mac,
-        link: State::Up,
+        mac: bridge.mac,
+        link: bridge.link,
         ip: None,
         lease: None,
         dhcp_state: None,

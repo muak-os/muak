@@ -68,7 +68,7 @@ fn spawn_interface_actors<N: Ops>(supervisor: &mut NetworkSupervisor<N>, discove
             state: Lifecycle::Discovered,
             index: iface.index,
             mac: iface.mac_address,
-            link: iface.link_state.clone(),
+            link: iface.link_state,
             ip: None,
             lease: None,
             dhcp_state: None,

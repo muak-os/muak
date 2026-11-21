@@ -7,6 +7,7 @@ use rtnetlink::{Handle, LinkBridge};
 use thiserror::Error;
 
 use crate::link::Ops as _;
+use crate::link::state::State;
 use crate::{Rtnl, link, retry};
 
 /// Number of attempts to check for bridge creation before giving up.
@@ -38,23 +39,28 @@ pub enum Failure {
 /// Bridge operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
+/// Identity and link state of a bridge after it has been ensured.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bridge {
+    /// Hardware address the bridge is pinned to.
+    pub mac: [u8; 6],
+    /// Link state derived from the attached port's carrier.
+    pub link: State,
+}
+
 /// Trait covering bridge netlink operations.
 pub trait Ops: Clone + Send + Sync + 'static {
+    /// Ensures the bridge exists with the given port attached and returns its identity and link state.
     fn ensure_bridge(
         &self,
         bridge_name: &str,
         port_name: &str,
         stp: bool,
-    ) -> impl Future<Output = Result<[u8; 6]>> + Send;
+    ) -> impl Future<Output = Result<Bridge>> + Send;
 }
 
 impl Ops for Rtnl {
-    async fn ensure_bridge(
-        &self,
-        bridge_name: &str,
-        port_name: &str,
-        stp: bool,
-    ) -> Result<[u8; 6]> {
+    async fn ensure_bridge(&self, bridge_name: &str, port_name: &str, stp: bool) -> Result<Bridge> {
         let devices = self.devices().await?;
         let port = devices
             .iter()
@@ -81,7 +87,13 @@ impl Ops for Rtnl {
             link::handle::set_address(&self.handle, br_index, mac).await?;
         }
 
-        Ok(mac)
+        let link = if port.carrier {
+            State::Up
+        } else {
+            State::NoCarrier
+        };
+
+        Ok(Bridge { mac, link })
     }
 }
 

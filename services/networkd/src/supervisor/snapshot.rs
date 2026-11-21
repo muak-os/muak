@@ -11,6 +11,7 @@ use crate::supervisor::NetworkState;
 pub(super) struct NetworkSnapshot {
     pub state: NetworkState,
     pub primary: Option<Name>,
+    pub l3_owner: Option<Name>,
     pub backups: Vec<Name>,
 }
 
@@ -20,6 +21,7 @@ impl NetworkSnapshot {
         Self {
             state: NetworkState::Uninitialized,
             primary: None,
+            l3_owner: None,
             backups: Vec::new(),
         }
     }
@@ -70,6 +72,7 @@ mod tests {
         // ASSERT
         assert_eq!(snap.state, NetworkState::Uninitialized);
         assert!(snap.primary.is_none());
+        assert!(snap.l3_owner.is_none());
         assert_eq!(snap.backups, Vec::<Name>::new());
     }
 

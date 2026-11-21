@@ -3,10 +3,9 @@
 use anyhow::Result;
 use config::system::network::{BridgeConfig, InterfaceKind};
 use netdev::Ops;
-use netlink::link::ifname::Name;
 use tokio::sync::oneshot;
 
-use super::super::NetworkSupervisor;
+use super::super::{NetworkSupervisor, carrier};
 use super::{bridge_port_handle, send_command};
 use crate::interface::commands::Command;
 use crate::interface::snapshot::Snapshot;
@@ -34,12 +33,13 @@ pub(in crate::supervisor) async fn reattach<N: Ops>(
     let snapshot = request(supervisor, bridge_name, bridge_cfg)
         .await?
         .await??;
+    let bridge = snapshot.name.clone();
     if !supervisor.interfaces.contains_key(&snapshot.name) {
         supervisor.spawn_interface_actor(snapshot);
     }
+    supervisor.state.l3_owner = Some(bridge);
 
-    let bridge = Name::new(bridge_name)?;
-    supervisor.send_to_interface(&bridge, Command::LinkUp).await;
+    carrier::refresh_owner(supervisor).await;
 
     Ok(())
 }
@@ -52,7 +52,10 @@ async fn configure<N: Ops>(
     let snapshot = request(supervisor, bridge_name, bridge_cfg)
         .await?
         .await??;
+    // Multi-bridge configs are unsupported: the last ensured bridge wins.
+    supervisor.state.l3_owner = Some(snapshot.name.clone());
     supervisor.spawn_interface_actor(snapshot);
+    carrier::refresh_owner(supervisor).await;
 
     Ok(())
 }

@@ -33,6 +33,7 @@ pub(crate) struct MockLink {
     pub(crate) index: u32,
     pub(crate) mac: [u8; 6],
     pub(crate) up: bool,
+    pub(crate) is_bridge: bool,
     pub(crate) master_index: Option<u32>,
 }
 
@@ -112,6 +113,7 @@ impl MockNetlinkOps {
                 index,
                 mac,
                 up,
+                is_bridge: false,
                 master_index: None,
             },
         );
@@ -126,14 +128,17 @@ impl link::Ops for MockNetlinkOps {
         let devices = state
             .links
             .iter()
-            .map(|(name, link)| Device {
-                index: link.index,
-                name: name.clone(),
-                mac: link.mac,
-                is_virtual: false,
-                admin_up: link.up,
-                carrier: link.up,
-                master: link.master_index,
+            .map(|(name, link)| {
+                let carrier = device_carrier(&state.links, link);
+                Device {
+                    index: link.index,
+                    name: name.clone(),
+                    mac: link.mac,
+                    is_virtual: false,
+                    admin_up: link.up,
+                    carrier,
+                    master: link.master_index,
+                }
             })
             .collect();
 
@@ -375,10 +380,11 @@ impl bridge::Ops for MockNetlinkOps {
         bridge_name: &str,
         port_name: &str,
         _stp: bool,
-    ) -> impl Future<Output = bridge::Result<[u8; 6]>> {
+    ) -> impl Future<Output = bridge::Result<bridge::Bridge>> {
         let mut state = self.lock();
         state.ensure_bridge_calls = state.ensure_bridge_calls.saturating_add(1);
         let port_mac = state.links.get(port_name).map_or([0; 6], |link| link.mac);
+        let port_up = state.links.get(port_name).is_some_and(|link| link.up);
         let bridge_index = if let Some(link) = state.links.get(bridge_name) {
             link.index
         } else {
@@ -390,6 +396,7 @@ impl bridge::Ops for MockNetlinkOps {
                     index,
                     mac: port_mac,
                     up: true,
+                    is_bridge: true,
                     master_index: None,
                 },
             );
@@ -397,6 +404,9 @@ impl bridge::Ops for MockNetlinkOps {
             index
         };
 
+        if let Some(link) = state.links.get_mut(bridge_name) {
+            link.is_bridge = true;
+        }
         clear_bridge_ports(&mut state.links, bridge_index, port_name);
 
         if let Some(link) = state.links.get_mut(port_name) {
@@ -407,8 +417,9 @@ impl bridge::Ops for MockNetlinkOps {
             .links
             .get(bridge_name)
             .map_or(port_mac, |link| link.mac);
+        let link = if port_up { State::Up } else { State::NoCarrier };
 
-        std::future::ready(Ok(mac))
+        std::future::ready(Ok(bridge::Bridge { mac, link }))
     }
 }
 
@@ -442,6 +453,15 @@ fn drop_link(state: &mut MockInner, index: u32) {
     state.links.retain(|_, link| link.index != index);
     state.ipv4_addrs.remove(&index);
     state.ipv6_addrs.remove(&index);
+}
+
+fn device_carrier(links: &HashMap<String, MockLink>, link: &MockLink) -> bool {
+    if !link.is_bridge {
+        return link.up;
+    }
+    links
+        .values()
+        .any(|port| port.master_index == Some(link.index) && port.up)
 }
 
 /// Detaches every port except `port_name` from the given bridge.

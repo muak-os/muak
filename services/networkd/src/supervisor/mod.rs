@@ -1,5 +1,6 @@
 //! Network supervisor that routes events, manages per-interface actors, and aggregates state.
 
+mod carrier;
 mod commands;
 mod discovery;
 mod dispatch;
@@ -23,6 +24,7 @@ use config::system::network;
 use netdev::Ops;
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
+use netlink::link::state::State;
 use netlink_monitor::Event;
 use selection::SupervisorEvent;
 use tokio::sync::{mpsc, oneshot};
@@ -81,6 +83,8 @@ pub struct Status {
     /// Interface that currently owns L3: the bridge once it has been
     /// provisioned, otherwise the primary.
     pub owner: Option<Name>,
+    /// Link state reported by the interface that owns L3.
+    pub owner_link: Option<State>,
     /// Uplink candidates in failover preference order; entries are not
     /// guaranteed to be currently eligible.
     pub backups: Vec<Name>,
@@ -161,10 +165,17 @@ impl<N: Ops> NetworkSupervisor<N> {
     }
 
     fn status(&self) -> Status {
+        let owner = failover::l3_owner(&self.state, &self.interfaces);
+        let owner_link = owner.and_then(|owner| {
+            self.interfaces
+                .get(owner)
+                .map(|handle| handle.state_rx.borrow().link)
+        });
         Status {
             state: self.state.state,
             primary: self.state.primary.clone(),
-            owner: failover::l3_owner(&self.state, &self.interfaces).cloned(),
+            owner: owner.cloned(),
+            owner_link,
             backups: self.state.backups.clone(),
             processed_events: self.processed_events,
         }

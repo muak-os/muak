@@ -17,11 +17,17 @@ pub(super) fn is_primary_interface<N: Ops>(supervisor: &NetworkSupervisor<N>, na
     supervisor.state.primary.as_ref() == Some(name)
 }
 
-/// Returns the interface that owns L3, following the primary's bridge ownership.
+/// Returns the interface that owns L3: the recorded bridge when present, otherwise the primary's bridge ownership.
 pub(super) fn l3_owner<'a>(
     state: &'a NetworkSnapshot,
     interfaces: &'a HashMap<Name, ActorHandle>,
 ) -> Option<&'a Name> {
+    if let Some(owner) = state.l3_owner.as_ref()
+        && interfaces.contains_key(owner)
+    {
+        return Some(owner);
+    }
+
     let primary = state.primary.as_ref()?;
     let snapshot = interfaces.get(primary)?.state_rx.borrow();
     if snapshot.l3_owner == snapshot.name {
@@ -329,10 +335,28 @@ mod tests {
     }
 
     #[test]
+    fn l3_owner_prefers_recorded_bridge_without_primary() {
+        // ARRANGE
+        let mut state = NetworkSnapshot::empty();
+        state.l3_owner = Some(Name::new("br0").expect("valid name"));
+        let interfaces = HashMap::from([(
+            Name::new("br0").expect("valid name"),
+            handle("br0", State::Up, "br0"),
+        )]);
+
+        // ACT
+        let owner = l3_owner(&state, &interfaces);
+
+        // ASSERT
+        assert_eq!(owner.map(Name::as_str), Some("br0"));
+    }
+
+    #[test]
     fn l3_owner_falls_back_to_primary_without_bridge_actor() {
         // ARRANGE
         let mut state = NetworkSnapshot::empty();
         state.primary = Some(Name::new("eth0").expect("valid name"));
+        state.l3_owner = Some(Name::new("br0").expect("valid name"));
         let interfaces = HashMap::from([(
             Name::new("eth0").expect("valid name"),
             handle("eth0", State::Up, "br0"),

@@ -391,9 +391,10 @@ impl bridge::Ops for MockNetlinkOps {
         bridge_name: &str,
         port_name: &str,
         _stp: bool,
-    ) -> impl Future<Output = bridge::Result<[u8; 6]>> {
+    ) -> impl Future<Output = bridge::Result<bridge::Bridge>> {
         let mut state = self.lock();
         let port_mac = state.links.get(port_name).map_or([0; 6], |link| link.mac);
+        let port_up = state.links.get(port_name).is_some_and(|link| link.up);
         let bridge_index = if let Some(link) = state.links.get(bridge_name) {
             link.index
         } else {
@@ -422,8 +423,9 @@ impl bridge::Ops for MockNetlinkOps {
             .links
             .get(bridge_name)
             .map_or(port_mac, |link| link.mac);
+        let link = if port_up { State::Up } else { State::NoCarrier };
 
-        std::future::ready(Ok(mac))
+        std::future::ready(Ok(bridge::Bridge { mac, link }))
     }
 }
 

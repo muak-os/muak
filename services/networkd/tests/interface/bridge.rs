@@ -192,6 +192,40 @@ async fn bridge_with_stp_enabled() {
 }
 
 #[tokio::test]
+async fn bridge_without_carrier_reports_no_carrier() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    let idx = mock.add_link("eth5", [0xAA; 6], false);
+    let snapshot = make_configured_snapshot("eth5", idx, [0xAA; 6]);
+    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
+
+    let (reply_tx, reply_rx) = oneshot::channel();
+
+    // ACT
+    handle
+        .cmd_tx
+        .send(Command::ConfigureBridge {
+            bridge_name: "br5".to_owned(),
+            stp: false,
+            reply: reply_tx,
+        })
+        .await
+        .expect("send failed");
+
+    let bridge_snap = reply_rx
+        .await
+        .expect("reply dropped")
+        .expect("bridge failed");
+
+    // ASSERT
+    assert_eq!(
+        bridge_snap.link,
+        State::NoCarrier,
+        "a bridge over a carrier-less port must not report up"
+    );
+}
+
+#[tokio::test]
 async fn bridge_with_invalid_name_returns_error() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
