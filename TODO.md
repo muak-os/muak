@@ -9,6 +9,8 @@
   - Use `graviola` instead of `ring` (removes support for rpi4, doesn't support RISC-V)
   - Use `rust-backend` in `zstd` (worse perf and still needs a C compiler for x86)
 
+- Allow for different async runtimes
+
 - Automatically bump toolchain in all organization on release
 
 - Enhance `e2e` tests
