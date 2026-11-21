@@ -22,5 +22,8 @@ thiserror = { workspace = true }
 dhcp-client = { workspace = true, optional = true }
 netlink = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 [lints]
 workspace = true

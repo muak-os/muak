@@ -1,7 +1,11 @@
 //! Address provisioning state machine vocabulary.
 
+#[cfg(feature = "ipv4")]
+pub mod v4;
+#[cfg(feature = "ipv6")]
+pub mod v6;
+
 use alloc::string::String;
-use alloc::vec::Vec;
 use core::future::Future;
 use core::net::IpAddr;
 
@@ -16,8 +20,6 @@ pub struct AddressConfig {
     pub prefix_len: u8,
     /// Optional default gateway.
     pub gateway: Option<IpAddr>,
-    /// DNS server addresses.
-    pub dns: Vec<IpAddr>,
 }
 
 /// Outcome a method asks the controller to apply or remove.
@@ -85,11 +87,17 @@ pub enum Event {
 
 /// Address method driving one family on one interface.
 pub trait Method {
+    /// Point-in-time state the method exposes to the controller.
+    type View;
+
     /// Returns the next event produced by the method.
     fn next_event(&mut self) -> impl Future<Output = Event> + Send;
 
     /// Applies a command from the controller.
     fn on_command(&mut self, command: Command);
+
+    /// Returns the method's current view, or `None` when it has nothing to report.
+    fn view(&self) -> Option<Self::View>;
 }
 
 #[cfg(test)]
