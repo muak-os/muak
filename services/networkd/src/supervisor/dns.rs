@@ -1,17 +1,17 @@
-//! DNS state flushed from the primary interface's configuration, with config fallback.
+//! DNS state flushed from the L3 owner's configuration, with config fallback.
 
 use core::net::{Ipv4Addr, Ipv6Addr};
 
 use netdev::Ops;
 
-use super::{ActorHandle, NetworkSupervisor};
+use super::{ActorHandle, NetworkSupervisor, failover};
 
-/// Flushes DNS configuration based on the primary interface's state with fallback.
+/// Flushes DNS configuration based on the L3 owner's state with fallback.
 pub(super) fn flush<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
-    let Some(primary) = supervisor.state.primary.as_ref() else {
+    let Some(owner) = failover::l3_owner(supervisor) else {
         return;
     };
-    let Some(handle) = supervisor.interfaces.get(primary) else {
+    let Some(handle) = supervisor.interfaces.get(owner) else {
         return;
     };
     let (v4, v6) = collect(supervisor, handle);

@@ -1,4 +1,4 @@
-//! Supervisor event selection: waits for the next command, monitor event, primary change, or reconcile tick.
+//! Supervisor event selection: waits for the next command, monitor event, L3 owner change, or reconcile tick.
 
 use alloc::sync::Arc;
 
@@ -13,15 +13,15 @@ use crate::interface::snapshot::Snapshot;
 pub(super) enum SupervisorEvent {
     Command(SupervisorCommand),
     Netlink(Event),
-    PrimaryChanged,
+    OwnerChanged,
     ReconcileTick,
 }
 
-/// Waits for the next command, netlink event, primary snapshot change, or reconcile tick.
+/// Waits for the next command, netlink event, L3 owner snapshot change, or reconcile tick.
 pub(super) async fn wait(
     cmd_rx: &mut mpsc::Receiver<SupervisorCommand>,
     event_rx: &mut mpsc::Receiver<Event>,
-    primary_snap_rx: Option<&mut watch::Receiver<Arc<Snapshot>>>,
+    owner_snap_rx: Option<&mut watch::Receiver<Arc<Snapshot>>>,
     reconcile: &mut Interval,
 ) -> Option<SupervisorEvent> {
     let mut cmd_fut = core::pin::pin!(cmd_rx.recv());
@@ -32,7 +32,7 @@ pub(super) async fn wait(
         }
     });
     let mut snap_fut = core::pin::pin!(async {
-        match primary_snap_rx {
+        match owner_snap_rx {
             Some(rx) => match rx.changed().await {
                 Ok(()) => (),
                 Err(_) => core::future::pending().await,
@@ -50,7 +50,7 @@ pub(super) async fn wait(
             return core::task::Poll::Ready(Some(SupervisorEvent::Netlink(event)));
         }
         if let core::task::Poll::Ready(()) = snap_fut.as_mut().poll(cx) {
-            return core::task::Poll::Ready(Some(SupervisorEvent::PrimaryChanged));
+            return core::task::Poll::Ready(Some(SupervisorEvent::OwnerChanged));
         }
         if tick_fut.as_mut().poll(cx).is_ready() {
             return core::task::Poll::Ready(Some(SupervisorEvent::ReconcileTick));

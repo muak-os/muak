@@ -174,6 +174,17 @@ impl link::Ops for MockNetlinkOps {
         std::future::ready(Ok(()))
     }
 
+    fn master(&self, index: u32) -> impl Future<Output = link::Result<Option<u32>>> {
+        let result = self
+            .lock()
+            .links
+            .values()
+            .find(|link| link.index == index)
+            .and_then(|link| link.master_index);
+
+        std::future::ready(Ok(result))
+    }
+
     fn delete(&self, index: u32) -> impl Future<Output = link::Result<()>> {
         let mut state = self.lock();
         state.links.retain(|_, link| link.index != index);

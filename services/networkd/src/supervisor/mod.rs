@@ -219,17 +219,16 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
     let mut reconcile = interval(RECONCILE_INTERVAL);
 
     loop {
-        let primary_snap_rx = supervisor
-            .state
-            .primary
+        let owner = failover::l3_owner(&supervisor).cloned();
+        let owner_snap_rx = owner
             .as_ref()
-            .and_then(|primary| supervisor.interfaces.get_mut(primary))
+            .and_then(|owner| supervisor.interfaces.get_mut(owner))
             .map(|handle| &mut handle.state_rx);
 
         let event = selection::wait(
             &mut cmd_rx,
             events.receiver(),
-            primary_snap_rx,
+            owner_snap_rx,
             &mut reconcile,
         )
         .await;
@@ -241,8 +240,9 @@ async fn supervisor_loop<N: Ops, M: Source + Send + Sync + 'static>(
         match event {
             SupervisorEvent::Command(cmd) => supervisor.handle_command(cmd).await,
             SupervisorEvent::Netlink(event) => events.handle(&mut supervisor, event).await,
-            SupervisorEvent::PrimaryChanged => {
+            SupervisorEvent::OwnerChanged => {
                 failover::switch_if_needed(&mut supervisor).await;
+                failover::recover_if_possible(&mut supervisor);
                 dns::flush(&mut supervisor);
             }
             SupervisorEvent::ReconcileTick => {

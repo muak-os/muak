@@ -69,6 +69,9 @@ pub trait Ops: Clone + Send + Sync + 'static {
     /// Returns the kernel interface index for a named link.
     fn index(&self, name: &str) -> impl Future<Output = Result<u32>> + Send;
 
+    /// Returns the master (bridge/bond) index for a link, if any, with an unknown index yielding `Failure::NotFound`.
+    fn master(&self, index: u32) -> impl Future<Output = Result<Option<u32>>> + Send;
+
     /// Polls interfaces for carrier, returning a map of index to carrier-present or a subscribe failure.
     fn probe_carriers(
         &self,
@@ -116,6 +119,10 @@ impl Ops for Rtnl {
 
     async fn set_master(&self, slave_index: u32, master_index: u32) -> Result<()> {
         handle::set_master(&self.handle, slave_index, master_index).await
+    }
+
+    async fn master(&self, index: u32) -> Result<Option<u32>> {
+        handle::master_index(&self.handle, index).await
     }
 
     async fn delete(&self, index: u32) -> Result<()> {

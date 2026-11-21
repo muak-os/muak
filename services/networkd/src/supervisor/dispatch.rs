@@ -27,6 +27,10 @@ pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, 
 async fn on_link_up<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
     kmsg::info!("Event: Link up {} (index {})", name, index);
     supervisor.send_to_interface(&name, Command::LinkUp).await;
+    if let Some(owner) = owner(supervisor, &name, index).await {
+        supervisor.send_to_interface(&owner, Command::LinkUp).await;
+        return;
+    }
     if failover::is_primary_interface(supervisor, &name) {
         failover::handle_primary_recovery(supervisor, &name);
         return;
@@ -39,6 +43,12 @@ async fn on_link_up<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, i
 async fn on_link_down<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name, index: u32) {
     kmsg::info!("Event: Link down {} (index {})", name, index);
     supervisor.send_to_interface(&name, Command::LinkDown).await;
+    if let Some(owner) = owner(supervisor, &name, index).await {
+        supervisor
+            .send_to_interface(&owner, Command::LinkDown)
+            .await;
+        return;
+    }
     if failover::is_primary_interface(supervisor, &name) {
         failover::handle_primary_failure(supervisor, &name).await;
     }
@@ -107,9 +117,37 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
     dns::flush(supervisor);
 }
 
-// Logs a monitor failure and reconciles immediately. A lost or stalled link event
-// could otherwise delay failover until the next periodic reconcile.
 async fn on_monitor_error<N: Ops>(supervisor: &mut NetworkSupervisor<N>, failure: Failure) {
     kmsg::warn!("Network event monitor error: {failure}");
     reconcile::run(supervisor).await;
+}
+
+async fn owner<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name, index: u32) -> Option<Name> {
+    if let Some(handle) = supervisor.interfaces.get(name) {
+        let owner = handle.state_rx.borrow().l3_owner.clone();
+        if &owner != name && supervisor.interfaces.contains_key(&owner) {
+            return Some(owner);
+        }
+    }
+    let master = master_index(supervisor, index).await?;
+
+    name_by_index(supervisor, master)
+}
+
+async fn master_index<N: Ops>(supervisor: &NetworkSupervisor<N>, index: u32) -> Option<u32> {
+    match supervisor.ops.master(index).await {
+        Ok(master) => master,
+        Err(e) => {
+            kmsg::warn!("Failed to query master for link {index}: {e}");
+            None
+        }
+    }
+}
+
+fn name_by_index<N: Ops>(supervisor: &NetworkSupervisor<N>, index: u32) -> Option<Name> {
+    supervisor
+        .interfaces
+        .iter()
+        .find(|&(_, handle)| handle.state_rx.borrow().index == index)
+        .map(|(name, _)| name.clone())
 }
