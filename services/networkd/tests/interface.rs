@@ -136,6 +136,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns a snapshot of IPv6 addresses for an index.
+    #[cfg(feature = "ipv6")]
     #[must_use = "the test asserts on the addresses that were added"]
     pub fn ipv6_addrs(&self, index: u32) -> HashSet<(Ipv6Addr, u8)> {
         self.lock()
@@ -152,6 +153,7 @@ impl MockNetlinkOps {
     }
 
     /// Returns true if the given IPv6 gateway is in the default route table.
+    #[cfg(feature = "ipv6")]
     #[must_use = "the test asserts on the route that was installed"]
     pub fn has_default_route_v6(&self, gw: Ipv6Addr) -> bool {
         self.lock().default_routes_v6.contains(&gw)
@@ -521,6 +523,7 @@ async fn wait_for_state(handle: &ActorHandle, expected: Lifecycle) {
 }
 
 /// Waits until the interface actor has an IPv6 configuration.
+#[cfg(feature = "ipv6")]
 async fn ipv6_assigned(mut rx: watch::Receiver<Arc<Snapshot>>) -> bool {
     loop {
         if rx.borrow().ipv6.is_some() {
@@ -532,6 +535,7 @@ async fn ipv6_assigned(mut rx: watch::Receiver<Arc<Snapshot>>) -> bool {
     }
 }
 
+#[cfg(feature = "ipv6")]
 async fn wait_for_ipv6(handle: &ActorHandle) {
     let timeout_duration = Duration::from_secs(5);
     let reached = timeout(timeout_duration, ipv6_assigned(handle.state_rx.clone()))
@@ -549,6 +553,7 @@ mod interface {
     mod dhcp;
     mod link;
     mod reconcile;
+    #[cfg(feature = "ipv6")]
     mod slaac;
     mod r#static;
 }

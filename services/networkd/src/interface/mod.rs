@@ -5,6 +5,7 @@ pub mod commands;
 mod dhcp;
 pub mod lifecycle;
 mod link;
+#[cfg(feature = "ipv6")]
 mod slaac;
 pub mod snapshot;
 mod r#static;
@@ -24,6 +25,7 @@ use snapshot::Snapshot;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;
 
+#[cfg(feature = "ipv6")]
 use crate::slaac::manager::{Manager as SlaacManager, SlaacEvent};
 
 pub struct Actor<N: Ops> {
@@ -34,8 +36,10 @@ pub struct Actor<N: Ops> {
     snapshot_tx: watch::Sender<Arc<Snapshot>>,
     dhcp: Option<Manager>,
     dhcp_enabled: bool,
+    #[cfg(feature = "ipv6")]
     slaac_enabled: bool,
     timers: LeaseTimers,
+    #[cfg(feature = "ipv6")]
     slaac: Option<SlaacManager>,
 }
 
@@ -50,6 +54,7 @@ enum ActorEvent {
     Command(Command),
     DhcpLease(Lease),
     DhcpFailed,
+    #[cfg(feature = "ipv6")]
     Slaac(SlaacEvent),
     Renew,
     Rebind,
@@ -80,8 +85,10 @@ impl<N: Ops> Actor<N> {
             snapshot_tx,
             dhcp: None,
             dhcp_enabled: false,
+            #[cfg(feature = "ipv6")]
             slaac_enabled: false,
             timers: LeaseTimers::new(),
+            #[cfg(feature = "ipv6")]
             slaac: None,
         };
 
@@ -114,6 +121,7 @@ impl<N: Ops> Actor<N> {
                 self.dhcp_enabled = false;
                 r#static::apply_ipv4(self, index, &addresses, gateway, mode).await;
             }
+            #[cfg(feature = "ipv6")]
             Command::ConfigureStaticIpv6 {
                 mode,
                 index,
@@ -131,6 +139,7 @@ impl<N: Ops> Actor<N> {
             } => {
                 drop(reply.send(bridge::configure(self, &bridge_name, stp).await));
             }
+            #[cfg(feature = "ipv6")]
             Command::ConfigureSlaac { mode } => {
                 self.slaac_enabled = true;
                 slaac::apply(self, mode).await;
@@ -191,6 +200,7 @@ async fn actor_loop<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
         let event = actor_select(
             &mut actor.cmd_rx,
             &mut actor.dhcp,
+            #[cfg(feature = "ipv6")]
             &mut actor.slaac,
             &mut actor.timers.renew,
             &mut actor.timers.rebind,
@@ -205,6 +215,7 @@ async fn actor_loop<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
             ActorEvent::Command(cmd) => actor.dispatch(cmd, connector).await,
             ActorEvent::DhcpLease(lease) => dhcp::acquired(actor, lease).await,
             ActorEvent::DhcpFailed => dhcp::acquisition_failed(actor),
+            #[cfg(feature = "ipv6")]
             ActorEvent::Slaac(event) => slaac::handle_event(actor, event).await,
             ActorEvent::Renew => dhcp::refresh::renew(actor, connector).await,
             ActorEvent::Rebind => dhcp::refresh::rebind(actor, connector).await,
@@ -217,13 +228,14 @@ async fn actor_loop<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
 async fn actor_select(
     cmd_rx: &mut mpsc::Receiver<Command>,
     dhcp: &mut Option<Manager>,
-    slaac: &mut Option<SlaacManager>,
+    #[cfg(feature = "ipv6")] slaac: &mut Option<SlaacManager>,
     renew: &mut Option<Pin<Box<Sleep>>>,
     rebind: &mut Option<Pin<Box<Sleep>>>,
     expire: &mut Option<Pin<Box<Sleep>>>,
 ) -> Option<ActorEvent> {
     let mut cmd_fut = core::pin::pin!(cmd_rx.recv());
     let mut dhcp_fut = core::pin::pin!(dhcp_acquire(dhcp));
+    #[cfg(feature = "ipv6")]
     let mut slaac_fut = core::pin::pin!(slaac_next_event(slaac));
     let mut renew_fut = core::pin::pin!(poll_opt(renew));
     let mut rebind_fut = core::pin::pin!(poll_opt(rebind));
@@ -242,6 +254,7 @@ async fn actor_select(
             }
             core::task::Poll::Pending => {}
         }
+        #[cfg(feature = "ipv6")]
         if let core::task::Poll::Ready(event) = slaac_fut.as_mut().poll(cx) {
             return core::task::Poll::Ready(Some(ActorEvent::Slaac(event)));
         }
@@ -271,6 +284,7 @@ async fn poll_opt(opt: &mut Option<Pin<Box<Sleep>>>) {
 }
 
 /// Polls the `SlaacManager`'s next event when `Some`, or parks forever when `None`.
+#[cfg(feature = "ipv6")]
 async fn slaac_next_event(slaac: &mut Option<SlaacManager>) -> SlaacEvent {
     match slaac.as_mut() {
         Some(mgr) => mgr.next_event().await,
@@ -301,6 +315,7 @@ mod tests {
         // ARRANGE
         let (tx, mut cmd_rx) = mpsc::channel(1);
         let mut dhcp = None;
+        #[cfg(feature = "ipv6")]
         let mut slaac = None;
         let mut renew = None;
         let mut rebind = None;
@@ -313,6 +328,7 @@ mod tests {
             actor_select(
                 &mut cmd_rx,
                 &mut dhcp,
+                #[cfg(feature = "ipv6")]
                 &mut slaac,
                 &mut renew,
                 &mut rebind,

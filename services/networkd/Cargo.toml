@@ -9,6 +9,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["ipv6"]
+ipv6 = ["dep:slaac", "dep:rustix", "dep:libc"]
+
 [dependencies]
 # Asynchronous
 tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "io-util"] }
@@ -26,11 +30,11 @@ netdev = { workspace = true }
 netlink = { workspace = true }
 netlink-monitor = { workspace = true }
 packet = { workspace = true }
-slaac = { workspace = true }
+slaac = { workspace = true, optional = true }
 
 # System/platform APIs
-rustix = { workspace = true, features = ["net", "event", "time"] }
-libc = { workspace = true }
+rustix = { workspace = true, features = ["net", "event", "time"], optional = true }
+libc = { workspace = true, optional = true }
 
 [lints]
 workspace = true

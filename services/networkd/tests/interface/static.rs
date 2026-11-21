@@ -1,6 +1,8 @@
 //! Integration tests for static IP configuration edge cases on interface actor.
 
-use core::net::{Ipv4Addr, Ipv6Addr};
+use core::net::Ipv4Addr;
+#[cfg(feature = "ipv6")]
+use core::net::Ipv6Addr;
 use core::time::Duration;
 
 use config::system::network;
@@ -59,6 +61,7 @@ async fn static_ipv4_multiple_addresses() {
     assert_eq!(snap.ip.as_ref().expect("ip").prefix_len, 24);
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn static_ipv6_without_gateway_skips_route() {
     // ARRANGE
@@ -97,6 +100,7 @@ async fn static_ipv6_without_gateway_skips_route() {
     );
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn static_ipv6_multiple_addresses() {
     // ARRANGE
@@ -185,6 +189,7 @@ async fn static_ipv4_then_shutdown_cleans_up() {
     assert!(result.is_err(), "channel should be closed after shutdown");
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn static_ipv4_and_ipv6_on_same_interface() {
     // ARRANGE
@@ -370,6 +375,7 @@ async fn static_ipv4_empty_addresses_stays_configuring() {
     assert!(snap.ip.is_none(), "no IP should be set");
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn static_ipv6_empty_addresses_does_not_configure() {
     // ARRANGE

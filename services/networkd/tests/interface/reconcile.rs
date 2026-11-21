@@ -1,6 +1,8 @@
 //! Integration tests for interface actor reconciliation commands.
 
-use core::net::{Ipv4Addr, Ipv6Addr};
+use core::net::Ipv4Addr;
+#[cfg(feature = "ipv6")]
+use core::net::Ipv6Addr;
 use core::time::Duration;
 
 use ::dhcp_client::lease::Lease;
@@ -31,6 +33,7 @@ async fn wait_for_ipv4_addr(mock: &MockNetlinkOps, index: u32, address: Ipv4Addr
 }
 
 /// Waits until a mock interface regains the expected IPv6 address.
+#[cfg(feature = "ipv6")]
 async fn wait_for_ipv6_addr(mock: &MockNetlinkOps, index: u32, address: Ipv6Addr, prefix: u8) {
     // ARRANGE
     let timeout_duration = Duration::from_secs(5);
@@ -175,6 +178,7 @@ async fn reconcile_dhcp_with_cached_lease_reapplies_address() {
 }
 
 /// Verifies static IPv6 reconciliation re-applies drifted kernel state.
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn reconcile_static_ipv6_reapplies_kernel_state() {
     // ARRANGE

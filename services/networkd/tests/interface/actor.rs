@@ -95,6 +95,7 @@ async fn static_ipv4_without_gateway_skips_route() {
     );
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn static_ipv6_configures_address_and_gateway() {
     use core::net::Ipv6Addr;

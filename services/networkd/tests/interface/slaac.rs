@@ -1,5 +1,7 @@
 //! Integration tests for SLAAC command handling on interface actor.
 
+#![cfg(feature = "ipv6")]
+
 use core::time::Duration;
 
 use config::system::network;

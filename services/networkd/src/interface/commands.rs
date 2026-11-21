@@ -1,6 +1,8 @@
 //! Commands accepted by a per-interface actor.
 
-use core::net::{Ipv4Addr, Ipv6Addr};
+use core::net::Ipv4Addr;
+#[cfg(feature = "ipv6")]
+use core::net::Ipv6Addr;
 
 use anyhow::Result;
 use config::system::network;
@@ -25,6 +27,7 @@ pub enum Command {
         addresses: Vec<network::Cidr4>,
         gateway: Option<Ipv4Addr>,
     },
+    #[cfg(feature = "ipv6")]
     ConfigureStaticIpv6 {
         mode: ApplyMode,
         index: u32,
@@ -36,6 +39,7 @@ pub enum Command {
         stp: bool,
         reply: oneshot::Sender<Result<Snapshot>>,
     },
+    #[cfg(feature = "ipv6")]
     ConfigureSlaac {
         mode: ApplyMode,
     },

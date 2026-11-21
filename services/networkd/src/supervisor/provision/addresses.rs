@@ -1,7 +1,9 @@
 //! Address provisioning helpers for the network supervisor.
 
 use anyhow::Result;
-use config::system::network::{InterfaceConfig, Ipv4InterfaceConfig, Ipv6InterfaceConfig};
+#[cfg(feature = "ipv6")]
+use config::system::network::Ipv6InterfaceConfig;
+use config::system::network::{InterfaceConfig, Ipv4InterfaceConfig};
 use netdev::Ops;
 use netlink::link::ifname::Name;
 
@@ -35,6 +37,7 @@ async fn apply<N: Ops>(
         ipv4(supervisor, &owner, index, ipv4_cfg).await?;
     }
 
+    #[cfg(feature = "ipv6")]
     if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
         let index = actor_index(supervisor, &owner)?;
         ipv6(supervisor, &owner, index, ipv6_cfg).await?;
@@ -85,6 +88,7 @@ async fn ipv4<N: Ops>(
     Ok(())
 }
 
+#[cfg(feature = "ipv6")]
 async fn ipv6<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     iface_name: &Name,

@@ -63,6 +63,7 @@ async fn ethernet<N: Ops>(
         ipv4(supervisor, &target, index, ipv4_cfg).await?;
     }
 
+    #[cfg(feature = "ipv6")]
     if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
         let index = provision::actor_index(supervisor, &target)?;
         ipv6(supervisor, &target, index, ipv6_cfg).await?;
@@ -102,6 +103,7 @@ async fn own_addresses<N: Ops>(
         ipv4(supervisor, bridge_name, index, ipv4_cfg).await?;
     }
 
+    #[cfg(feature = "ipv6")]
     if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
         ipv6(supervisor, bridge_name, index, ipv6_cfg).await?;
     }
@@ -153,6 +155,7 @@ async fn ipv4<N: Ops>(
 }
 
 /// Reapplies IPv6 configuration for one interface.
+#[cfg(feature = "ipv6")]
 async fn ipv6<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     iface_name: &Name,

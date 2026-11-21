@@ -35,6 +35,7 @@ fn config_static_named() -> Arc<network::Config> {
 }
 
 /// Returns a named static IPv6 test config for supervisor reconciliation.
+#[cfg(feature = "ipv6")]
 fn config_static_ipv6_named() -> Arc<network::Config> {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
@@ -184,6 +185,7 @@ async fn reconcile_before_initialization_is_a_noop() {
     );
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn reconcile_reapplies_static_ipv6_after_drift() {
     // ARRANGE
@@ -375,6 +377,7 @@ async fn reconcile_reapplies_bridge_own_ipv4() {
     );
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn reconcile_keeps_ipv6_on_the_bridge() {
     // ARRANGE

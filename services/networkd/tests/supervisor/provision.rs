@@ -9,10 +9,9 @@ use networkd::supervisor;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
-use super::{
-    MockNetlinkOps, config_bridge, config_bridge_ipv6, ipv4_addrs, ipv6_addrs, link_index,
-    master_index,
-};
+use super::{MockNetlinkOps, config_bridge, ipv4_addrs, link_index, master_index};
+#[cfg(feature = "ipv6")]
+use super::{config_bridge_ipv6, ipv6_addrs};
 
 /// Asserts that the configured static IPv4 landed on `br0` and not on its port.
 fn assert_l3_on_bridge(mock: &MockNetlinkOps) {
@@ -78,6 +77,7 @@ fn config_dhcp() -> Arc<network::Config> {
     Arc::new(cfg)
 }
 
+#[cfg(feature = "ipv6")]
 fn config_ipv6() -> Arc<network::Config> {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
@@ -99,6 +99,7 @@ fn config_ipv6() -> Arc<network::Config> {
     Arc::new(cfg)
 }
 
+#[cfg(feature = "ipv6")]
 fn config_slaac() -> Arc<network::Config> {
     let mut cfg = network::Config::default();
     cfg.dns.clear();
@@ -303,6 +304,7 @@ async fn provision_dhcp_sends_configure_dhcp_command() {
     );
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn provision_static_ipv6_sends_configure_command() {
     // ARRANGE
@@ -323,6 +325,7 @@ async fn provision_static_ipv6_sends_configure_command() {
     );
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn provision_slaac_autoconf_sends_configure_slaac() {
     // ARRANGE
@@ -426,6 +429,7 @@ async fn provision_bridge_with_auto_port() {
     assert_l3_on_bridge(&mock);
 }
 
+#[cfg(feature = "ipv6")]
 #[tokio::test]
 async fn provision_bridge_applies_ipv6_to_the_bridge() {
     // ARRANGE

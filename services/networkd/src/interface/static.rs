@@ -1,11 +1,15 @@
 //! Static IP configuration for a per-interface actor.
 
-use core::net::{Ipv4Addr, Ipv6Addr};
+use core::net::Ipv4Addr;
+#[cfg(feature = "ipv6")]
+use core::net::Ipv6Addr;
 
 use anyhow::Result;
 use config::system::network;
 use netdev::Ops;
-use netlink::address::{IpConfig, Ipv6Config};
+use netlink::address::IpConfig;
+#[cfg(feature = "ipv6")]
+use netlink::address::Ipv6Config;
 
 use super::Actor;
 use crate::interface::commands::ApplyMode;
@@ -17,6 +21,7 @@ enum StaticRequest<'a> {
         addresses: &'a [network::Cidr4],
         gateway: Option<Ipv4Addr>,
     },
+    #[cfg(feature = "ipv6")]
     Ipv6 {
         addresses: &'a [network::Cidr6],
         gateway: Option<Ipv6Addr>,
@@ -28,6 +33,7 @@ impl StaticRequest<'_> {
     fn family(self) -> &'static str {
         match self {
             Self::Ipv4 { .. } => "IPv4",
+            #[cfg(feature = "ipv6")]
             Self::Ipv6 { .. } => "IPv6",
         }
     }
@@ -46,6 +52,7 @@ pub(super) async fn apply_ipv4<N: Ops>(
 }
 
 /// Applies static IPv6 configuration in the selected mode.
+#[cfg(feature = "ipv6")]
 pub(super) async fn apply_ipv6<N: Ops>(
     actor: &mut Actor<N>,
     index: u32,
@@ -111,6 +118,7 @@ async fn ensure<N: Ops>(
                 let _added = actor.ops.ensure_default_route(gateway).await?;
             }
         }
+        #[cfg(feature = "ipv6")]
         StaticRequest::Ipv6 { addresses, gateway } => {
             ensure_ipv6_addresses(actor, index, addresses).await?;
             if let Some(gateway) = gateway {
@@ -139,6 +147,7 @@ async fn ensure_ipv4_addresses<N: Ops>(
 }
 
 /// Ensures every desired static IPv6 address exists in the kernel.
+#[cfg(feature = "ipv6")]
 async fn ensure_ipv6_addresses<N: Ops>(
     actor: &Actor<N>,
     index: u32,
@@ -168,6 +177,7 @@ fn store<N: Ops>(actor: &mut Actor<N>, request: StaticRequest<'_>) -> Result<()>
 
             actor.snapshot.ip = Some(ip);
         }
+        #[cfg(feature = "ipv6")]
         StaticRequest::Ipv6 { addresses, gateway } => {
             let primary_addr = first_address(addresses, "IPv6")?;
             let ipv6 = Ipv6Config {

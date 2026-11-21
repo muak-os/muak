@@ -82,6 +82,7 @@ fn config_bridge() -> Arc<network::Config> {
     Arc::new(cfg)
 }
 
+#[cfg(feature = "ipv6")]
 fn config_bridge_ipv6() -> Arc<network::Config> {
     let mut cfg = (*config_bridge()).clone();
     if let Some(port) = cfg.interfaces.first_mut() {
@@ -111,6 +112,7 @@ fn ipv4_addrs(
         .unwrap_or_default()
 }
 
+#[cfg(feature = "ipv6")]
 fn ipv6_addrs(
     mock: &MockNetlinkOps,
     index: u32,
@@ -132,6 +134,7 @@ fn has_link(mock: &MockNetlinkOps, name: &str) -> bool {
         .contains_key(name)
 }
 
+#[cfg(feature = "ipv6")]
 fn has_default_route_v6(mock: &MockNetlinkOps, gateway: core::net::Ipv6Addr) -> bool {
     mock.state
         .lock()
