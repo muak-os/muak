@@ -137,11 +137,11 @@ fn regular_reader<'a>(files: &'a mut [SizedFile<'_>], index: usize) -> Result<&'
         .ok_or(ErofsError::Internal("file index out of bounds"))
 }
 
-fn is_streamed_plain(inode: &Inode) -> bool {
+const fn is_streamed_plain(inode: &Inode) -> bool {
     inode.compressed.is_none() && inode.file_type == EROFS_FT_REG_FILE && inode.size > 0
 }
 
-fn is_inline_regular(inode: &Inode) -> bool {
+const fn is_inline_regular(inode: &Inode) -> bool {
     is_streamed_plain(inode) && inode.datalayout == EROFS_INODE_FLAT_INLINE
 }
 

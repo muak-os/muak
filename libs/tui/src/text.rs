@@ -48,7 +48,7 @@ impl<'a> Span<'a> {
 
     /// Returns the span style.
     #[must_use = "callers need the style to render the span"]
-    pub fn style(&self) -> Style {
+    pub const fn style(&self) -> Style {
         self.style
     }
 
@@ -62,7 +62,7 @@ impl<'a> Span<'a> {
 impl<'a> Line<'a> {
     /// Creates an empty line starting at `col`.
     #[must_use = "dropping it discards the line"]
-    pub fn new(col: u16) -> Self {
+    pub const fn new(col: u16) -> Self {
         Self {
             col,
             spans: Vec::new(),
@@ -85,7 +85,7 @@ impl<'a> Line<'a> {
 
     /// Returns the starting column.
     #[must_use = "callers need the column to place the line"]
-    pub fn col(&self) -> u16 {
+    pub const fn col(&self) -> u16 {
         self.col
     }
 

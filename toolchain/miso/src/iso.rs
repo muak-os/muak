@@ -215,7 +215,7 @@ fn build_pvd(total_sectors: u32, efi_image_size: u32) -> Result<[u8; SECTOR_SIZE
 }
 
 /// Builds the Boot Record Volume Descriptor sector (LBA 17, El Torito §2.1).
-fn build_boot_record_vd() -> [u8; SECTOR_SIZE] {
+const fn build_boot_record_vd() -> [u8; SECTOR_SIZE] {
     let mut vd = [0_u8; SECTOR_SIZE];
     write_byte(&mut vd, 0, 0);
     write_bytes(&mut vd, 1, b"CD001");
@@ -232,7 +232,7 @@ fn build_boot_record_vd() -> [u8; SECTOR_SIZE] {
 }
 
 /// Builds the Volume Descriptor Set Terminator sector (LBA 18, ECMA-119 §8.3).
-fn build_vd_terminator() -> [u8; SECTOR_SIZE] {
+const fn build_vd_terminator() -> [u8; SECTOR_SIZE] {
     let mut vd = [0_u8; SECTOR_SIZE];
     write_byte(&mut vd, 0, 255);
     write_bytes(&mut vd, 1, b"CD001");
@@ -242,7 +242,7 @@ fn build_vd_terminator() -> [u8; SECTOR_SIZE] {
 }
 
 /// Builds the L-path table sector (little-endian, ECMA-119 §9.4).
-fn build_path_table_l() -> [u8; SECTOR_SIZE] {
+const fn build_path_table_l() -> [u8; SECTOR_SIZE] {
     let mut pt = [0_u8; SECTOR_SIZE];
     write_byte(&mut pt, 0, 1);
     write_byte(&mut pt, 1, 0);
@@ -255,7 +255,7 @@ fn build_path_table_l() -> [u8; SECTOR_SIZE] {
 }
 
 /// Builds the M-path table sector (big-endian, ECMA-119 §9.4).
-fn build_path_table_m() -> [u8; SECTOR_SIZE] {
+const fn build_path_table_m() -> [u8; SECTOR_SIZE] {
     let mut pt = [0_u8; SECTOR_SIZE];
     write_byte(&mut pt, 0, 1);
     write_byte(&mut pt, 1, 0);
@@ -404,20 +404,20 @@ fn root_dir_size(efi_image_size: u32) -> Result<u32> {
 }
 
 /// Writes an ISO date/time field with all-zero (unspecified) values.
-fn zero_date() -> [u8; 17] {
+const fn zero_date() -> [u8; 17] {
     let mut date = [b'0'; 17];
     date[16] = 0;
 
     date
 }
 
-fn write_bytes(buf: &mut [u8], offset: usize, bytes: &[u8]) {
+const fn write_bytes(buf: &mut [u8], offset: usize, bytes: &[u8]) {
     let (_, tail) = buf.split_at_mut(offset);
     let (dst, _) = tail.split_at_mut(bytes.len());
     dst.copy_from_slice(bytes);
 }
 
-fn write_byte(buf: &mut [u8], offset: usize, value: u8) {
+const fn write_byte(buf: &mut [u8], offset: usize, value: u8) {
     write_bytes(buf, offset, &[value]);
 }
 
@@ -435,7 +435,7 @@ fn checksum_word(chunk: &[u8]) -> Result<u16> {
 }
 
 /// Writes `value` in both little-endian and big-endian form (ISO 7.3.3).
-fn both_endian_u32(buf: &mut [u8], offset: usize, value: u32) {
+const fn both_endian_u32(buf: &mut [u8], offset: usize, value: u32) {
     let (_, tail) = buf.split_at_mut(offset);
     let (field, _) = tail.split_at_mut(8);
     let (little_endian, big_endian) = field.split_at_mut(4);
@@ -444,7 +444,7 @@ fn both_endian_u32(buf: &mut [u8], offset: usize, value: u32) {
 }
 
 /// Writes `value` in both little-endian and big-endian form (ISO 7.2.3).
-fn both_endian_u16(buf: &mut [u8], offset: usize, value: u16) {
+const fn both_endian_u16(buf: &mut [u8], offset: usize, value: u16) {
     let (_, tail) = buf.split_at_mut(offset);
     let (field, _) = tail.split_at_mut(4);
     let (little_endian, big_endian) = field.split_at_mut(2);

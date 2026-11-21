@@ -174,7 +174,7 @@ fn certificate_database(
     Ok(sigdb)
 }
 
-fn signer_and_certificate(
+const fn signer_and_certificate(
     hierarchy: &hierarchy::Bundle,
     authority: SigningAuthority,
 ) -> (&rsa2048::Signer, &Certificate) {
@@ -184,7 +184,7 @@ fn signer_and_certificate(
     }
 }
 
-fn authenticated_variable_attributes() -> VariableAttributes {
+const fn authenticated_variable_attributes() -> VariableAttributes {
     VariableAttributes::NON_VOLATILE
         .union(VariableAttributes::BOOTSERVICE_ACCESS)
         .union(VariableAttributes::RUNTIME_ACCESS)

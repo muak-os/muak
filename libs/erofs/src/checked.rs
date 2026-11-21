@@ -1,8 +1,8 @@
-pub(crate) fn add(lhs: usize, rhs: usize) -> Option<usize> {
+pub(crate) const fn add(lhs: usize, rhs: usize) -> Option<usize> {
     lhs.checked_add(rhs)
 }
 
-pub(crate) fn sub(lhs: usize, rhs: usize) -> Option<usize> {
+pub(crate) const fn sub(lhs: usize, rhs: usize) -> Option<usize> {
     lhs.checked_sub(rhs)
 }
 

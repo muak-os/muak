@@ -241,7 +241,7 @@ impl MkfsContext {
     }
 
     /// Create a tree context.
-    fn create_context(&self) -> TreeContext<'_> {
+    const fn create_context(&self) -> TreeContext<'_> {
         TreeContext::new(
             &self.layout,
             &self.fsid,

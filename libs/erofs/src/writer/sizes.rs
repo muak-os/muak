@@ -3,7 +3,7 @@
 use crate::error::{ErofsError, Result};
 use crate::{BLOCK_SIZE, SLOT_SIZE};
 
-pub(super) fn mul(lhs: usize, rhs: usize) -> Option<usize> {
+pub(super) const fn mul(lhs: usize, rhs: usize) -> Option<usize> {
     lhs.checked_mul(rhs)
 }
 

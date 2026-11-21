@@ -64,7 +64,7 @@ fn convert(event: Event<'_>) -> ProtoEvent {
     }
 }
 
-fn node_state(state: NodeState) -> PrepareNodeState {
+const fn node_state(state: NodeState) -> PrepareNodeState {
     match state {
         NodeState::Started => PrepareNodeState::Started,
         NodeState::Completed => PrepareNodeState::Completed,

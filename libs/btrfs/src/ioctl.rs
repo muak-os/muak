@@ -279,7 +279,7 @@ pub struct BtrfsScrubProgress {
 impl BtrfsScrubProgress {
     /// Returns `true` if any errors were detected during the scrub.
     #[must_use = "callers must report the scrub errors"]
-    pub fn has_errors(&self) -> bool {
+    pub const fn has_errors(&self) -> bool {
         self.read_errors > 0
             || self.csum_errors > 0
             || self.verify_errors > 0

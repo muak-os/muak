@@ -68,7 +68,7 @@ pub fn run(input: &Input, reporter: &dyn Reporter) -> Result<Removed> {
     Ok(removed)
 }
 
-fn document_kind(role: Role) -> Kind {
+const fn document_kind(role: Role) -> Kind {
     match role {
         Role::Kernel | Role::Stub | Role::Installer => Kind::Core,
         Role::Overlay => Kind::Overlays,

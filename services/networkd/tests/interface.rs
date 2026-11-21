@@ -451,7 +451,7 @@ impl net_iface::Ops for MockNetlinkOps {
 
 impl netdev::Ops for MockNetlinkOps {}
 
-fn link_state_kind(up: bool) -> State {
+const fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
 }
 
@@ -472,7 +472,7 @@ fn clear_bridge_ports(links: &mut HashMap<String, MockLink>, bridge_index: u32, 
 }
 
 /// Builds an `Ethernet` snapshot from a mock link.
-fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
+const fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
     Ethernet::new(name, link.index, link.mac, link_state_kind(link.up))
 }
 

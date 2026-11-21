@@ -130,7 +130,7 @@ fn semantics(policy: &Policy<'_>) -> Result<()> {
 
 // Asking for a limit the kernel enforces on the cgroup itself is what makes the unified hierarchy mandatory, and the check runs before the requirement set so the failure names the hierarchy to boot.
 #[cfg(feature = "spawn")]
-fn hierarchy(policy: &Policy<'_>, caps: Capabilities) -> Result<()> {
+const fn hierarchy(policy: &Policy<'_>, caps: Capabilities) -> Result<()> {
     if policy.cgroup.enforces() && !caps.contains(Capabilities::CGROUP_V2) {
         return Err(SandboxError::Unsupported {
             mechanism: Mechanism::Cgroup,

@@ -28,12 +28,12 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+const fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
 /// Overlay assets are inputs of the tar and media nodes, never requested artifacts.
-fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+const fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 

@@ -6,7 +6,7 @@ const BITS_PER_PREFIX_BYTE: u8 = 8;
 
 /// Converts a 6-byte MAC address into an 8-byte EUI-64 interface identifier.
 #[must_use = "callers need the identifier to form the address"]
-pub fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
+pub const fn mac_to_eui64(mac: &[u8; 6]) -> [u8; 8] {
     [
         mac[0] ^ 0x02,
         mac[1],

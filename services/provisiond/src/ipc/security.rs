@@ -58,7 +58,7 @@ fn response(
     }
 }
 
-fn status_value(state: secureboot::State, ours: bool) -> SecureBootState {
+const fn status_value(state: secureboot::State, ours: bool) -> SecureBootState {
     match secureboot::status(&state, ours) {
         secureboot::Status::Enabled => SecureBootState::Enabled,
         secureboot::Status::Pending => SecureBootState::Pending,
@@ -66,7 +66,7 @@ fn status_value(state: secureboot::State, ours: bool) -> SecureBootState {
     }
 }
 
-fn deviation_value(
+const fn deviation_value(
     config_enabled: bool,
     state: secureboot::State,
     ours: bool,

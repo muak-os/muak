@@ -64,7 +64,7 @@ impl Decoder {
 
     /// Returns whether a partial sequence is buffered.
     #[must_use = "callers must branch on whether input is waiting"]
-    pub fn has_pending(&self) -> bool {
+    pub const fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }
 
@@ -142,7 +142,7 @@ fn csi_end(seq: &[u8]) -> Option<usize> {
         .map(|pos| pos.saturating_add(1))
 }
 
-fn csi_key(seq: &[u8]) -> Option<Key> {
+const fn csi_key(seq: &[u8]) -> Option<Key> {
     match seq {
         b"A" => Some(Key::Up),
         b"B" => Some(Key::Down),
@@ -158,7 +158,7 @@ fn csi_key(seq: &[u8]) -> Option<Key> {
     }
 }
 
-fn ss3_key(seq: &[u8]) -> Option<Key> {
+const fn ss3_key(seq: &[u8]) -> Option<Key> {
     match seq {
         b"A" => Some(Key::Up),
         b"B" => Some(Key::Down),

@@ -59,7 +59,7 @@ pub(super) fn xxhash32(input: &[u8], seed: u32) -> u32 {
     hash_accumulator
 }
 
-fn xxh32_round(acc: u32, input: u32) -> u32 {
+const fn xxh32_round(acc: u32, input: u32) -> u32 {
     acc.wrapping_add(input.wrapping_mul(0x85EB_CA77))
         .rotate_left(13)
         .wrapping_mul(0x9E37_79B1)

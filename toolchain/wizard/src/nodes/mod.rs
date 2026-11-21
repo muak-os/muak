@@ -34,7 +34,7 @@ macro_rules! node_registry {
             pub(crate) const ALL: &'static [NodeKind] = &[ $( NodeKind::$kind, )+ ];
         }
 
-        pub(crate) fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
+        pub(crate) const fn descriptor(kind: NodeKind) -> &'static NodeDescriptor {
             match kind {
                 $( NodeKind::$kind => &$descriptor, )+
             }

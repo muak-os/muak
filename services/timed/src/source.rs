@@ -32,7 +32,7 @@ impl Source {
     }
 
     /// Returns whether this source requires a configured NTP server.
-    pub(crate) fn needs_ntp(self) -> bool {
+    pub(crate) const fn needs_ntp(self) -> bool {
         !matches!(self, Self::Hypervisor)
     }
 }

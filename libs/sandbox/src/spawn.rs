@@ -185,7 +185,7 @@ pub fn run(
     Ok(Child { pid, pidfd })
 }
 
-fn mechanism(stage: Stage) -> Mechanism {
+const fn mechanism(stage: Stage) -> Mechanism {
     match stage {
         Stage::Namespaces => Mechanism::Namespaces,
         Stage::Mounts => Mechanism::Mounts,

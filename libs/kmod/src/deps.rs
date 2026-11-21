@@ -65,13 +65,13 @@ impl DepDb {
 
     /// Returns the number of indexed modules.
     #[must_use = "callers need the count to bound the load order"]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.modules.len()
     }
 
     /// Returns whether the dependency database is empty.
     #[must_use = "callers must branch on an empty database"]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.modules.is_empty()
     }
 

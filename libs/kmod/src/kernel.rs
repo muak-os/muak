@@ -144,7 +144,7 @@ fn init_module_image(path: &Path) -> Result<(), LoadError> {
     }
 }
 
-fn map_init_module_result(result: Result<(), Errno>) -> Result<(), LoadError> {
+const fn map_init_module_result(result: Result<(), Errno>) -> Result<(), LoadError> {
     match result {
         Ok(()) | Err(Errno::EXIST) => Ok(()),
         Err(error) => Err(LoadError::Syscall(error)),

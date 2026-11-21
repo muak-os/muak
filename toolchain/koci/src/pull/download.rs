@@ -73,7 +73,7 @@ pub(crate) struct ByteProgress {
 
 impl ByteProgress {
     /// Sends samples for layer `index`, declared as `total` bytes.
-    pub(crate) fn new(sender: UnboundedSender<ByteSample>, index: usize, total: u64) -> Self {
+    pub(crate) const fn new(sender: UnboundedSender<ByteSample>, index: usize, total: u64) -> Self {
         Self {
             sender,
             index,

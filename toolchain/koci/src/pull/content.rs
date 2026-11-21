@@ -44,7 +44,7 @@ impl Content {
 
     /// Create a content store over `root`, or a disabled store when it is `None`.
     #[must_use = "dropping it discards the content store"]
-    pub(crate) fn at(root: Option<PathBuf>) -> Self {
+    pub(crate) const fn at(root: Option<PathBuf>) -> Self {
         Self { root }
     }
 
@@ -171,7 +171,7 @@ pub(crate) struct Ingest {
 impl Ingest {
     /// The staged byte count a following fetch can resume from.
     #[must_use = "callers need the offset to resume the download"]
-    pub(crate) fn resume_offset(&self) -> u64 {
+    pub(crate) const fn resume_offset(&self) -> u64 {
         self.resume_offset
     }
 

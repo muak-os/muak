@@ -103,7 +103,7 @@ pub(super) struct TreeContext<'a> {
 impl<'a> TreeContext<'a> {
     /// Create a new tree context.
     #[must_use = "the context must be used to write the tree"]
-    pub(super) fn new(
+    pub(super) const fn new(
         layout: &'a DiskLayout,
         fsid: &'a Uuid,
         chunk_uuid: &'a Uuid,
@@ -136,7 +136,7 @@ pub(super) struct TreeResult {
 impl TreeResult {
     /// Create a new tree result.
     #[must_use = "the result must be used to record the tree"]
-    pub(super) fn new(
+    pub(super) const fn new(
         logical_offset: u64,
         owner: u64,
         items: Vec<BtrfsItem>,
@@ -152,7 +152,7 @@ impl TreeResult {
 
     /// Create an empty tree result.
     #[must_use = "the result must be used to record the tree"]
-    pub(super) fn empty(logical_offset: u64, owner: u64) -> Self {
+    pub(super) const fn empty(logical_offset: u64, owner: u64) -> Self {
         Self {
             logical_offset,
             owner,
@@ -174,7 +174,7 @@ pub(super) struct ChunkTreeBuilder;
 impl ChunkTreeBuilder {
     /// Create a new chunk tree builder.
     #[must_use = "the builder must be used to produce the chunk tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -258,7 +258,7 @@ pub(super) struct DevTreeBuilder;
 impl DevTreeBuilder {
     /// Create a new dev tree builder.
     #[must_use = "the builder must be used to produce the dev tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -334,7 +334,7 @@ pub(super) struct ExtentTreeBuilder;
 impl ExtentTreeBuilder {
     /// Create a new extent tree builder.
     #[must_use = "the builder must be used to produce the extent tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -370,7 +370,7 @@ pub(super) struct BlockGroupTreeBuilder;
 impl BlockGroupTreeBuilder {
     /// Create a new block group tree builder.
     #[must_use = "the builder must be used to produce the block group tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -428,7 +428,7 @@ pub(super) struct FreeSpaceTreeBuilder;
 impl FreeSpaceTreeBuilder {
     /// Create a new free space tree builder.
     #[must_use = "the builder must be used to produce the free space tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -540,7 +540,7 @@ pub(super) struct FsTreeBuilder {
 impl FsTreeBuilder {
     /// Create a new FS tree builder.
     #[must_use = "the builder must be used to produce the FS tree"]
-    pub(super) fn new(now: u64) -> Self {
+    pub(super) const fn new(now: u64) -> Self {
         Self { now }
     }
 }
@@ -584,7 +584,7 @@ pub(super) struct DataRelocTreeBuilder {
 impl DataRelocTreeBuilder {
     /// Create a new data reloc tree builder.
     #[must_use = "the builder must be used to produce the data reloc tree"]
-    pub(super) fn new(now: u64) -> Self {
+    pub(super) const fn new(now: u64) -> Self {
         Self { now }
     }
 }
@@ -626,7 +626,7 @@ pub(super) struct UuidTreeBuilder;
 impl UuidTreeBuilder {
     /// Create a new UUID tree builder.
     #[must_use = "the builder must be used to produce the UUID tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -676,7 +676,7 @@ pub(super) struct CsumTreeBuilder;
 impl CsumTreeBuilder {
     /// Create a new CSUM tree builder.
     #[must_use = "the builder must be used to produce the CSUM tree"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }
@@ -704,7 +704,7 @@ pub(super) struct RootTreeBuilder {
 impl RootTreeBuilder {
     /// Create a new root tree builder.
     #[must_use = "the builder must be used to produce the root tree"]
-    pub(super) fn new(now: u64) -> Self {
+    pub(super) const fn new(now: u64) -> Self {
         Self { now }
     }
 
@@ -827,7 +827,7 @@ impl TreeBuilder for RootTreeBuilder {
 }
 
 /// Build a `BtrfsDevItem`.
-fn build_dev_item(ctx: &TreeContext<'_>) -> BtrfsDevItem {
+const fn build_dev_item(ctx: &TreeContext<'_>) -> BtrfsDevItem {
     let mut dev = BtrfsDevItem::new();
     write_u64(&mut dev.devid, 1);
     write_u64(&mut dev.total_bytes, ctx.device_size);

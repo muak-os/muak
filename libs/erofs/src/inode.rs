@@ -39,7 +39,7 @@ pub(crate) struct CompactInodeParams {
 }
 
 /// Encode the `i_format` field for a compact inode.
-pub(crate) fn encode_i_format_compact(datalayout: u16) -> u16 {
+pub(crate) const fn encode_i_format_compact(datalayout: u16) -> u16 {
     (datalayout << 1) | EROFS_INODE_LAYOUT_COMPACT
 }
 
@@ -70,7 +70,7 @@ pub(crate) fn write_compact(buf: &mut [u8], params: &CompactInodeParams) {
 }
 
 /// Compute the number of 32-byte slots an `inode + xattr + inline_data` occupies.
-pub(crate) fn slot_count(inode_size: usize, xattr_size: usize, inline_size: usize) -> usize {
+pub(crate) const fn slot_count(inode_size: usize, xattr_size: usize, inline_size: usize) -> usize {
     let total = inode_size
         .saturating_add(xattr_size)
         .saturating_add(inline_size);

@@ -52,7 +52,7 @@ pub struct Plan {
 impl Plan {
     /// Creates a plan that wipes the disk before placing the partitions.
     #[must_use = "dropping it discards the planned specs"]
-    pub fn wiped(partitions: Vec<PartitionSpec>) -> Self {
+    pub const fn wiped(partitions: Vec<PartitionSpec>) -> Self {
         Self {
             wipe: true,
             partitions,

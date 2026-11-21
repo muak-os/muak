@@ -227,8 +227,9 @@ suspicious = { level = "warn", priority = -1 }
 multiple_crate_versions = "allow" # Remove if/when we stabilized the dependencies
 
 # Nursey
-redundant_clone = "warn"
 debug_assert_with_mut_call = "warn"
+missing_const_for_fn = "warn"
+redundant_clone = "warn"
 unused_peekable = "warn"
 
 # Restriction

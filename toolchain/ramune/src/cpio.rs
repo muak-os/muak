@@ -89,7 +89,7 @@ pub(crate) fn entry_size(name: &str, payload_len: u64) -> u64 {
 }
 
 /// Returns the exact byte length of a CPIO `newc` trailer entry.
-pub(crate) fn trailer_size() -> u64 {
+pub(crate) const fn trailer_size() -> u64 {
     124
 }
 

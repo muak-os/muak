@@ -124,7 +124,7 @@ fn write_tail(alias: &mut [u8; NAME_LEN], used: usize, tail: u32) {
     }
 }
 
-fn digits(value: u32) -> usize {
+const fn digits(value: u32) -> usize {
     let mut rest = value;
     let mut count = 1_usize;
     while rest >= 10 {

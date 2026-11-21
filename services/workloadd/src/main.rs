@@ -26,6 +26,7 @@ mod persistence;
     clippy::excessive_nesting,
     clippy::impl_trait_in_params,
     clippy::inline_modules,
+    clippy::missing_const_for_fn,
     clippy::module_name_repetitions,
     clippy::must_use_candidate,
     clippy::must_use_without_reason,

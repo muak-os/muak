@@ -44,11 +44,11 @@ pub enum Compression {
 }
 
 impl Compression {
-    pub(crate) fn is_enabled(self) -> bool {
+    pub(crate) const fn is_enabled(self) -> bool {
         matches!(self, Self::Zstd { .. })
     }
 
-    pub(crate) fn level(self) -> Option<i32> {
+    pub(crate) const fn level(self) -> Option<i32> {
         match self {
             Self::None => None,
             Self::Zstd { level } => Some(level),

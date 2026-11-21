@@ -56,12 +56,12 @@ impl App {
         })
     }
 
-    pub(crate) fn tty(&self) -> &Tty {
+    pub(crate) const fn tty(&self) -> &Tty {
         &self.tty
     }
 
     /// Marks the whole panel for redraw at the next settle.
-    pub(crate) fn handle_tick(&mut self) {
+    pub(crate) const fn handle_tick(&mut self) {
         self.full_dirty = true;
     }
 
@@ -143,7 +143,7 @@ impl App {
         }
     }
 
-    fn scroll_mode(&self) -> ScrollMode {
+    const fn scroll_mode(&self) -> ScrollMode {
         if self.logs.is_live() {
             ScrollMode::Live
         } else {

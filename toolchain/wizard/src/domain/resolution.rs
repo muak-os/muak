@@ -24,7 +24,7 @@ pub struct ResolvedBuild {
 
 impl ResolvedBuild {
     #[must_use = "dropping it discards the resolved build"]
-    pub(crate) fn new(version: String, arch: Arch, kernel: Kernel) -> Self {
+    pub(crate) const fn new(version: String, arch: Arch, kernel: Kernel) -> Self {
         Self {
             version,
             arch,
@@ -76,13 +76,13 @@ impl ResolvedBuild {
     /// Returns the number of initramfs payload layers this build contributes:
     /// the kernel modules layer plus one payload per extension.
     #[must_use = "callers need the count to size the initramfs"]
-    pub fn payload_layer_count(&self) -> usize {
+    pub const fn payload_layer_count(&self) -> usize {
         self.extensions.len().saturating_add(1)
     }
 
     /// Returns the resolved overlay input when present.
     #[must_use = "callers must handle a build without an overlay"]
-    pub fn overlay(&self) -> Option<&Overlay> {
+    pub const fn overlay(&self) -> Option<&Overlay> {
         self.overlay.as_ref()
     }
 
@@ -104,13 +104,13 @@ impl ResolvedBuild {
     }
 
     /// Attaches the resolved disk layout to the build.
-    pub(crate) fn set_layout(&mut self, layout: Layout) {
+    pub(crate) const fn set_layout(&mut self, layout: Layout) {
         self.layout = Some(layout);
     }
 
     /// Returns the resolved kernel source.
     #[must_use = "callers need the kernel source to pull it"]
-    pub fn kernel(&self) -> &Kernel {
+    pub const fn kernel(&self) -> &Kernel {
         &self.kernel
     }
 
@@ -139,7 +139,7 @@ pub struct Resolution {
 
 impl Resolution {
     #[must_use = "dropping it discards the resolution"]
-    pub(crate) fn new(
+    pub(crate) const fn new(
         profile_id: ProfileId,
         resolution_id: ResolutionId,
         inputs: Vec<ResolvedInput>,
@@ -191,7 +191,7 @@ impl Resolution {
     }
 
     /// Attaches the resolved disk layout to the resolved build.
-    pub(crate) fn set_layout(&mut self, layout: Layout) {
+    pub(crate) const fn set_layout(&mut self, layout: Layout) {
         self.build.set_layout(layout);
     }
 }
@@ -208,7 +208,7 @@ pub struct BuildIdentity {
 
 impl BuildIdentity {
     #[must_use = "dropping it discards the build identity"]
-    pub(crate) fn new(
+    pub(crate) const fn new(
         profile: ProfileId,
         resolution: ResolutionId,
         release: String,

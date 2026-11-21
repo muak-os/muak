@@ -105,7 +105,7 @@ pub(crate) struct ServiceState {
 }
 
 impl ServiceState {
-    pub(crate) fn new(service: Service) -> Self {
+    pub(crate) const fn new(service: Service) -> Self {
         Self {
             service,
             pid: None,

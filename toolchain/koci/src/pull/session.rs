@@ -70,22 +70,22 @@ impl Session {
 
     /// Lazy layer handles that download each blob on first read.
     #[must_use = "dropping it discards the lazy layer handles"]
-    pub fn lazy(&self) -> Layers<'_> {
+    pub const fn lazy(&self) -> Layers<'_> {
         Layers::new(self)
     }
 
     /// The registry client of the session, unauthenticated until a miss needs auth.
-    pub(crate) fn client(&self) -> &Client {
+    pub(crate) const fn client(&self) -> &Client {
         &self.client
     }
 
     /// The content store of the session.
-    pub(crate) fn content(&self) -> &Content {
+    pub(crate) const fn content(&self) -> &Content {
         &self.content
     }
 
     /// The cache access strategy of the session.
-    pub(crate) fn strategy(&self) -> Strategy {
+    pub(crate) const fn strategy(&self) -> Strategy {
         self.strategy
     }
 }

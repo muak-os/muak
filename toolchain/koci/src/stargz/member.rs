@@ -49,7 +49,7 @@ impl Member {
         self.name().trim_suffix('/')
     }
 
-    fn entry_type(&self) -> tar::EntryType {
+    const fn entry_type(&self) -> tar::EntryType {
         match *self {
             Self::Dir { .. } => tar::EntryType::Directory,
             Self::Mem { .. } | Self::File { .. } => tar::EntryType::Regular,

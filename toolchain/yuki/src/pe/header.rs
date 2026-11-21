@@ -74,13 +74,13 @@ fn range(prefix: &mut [u8], offset: usize, data: &[u8], field: &'static str) -> 
     Ok(())
 }
 
-fn section_count_offset(metadata: &Metadata) -> usize {
+const fn section_count_offset(metadata: &Metadata) -> usize {
     metadata
         .file_header_offset
         .saturating_add(COFF_NUMBER_OF_SECTIONS_OFFSET)
 }
 
-fn size_of_image_offset(metadata: &Metadata) -> usize {
+const fn size_of_image_offset(metadata: &Metadata) -> usize {
     metadata
         .optional_header_offset
         .saturating_add(OPT_HEADER_SIZE_OF_IMAGE_OFFSET)

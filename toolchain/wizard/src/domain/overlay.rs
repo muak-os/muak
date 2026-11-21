@@ -50,7 +50,7 @@ impl Asset {
 
     /// Returns the payload size of this asset in bytes.
     #[must_use = "callers need the size to place the asset"]
-    pub(crate) fn size(&self) -> u64 {
+    pub(crate) const fn size(&self) -> u64 {
         match *self {
             Asset::EspFile { size, .. } | Asset::RawBlob { size, .. } => size,
         }

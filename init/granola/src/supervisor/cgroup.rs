@@ -53,7 +53,7 @@ fn remove(root: &Path, name: &str) -> Result<(), SandboxError> {
 }
 
 // Whether the directory is already absent, which is the outcome the caller wanted.
-fn gone(error: &SandboxError) -> bool {
+const fn gone(error: &SandboxError) -> bool {
     matches!(error, SandboxError::Io(errno) if errno.raw() == rustix::io::Errno::NOENT.raw_os_error())
 }
 

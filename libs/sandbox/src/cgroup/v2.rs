@@ -150,7 +150,7 @@ fn checked<'a>(root: &'a Path, name: &'a str) -> Result<Tree<'a>> {
     })
 }
 
-fn exists(error: &SandboxError) -> bool {
+const fn exists(error: &SandboxError) -> bool {
     matches!(error, SandboxError::Io(errno) if errno.raw() == io::Errno::EXIST.raw_os_error())
 }
 

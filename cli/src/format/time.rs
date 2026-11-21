@@ -54,7 +54,7 @@ pub(crate) fn format_timestamp(timestamp: i64) -> String {
 }
 
 /// Determines if a year is a leap year.
-fn is_leap_year(year: u64) -> bool {
+const fn is_leap_year(year: u64) -> bool {
     year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
 }
 

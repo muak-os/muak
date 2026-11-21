@@ -85,19 +85,19 @@ impl Table {
 
     /// Returns the sector size of the disk.
     #[must_use = "callers need the sector size to convert LBAs to bytes"]
-    pub fn sector_size(&self) -> u64 {
+    pub const fn sector_size(&self) -> u64 {
         self.sector_size
     }
 
     /// Returns the first usable LBA from the GPT header.
     #[must_use = "callers must not place partitions below it"]
-    pub fn first_usable_lba(&self) -> u64 {
+    pub const fn first_usable_lba(&self) -> u64 {
         self.first_usable_lba
     }
 
     /// Returns the last usable LBA from the GPT header.
     #[must_use = "callers must not place partitions above it"]
-    pub fn last_usable_lba(&self) -> u64 {
+    pub const fn last_usable_lba(&self) -> u64 {
         self.last_usable_lba
     }
 

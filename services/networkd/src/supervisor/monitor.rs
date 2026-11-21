@@ -47,7 +47,7 @@ pub(super) struct Subscription<M> {
 }
 
 impl<M: Source> Subscription<M> {
-    pub(super) fn new(rx: mpsc::Receiver<Event>, source: M) -> Self {
+    pub(super) const fn new(rx: mpsc::Receiver<Event>, source: M) -> Self {
         Self {
             rx,
             source,
@@ -56,7 +56,7 @@ impl<M: Source> Subscription<M> {
     }
 
     /// Returns the receiver, for the supervisor's event selection.
-    pub(super) fn receiver(&mut self) -> &mut mpsc::Receiver<Event> {
+    pub(super) const fn receiver(&mut self) -> &mut mpsc::Receiver<Event> {
         &mut self.rx
     }
 

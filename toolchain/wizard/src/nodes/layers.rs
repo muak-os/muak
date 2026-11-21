@@ -44,12 +44,12 @@ pub(crate) struct Layer {
 }
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+const fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
 /// Layer payloads are initramfs members, never requested artifacts.
-fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+const fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 
@@ -135,7 +135,7 @@ fn extension_layer(extension: &Extension, arch: Arch) -> Layer {
     }
 }
 
-fn include_all(_entry: &FileEntry<'_>) -> bool {
+const fn include_all(_entry: &FileEntry<'_>) -> bool {
     true
 }
 
@@ -249,7 +249,9 @@ fn add_entry(
     })
 }
 
-fn build_config(file_contexts: Option<mumi::image::FileContexts>) -> mumi::image::BuildConfig {
+const fn build_config(
+    file_contexts: Option<mumi::image::FileContexts>,
+) -> mumi::image::BuildConfig {
     mumi::image::BuildConfig {
         compression_level: mumi::DEFAULT_ZSTD_COMPRESSION_LEVEL,
         file_contexts,

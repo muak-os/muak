@@ -49,13 +49,13 @@ impl AliasDb {
 
     /// Returns the number of alias entries.
     #[must_use = "callers need the count to size their scans"]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Returns whether the alias database is empty.
     #[must_use = "callers must branch on an empty database"]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }

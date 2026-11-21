@@ -42,7 +42,7 @@ impl Cell {
 
     /// Creates a cell from existing spans.
     #[must_use = "dropping it discards the cell"]
-    pub fn from_spans(spans: Vec<Span<'static>>) -> Self {
+    pub const fn from_spans(spans: Vec<Span<'static>>) -> Self {
         Self { spans }
     }
 
@@ -64,7 +64,7 @@ impl Default for Table {
 impl Table {
     /// Creates an empty table.
     #[must_use = "dropping it discards the table rows"]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             headers: Vec::new(),
             rows: Vec::new(),

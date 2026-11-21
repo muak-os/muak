@@ -21,7 +21,7 @@ pub(super) struct RestartQueue {
 }
 
 impl RestartQueue {
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             pending: Vec::new(),
         }

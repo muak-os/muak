@@ -86,12 +86,12 @@ pub(super) fn inode_name(rel: &str) -> Result<String> {
     Ok(name)
 }
 
-pub(super) fn truncate_u64_to_u32(value: u64) -> u32 {
+pub(super) const fn truncate_u64_to_u32(value: u64) -> u32 {
     let bytes = value.to_le_bytes();
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
-pub(super) fn truncate_u32_to_u16(value: u32) -> u16 {
+pub(super) const fn truncate_u32_to_u16(value: u32) -> u16 {
     let bytes = value.to_le_bytes();
     u16::from_le_bytes([bytes[0], bytes[1]])
 }

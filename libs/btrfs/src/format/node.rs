@@ -17,7 +17,7 @@ pub(super) struct LeafBuilder {
 impl LeafBuilder {
     /// Create a new empty leaf builder.
     #[must_use = "the builder must be used to produce the leaf"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self { items: Vec::new() }
     }
 

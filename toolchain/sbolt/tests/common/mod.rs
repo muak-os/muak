@@ -22,7 +22,7 @@ pub(crate) struct Firmware {
 impl Firmware {
     /// Builds a booted, available, ready store that persists every write.
     #[must_use = "dropping it discards the fake firmware state"]
-    pub(crate) fn ready() -> Self {
+    pub(crate) const fn ready() -> Self {
         Self {
             booted: true,
             available: true,

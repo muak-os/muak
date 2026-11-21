@@ -57,7 +57,7 @@ where
     }
 }
 
-fn starts_steps(output: Output) -> bool {
+const fn starts_steps(output: Output) -> bool {
     output.is_rich()
 }
 

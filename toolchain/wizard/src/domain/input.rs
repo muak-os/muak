@@ -15,7 +15,7 @@ pub struct Kernel {
 
 impl Kernel {
     #[must_use = "dropping it discards the kernel spec"]
-    pub(crate) fn new(image: String, source: String) -> Self {
+    pub(crate) const fn new(image: String, source: String) -> Self {
         Self {
             image,
             source,
@@ -60,7 +60,7 @@ pub struct Extension {
 
 impl Extension {
     #[must_use = "dropping it discards the extension spec"]
-    pub(crate) fn new(name: String, source: String) -> Self {
+    pub(crate) const fn new(name: String, source: String) -> Self {
         Self { name, source }
     }
 
@@ -92,7 +92,7 @@ pub struct Overlay {
 
 impl Overlay {
     #[must_use = "dropping it discards the overlay spec"]
-    pub(crate) fn new(name: String, image: String, source: String, arch: Arch) -> Self {
+    pub(crate) const fn new(name: String, image: String, source: String, arch: Arch) -> Self {
         Self {
             name,
             image,

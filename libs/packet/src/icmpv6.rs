@@ -93,7 +93,7 @@ impl Socket {
 
     /// Returns the interface index this socket is bound to.
     #[must_use = "callers need the interface index to scope datagrams"]
-    pub fn if_index(&self) -> u32 {
+    pub const fn if_index(&self) -> u32 {
         self.ifindex
     }
 

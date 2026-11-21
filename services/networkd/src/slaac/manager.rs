@@ -121,7 +121,7 @@ impl Manager {
 
     /// Re-runs solicitation on the next `next_event` poll without dropping the
     /// tracked address, router, DNS state or socket.
-    pub fn resolicit(&mut self) {
+    pub const fn resolicit(&mut self) {
         self.solicited = false;
         self.solicitation_attempt = 0;
     }

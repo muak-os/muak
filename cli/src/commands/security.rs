@@ -81,7 +81,7 @@ fn toggle(console: &Console, value: bool, as_positive: bool) -> String {
     console.paint(text, role).to_string()
 }
 
-fn deviation_warning(deviation: SecureBootDeviation) -> Option<&'static str> {
+const fn deviation_warning(deviation: SecureBootDeviation) -> Option<&'static str> {
     match deviation {
         SecureBootDeviation::ConfigEnabledNoKeys => {
             Some("config enables Secure Boot but no keys are enrolled")

@@ -26,7 +26,7 @@ impl Buffer {
         self.ring.push_back(line);
     }
 
-    pub(crate) fn is_live(&self) -> bool {
+    pub(crate) const fn is_live(&self) -> bool {
         self.scroll_offset == 0
     }
 
@@ -35,11 +35,11 @@ impl Buffer {
         self.scroll_offset = self.scroll_offset.saturating_add(n).min(max);
     }
 
-    pub(crate) fn scroll_down(&mut self, n: usize) {
+    pub(crate) const fn scroll_down(&mut self, n: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
     }
 
-    pub(crate) fn snap_to_live(&mut self) {
+    pub(crate) const fn snap_to_live(&mut self) {
         self.scroll_offset = 0;
     }
 

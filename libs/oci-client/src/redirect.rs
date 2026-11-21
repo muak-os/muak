@@ -54,7 +54,7 @@ pub(crate) async fn follow(
     )))
 }
 
-fn is_redirect(status: u16) -> bool {
+const fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
 }
 

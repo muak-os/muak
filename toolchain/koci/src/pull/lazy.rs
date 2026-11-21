@@ -21,7 +21,7 @@ pub struct Layer<'session> {
 }
 
 impl<'session> Layers<'session> {
-    pub(crate) fn new(session: &'session Session) -> Self {
+    pub(crate) const fn new(session: &'session Session) -> Self {
         Self { session }
     }
 
@@ -55,13 +55,13 @@ impl<'session> Layers<'session> {
 impl Layer<'_> {
     /// The position of the layer in the manifest, for progress reporting.
     #[must_use = "callers need the index to report progress"]
-    pub fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         self.index
     }
 
     /// The layer descriptor (digest, size, media type).
     #[must_use = "callers need the descriptor to fetch the blob"]
-    pub fn descriptor(&self) -> &Descriptor {
+    pub const fn descriptor(&self) -> &Descriptor {
         self.descriptor
     }
 

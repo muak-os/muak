@@ -24,12 +24,12 @@ pub(crate) const DESCRIPTOR: NodeDescriptor = NodeDescriptor {
 };
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+const fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
 /// The installer produces no requested artifact directly.
-fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+const fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 

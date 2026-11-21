@@ -35,7 +35,7 @@ impl core::fmt::Debug for DirIndex<'_> {
 
 impl<'a> DirIndex<'a> {
     /// Number of directories in the tree.
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.dirs.len()
     }
 

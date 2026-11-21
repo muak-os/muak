@@ -10,7 +10,7 @@ pub(crate) enum Outcome {
 }
 
 /// Classifies the gRPC code of a failed update trigger RPC.
-pub(crate) fn classify(code: Code) -> Outcome {
+pub(crate) const fn classify(code: Code) -> Outcome {
     match code {
         Code::Unavailable
         | Code::Cancelled

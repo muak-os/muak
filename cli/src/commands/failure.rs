@@ -42,7 +42,7 @@ impl Failure {
     }
 
     /// Returns the process exit status of this failure.
-    pub(crate) fn code(&self) -> i32 {
+    pub(crate) const fn code(&self) -> i32 {
         self.code
     }
 }

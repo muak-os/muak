@@ -32,7 +32,7 @@ impl FileContexts {
     }
 
     /// Borrows the underlying EROFS file contexts.
-    fn as_erofs(&self) -> &erofs::filecontexts::FileContexts {
+    const fn as_erofs(&self) -> &erofs::filecontexts::FileContexts {
         &self.rules
     }
 }
@@ -151,13 +151,13 @@ impl Image {
 
     /// Returns the exact image size in bytes.
     #[must_use = "callers need the size to place the payloads"]
-    pub fn len(&self) -> u64 {
+    pub const fn len(&self) -> u64 {
         self.len
     }
 
     /// Returns `true` when the image contains no bytes.
     #[must_use = "callers must branch on an empty image"]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 }
@@ -205,7 +205,7 @@ fn tree_entry(entry: &Entry) -> TreeEntry {
     }
 }
 
-fn file_type_from_mode(mode: u32) -> u8 {
+const fn file_type_from_mode(mode: u32) -> u8 {
     match mode & S_IFMT {
         S_IFDIR => EROFS_FT_DIR,
         S_IFLNK => EROFS_FT_SYMLINK,

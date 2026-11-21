@@ -81,13 +81,13 @@ impl Client {
 
     /// Shared HTTP/HTTPS client for raw registry requests.
     #[must_use = "callers need the shared client to issue requests"]
-    pub fn http(&self) -> &Transport {
+    pub const fn http(&self) -> &Transport {
         &self.http
     }
 
     /// Parsed image reference.
     #[must_use = "callers need the parsed reference to build URLs"]
-    pub fn image(&self) -> &Image {
+    pub const fn image(&self) -> &Image {
         &self.image
     }
 

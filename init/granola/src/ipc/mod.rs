@@ -17,6 +17,7 @@ pub(crate) mod services;
     clippy::empty_structs_with_brackets,
     clippy::excessive_nesting,
     clippy::inline_modules,
+    clippy::missing_const_for_fn,
     clippy::must_use_without_reason,
     clippy::pattern_type_mismatch,
     clippy::std_instead_of_core,

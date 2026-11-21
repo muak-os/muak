@@ -17,7 +17,7 @@ pub(crate) struct Scratch {
 
 impl Scratch {
     /// Create empty reusable buffers.
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             path: PathBuf::new(),
             link: PathBuf::new(),
@@ -37,7 +37,7 @@ pub(crate) enum EntryInfo<'a> {
 
 impl EntryInfo<'_> {
     /// The entry path, or `None` for entries that carry no path of their own.
-    pub(crate) fn path(&self) -> Option<&Path> {
+    pub(crate) const fn path(&self) -> Option<&Path> {
         match *self {
             Self::Skip | Self::Whiteout(_) => None,
             Self::File(path, ..) | Self::Symlink(path, ..) | Self::HardLink(path, ..) => Some(path),

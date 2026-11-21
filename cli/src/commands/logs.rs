@@ -24,7 +24,7 @@ pub(crate) fn parse_level(level: &str) -> Result<i32, String> {
 /// Converts a proto log level enum to its integer value.
 ///
 /// The discriminants mirror the values defined in the `log.proto` enum.
-fn level_value(level: Level) -> i32 {
+const fn level_value(level: Level) -> i32 {
     match level {
         Level::Error => 0,
         Level::Warn => 1,
@@ -96,7 +96,7 @@ async fn handle_follow(
 }
 
 /// Returns true if the entry's level is at or below the threshold.
-fn should_display(entry: &LogEntry, max_level: Option<i32>) -> bool {
+const fn should_display(entry: &LogEntry, max_level: Option<i32>) -> bool {
     match max_level {
         Some(threshold) => entry.level <= threshold,
         None => entry.level <= level_value(Level::Info),

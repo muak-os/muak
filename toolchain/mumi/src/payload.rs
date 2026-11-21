@@ -89,13 +89,13 @@ pub struct Planned {
 impl Planned {
     /// Returns the payload metadata.
     #[must_use = "callers need the metadata to write the header"]
-    pub fn meta(&self) -> &Meta {
+    pub const fn meta(&self) -> &Meta {
         &self.meta
     }
 
     /// Returns the exact payload byte count.
     #[must_use = "callers need the size to place the payload"]
-    pub fn size(&self) -> u64 {
+    pub const fn size(&self) -> u64 {
         self.meta.size
     }
 

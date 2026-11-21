@@ -31,7 +31,7 @@ const NTP_VERSION: u8 = 4;
 const MODE_CLIENT: u8 = 3;
 
 /// Build a 48-byte SNTP client request packet.
-fn build_request() -> [u8; NTP_PACKET_SIZE] {
+const fn build_request() -> [u8; NTP_PACKET_SIZE] {
     let mut packet = [0_u8; NTP_PACKET_SIZE];
 
     // LI = 0 (no warning), VN = 4 (NTPv4), Mode = 3 (client)

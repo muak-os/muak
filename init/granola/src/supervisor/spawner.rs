@@ -35,7 +35,7 @@ pub(crate) struct Spawner {
 
 impl Spawner {
     /// Returns a spawner that resolves policies against `caps`.
-    pub(crate) fn new(caps: probe::Capabilities) -> Self {
+    pub(crate) const fn new(caps: probe::Capabilities) -> Self {
         Self { caps }
     }
 }

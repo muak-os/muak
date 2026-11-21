@@ -14,7 +14,7 @@ pub(crate) struct VmServiceImpl {
 }
 
 impl VmServiceImpl {
-    pub(crate) fn new(handle: VmActorHandle) -> Self {
+    pub(crate) const fn new(handle: VmActorHandle) -> Self {
         Self { handle }
     }
 }

@@ -174,7 +174,7 @@ pub(crate) fn partition_bytes(partition: &GptPartition) -> u64 {
         .unwrap_or(0)
 }
 
-fn placement_size(size: Size) -> PlacementSize {
+const fn placement_size(size: Size) -> PlacementSize {
     match size {
         Size::Fixed(bytes) => PlacementSize::Bytes(bytes),
         Size::Fill => PlacementSize::FillToLastUsable,

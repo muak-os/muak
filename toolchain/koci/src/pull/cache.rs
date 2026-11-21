@@ -51,7 +51,7 @@ impl Store {
 
     /// Create a cache over `root`, or a disabled cache when it is `None`.
     #[must_use = "dropping it discards the cache root"]
-    pub(crate) fn at(root: Option<PathBuf>) -> Self {
+    pub(crate) const fn at(root: Option<PathBuf>) -> Self {
         Self { root }
     }
 
@@ -253,7 +253,7 @@ fn unsupported() -> bool {
     XATTR_STATE.load(Ordering::Relaxed) == XATTR_UNSUPPORTED
 }
 
-fn classify(errno: Errno) -> Option<u8> {
+const fn classify(errno: Errno) -> Option<u8> {
     match errno {
         Errno::NODATA => Some(XATTR_SUPPORTED),
         Errno::NOTSUP => Some(XATTR_UNSUPPORTED),

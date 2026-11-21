@@ -107,6 +107,6 @@ impl Driver {
     }
 }
 
-fn readonly_flag(readonly: bool) -> &'static str {
+const fn readonly_flag(readonly: bool) -> &'static str {
     if readonly { ",readonly=on" } else { "" }
 }

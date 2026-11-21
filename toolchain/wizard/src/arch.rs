@@ -7,7 +7,7 @@ use crate::error::{Result, WizardError};
 
 /// Converts a koci OCI architecture to the ESP model architecture.
 #[must_use = "callers need the ESP model for the target architecture"]
-pub fn esp(arch: Arch) -> EspArch {
+pub const fn esp(arch: Arch) -> EspArch {
     match arch {
         Arch::Amd64 => EspArch::X86_64,
         Arch::Arm64 => EspArch::Aarch64,

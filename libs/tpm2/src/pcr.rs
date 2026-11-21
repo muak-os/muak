@@ -59,7 +59,7 @@ fn extend(current: &Digest, measurement: &[u8]) -> Digest {
     out
 }
 
-pub(crate) fn pcr11_selection_bytes() -> &'static [u8; 10] {
+pub(crate) const fn pcr11_selection_bytes() -> &'static [u8; 10] {
     &PCR11_SELECTION
 }
 

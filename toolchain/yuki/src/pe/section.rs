@@ -50,7 +50,7 @@ pub(crate) struct Table {
 }
 
 impl Table {
-    pub(crate) fn new(metadata: &Metadata) -> Self {
+    pub(crate) const fn new(metadata: &Metadata) -> Self {
         Self {
             sections: Vec::new(),
             headers: Vec::new(),
@@ -112,7 +112,7 @@ impl Table {
         Ok(())
     }
 
-    pub(crate) fn max_virtual_end(&self) -> u32 {
+    pub(crate) const fn max_virtual_end(&self) -> u32 {
         self.max_virtual_end
     }
 }

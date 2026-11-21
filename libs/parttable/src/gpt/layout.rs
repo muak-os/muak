@@ -119,7 +119,7 @@ impl PlacementRequest {
 
     /// Overrides the partition slot selection.
     #[must_use = "dropping it discards the slot override"]
-    pub fn slot(mut self, slot: Slot) -> Self {
+    pub const fn slot(mut self, slot: Slot) -> Self {
         self.slot = slot;
 
         self
@@ -127,7 +127,7 @@ impl PlacementRequest {
 
     /// Overrides the partition start selection.
     #[must_use = "dropping it discards the start override"]
-    pub fn start(mut self, start: Start) -> Self {
+    pub const fn start(mut self, start: Start) -> Self {
         self.start = start;
 
         self

@@ -17,7 +17,7 @@ pub(super) struct NetworkSnapshot {
 
 impl NetworkSnapshot {
     /// Returns an empty snapshot in the uninitialized state.
-    pub(super) fn empty() -> Self {
+    pub(super) const fn empty() -> Self {
         Self {
             state: NetworkState::Uninitialized,
             primary: None,
@@ -27,7 +27,7 @@ impl NetworkSnapshot {
     }
 
     /// Returns true when the network is operational or ready.
-    pub(super) fn is_operational(&self) -> bool {
+    pub(super) const fn is_operational(&self) -> bool {
         matches!(self.state, NetworkState::Operational | NetworkState::Ready)
     }
 

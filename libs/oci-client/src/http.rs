@@ -32,7 +32,7 @@ pub struct Range {
 impl Range {
     /// A range from `start` to the end of the body.
     #[must_use = "dropping it discards the requested range"]
-    pub fn from_start(start: u64) -> Self {
+    pub const fn from_start(start: u64) -> Self {
         Self { start, end: None }
     }
 

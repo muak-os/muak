@@ -57,7 +57,7 @@ fn artifact_index(index: u32) -> usize {
     usize::try_from(index).unwrap_or(0).saturating_add(1)
 }
 
-fn node_title(state: PrepareNodeState) -> &'static str {
+const fn node_title(state: PrepareNodeState) -> &'static str {
     match state {
         PrepareNodeState::Started => "started",
         PrepareNodeState::Completed => "done",

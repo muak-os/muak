@@ -452,7 +452,7 @@ impl interface::Ops for MockNetlinkOps {
 impl netdev::Ops for MockNetlinkOps {}
 
 /// Builds an `Ethernet` snapshot from a mock link.
-fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
+const fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
     Ethernet::new(name, link.index, link.mac, link_state_kind(link.up))
 }
 
@@ -489,7 +489,7 @@ fn clear_bridge_ports(links: &mut HashMap<String, MockLink>, bridge_index: u32, 
 }
 
 /// Returns the link state for the requested carrier flag.
-fn link_state_kind(up: bool) -> State {
+const fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
 }
 

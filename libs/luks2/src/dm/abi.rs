@@ -134,13 +134,13 @@ pub(super) fn copy_prefix(dst: &mut [u8], src: &[u8]) {
     }
 }
 
-pub(super) fn dm_ioctl_bytes(header: &DmIoctl) -> &[u8] {
+pub(super) const fn dm_ioctl_bytes(header: &DmIoctl) -> &[u8] {
     let ptr = ptr::from_ref(header).cast::<u8>();
     // SAFETY: `DmIoctl` is `#[repr(C)]` and this exposes exactly its initialized bytes.
     unsafe { slice::from_raw_parts(ptr, size_of::<DmIoctl>()) }
 }
 
-pub(super) fn dm_target_spec_bytes(target: &DmTargetSpec) -> &[u8] {
+pub(super) const fn dm_target_spec_bytes(target: &DmTargetSpec) -> &[u8] {
     let ptr = ptr::from_ref(target).cast::<u8>();
     // SAFETY: `DmTargetSpec` is `#[repr(C)]` and this exposes exactly its initialized bytes.
     unsafe { slice::from_raw_parts(ptr, size_of::<DmTargetSpec>()) }

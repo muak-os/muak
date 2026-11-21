@@ -75,7 +75,7 @@ impl Sealed {
     }
 }
 
-fn u16_from_le_slice(bytes: &[u8]) -> Result<u16> {
+const fn u16_from_le_slice(bytes: &[u8]) -> Result<u16> {
     let mut array = [0_u8; 2];
     if bytes.len() != array.len() {
         return Err(Tpm2Error::InvalidBlob);

@@ -41,7 +41,7 @@ const MODULE_FILE_CONTEXTS: &[u8] = b"/lib/modules    system_u:object_r:modules_
 const MODULE_LAYER_NAME: &str = "modules";
 
 /// Source node meaning no dependencies.
-fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
+const fn dependencies(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<Dependency> {
     Vec::new()
 }
 
@@ -206,7 +206,7 @@ fn copy_optional(
 }
 
 /// The tar path routed to `port`, when the port carries a file.
-fn file_path(port: PortId) -> Option<&'static str> {
+const fn file_path(port: PortId) -> Option<&'static str> {
     match port {
         KERNEL => Some("vmlinuz"),
         CMDLINE => Some("cmdline"),

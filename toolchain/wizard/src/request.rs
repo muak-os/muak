@@ -66,7 +66,7 @@ impl<'a> Request<'a> {
 
     /// Sets the target CPU architecture (`None` defaults to host arch).
     #[must_use = "dropping it discards the requested architecture"]
-    pub fn arch(mut self, arch: Arch) -> Self {
+    pub const fn arch(mut self, arch: Arch) -> Self {
         self.arch = Some(arch);
 
         self
@@ -77,7 +77,7 @@ impl<'a> Request<'a> {
     /// When unset, [`Codec::default`] (zstd) applies. An explicitly requested
     /// compressing codec must apply to at least one requested artifact.
     #[must_use = "dropping it discards the requested codec"]
-    pub fn codec(mut self, codec: Codec) -> Self {
+    pub const fn codec(mut self, codec: Codec) -> Self {
         self.codec = Some(codec);
 
         self
@@ -107,7 +107,7 @@ impl<'a> Request<'a> {
 
     /// Returns the registry prefix used to resolve sources.
     #[must_use = "callers need the prefix to build image references"]
-    pub(crate) fn registry(&self) -> &str {
+    pub(crate) const fn registry(&self) -> &str {
         self.registry
     }
 
@@ -119,7 +119,7 @@ impl<'a> Request<'a> {
 
     /// Sets the optional signing key for Authenticode PE signing of the UKI.
     #[must_use = "dropping it discards the signing key"]
-    pub fn sign(mut self, key: &'a SigningPair<'a>) -> Self {
+    pub const fn sign(mut self, key: &'a SigningPair<'a>) -> Self {
         self.signing = Some(key);
 
         self
@@ -135,7 +135,7 @@ impl<'a> Request<'a> {
 
     /// Sets the cache access strategy for every pull performed by the build (default `Network`).
     #[must_use = "dropping it discards the cache strategy"]
-    pub fn strategy(mut self, strategy: pull::Strategy) -> Self {
+    pub const fn strategy(mut self, strategy: pull::Strategy) -> Self {
         self.strategy = strategy;
 
         self

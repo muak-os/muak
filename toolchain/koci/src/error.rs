@@ -78,7 +78,7 @@ impl KociError {
 }
 
 /// Whether an IO failure of this kind may succeed on a later attempt.
-fn is_retryable_io(kind: std::io::ErrorKind) -> bool {
+const fn is_retryable_io(kind: std::io::ErrorKind) -> bool {
     matches!(
         kind,
         std::io::ErrorKind::ConnectionAborted

@@ -12,7 +12,7 @@ use tui::style::Theme;
 
 use crate::common::recording::{Recorder, collect};
 
-fn options(tty: bool) -> Options {
+const fn options(tty: bool) -> Options {
     Options::new(tty, Theme::plain())
 }
 

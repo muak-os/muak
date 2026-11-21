@@ -31,7 +31,7 @@ pub(crate) fn should_color(
     terminal
 }
 
-pub(super) fn role_style(role: Role) -> Style {
+pub(super) const fn role_style(role: Role) -> Style {
     match role {
         Role::Success | Role::Header => bold_fg(AnsiColor::Green),
         Role::Error => bold_fg(AnsiColor::Red),

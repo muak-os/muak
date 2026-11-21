@@ -14,7 +14,7 @@ pub struct Prompter<R, W> {
 
 impl<R: BufRead, W: Write> Prompter<R, W> {
     /// Creates a prompter over `reader` and `writer`.
-    pub fn new(reader: R, writer: W, theme: Theme) -> Self {
+    pub const fn new(reader: R, writer: W, theme: Theme) -> Self {
         Self {
             reader,
             writer,

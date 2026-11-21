@@ -16,12 +16,12 @@ pub struct Manifest {
 impl Manifest {
     /// Layout of the output UKI.
     #[must_use = "callers need the layout to write the UKI"]
-    pub fn layout(&self) -> &Layout {
+    pub const fn layout(&self) -> &Layout {
         &self.layout
     }
 
     /// Byte-assembly instructions for the write pass.
-    pub(crate) fn assembly(&self) -> &Assembly {
+    pub(crate) const fn assembly(&self) -> &Assembly {
         &self.assembly
     }
 }

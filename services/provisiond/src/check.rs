@@ -10,7 +10,7 @@ pub(crate) struct Check {
 }
 
 impl Check {
-    pub(crate) fn pass(name: &'static str, detail: String) -> Self {
+    pub(crate) const fn pass(name: &'static str, detail: String) -> Self {
         Self {
             name,
             passed: true,
@@ -18,7 +18,7 @@ impl Check {
         }
     }
 
-    pub(crate) fn fail(name: &'static str, detail: String) -> Self {
+    pub(crate) const fn fail(name: &'static str, detail: String) -> Self {
         Self {
             name,
             passed: false,

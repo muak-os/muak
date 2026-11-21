@@ -113,7 +113,7 @@ fn is_attached(port: &Device, bridge: &Device, devices: &[Device]) -> bool {
             .any(|device| device.master == Some(bridge.index) && device.index != port.index)
 }
 
-fn carrier_state(carrier: bool) -> State {
+const fn carrier_state(carrier: bool) -> State {
     if carrier { State::Up } else { State::NoCarrier }
 }
 

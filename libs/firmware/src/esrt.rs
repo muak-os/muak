@@ -34,7 +34,7 @@ pub enum ComponentKind {
 
 impl ComponentKind {
     /// Maps the raw ESRT `fw_type` value.
-    fn from_raw(value: u32) -> Self {
+    const fn from_raw(value: u32) -> Self {
         match value {
             1 => Self::System,
             2 => Self::Device,
@@ -67,7 +67,7 @@ pub enum AttemptStatus {
 
 impl AttemptStatus {
     /// Maps the raw ESRT `last_attempt_status` value.
-    fn from_raw(value: u32) -> Self {
+    const fn from_raw(value: u32) -> Self {
         match value {
             0 => Self::Success,
             1 => Self::InsufficientResources,

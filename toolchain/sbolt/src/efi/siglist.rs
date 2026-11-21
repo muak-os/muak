@@ -54,13 +54,13 @@ impl SignatureDatabase {
 
     /// Get the number of signature lists.
     #[must_use = "callers need the count to size the variable"]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.lists.len()
     }
 
     /// Check if the database is empty.
     #[must_use = "callers must branch on an empty database"]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.lists.is_empty()
     }
 

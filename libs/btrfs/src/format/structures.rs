@@ -69,7 +69,7 @@ pub(super) struct BtrfsHeader {
 
 impl BtrfsHeader {
     #[must_use = "dropping it discards the initialised header"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             csum: [0; BTRFS_CSUM_SIZE],
             fsid: [0; BTRFS_FSID_SIZE],
@@ -114,7 +114,7 @@ pub(super) struct BtrfsDevItem {
 
 impl BtrfsDevItem {
     #[must_use = "dropping it discards the initialised dev item"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             devid: [0; 8],
             total_bytes: [0; 8],
@@ -359,7 +359,7 @@ pub(super) struct BtrfsSuperBlock {
 
 impl BtrfsSuperBlock {
     #[must_use = "dropping it discards the initialised superblock"]
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             csum: [0; BTRFS_CSUM_SIZE],
             fsid: [0; BTRFS_FSID_SIZE],
@@ -414,7 +414,7 @@ impl Default for BtrfsSuperBlock {
     }
 }
 
-fn as_bytes<T>(value: &T, len: usize) -> &[u8] {
+const fn as_bytes<T>(value: &T, len: usize) -> &[u8] {
     let ptr = ptr::from_ref(value).cast::<u8>();
 
     // SAFETY: Callers only pass references to `repr(C, packed)` on-disk structures and a

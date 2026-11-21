@@ -83,7 +83,7 @@ pub(crate) struct NodePorts<'name, 'writer> {
 
 impl<'name, 'writer> NodePorts<'name, 'writer> {
     /// Builds the node's endpoints in planner binding order.
-    pub(crate) fn new(
+    pub(crate) const fn new(
         inputs: Vec<(PortId, InputStream<'name>)>,
         outputs: Vec<(PortId, OutputStream<'writer>)>,
     ) -> Self {

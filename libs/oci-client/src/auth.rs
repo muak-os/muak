@@ -26,7 +26,7 @@ pub enum Access {
 
 impl Access {
     /// Scope actions covered by this access level.
-    fn actions(self) -> &'static str {
+    const fn actions(self) -> &'static str {
         match self {
             Self::Pull => "pull",
             Self::PullPush => "pull,push",

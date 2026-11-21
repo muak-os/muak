@@ -30,7 +30,7 @@ enum StaticRequest<'a> {
 
 impl StaticRequest<'_> {
     /// Returns the address family name for diagnostics.
-    fn family(self) -> &'static str {
+    const fn family(self) -> &'static str {
         match self {
             Self::Ipv4 { .. } => "IPv4",
             #[cfg(feature = "ipv6")]

@@ -50,7 +50,7 @@ fn gate(decision: Decision, ask: impl FnOnce() -> Result<()>) -> Result<()> {
     }
 }
 
-fn decision(yes: bool, interactive: bool) -> Decision {
+const fn decision(yes: bool, interactive: bool) -> Decision {
     if yes {
         Decision::Skip
     } else if interactive {

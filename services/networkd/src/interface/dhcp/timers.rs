@@ -15,7 +15,7 @@ pub(in crate::interface) struct LeaseTimers {
 
 impl LeaseTimers {
     /// Returns a new instance with all timers disarmed.
-    pub(in crate::interface) fn new() -> Self {
+    pub(in crate::interface) const fn new() -> Self {
         Self {
             renew: None,
             rebind: None,

@@ -66,7 +66,10 @@ fn build_left(state: &SystemState, col: u16) -> Vec<Line<'static>> {
     lines
 }
 
-fn secure_boot_label(status: Status, mismatch: Option<Mismatch>) -> (&'static str, AnsiColor) {
+const fn secure_boot_label(
+    status: Status,
+    mismatch: Option<Mismatch>,
+) -> (&'static str, AnsiColor) {
     match (status, mismatch) {
         (Status::Disabled, Some(Mismatch::NotEnrolled)) | (Status::Pending, Some(_)) => {
             ("Pending", AnsiColor::Yellow)
@@ -79,7 +82,7 @@ fn secure_boot_label(status: Status, mismatch: Option<Mismatch>) -> (&'static st
     }
 }
 
-fn mismatch_note(mismatch: Mismatch) -> &'static str {
+const fn mismatch_note(mismatch: Mismatch) -> &'static str {
     match mismatch {
         Mismatch::NotEnrolled => "no keys",
         Mismatch::KeysRemain => "keys remain",

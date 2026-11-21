@@ -9,7 +9,7 @@ pub struct Catalog {
 
 impl Catalog {
     #[must_use = "dropping it discards the catalog reference"]
-    pub(crate) fn new(image: String, digest: String) -> Self {
+    pub(crate) const fn new(image: String, digest: String) -> Self {
         Self { image, digest }
     }
 

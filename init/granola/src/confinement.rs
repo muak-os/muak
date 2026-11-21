@@ -133,7 +133,7 @@ impl Sandbox {
         }
     }
 
-    fn ignored(&self) -> Option<&'static str> {
+    const fn ignored(&self) -> Option<&'static str> {
         if self.user.is_some() {
             return Some("user");
         }

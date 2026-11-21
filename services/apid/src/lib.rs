@@ -44,7 +44,7 @@ pub struct Args {
 impl Args {
     /// Creates new command line arguments struct.
     #[must_use = "dropping it discards the server configuration"]
-    pub fn new(listen_addr: String, maintenance_mode: bool) -> Self {
+    pub const fn new(listen_addr: String, maintenance_mode: bool) -> Self {
         Self {
             listen_addr,
             maintenance_mode,

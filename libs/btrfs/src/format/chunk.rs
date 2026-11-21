@@ -40,7 +40,7 @@ pub(super) struct ChunkBuilder {
 impl ChunkBuilder {
     /// Create a new chunk builder with the given length.
     #[must_use = "the builder must be used to produce the chunk"]
-    pub(super) fn new(length: u64, chunk_type: u64) -> Self {
+    pub(super) const fn new(length: u64, chunk_type: u64) -> Self {
         Self {
             length,
             chunk_type,

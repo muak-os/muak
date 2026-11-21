@@ -50,7 +50,7 @@ fn total(widths: &[usize]) -> usize {
     cells.saturating_add(gaps(widths.len()))
 }
 
-fn gaps(len: usize) -> usize {
+const fn gaps(len: usize) -> usize {
     len.saturating_sub(1).saturating_mul(2)
 }
 

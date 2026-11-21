@@ -174,7 +174,7 @@ impl DiskLayout {
 
     /// Sum of all physical device extents.
     #[must_use = "callers need the used bytes to size the device"]
-    pub(super) fn dev_bytes_used(&self) -> u64 {
+    pub(super) const fn dev_bytes_used(&self) -> u64 {
         BTRFS_MKFS_DATA_GROUP_SIZE
             .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE.saturating_mul(2))
             .saturating_add(self.meta_stripe_size.saturating_mul(2))
@@ -194,7 +194,7 @@ impl DiskLayout {
 
     /// Minimum device size required for this layout.
     #[must_use = "callers must reject devices smaller than this"]
-    pub(super) fn min_device_size(&self) -> u64 {
+    pub(super) const fn min_device_size(&self) -> u64 {
         BTRFS_MKFS_RESERVED_SIZE
             .saturating_add(BTRFS_MKFS_DATA_GROUP_SIZE)
             .saturating_add(BTRFS_MKFS_SYSTEM_DUP_SIZE.saturating_mul(2))
@@ -203,75 +203,75 @@ impl DiskLayout {
 
     /// Convert a logical address in the system DUP chunk to physical (stripe 0).
     #[must_use = "callers need the physical offset to write the system chunk"]
-    pub(super) fn sys_logical_to_phys(&self, logical: u64) -> u64 {
+    pub(super) const fn sys_logical_to_phys(&self, logical: u64) -> u64 {
         self.sys_phys_0
             .saturating_add(logical.saturating_sub(self.sys_logical))
     }
 
     /// Convert a logical address in the metadata DUP chunk to physical (stripe 0).
     #[must_use = "callers need the physical offset to write metadata"]
-    pub(super) fn meta_logical_to_phys(&self, logical: u64) -> u64 {
+    pub(super) const fn meta_logical_to_phys(&self, logical: u64) -> u64 {
         self.meta_phys_0
             .saturating_add(logical.saturating_sub(self.meta_logical))
     }
 
     /// Get the data chunk logical offset.
     #[must_use = "callers need the logical offset to address file data"]
-    pub(super) fn data_logical(&self) -> u64 {
+    pub(super) const fn data_logical(&self) -> u64 {
         self.data_logical
     }
 
     /// Get the data chunk physical offset.
     #[must_use = "callers need the physical offset to write file data"]
-    pub(super) fn data_phys(&self) -> u64 {
+    pub(super) const fn data_phys(&self) -> u64 {
         self.data_phys
     }
 
     /// Get the system chunk logical offset.
     #[must_use = "callers need the logical offset to address the system chunk"]
-    pub(super) fn sys_logical(&self) -> u64 {
+    pub(super) const fn sys_logical(&self) -> u64 {
         self.sys_logical
     }
 
     /// Get the system chunk physical stripe 0 offset.
     #[must_use = "callers need the stripe offset to write the system chunk"]
-    pub(super) fn sys_phys_0(&self) -> u64 {
+    pub(super) const fn sys_phys_0(&self) -> u64 {
         self.sys_phys_0
     }
 
     /// Get the system chunk physical stripe 1 offset.
     #[must_use = "callers need the second stripe offset to mirror the system chunk"]
-    pub(super) fn sys_phys_1(&self) -> u64 {
+    pub(super) const fn sys_phys_1(&self) -> u64 {
         self.sys_phys_1
     }
 
     /// Get the metadata chunk logical offset.
     #[must_use = "callers need the logical offset to address metadata"]
-    pub(super) fn meta_logical(&self) -> u64 {
+    pub(super) const fn meta_logical(&self) -> u64 {
         self.meta_logical
     }
 
     /// Get the metadata stripe size.
     #[must_use = "callers need the stripe size to lay out the metadata chunk"]
-    pub(super) fn meta_stripe_size(&self) -> u64 {
+    pub(super) const fn meta_stripe_size(&self) -> u64 {
         self.meta_stripe_size
     }
 
     /// Get the metadata chunk physical stripe 0 offset.
     #[must_use = "callers need the stripe offset to write metadata"]
-    pub(super) fn meta_phys_0(&self) -> u64 {
+    pub(super) const fn meta_phys_0(&self) -> u64 {
         self.meta_phys_0
     }
 
     /// Get the metadata chunk physical stripe 1 offset.
     #[must_use = "callers need the second stripe offset to mirror metadata"]
-    pub(super) fn meta_phys_1(&self) -> u64 {
+    pub(super) const fn meta_phys_1(&self) -> u64 {
         self.meta_phys_1
     }
 
     /// Get the chunk tree logical offset.
     #[must_use = "callers need the logical offset to address the chunk tree"]
-    pub(super) fn chunk_tree_logical(&self) -> u64 {
+    pub(super) const fn chunk_tree_logical(&self) -> u64 {
         self.chunk_tree_logical
     }
 
@@ -310,19 +310,19 @@ pub(super) fn all_tree_blocks(layout: &DiskLayout) -> [(u64, u64); 10] {
 
 /// Compute final chunk layout offsets matching btrfs-progs sequential allocation.
 #[must_use = "callers need the offset to lay out the data chunk"]
-pub(super) fn compute_data_logical_offset() -> u64 {
+pub(super) const fn compute_data_logical_offset() -> u64 {
     DATA_LOGICAL_OFFSET
 }
 
 /// Compute system logical offset.
 #[must_use = "callers need the offset to lay out the system chunk"]
-pub(super) fn compute_system_logical_offset() -> u64 {
+pub(super) const fn compute_system_logical_offset() -> u64 {
     SYSTEM_LOGICAL_OFFSET
 }
 
 /// Compute metadata logical offset.
 #[must_use = "callers need the offset to lay out the metadata chunk"]
-pub(super) fn compute_meta_logical_offset() -> u64 {
+pub(super) const fn compute_meta_logical_offset() -> u64 {
     META_LOGICAL_OFFSET
 }
 
@@ -350,7 +350,7 @@ pub(super) fn compute_dup_meta_stripe_size(device_size: u64) -> u64 {
     round_down(stripe, BTRFS_STRIPE_LEN)
 }
 
-fn round_down(value: u64, align: u64) -> u64 {
+const fn round_down(value: u64, align: u64) -> u64 {
     value & !align.saturating_sub(1)
 }
 

@@ -40,7 +40,7 @@ impl Default for Policy {
 impl Policy {
     /// Builds a policy with the given attempt budget.
     #[must_use = "dropping it discards the attempt budget"]
-    pub fn new(attempts: u32) -> Self {
+    pub const fn new(attempts: u32) -> Self {
         Self {
             attempts,
             base: BASE_DELAY,
@@ -50,7 +50,7 @@ impl Policy {
 
     /// Total attempt budget, counting the first try.
     #[must_use = "callers need the budget to bound the retry loop"]
-    pub fn attempts(&self) -> u32 {
+    pub const fn attempts(&self) -> u32 {
         self.attempts
     }
 

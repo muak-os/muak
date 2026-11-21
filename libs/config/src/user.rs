@@ -257,7 +257,7 @@ impl ServerContext {
 
     /// Check if this context has credentials.
     #[must_use = "callers must branch on whether the context is enrolled"]
-    pub fn has_credentials(&self) -> bool {
+    pub const fn has_credentials(&self) -> bool {
         self.ca.is_some() && self.crt.is_some() && self.key.is_some()
     }
 }

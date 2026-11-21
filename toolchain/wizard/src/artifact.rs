@@ -33,7 +33,7 @@ impl fmt::Display for Artifact {
 impl Artifact {
     /// Returns the canonical on-disk filename or directory for this artifact.
     #[must_use = "callers need the name to write the artifact"]
-    pub fn filename(self) -> &'static str {
+    pub const fn filename(self) -> &'static str {
         match self {
             Self::Kernel => "kernel",
             Self::Initramfs => "initramfs.img",
@@ -47,7 +47,7 @@ impl Artifact {
 
     /// Returns the MIME media type for this artifact.
     #[must_use = "callers need the media type to describe the artifact"]
-    pub fn media_type(self) -> &'static str {
+    pub const fn media_type(self) -> &'static str {
         match self {
             Self::Cmdline => "text/plain; charset=utf-8",
             Self::Iso => "application/x-iso9660-image",
@@ -80,7 +80,7 @@ impl Artifact {
 
     /// Returns a zero-based index for use as an array index.
     #[must_use = "callers need the index to store the artifact"]
-    pub fn to_index(self) -> usize {
+    pub const fn to_index(self) -> usize {
         match self {
             Self::Kernel => 0,
             Self::Initramfs => 1,

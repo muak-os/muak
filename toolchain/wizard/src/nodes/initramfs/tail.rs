@@ -50,7 +50,7 @@ fn dependencies(_kind: NodeKind, ctx: &BuildContext<'_, '_>) -> Vec<Dependency> 
 }
 
 /// The CPIO tail is an internal initramfs member, never a requested artifact.
-fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
+const fn produces(_kind: NodeKind, _ctx: &BuildContext<'_, '_>) -> Vec<(PortId, Artifact)> {
     Vec::new()
 }
 

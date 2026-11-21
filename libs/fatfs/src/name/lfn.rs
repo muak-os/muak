@@ -77,7 +77,7 @@ fn fragment(ordinal: u8, checksum: u8, chars: &[u16]) -> [u8; ENTRY_BYTES] {
     entry
 }
 
-fn char_offset(index: usize) -> usize {
+const fn char_offset(index: usize) -> usize {
     if index < 5 {
         1_usize.saturating_add(index.saturating_mul(2))
     } else if index < 11 {

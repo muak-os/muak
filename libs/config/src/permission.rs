@@ -152,7 +152,7 @@ impl Permission {
 
     /// Returns the category prefix for this permission (e.g., "vm" for `VmRead`).
     #[must_use = "callers need the prefix to collapse permissions into wildcards"]
-    pub fn category(&self) -> Option<&'static str> {
+    pub const fn category(&self) -> Option<&'static str> {
         match *self {
             Self::Admin => None,
             Self::VmRead

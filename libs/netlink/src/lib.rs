@@ -34,7 +34,7 @@ pub struct Rtnl {
 impl Rtnl {
     /// Builds a provider around an existing rtnetlink handle.
     #[must_use = "dropping it discards the handle"]
-    pub fn new(handle: rtnetlink::Handle) -> Self {
+    pub const fn new(handle: rtnetlink::Handle) -> Self {
         Self { handle }
     }
 

@@ -12,7 +12,7 @@ pub(crate) struct ResponseReader<'a> {
 
 impl<'a> ResponseReader<'a> {
     #[must_use = "dropping it discards the parsed response"]
-    pub(crate) fn new(data: &'a [u8]) -> Self {
+    pub(crate) const fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
@@ -49,7 +49,7 @@ impl<'a> ResponseReader<'a> {
         self.read_bytes(len)
     }
 
-    fn checked_end(&self, len: usize) -> Result<usize> {
+    const fn checked_end(&self, len: usize) -> Result<usize> {
         let end = self.pos.saturating_add(len);
         if end > self.data.len() {
             return Err(Tpm2Error::ResponseTooShort {

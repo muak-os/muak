@@ -33,7 +33,7 @@ pub(crate) fn system_path(plan: &InstallPlan) -> &str {
     system_disk(plan).map_or("unknown disk", |disk| &disk.path)
 }
 
-fn system_disk(plan: &InstallPlan) -> Option<&DiskInfo> {
+const fn system_disk(plan: &InstallPlan) -> Option<&DiskInfo> {
     plan.system_disk.as_ref()
 }
 

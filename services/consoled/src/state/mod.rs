@@ -80,7 +80,7 @@ pub(crate) struct PollState {
 }
 
 impl MemoryInfo {
-    pub(crate) fn permille(&self) -> u64 {
+    pub(crate) const fn permille(&self) -> u64 {
         if self.total_kb == 0 {
             return 0;
         }

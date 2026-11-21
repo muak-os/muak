@@ -23,7 +23,7 @@ pub(super) struct SecureBootProfile {
 
 impl SecureBootProfile {
     /// Platform Key: self-signed CA root of trust.
-    pub(super) fn pk(subject: Name) -> Self {
+    pub(super) const fn pk(subject: Name) -> Self {
         Self {
             issuer: None,
             subject,
@@ -35,7 +35,7 @@ impl SecureBootProfile {
     }
 
     /// Key Exchange Key: CA signed by PK.
-    pub(super) fn kek(issuer: Name, subject: Name) -> Self {
+    pub(super) const fn kek(issuer: Name, subject: Name) -> Self {
         Self {
             issuer: Some(issuer),
             subject,
@@ -47,7 +47,7 @@ impl SecureBootProfile {
     }
 
     /// Signature Database key: self-signed trust anchor for image signatures.
-    pub(super) fn db(subject: Name) -> Self {
+    pub(super) const fn db(subject: Name) -> Self {
         Self {
             issuer: None,
             subject,

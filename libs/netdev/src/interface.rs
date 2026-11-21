@@ -39,7 +39,7 @@ pub struct Ethernet {
 impl Ethernet {
     /// Constructs a new interface descriptor.
     #[must_use = "dropping it discards the interface descriptor"]
-    pub fn new(name: Name, index: u32, mac_address: [u8; 6], link_state: State) -> Self {
+    pub const fn new(name: Name, index: u32, mac_address: [u8; 6], link_state: State) -> Self {
         Self {
             name,
             index,
