@@ -38,6 +38,9 @@ pub enum Failure {
     /// Failed to set link master.
     #[error("failed to set link master: {0}")]
     SetMaster(#[source] rtnetlink::Error),
+    /// Failed to set link address.
+    #[error("failed to set link address: {0}")]
+    SetAddress(#[source] rtnetlink::Error),
     /// Failed to delete link.
     #[error("failed to delete link: {0}")]
     Delete(#[source] rtnetlink::Error),
@@ -56,6 +59,9 @@ pub trait Ops: Clone + Send + Sync + 'static {
 
     /// Deletes a link by its index.
     fn delete(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
+
+    /// Detaches a link from its master.
+    fn detach(&self, index: u32) -> impl Future<Output = Result<()>> + Send;
 
     /// Enumerates every link currently known to the kernel.
     fn devices(&self) -> impl Future<Output = Result<Vec<Device>>> + Send;
@@ -78,6 +84,9 @@ pub trait Ops: Clone + Send + Sync + 'static {
         interfaces: &[(u32, &str)],
         timeout: Duration,
     ) -> impl Future<Output = Result<HashMap<u32, bool>>> + Send;
+
+    /// Sets a link's hardware address.
+    fn set_address(&self, index: u32, mac: [u8; 6]) -> impl Future<Output = Result<()>> + Send;
 
     /// Attaches a slave interface to a master (bridge) interface.
     fn set_master(
@@ -123,6 +132,14 @@ impl Ops for Rtnl {
 
     async fn master(&self, index: u32) -> Result<Option<u32>> {
         handle::master_index(&self.handle, index).await
+    }
+
+    async fn detach(&self, index: u32) -> Result<()> {
+        handle::detach(&self.handle, index).await
+    }
+
+    async fn set_address(&self, index: u32, mac: [u8; 6]) -> Result<()> {
+        handle::set_address(&self.handle, index, mac).await
     }
 
     async fn delete(&self, index: u32) -> Result<()> {

@@ -66,6 +66,12 @@ impl MockNetlinkOps {
         self.lock().ensure_bridge_calls
     }
 
+    /// Returns the MAC recorded for a named link.
+    #[must_use = "the test asserts on the recorded MAC address"]
+    pub(crate) fn mac(&self, name: &str) -> Option<[u8; 6]> {
+        self.lock().links.get(name).map(|link| link.mac)
+    }
+
     /// Adds a link with a deterministic index.
     pub(crate) fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
         let mut state = self.lock();
@@ -98,6 +104,7 @@ impl link::Ops for MockNetlinkOps {
                 is_virtual: false,
                 admin_up: link.up,
                 carrier: link.up,
+                master: link.master_index,
             })
             .collect();
 
@@ -183,6 +190,32 @@ impl link::Ops for MockNetlinkOps {
             .and_then(|link| link.master_index);
 
         std::future::ready(Ok(result))
+    }
+
+    fn detach(&self, index: u32) -> impl Future<Output = link::Result<()>> {
+        if let Some(link) = self
+            .lock()
+            .links
+            .values_mut()
+            .find(|link| link.index == index)
+        {
+            link.master_index = None;
+        }
+
+        std::future::ready(Ok(()))
+    }
+
+    fn set_address(&self, index: u32, mac: [u8; 6]) -> impl Future<Output = link::Result<()>> {
+        if let Some(link) = self
+            .lock()
+            .links
+            .values_mut()
+            .find(|link| link.index == index)
+        {
+            link.mac = mac;
+        }
+
+        std::future::ready(Ok(()))
     }
 
     fn delete(&self, index: u32) -> impl Future<Output = link::Result<()>> {
@@ -386,4 +419,25 @@ fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
 /// Returns the link state for the requested carrier flag.
 fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MockNetlinkOps;
+
+    #[tokio::test]
+    async fn set_address_records_mac() {
+        // ARRANGE
+        let mock = MockNetlinkOps::new();
+        let index = mock.add_link("eth0", [0; 6], true);
+        let mac = [1, 2, 3, 4, 5, 6];
+
+        // ACT
+        netlink::link::Ops::set_address(&mock, index, mac)
+            .await
+            .expect("set address");
+
+        // ASSERT
+        assert_eq!(mock.mac("eth0"), Some(mac));
+    }
 }

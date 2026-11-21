@@ -197,6 +197,7 @@ mod tests {
             is_virtual,
             admin_up,
             carrier,
+            master: None,
         }
     }
 

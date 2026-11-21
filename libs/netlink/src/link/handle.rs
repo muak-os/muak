@@ -76,6 +76,30 @@ pub(crate) async fn set_master(handle: &Handle, slave_index: u32, master_index: 
         .map_err(Failure::SetMaster)
 }
 
+/// Detaches a link from its master.
+pub(crate) async fn detach(handle: &Handle, index: u32) -> Result<()> {
+    handle
+        .link()
+        .set(LinkUnspec::new_with_index(index).controller(0).build())
+        .execute()
+        .await
+        .map_err(Failure::SetMaster)
+}
+
+/// Sets a link's hardware address.
+pub(crate) async fn set_address(handle: &Handle, index: u32, mac: [u8; 6]) -> Result<()> {
+    handle
+        .link()
+        .set(
+            LinkUnspec::new_with_index(index)
+                .address(mac.to_vec())
+                .build(),
+        )
+        .execute()
+        .await
+        .map_err(Failure::SetAddress)
+}
+
 /// Deletes a network link by its index.
 pub(crate) async fn delete(handle: &Handle, index: u32) -> Result<()> {
     handle

@@ -19,6 +19,8 @@ pub struct Device {
     pub admin_up: bool,
     /// Whether the device reports an active carrier.
     pub carrier: bool,
+    /// Index of the master (bridge/bond) this device is enslaved to, if any.
+    pub master: Option<u32>,
 }
 
 impl Device {
@@ -34,6 +36,7 @@ impl Device {
             is_virtual,
             admin_up: flags.contains(LinkFlags::Up),
             carrier: flags.contains(LinkFlags::LowerUp),
+            master: extract_master(message),
         }
     }
 }
@@ -57,6 +60,17 @@ pub fn extract_name(link: &LinkMessage) -> Option<String> {
     for attr in link.attributes.iter().cloned() {
         if let LinkAttribute::IfName(name) = attr {
             return Some(name);
+        }
+    }
+    None
+}
+
+/// Extracts the master (bridge/bond) index from a link message, if present.
+#[must_use = "callers need the master index to detect enslaved links"]
+pub fn extract_master(link: &LinkMessage) -> Option<u32> {
+    for attr in &link.attributes {
+        if let &LinkAttribute::Controller(master) = attr {
+            return Some(master);
         }
     }
     None
@@ -105,7 +119,7 @@ fn parse_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) {
 mod tests {
     use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo, LinkMessage};
 
-    use super::{Device, extract_mac, extract_name, is_ethernet};
+    use super::{Device, extract_mac, extract_master, extract_name, is_ethernet};
 
     fn link_with_attributes(attributes: Vec<LinkAttribute>) -> LinkMessage {
         let mut link = LinkMessage::default();
@@ -135,6 +149,30 @@ mod tests {
 
         // ASSERT
         assert!(mac.is_none());
+    }
+
+    #[test]
+    fn extract_master_returns_controller_index() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::Controller(7)]);
+
+        // ACT
+        let master = extract_master(&link);
+
+        // ASSERT
+        assert_eq!(master, Some(7));
+    }
+
+    #[test]
+    fn extract_master_returns_none_without_controller() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::IfName("eth0".to_owned())]);
+
+        // ACT
+        let master = extract_master(&link);
+
+        // ASSERT
+        assert!(master.is_none());
     }
 
     #[test]

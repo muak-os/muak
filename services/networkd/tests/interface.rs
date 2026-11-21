@@ -171,6 +171,7 @@ impl link::Ops for MockNetlinkOps {
                 is_virtual: false,
                 admin_up: link.up,
                 carrier: link.up,
+                master: link.master_index,
             })
             .collect();
 
@@ -241,6 +242,22 @@ impl link::Ops for MockNetlinkOps {
             .and_then(|link| link.master_index);
 
         std::future::ready(Ok(result))
+    }
+
+    fn detach(&self, index: u32) -> impl Future<Output = link::Result<()>> {
+        if let Some(link) = self.lock().link_by_index_mut(index) {
+            link.master_index = None;
+        }
+
+        std::future::ready(Ok(()))
+    }
+
+    fn set_address(&self, index: u32, mac: [u8; 6]) -> impl Future<Output = link::Result<()>> {
+        if let Some(link) = self.lock().link_by_index_mut(index) {
+            link.mac = mac;
+        }
+
+        std::future::ready(Ok(()))
     }
 
     fn delete(&self, index: u32) -> impl Future<Output = link::Result<()>> {

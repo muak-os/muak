@@ -76,6 +76,18 @@ mod tests {
             std::future::ready(Err(Self::failure()))
         }
 
+        fn detach(&self, _index: u32) -> impl Future<Output = link::Result<()>> {
+            std::future::ready(Err(Self::failure()))
+        }
+
+        fn set_address(
+            &self,
+            _index: u32,
+            _mac: [u8; 6],
+        ) -> impl Future<Output = link::Result<()>> {
+            std::future::ready(Err(Self::failure()))
+        }
+
         fn probe_carriers(
             &self,
             _interfaces: &[(u32, &str)],
