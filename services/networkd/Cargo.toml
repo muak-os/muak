@@ -10,8 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["ipv6"]
-ipv6 = []
+default = ["ipv4", "ipv6"]
+ipv4 = ["netstack/ipv4"]
+ipv6 = ["netstack/ipv6"]
 
 [dependencies]
 # Asynchronous
@@ -28,7 +29,7 @@ mac = { workspace = true }
 netdev = { workspace = true }
 netlink = { workspace = true }
 netlink-monitor = { workspace = true }
-netstack = { workspace = true, features = ["ipv4", "ipv6"] }
+netstack = { workspace = true }
 
 [lints]
 workspace = true

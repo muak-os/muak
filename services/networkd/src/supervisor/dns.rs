@@ -5,6 +5,7 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 
 use netdev::Ops;
 use netstack::interface::Handle;
+#[cfg(feature = "ipv4")]
 use netstack::view::V4State;
 #[cfg(feature = "ipv6")]
 use netstack::view::V6State;
@@ -35,16 +36,21 @@ fn collect<N: Ops>(
     handle: &Handle,
 ) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
     let snapshot = handle.snapshot_rx.borrow();
+    #[cfg(feature = "ipv4")]
     let mut ipv4_dns = Vec::new();
+    #[cfg(feature = "ipv4")]
     if let Some(state) = snapshot.v4.as_ref() {
         match *state {
             V4State::Static(ref config) => ipv4_dns.clone_from(&config.dns),
             V4State::Dhcp { ref lease, .. } => ipv4_dns.clone_from(&lease.dns_servers),
         }
     }
+    #[cfg(feature = "ipv4")]
     if ipv4_dns.is_empty() {
         ipv4_dns = supervisor.config.ipv4_dns().collect();
     }
+    #[cfg(not(feature = "ipv4"))]
+    let ipv4_dns = Vec::new();
 
     #[cfg(feature = "ipv6")]
     let mut ipv6_dns = Vec::new();

@@ -54,9 +54,13 @@ mod tests {
     fn handle(link: State) -> Handle {
         let snapshot = Snapshot {
             link,
+            #[cfg(feature = "ipv4")]
             v4: None,
+            #[cfg(feature = "ipv4")]
             v4_state: provision::State::Stopped,
+            #[cfg(feature = "ipv6")]
             v6: None,
+            #[cfg(feature = "ipv6")]
             v6_state: provision::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);

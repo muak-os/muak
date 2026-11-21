@@ -1,12 +1,16 @@
 //! Primary/backup promotion and failover policy for the network supervisor.
 
+#[cfg(feature = "ipv4")]
 use alloc::vec::Vec;
 
 use config::system::network::InterfaceKind;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
-use netstack::interface::{Command, Handle};
+#[cfg(feature = "ipv4")]
+use netstack::interface::Command;
+use netstack::interface::Handle;
+#[cfg(feature = "ipv4")]
 use netstack::provision as address;
 
 use super::{NetworkSupervisor, owner, provision, view};
@@ -191,11 +195,14 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
     supervisor.state.backups.push(failed.clone());
     supervisor.state.primary = Some(new_primary.clone());
 
+    #[cfg(feature = "ipv4")]
     if !rebridge(supervisor, &new_primary).await
         && !is_interface_configured(supervisor, &new_primary)
     {
         configure_promoted(supervisor, &new_primary).await;
     }
+    #[cfg(not(feature = "ipv4"))]
+    rebridge(supervisor, &new_primary).await;
 
     if let Err(e) = supervisor.state.ensure_operational() {
         kmsg::warn!("Unexpected state after failover to {}: {}", new_primary, e);
@@ -203,6 +210,7 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
 }
 
 // Starts DHCP on a promoted backup that has no bridge and no configuration yet.
+#[cfg(feature = "ipv4")]
 async fn configure_promoted<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) {
     let interfaces = supervisor.config.interfaces.clone();
     for iface_cfg in &interfaces {
@@ -232,6 +240,7 @@ async fn configure_promoted<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Na
                 name,
                 Command::Configure {
                     v4: Some(config),
+                    #[cfg(feature = "ipv6")]
                     v6: None,
                 },
             )
@@ -281,10 +290,14 @@ mod tests {
     fn handle(link: State) -> Handle {
         let snapshot = Snapshot {
             link,
+            #[cfg(feature = "ipv4")]
             v4: None,
-            v4_state: address::State::Stopped,
+            #[cfg(feature = "ipv4")]
+            v4_state: netstack::provision::State::Stopped,
+            #[cfg(feature = "ipv6")]
             v6: None,
-            v6_state: address::State::Stopped,
+            #[cfg(feature = "ipv6")]
+            v6_state: netstack::provision::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);
         let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);

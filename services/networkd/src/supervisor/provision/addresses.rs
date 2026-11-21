@@ -3,9 +3,11 @@
 use alloc::vec::Vec;
 
 use anyhow::Result;
+use config::system::network::InterfaceConfig;
+#[cfg(feature = "ipv4")]
+use config::system::network::Ipv4InterfaceConfig;
 #[cfg(feature = "ipv6")]
 use config::system::network::Ipv6InterfaceConfig;
-use config::system::network::{InterfaceConfig, Ipv4InterfaceConfig};
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netstack::interface::Command;
@@ -18,13 +20,27 @@ use super::{handle, resolve_name, resolve_owner, send_command};
 pub(super) async fn apply_all<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
     let interfaces = supervisor.config.interfaces.clone();
     for iface_cfg in &interfaces {
-        if iface_cfg.ipv4.is_none() && iface_cfg.ipv6.is_none() {
+        if !has_config(iface_cfg) {
             continue;
         }
         if let Err(e) = apply(supervisor, iface_cfg).await {
             kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
         }
     }
+}
+
+// Returns true when the interface declares config for an enabled address family.
+pub(in crate::supervisor) const fn has_config(iface_cfg: &InterfaceConfig) -> bool {
+    #[cfg(feature = "ipv4")]
+    let ipv4 = iface_cfg.ipv4.is_some();
+    #[cfg(not(feature = "ipv4"))]
+    let ipv4 = false;
+    #[cfg(feature = "ipv6")]
+    let ipv6 = iface_cfg.ipv6.is_some();
+    #[cfg(not(feature = "ipv6"))]
+    let ipv6 = false;
+
+    ipv4 || ipv6
 }
 
 async fn apply<N: Ops>(
@@ -44,6 +60,7 @@ pub(in crate::supervisor) async fn configure<N: Ops>(
     owner: &Name,
     iface_cfg: &InterfaceConfig,
 ) -> Result<()> {
+    #[cfg(feature = "ipv4")]
     let v4 = iface_cfg
         .ipv4
         .as_ref()
@@ -53,17 +70,35 @@ pub(in crate::supervisor) async fn configure<N: Ops>(
         .ipv6
         .as_ref()
         .and_then(|cfg| v6_config(supervisor, cfg));
-    #[cfg(not(feature = "ipv6"))]
-    let v6: Option<provision::v6::Config> = None;
 
+    #[cfg(all(feature = "ipv4", feature = "ipv6"))]
     if v4.is_none() && v6.is_none() {
+        return Ok(());
+    }
+    #[cfg(all(feature = "ipv4", not(feature = "ipv6")))]
+    if v4.is_none() {
+        return Ok(());
+    }
+    #[cfg(all(feature = "ipv6", not(feature = "ipv4")))]
+    if v6.is_none() {
         return Ok(());
     }
 
     let target = handle(supervisor, owner)?;
-    send_command(target, Command::Configure { v4, v6 }, owner).await
+    send_command(
+        target,
+        Command::Configure {
+            #[cfg(feature = "ipv4")]
+            v4,
+            #[cfg(feature = "ipv6")]
+            v6,
+        },
+        owner,
+    )
+    .await
 }
 
+#[cfg(feature = "ipv4")]
 fn v4_config<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     cfg: &Ipv4InterfaceConfig,

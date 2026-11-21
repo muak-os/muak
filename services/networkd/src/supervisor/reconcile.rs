@@ -84,7 +84,7 @@ async fn reapply<N: Ops>(
     name: &Name,
     iface_cfg: &InterfaceConfig,
 ) -> Result<()> {
-    if iface_cfg.ipv4.is_none() && iface_cfg.ipv6.is_none() {
+    if !provision::addresses::has_config(iface_cfg) {
         return Ok(());
     }
 
