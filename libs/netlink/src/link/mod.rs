@@ -15,7 +15,7 @@ use thiserror::Error;
 use tokio_stream::StreamExt as _;
 
 use self::device::Device;
-use crate::Rtnl;
+use crate::{Rtnl, retry};
 
 /// Link operation failures.
 #[derive(Debug, Error)]
@@ -98,12 +98,13 @@ pub trait Ops: Clone + Send + Sync + 'static {
 
 impl Ops for Rtnl {
     async fn devices(&self) -> Result<Vec<Device>> {
-        let mut devices = Vec::new();
-        let mut links = self.handle.link().get().execute();
-        while let Some(message) = links.try_next().await.map_err(Failure::Query)? {
-            devices.push(Device::from_message(&message));
-        }
-        Ok(devices)
+        retry::while_retriable(
+            || scan_devices(&self.handle),
+            is_dump_busy,
+            retry::DUMP_ATTEMPTS,
+            retry::DUMP_RETRY_DELAY_MS,
+        )
+        .await
     }
 
     async fn exists(&self, name: &str) -> Result<bool> {
@@ -153,4 +154,18 @@ impl Ops for Rtnl {
     ) -> Result<HashMap<u32, bool>> {
         carrier::probe_carriers(&self.handle, interfaces, timeout).await
     }
+}
+
+async fn scan_devices(handle: &rtnetlink::Handle) -> Result<Vec<Device>> {
+    let mut devices = Vec::new();
+    let mut links = handle.link().get().execute();
+    while let Some(message) = links.try_next().await.map_err(Failure::Query)? {
+        devices.push(Device::from_message(&message));
+    }
+
+    Ok(devices)
+}
+
+fn is_dump_busy(failure: &Failure) -> bool {
+    matches!(failure, Failure::Query(inner) if retry::is_busy(inner))
 }

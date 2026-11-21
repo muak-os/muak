@@ -9,17 +9,13 @@ use tokio_stream::StreamExt as _;
 use super::{Failure, Result};
 use crate::retry;
 
-const DUMP_ATTEMPTS: u8 = 3;
-const DUMP_RETRY_DELAY_MS: u64 = 50;
-const DUMP_INTERRUPTED: i32 = -16;
-
 /// Finds the first non-link-local IPv4 address and prefix length on a given interface.
 pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv4Addr, u8)>> {
     retry::while_retriable(
         || scan_ipv4(handle, index),
-        is_dump_interrupted,
-        DUMP_ATTEMPTS,
-        DUMP_RETRY_DELAY_MS,
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
     )
     .await
 }
@@ -28,9 +24,9 @@ pub(crate) async fn find_ipv4(handle: &Handle, index: u32) -> Result<Option<(Ipv
 pub(crate) async fn has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
     retry::while_retriable(
         || scan_has_ipv4(handle, index),
-        is_dump_interrupted,
-        DUMP_ATTEMPTS,
-        DUMP_RETRY_DELAY_MS,
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
     )
     .await
 }
@@ -69,12 +65,8 @@ async fn scan_has_ipv4(handle: &Handle, index: u32) -> Result<bool> {
     Ok(false)
 }
 
-fn is_dump_interrupted(failure: &Failure) -> bool {
-    matches!(
-        failure,
-        Failure::List(rtnetlink::Error::NetlinkError(error))
-            if error.raw_code() == DUMP_INTERRUPTED
-    )
+fn is_dump_busy(failure: &Failure) -> bool {
+    matches!(failure, Failure::List(inner) if retry::is_busy(inner))
 }
 
 /// Adds an IPv4 address with prefix length to the given interface.
@@ -89,6 +81,16 @@ pub(crate) async fn add_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr, prefix: 
 
 /// Removes a specific IPv4 address from the given interface (no-op if absent).
 pub(crate) async fn remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()> {
+    retry::while_retriable(
+        || scan_remove_ipv4(handle, index, ip),
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_remove_ipv4(handle: &Handle, index: u32, ip: Ipv4Addr) -> Result<()> {
     let mut addrs = handle.address().get().execute();
 
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
@@ -141,6 +143,16 @@ pub(crate) async fn ensure_ipv6(
     ip: Ipv6Addr,
     prefix: u8,
 ) -> Result<()> {
+    retry::while_retriable(
+        || scan_ensure_ipv6(handle, index, ip, prefix),
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_ensure_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr, prefix: u8) -> Result<()> {
     let mut addrs = handle.address().get().execute();
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
@@ -164,6 +176,16 @@ pub(crate) async fn ensure_ipv6(
 
 /// Removes a specific IPv6 address from the given interface (no-op if absent).
 pub(crate) async fn remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
+    retry::while_retriable(
+        || scan_remove_ipv6(handle, index, ip),
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_remove_ipv6(handle: &Handle, index: u32, ip: Ipv6Addr) -> Result<()> {
     let mut addrs = handle.address().get().execute();
     while let Some(addr) = addrs.try_next().await.map_err(Failure::List)? {
         if addr.header.index != index {
@@ -214,35 +236,35 @@ mod tests {
     use rtnetlink::packet_core::ErrorMessage;
     use rtnetlink::packet_route::address::AddressAttribute;
 
-    use super::{find_v4_in_attributes, find_v6_in_attributes, is_dump_interrupted};
+    use super::{find_v4_in_attributes, find_v6_in_attributes, is_dump_busy};
     use crate::address::Failure;
 
     #[test]
-    fn is_dump_interrupted_matches_busy_error() {
+    fn is_dump_busy_matches_busy_error() {
         // ARRANGE
         let mut message = ErrorMessage::default();
         message.code = NonZeroI32::new(-16_i32);
         let failure = Failure::List(rtnetlink::Error::NetlinkError(message));
 
         // ACT
-        let interrupted = is_dump_interrupted(&failure);
+        let busy = is_dump_busy(&failure);
 
         // ASSERT
-        assert!(interrupted);
+        assert!(busy);
     }
 
     #[test]
-    fn is_dump_interrupted_rejects_other_errors() {
+    fn is_dump_busy_rejects_other_errors() {
         // ARRANGE
         let mut message = ErrorMessage::default();
         message.code = NonZeroI32::new(-95_i32);
         let failure = Failure::List(rtnetlink::Error::NetlinkError(message));
 
         // ACT
-        let interrupted = is_dump_interrupted(&failure);
+        let busy = is_dump_busy(&failure);
 
         // ASSERT
-        assert!(!interrupted);
+        assert!(!busy);
     }
 
     #[test]

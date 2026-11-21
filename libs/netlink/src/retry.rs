@@ -7,6 +7,15 @@ use core::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
 
+// A second dump on the shared socket is refused with EBUSY.
+const EBUSY: i32 = -16;
+
+/// Attempts made for a dump refused because another dump is in progress.
+pub const DUMP_ATTEMPTS: u8 = 3;
+
+/// Delay between dump attempts in milliseconds.
+pub const DUMP_RETRY_DELAY_MS: u64 = 50;
+
 /// Retry operation failures.
 #[derive(Debug, Error)]
 pub enum Failure {
@@ -20,6 +29,15 @@ pub enum Failure {
 
 /// Retry operation result type.
 pub type Result<T> = core::result::Result<T, Failure>;
+
+/// Returns true when a netlink dump was refused because another dump is in progress.
+#[must_use = "the caller decides whether to retry the dump"]
+pub fn is_busy(error: &rtnetlink::Error) -> bool {
+    matches!(
+        error,
+        rtnetlink::Error::NetlinkError(inner) if inner.raw_code() == EBUSY
+    )
+}
 
 /// Polls an async check function until it returns `Some`, or fails after `max_retries`.
 ///
@@ -118,10 +136,41 @@ where
 #[cfg(test)]
 mod tests {
     use core::future::ready;
+    use core::num::NonZeroI32;
     use core::sync::atomic::AtomicU8;
     use core::sync::atomic::Ordering::Relaxed;
 
+    use rtnetlink::packet_core::ErrorMessage;
+
     use super::*;
+
+    #[test]
+    fn is_busy_matches_busy_error() {
+        // ARRANGE
+        let mut message = ErrorMessage::default();
+        message.code = NonZeroI32::new(EBUSY);
+        let error = rtnetlink::Error::NetlinkError(message);
+
+        // ACT
+        let busy = is_busy(&error);
+
+        // ASSERT
+        assert!(busy);
+    }
+
+    #[test]
+    fn is_busy_rejects_other_errors() {
+        // ARRANGE
+        let mut message = ErrorMessage::default();
+        message.code = NonZeroI32::new(-95_i32);
+        let error = rtnetlink::Error::NetlinkError(message);
+
+        // ACT
+        let busy = is_busy(&error);
+
+        // ASSERT
+        assert!(!busy);
+    }
 
     #[tokio::test]
     async fn wait_for_condition_returns_value_before_timeout() {

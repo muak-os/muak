@@ -8,7 +8,7 @@ use rtnetlink::{Handle, RouteMessageBuilder};
 use thiserror::Error;
 use tokio_stream::StreamExt as _;
 
-use crate::Rtnl;
+use crate::{Rtnl, retry};
 
 /// Route operation failures.
 #[derive(Debug, Error)]
@@ -73,6 +73,16 @@ pub(crate) async fn add_default_route(handle: &Handle, gateway: Ipv4Addr) -> Res
 }
 
 async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
+    retry::while_retriable(
+        || scan_default_route(handle, gateway),
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> {
     let mut routes = handle
         .route()
         .get(RouteMessageBuilder::<Ipv4Addr>::new().build())
@@ -88,6 +98,16 @@ async fn ensure_default_route(handle: &Handle, gateway: Ipv4Addr) -> Result<()> 
 }
 
 async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
+    retry::while_retriable(
+        || scan_default_route_v6(handle, gateway),
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
     let mut routes = handle
         .route()
         .get(RouteMessageBuilder::<Ipv6Addr>::new().build())
@@ -112,6 +132,16 @@ async fn ensure_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<(
 }
 
 async fn remove_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
+    retry::while_retriable(
+        || scan_remove_default_route_v6(handle, gateway),
+        is_dump_busy,
+        retry::DUMP_ATTEMPTS,
+        retry::DUMP_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn scan_remove_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<()> {
     let mut routes = handle
         .route()
         .get(RouteMessageBuilder::<Ipv6Addr>::new().build())
@@ -130,6 +160,10 @@ async fn remove_default_route_v6(handle: &Handle, gateway: Ipv6Addr) -> Result<(
         }
     }
     Ok(())
+}
+
+fn is_dump_busy(failure: &Failure) -> bool {
+    matches!(failure, Failure::List(inner) if retry::is_busy(inner))
 }
 
 fn extract_ipv4_gateway(attrs: &[RouteAttribute]) -> (bool, Option<Ipv4Addr>) {
