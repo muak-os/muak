@@ -13,5 +13,5 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
-ip = { workspace = true }
+ip = { workspace = true, features = ["v6"] }
 thiserror = { workspace = true }

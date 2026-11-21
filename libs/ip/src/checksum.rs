@@ -19,7 +19,7 @@ pub fn sum_chunks(chunks: &[&[u8]]) -> u16 {
 
 /// Adds the big-endian 16 bit words of `data` to `sum`.
 #[must_use = "callers need the accumulated sum"]
-pub(crate) fn accumulate(sum: u32, data: &[u8]) -> u32 {
+pub fn accumulate(sum: u32, data: &[u8]) -> u32 {
     let mut total = sum;
     let mut bytes = data.iter().copied();
     while let Some(high) = bytes.next() {
@@ -32,7 +32,7 @@ pub(crate) fn accumulate(sum: u32, data: &[u8]) -> u32 {
 
 /// Folds the carry bits of `sum` and returns the one's complement.
 #[must_use = "callers need the folded checksum"]
-pub(crate) fn finish(mut sum: u32) -> u16 {
+pub fn finish(mut sum: u32) -> u16 {
     while sum >> 16_u32 != 0 {
         sum = (sum & 0xFFFF).saturating_add(sum >> 16);
     }

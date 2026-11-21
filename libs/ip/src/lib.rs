@@ -1,9 +1,12 @@
-//! IPv4 and UDP header construction and parsing.
+//! IPv4 datagram framing and IPv6 upper-layer checksum helpers.
 
 #![warn(missing_docs)]
 
 pub mod checksum;
+#[cfg(feature = "v4")]
 pub mod v4;
+#[cfg(feature = "v6")]
+pub mod v6;
 
 use core::result::Result as CoreResult;
 

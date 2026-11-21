@@ -2,7 +2,7 @@
 
 use core::net::Ipv6Addr;
 
-use ip::checksum;
+use ip::v6;
 
 use super::ROUTER_SOLICITATION;
 
@@ -27,28 +27,12 @@ pub fn router_solicitation(source: Ipv6Addr, mac: &[u8; 6]) -> Vec<u8> {
         pkt.extend(mac);
     }
 
-    let checksum = checksum_with_pseudo_header(source, &pkt);
+    let checksum = v6::sum(source, ALL_ROUTERS, NEXT_HEADER_ICMPV6, &pkt);
     if let Some(field) = pkt.get_mut(2..4) {
         field.copy_from_slice(&checksum.to_be_bytes());
     }
 
     pkt
-}
-
-fn checksum_with_pseudo_header(source: Ipv6Addr, message: &[u8]) -> u16 {
-    let trailer = pseudo_trailer(message.len());
-
-    checksum::sum_chunks(&[&source.octets(), &ALL_ROUTERS.octets(), &trailer, message])
-}
-
-fn pseudo_trailer(message_len: usize) -> [u8; 8] {
-    let length = u32::try_from(message_len).unwrap_or(u32::MAX).to_be_bytes();
-    let mut trailer = [0_u8; 8];
-    let (length_field, tail) = trailer.split_at_mut(4);
-    length_field.copy_from_slice(&length);
-    tail.copy_from_slice(&[0, 0, 0, NEXT_HEADER_ICMPV6]);
-
-    trailer
 }
 
 #[cfg(test)]
@@ -115,11 +99,9 @@ mod tests {
         // ARRANGE
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
         let pkt = router_solicitation(source(), &mac);
-        let trailer = pseudo_trailer(pkt.len());
 
         // ACT
-        let total =
-            checksum::sum_chunks(&[&source().octets(), &ALL_ROUTERS.octets(), &trailer, &pkt]);
+        let total = v6::sum(source(), ALL_ROUTERS, NEXT_HEADER_ICMPV6, &pkt);
 
         // ASSERT
         assert_eq!(total, 0, "ICMPv6 checksum must validate to zero");
@@ -130,15 +112,9 @@ mod tests {
         // ARRANGE
         let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
         let pkt = router_solicitation(unspecified(), &mac);
-        let trailer = pseudo_trailer(pkt.len());
 
         // ACT
-        let total = checksum::sum_chunks(&[
-            &unspecified().octets(),
-            &ALL_ROUTERS.octets(),
-            &trailer,
-            &pkt,
-        ]);
+        let total = v6::sum(unspecified(), ALL_ROUTERS, NEXT_HEADER_ICMPV6, &pkt);
 
         // ASSERT
         assert_eq!(total, 0, "ICMPv6 checksum must validate to zero");

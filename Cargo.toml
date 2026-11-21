@@ -91,7 +91,7 @@ firmware = { path = "libs/firmware", default-features = false }
 fatfs = { path = "libs/fatfs" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
-ip = { path = "libs/ip" }
+ip = { path = "libs/ip", default-features = false }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
