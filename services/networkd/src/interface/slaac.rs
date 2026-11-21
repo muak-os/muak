@@ -37,6 +37,15 @@ pub(super) async fn start<N: Ops>(actor: &mut Actor<N>) {
     }
 }
 
+/// Re-runs solicitation on the existing manager, or starts one when absent.
+pub(super) async fn restart<N: Ops>(actor: &mut Actor<N>) {
+    if let Some(manager) = actor.slaac.as_mut() {
+        manager.resolicit();
+        return;
+    }
+    start(actor).await;
+}
+
 /// Reapplies the applied IPv6 configuration.
 pub(super) async fn reconcile<N: Ops>(actor: &mut Actor<N>) {
     if let Some(ipv6) = actor.snapshot.ipv6.clone() {

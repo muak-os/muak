@@ -145,6 +145,13 @@ impl Manager {
             None => next_monitoring_event(self).await,
         }
     }
+
+    /// Re-runs solicitation on the next `next_event` poll without dropping the
+    /// tracked address, router, DNS state or socket.
+    pub fn resolicit(&mut self) {
+        self.solicited = false;
+        self.solicitation_attempt = 0;
+    }
 }
 
 async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {

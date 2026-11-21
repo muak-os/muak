@@ -14,7 +14,7 @@ pub(super) async fn configure<N: Ops>(
     bridge_name: &str,
     stp: bool,
 ) -> Result<Snapshot> {
-    kmsg::info!(
+    kmsg::debug!(
         "Setting up bridge {} with port {}",
         bridge_name,
         actor.snapshot.name
@@ -23,7 +23,7 @@ pub(super) async fn configure<N: Ops>(
         .ops
         .ensure_bridge(bridge_name, actor.snapshot.name.as_str(), stp)
         .await?;
-    kmsg::info!(
+    kmsg::debug!(
         "Bridge setup complete: {} <- {}",
         bridge_name,
         actor.snapshot.name

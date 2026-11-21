@@ -12,7 +12,7 @@ use crate::interface::{dhcp, slaac};
 pub(super) async fn up<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
     actor.snapshot.link = State::Up;
     if actor.slaac_enabled {
-        slaac::start(actor).await;
+        slaac::restart(actor).await;
     }
     if !matches!(
         actor.snapshot.state,
