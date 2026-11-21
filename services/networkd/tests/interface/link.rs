@@ -71,13 +71,14 @@ async fn link_down_on_discovered_stays_discovered() {
 }
 
 #[tokio::test]
-async fn link_up_on_non_degraded_does_not_publish_snapshot() {
+async fn link_up_on_non_degraded_publishes_the_link_state() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth2", [0xCC; 6], false);
     let mut snapshot = make_snapshot(Name::new("eth2").expect("valid name"), idx, [0xCC; 6]);
     snapshot.link = State::Down;
     let handle = Actor::spawn(snapshot, mock, make_config());
+    let mut rx = handle.state_rx.clone();
 
     // ACT
     handle
@@ -86,15 +87,16 @@ async fn link_up_on_non_degraded_does_not_publish_snapshot() {
         .await
         .expect("send failed");
 
-    sleep(Duration::from_millis(50)).await;
-
     // ASSERT
-    let snap = handle.state_rx.borrow().clone();
+    rx.changed()
+        .await
+        .expect("the actor must publish the link-up");
+    let snap = rx.borrow().clone();
     assert_eq!(snap.state, Lifecycle::Discovered);
     assert_eq!(
         snap.link,
-        State::Down,
-        "link-up on non-degraded does not publish to watch"
+        State::Up,
+        "link-up must publish the new link state"
     );
 }
 

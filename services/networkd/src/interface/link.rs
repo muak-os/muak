@@ -15,6 +15,7 @@ pub(super) async fn up<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C
         actor.snapshot.state,
         Lifecycle::Degraded | Lifecycle::Failed
     ) {
+        actor.publish_snapshot();
         return;
     }
     if let Some(lease) = actor.snapshot.lease.clone() {
