@@ -69,6 +69,7 @@ mod tests {
             addresses: vec![(address, 24)],
             gateway: Some(gateway),
             dns: Vec::new(),
+            dhcp: false,
         };
         let mut handle = Interface::spawn(mock.clone(), link);
         let command = Command::Configure {
@@ -158,6 +159,7 @@ mod tests {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
             gateway: None,
             dns: Vec::new(),
+            dhcp: false,
         };
         let command = Command::Configure {
             v4: Some(config),

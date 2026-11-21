@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 pub mod connector;
+pub mod datagram;
 pub mod exchange;
 pub mod lease;
 

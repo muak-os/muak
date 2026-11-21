@@ -6,10 +6,9 @@ use core::net::Ipv4Addr;
 use std::time::SystemTime;
 
 use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, builder, message_type, xid};
-use ip::v4::{Addr, udp};
-use packet::v4::{ETH_BROADCAST, Socket};
-use tokio::net::UdpSocket;
+use ip::v4::Addr;
 
+use crate::datagram::Datagram;
 use crate::lease::Lease;
 use crate::{Failure, Result, Scratch};
 
@@ -21,7 +20,7 @@ use crate::{Failure, Result, Scratch};
 /// the server refuses the request, [`Failure::MissingServerId`] when the offer carries no server
 /// identifier, [`Failure::MissingAddress`] when a response carries no usable address, and any
 /// message, framing or socket failure of the exchange.
-pub async fn acquire(socket: &Socket, mac: [u8; 6], scratch: Scratch<'_>) -> Result<Lease> {
+pub async fn acquire<D: Datagram>(socket: &D, mac: [u8; 6], scratch: Scratch<'_>) -> Result<Lease> {
     let Scratch { msg, frame } = scratch;
     let xid = xid::generate()?;
 
@@ -72,8 +71,8 @@ pub async fn acquire(socket: &Socket, mac: [u8; 6], scratch: Scratch<'_>) -> Res
 ///
 /// Returns [`Failure::Timeout`] when the ACK does not arrive in time, [`Failure::Nak`] when the
 /// server refuses the renewal, and any message, framing or socket failure of the exchange.
-pub async fn renew(
-    socket: &UdpSocket,
+pub async fn renew<D: Datagram>(
+    socket: &D,
     mac: [u8; 6],
     server: Ipv4Addr,
     assigned: Ipv4Addr,
@@ -83,7 +82,7 @@ pub async fn renew(
     let xid = xid::generate()?;
 
     let request = builder::request(msg, xid, mac, assigned, builder::Mode::Unicast)?;
-    socket.send_to(request, (server, DHCP_SERVER_PORT)).await?;
+    send(socket, request, assigned, server, frame).await?;
 
     let (received, ack) = recv::ack(socket, frame, xid, server).await?;
     let assigned_ip = lease_address(received, Some(assigned))?;
@@ -97,8 +96,8 @@ pub async fn renew(
 ///
 /// Returns [`Failure::Timeout`] when the ACK does not arrive in time, [`Failure::Nak`] when the
 /// server refuses the rebind, and any message, framing or socket failure of the exchange.
-pub async fn rebind(
-    socket: &Socket,
+pub async fn rebind<D: Datagram>(
+    socket: &D,
     mac: [u8; 6],
     server: Ipv4Addr,
     assigned: Ipv4Addr,
@@ -124,8 +123,8 @@ fn lease_address(received: Ipv4Addr, fallback: Option<Ipv4Addr>) -> Result<Ipv4A
     fallback.ok_or(Failure::MissingAddress)
 }
 
-async fn send(
-    socket: &Socket,
+async fn send<D: Datagram>(
+    socket: &D,
     payload: &[u8],
     src_ip: Ipv4Addr,
     dst_ip: Ipv4Addr,
@@ -139,10 +138,8 @@ async fn send(
         ip: dst_ip,
         port: DHCP_SERVER_PORT,
     };
-    let wrapped = udp::wrap(payload, src, dst, frame)?;
-    socket.send_to(wrapped, ETH_BROADCAST).await?;
 
-    Ok(())
+    socket.send(payload, src, dst, frame).await
 }
 
 #[cfg(test)]
