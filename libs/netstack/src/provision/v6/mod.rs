@@ -1,5 +1,7 @@
 //! IPv6 address provisioning methods.
 
+pub mod slaac;
+
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::net::{IpAddr, Ipv6Addr};

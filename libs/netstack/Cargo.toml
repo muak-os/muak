@@ -12,7 +12,7 @@ categories.workspace = true
 [features]
 default = ["ipv4", "ipv6"]
 ipv4 = ["dep:dhcp-client"]
-ipv6 = []
+ipv6 = ["dep:packet", "packet/v6", "dep:slaac"]
 
 [dependencies]
 # Asynchronous
@@ -26,9 +26,11 @@ dhcp-client = { workspace = true, optional = true }
 kmsg = { workspace = true }
 netdev = { workspace = true }
 netlink = { workspace = true }
+packet = { workspace = true, optional = true }
+slaac = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

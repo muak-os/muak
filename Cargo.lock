@@ -1462,6 +1462,8 @@ dependencies = [
  "kmsg",
  "netdev",
  "netlink",
+ "packet",
+ "slaac",
  "thiserror 2.0.21",
  "tokio",
 ]
