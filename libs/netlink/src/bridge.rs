@@ -7,6 +7,7 @@ use rtnetlink::{Handle, LinkBridge};
 use thiserror::Error;
 
 use crate::link::Ops as _;
+use crate::link::device::Device;
 use crate::link::state::State;
 use crate::{Rtnl, link, retry};
 
@@ -66,6 +67,18 @@ impl Ops for Rtnl {
             .iter()
             .find(|device| device.name == port_name)
             .ok_or_else(|| Failure::Link(link::Failure::NotFound(port_name.to_owned())))?;
+
+        if let Some(bridge) = devices.iter().find(|device| device.name == bridge_name)
+            && is_attached(port, bridge, &devices)
+            && bridge.admin_up
+            && port.admin_up
+        {
+            return Ok(Bridge {
+                mac: bridge.mac,
+                link: carrier_state(port.carrier),
+            });
+        }
+
         let (br_index, created) =
             create_or_reconfigure_bridge(&self.handle, bridge_name, stp).await?;
 
@@ -87,14 +100,21 @@ impl Ops for Rtnl {
             link::handle::set_address(&self.handle, br_index, mac).await?;
         }
 
-        let link = if port.carrier {
-            State::Up
-        } else {
-            State::NoCarrier
-        };
+        let link = carrier_state(port.carrier);
 
         Ok(Bridge { mac, link })
     }
+}
+
+fn is_attached(port: &Device, bridge: &Device, devices: &[Device]) -> bool {
+    port.master == Some(bridge.index)
+        && !devices
+            .iter()
+            .any(|device| device.master == Some(bridge.index) && device.index != port.index)
+}
+
+fn carrier_state(carrier: bool) -> State {
+    if carrier { State::Up } else { State::NoCarrier }
 }
 
 async fn create_or_reconfigure_bridge(
@@ -176,4 +196,79 @@ async fn enslave_interface_to_bridge(
     let _result = link::handle::bring_up(handle, phys_index).await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_attached;
+    use crate::link::device::Device;
+
+    fn device(index: u32, name: &str, master: Option<u32>) -> Device {
+        Device {
+            index,
+            name: name.to_owned(),
+            mac: [0; 6],
+            is_virtual: false,
+            admin_up: true,
+            carrier: true,
+            master,
+        }
+    }
+
+    #[test]
+    fn is_attached_when_port_is_the_only_member() {
+        // ARRANGE
+        let port = device(2, "eth0", Some(1));
+        let bridge = device(1, "br0", None);
+        let devices = vec![bridge.clone(), port.clone()];
+
+        // ACT
+        let attached = is_attached(&port, &bridge, &devices);
+
+        // ASSERT
+        assert!(attached);
+    }
+
+    #[test]
+    fn is_attached_rejects_extra_member() {
+        // ARRANGE
+        let port = device(2, "eth0", Some(1));
+        let bridge = device(1, "br0", None);
+        let stray = device(3, "eth1", Some(1));
+        let devices = vec![bridge.clone(), port.clone(), stray];
+
+        // ACT
+        let attached = is_attached(&port, &bridge, &devices);
+
+        // ASSERT
+        assert!(!attached);
+    }
+
+    #[test]
+    fn is_attached_rejects_different_master() {
+        // ARRANGE
+        let port = device(2, "eth0", Some(4));
+        let bridge = device(1, "br0", None);
+        let devices = vec![bridge.clone(), port.clone(), device(3, "br1", None)];
+
+        // ACT
+        let attached = is_attached(&port, &bridge, &devices);
+
+        // ASSERT
+        assert!(!attached);
+    }
+
+    #[test]
+    fn is_attached_rejects_unattached_port() {
+        // ARRANGE
+        let port = device(2, "eth0", None);
+        let bridge = device(1, "br0", None);
+        let devices = vec![bridge.clone(), port.clone()];
+
+        // ACT
+        let attached = is_attached(&port, &bridge, &devices);
+
+        // ASSERT
+        assert!(!attached);
+    }
 }

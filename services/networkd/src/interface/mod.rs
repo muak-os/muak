@@ -34,6 +34,8 @@ pub struct Actor<N: Ops> {
     snapshot_tx: watch::Sender<Arc<Snapshot>>,
     dhcp: Option<Manager>,
     dhcp_enabled: bool,
+    slaac_enabled: bool,
+    slaac_attempted_at: Option<tokio::time::Instant>,
     timers: LeaseTimers,
     slaac: Option<SlaacManager>,
 }
@@ -79,6 +81,8 @@ impl<N: Ops> Actor<N> {
             snapshot_tx,
             dhcp: None,
             dhcp_enabled: false,
+            slaac_enabled: false,
+            slaac_attempted_at: None,
             timers: LeaseTimers::new(),
             slaac: None,
         };
@@ -118,6 +122,8 @@ impl<N: Ops> Actor<N> {
                 addresses,
                 gateway,
             } => {
+                self.slaac_enabled = false;
+                self.slaac = None;
                 r#static::apply_ipv6(self, index, &addresses, gateway, mode).await;
             }
             Command::ConfigureBridge {
@@ -127,7 +133,10 @@ impl<N: Ops> Actor<N> {
             } => {
                 drop(reply.send(bridge::configure(self, &bridge_name, stp).await));
             }
-            Command::ConfigureSlaac { mode } => slaac::apply(self, mode).await,
+            Command::ConfigureSlaac { mode } => {
+                self.slaac_enabled = true;
+                slaac::apply(self, mode).await;
+            }
             Command::LinkUp => link::up(self, connector).await,
             Command::LinkDown => link::down(self),
             Command::Shutdown => {

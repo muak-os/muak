@@ -47,6 +47,9 @@ pub(super) fn transition<N: Ops>(actor: &mut Actor<N>, next: DhcpState) {
         actor.snapshot.dhcp_state = Some(next);
         return;
     };
+    if *current == next {
+        return;
+    }
     if let Err(e) = current.transition(next) {
         kmsg::warn!(
             "DHCP state transition rejected on {}: {}",

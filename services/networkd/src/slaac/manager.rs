@@ -63,6 +63,7 @@ pub struct Manager {
     ifindex: u32,
     socket: AsyncFd<OwnedFd>,
     solicited: bool,
+    configured: bool,
     solicitation_attempt: u32,
     config: Arc<network::Config>,
 
@@ -109,6 +110,7 @@ impl Manager {
             ifindex,
             socket,
             solicited: false,
+            configured: false,
             solicitation_attempt: 0,
             config,
             address: None,
@@ -117,26 +119,33 @@ impl Manager {
         })
     }
 
-    /// Performs the initial RS/RA solicitation, then returns monitoring events.
+    /// Performs the initial RS/RA solicitation once, then keeps listening for events.
     ///
-    /// `solicited` is set only after `initial_solicitation` returns, on success and on
-    /// failure, so a completed failure is not retried. A future dropped before it
-    /// returns resumes from the attempt it had reached, and a manager therefore
-    /// never sends more than `MAX_RTR_SOLICITATIONS` router solicitations.
-    /// A cancellation shortens the remaining listening window, which is the accepted
-    /// cost of that bound.
+    /// A failed solicitation does not end the manager: it keeps listening so that a
+    /// router appearing later is picked up by its unsolicited advertisement. A future
+    /// dropped before it returns resumes from the attempt it had reached, and a
+    /// manager therefore never sends more than `MAX_RTR_SOLICITATIONS` router
+    /// solicitations. A cancellation shortens the remaining listening window, which
+    /// is the accepted cost of that bound.
     pub async fn next_event(&mut self) -> SlaacEvent {
         if self.solicited {
             return next_monitoring_event(self).await;
         }
         let event = match initial_solicitation(self).await {
-            Ok(event) => event,
-            Err(e) => SlaacEvent::Failed {
-                reason: e.to_string(),
-            },
+            Ok(event) => Some(event),
+            Err(e) => {
+                kmsg::info!(
+                    "SLAAC: initial solicitation on {} failed: {e}, continuing to listen",
+                    self.interface
+                );
+                None
+            }
         };
         self.solicited = true;
-        event
+        match event {
+            Some(event) => event,
+            None => next_monitoring_event(self).await,
+        }
     }
 }
 
@@ -147,7 +156,12 @@ async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {
 
         let event = match timeout(remaining, try_recv_ra(manager)).await {
             Ok(Ok(Some(ra))) => process_unsolicited_ra(manager, &ra),
-            Ok(Ok(None) | Err(_)) => None,
+            Ok(Ok(None)) => None,
+            Ok(Err(e)) => {
+                return SlaacEvent::Failed {
+                    reason: e.to_string(),
+                };
+            }
             Err(_) => handle_timer_expiration(manager),
         };
 
@@ -155,7 +169,11 @@ async fn next_monitoring_event(manager: &mut Manager) -> SlaacEvent {
             return e;
         }
 
-        if manager.address.is_none() && manager.router.is_none() {
+        if is_expired(
+            manager.configured,
+            manager.address.is_some(),
+            manager.router.is_some(),
+        ) {
             return SlaacEvent::Failed {
                 reason: "all IPv6 configuration expired".to_owned(),
             };
@@ -334,6 +352,7 @@ fn process_initial_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Result
     );
 
     let prefix_len = managed_addr.prefix_len;
+    manager.configured = true;
     manager.address = Some(managed_addr);
     manager.router = Some(managed_router);
     manager.dns_servers = dns_servers;
@@ -368,12 +387,17 @@ fn process_unsolicited_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Op
         return None;
     }
 
+    if manager.address.is_none() || manager.router.is_none() {
+        return process_initial_ra(manager, ra).ok();
+    }
+
     if let Some(router) = manager.router.as_mut()
         && router.value == ra.source
     {
         router.refresh_lifetime(u64::from(ra.router_lifetime));
     }
 
+    manager.configured = true;
     refresh_address_from_ra(manager, ra);
 
     if !ra.dns_servers.is_empty() {
@@ -386,6 +410,10 @@ fn process_unsolicited_ra(manager: &mut Manager, ra: &RouterAdvertisement) -> Op
     }
 
     None
+}
+
+fn is_expired(configured: bool, has_address: bool, has_router: bool) -> bool {
+    configured && !has_address && !has_router
 }
 
 fn handle_timer_expiration(manager: &mut Manager) -> Option<SlaacEvent> {
@@ -576,6 +604,25 @@ mod tests {
 
         // ASSERT
         assert_eq!(reason, expected);
+    }
+
+    #[test]
+    fn expiry_requires_previous_configuration() {
+        // ARRANGE
+        let cases = [
+            (false, false, false),
+            (true, false, false),
+            (true, true, false),
+            (true, false, true),
+        ];
+
+        // ACT
+        let results = cases.map(|(configured, has_address, has_router)| {
+            is_expired(configured, has_address, has_router)
+        });
+
+        // ASSERT
+        assert_eq!(results, [false, true, false, false]);
     }
 
     #[tokio::test(start_paused = true)]

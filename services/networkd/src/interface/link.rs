@@ -5,12 +5,15 @@ use netdev::Ops;
 use netlink::link::state::State;
 
 use super::Actor;
-use crate::interface::dhcp;
 use crate::interface::lifecycle::Lifecycle;
+use crate::interface::{dhcp, slaac};
 
 /// Handles a link-up event on this interface.
 pub(super) async fn up<N: Ops, C: Connector>(actor: &mut Actor<N>, connector: &C) {
     actor.snapshot.link = State::Up;
+    if actor.slaac_enabled {
+        slaac::start(actor).await;
+    }
     if !matches!(
         actor.snapshot.state,
         Lifecycle::Degraded | Lifecycle::Failed
