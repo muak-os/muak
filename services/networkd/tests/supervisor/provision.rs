@@ -7,9 +7,34 @@ use config::system::network;
 use networkd::dns::Resolver;
 use networkd::supervisor;
 use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
-use super::{MockNetlinkOps, config_bridge};
+use super::{MockNetlinkOps, config_bridge, ipv4_addrs, link_index, master_index};
+
+/// Asserts that the configured static IPv4 landed on `br0` and not on its port.
+fn assert_l3_on_bridge(mock: &MockNetlinkOps) {
+    let br_index = link_index(mock, "br0").expect("bridge should exist");
+    let eth_index = link_index(mock, "eth0").expect("port should exist");
+
+    assert_eq!(
+        master_index(mock, "eth0"),
+        Some(br_index),
+        "port should be attached to the bridge"
+    );
+    assert_eq!(
+        mock.mac("br0"),
+        Some([0xAA; 6]),
+        "bridge should inherit the port MAC"
+    );
+    assert!(
+        ipv4_addrs(mock, br_index).contains(&(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)),
+        "static IPv4 should land on the bridge"
+    );
+    assert!(
+        ipv4_addrs(mock, eth_index).is_empty(),
+        "the port must not carry L3 addresses"
+    );
+}
 
 fn config_static_ipv4() -> Arc<network::Config> {
     let mut cfg = network::Config::default();
@@ -382,10 +407,12 @@ async fn provision_bridge_with_auto_port() {
     mock.add_link("eth0", [0xAA; 6], true);
 
     let (_event_tx, event_rx) = mpsc::channel(32);
-    let handle = supervisor::start_with(mock, event_rx, config_bridge(), Resolver::default());
+    let handle =
+        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default());
 
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -393,6 +420,7 @@ async fn provision_bridge_with_auto_port() {
         result.expect("timeout").is_ok(),
         "initialization should succeed with bridge config"
     );
+    assert_l3_on_bridge(&mock);
 }
 
 #[tokio::test]
@@ -403,7 +431,7 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
 
     let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
-        mock,
+        mock.clone(),
         event_rx,
         config_bridge_multiport(),
         Resolver::default(),
@@ -411,6 +439,7 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
 
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -418,6 +447,7 @@ async fn provision_bridge_multiport_warns_and_uses_first_port() {
         result.expect("timeout").is_ok(),
         "initialization should succeed with multi-port bridge config"
     );
+    assert_l3_on_bridge(&mock);
 }
 
 #[tokio::test]
@@ -428,7 +458,7 @@ async fn provision_bridge_named_port_resolves_by_name() {
 
     let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
-        mock,
+        mock.clone(),
         event_rx,
         config_bridge_named_port(),
         Resolver::default(),
@@ -436,6 +466,7 @@ async fn provision_bridge_named_port_resolves_by_name() {
 
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -443,6 +474,7 @@ async fn provision_bridge_named_port_resolves_by_name() {
         result.expect("timeout").is_ok(),
         "initialization should succeed with named bridge port"
     );
+    assert_l3_on_bridge(&mock);
 }
 
 #[tokio::test]
@@ -453,7 +485,7 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
 
     let (_event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(
-        mock,
+        mock.clone(),
         event_rx,
         config_bridge_empty_port(),
         Resolver::default(),
@@ -461,6 +493,7 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
 
     // ACT
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert!(result.is_ok(), "should not time out");
@@ -468,4 +501,5 @@ async fn provision_bridge_empty_port_falls_back_to_primary() {
         result.expect("timeout").is_ok(),
         "initialization should succeed when bridge port list is empty"
     );
+    assert_l3_on_bridge(&mock);
 }

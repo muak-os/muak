@@ -8,7 +8,6 @@ use netlink::link::state::State;
 use network::{BridgeConfig, InterfaceConfig, InterfaceKind};
 
 use super::{NetworkSupervisor, dns, provision};
-use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
@@ -45,33 +44,30 @@ pub(super) async fn run<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
     dns::flush(supervisor);
 }
 
-/// Reapplies an Ethernet interface intent when the port still owns the configuration.
+/// Reapplies an Ethernet interface intent on the owner that holds L3.
 async fn ethernet<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     iface_cfg: &InterfaceConfig,
 ) -> Result<ReconcileDisposition> {
     let iface_name = provision::resolve_name(supervisor, &iface_cfg.name)?;
-    let Some(actor_handle) = supervisor.interfaces.get(&iface_name) else {
+    if !supervisor.interfaces.contains_key(&iface_name) {
         return Ok(ReconcileDisposition::Skipped(format!(
             "interface '{iface_name}' is not known at runtime"
         )));
-    };
-
-    if is_bridge_owned(actor_handle) {
-        return Ok(ReconcileDisposition::Skipped(format!(
-            "interface '{iface_name}' is bridge-owned by {}",
-            actor_handle.state_rx.borrow().l3_owner
-        )));
     }
 
+    let target = provision::resolve_owner(supervisor, &iface_name);
+
     println!("Reconciling ethernet interface: {iface_name}");
-    let index = supervisor.ops.ensure_up(iface_name.as_str()).await?;
+    supervisor.ops.ensure_up(iface_name.as_str()).await?;
 
     if let Some(ipv4_cfg) = iface_cfg.ipv4.as_ref() {
-        ipv4(supervisor, &iface_name, index, ipv4_cfg).await?;
+        let index = provision::actor_index(supervisor, &target)?;
+        ipv4(supervisor, &target, index, ipv4_cfg).await?;
     }
 
     if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
+        let index = provision::actor_index(supervisor, &iface_name)?;
         ipv6(supervisor, &iface_name, index, ipv6_cfg).await?;
     }
 
@@ -101,20 +97,45 @@ async fn bridge<N: Ops>(
         kmsg::info!("Reconciling bridge interface: {}", bridge_name);
         let bridge_snapshot = bridge_snapshot(supervisor, &bridge_name, &bridge_cfg).await?;
         provision::respawn_actor(supervisor, bridge_snapshot).await;
+        own_addresses(supervisor, iface_cfg, &bridge_name).await?;
 
         return Ok(ReconcileDisposition::Applied);
     }
 
     let Some(port_iface_name) = ready_bridge_port(supervisor, &bridge_cfg) else {
         return Ok(ReconcileDisposition::Skipped(
-            "bridge port is not configured with a lease".to_owned(),
+            "bridge port is not ready".to_owned(),
         ));
     };
 
     println!("Reconciling bridge interface: {bridge_name} via port {port_iface_name}");
     provision::bridge(supervisor, bridge_name.as_str(), &bridge_cfg).await?;
+    own_addresses(supervisor, iface_cfg, &bridge_name).await?;
 
     Ok(ReconcileDisposition::Applied)
+}
+
+/// Reapplies the address intent declared on the bridge entry to the bridge itself.
+async fn own_addresses<N: Ops>(
+    supervisor: &mut NetworkSupervisor<N>,
+    iface_cfg: &InterfaceConfig,
+    bridge_name: &Name,
+) -> Result<()> {
+    if iface_cfg.ipv4.is_none() && iface_cfg.ipv6.is_none() {
+        return Ok(());
+    }
+
+    let index = provision::actor_index(supervisor, bridge_name)?;
+
+    if let Some(ipv4_cfg) = iface_cfg.ipv4.as_ref() {
+        ipv4(supervisor, bridge_name, index, ipv4_cfg).await?;
+    }
+
+    if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
+        ipv6(supervisor, bridge_name, index, ipv6_cfg).await?;
+    }
+
+    Ok(())
 }
 
 /// Reapplies bridge configuration and returns the refreshed bridge snapshot.
@@ -129,13 +150,11 @@ async fn bridge_snapshot<N: Ops>(
         .ok_or_else(|| anyhow::anyhow!("bridge interface '{bridge_name}' not found"))?;
     let bridge_snapshot = bridge_handle.state_rx.borrow().clone();
     let (port_iface_name, _) = provision::bridge_port_handle(supervisor, bridge_cfg)?;
-    let gateway = bridge_snapshot.ip.as_ref().and_then(|ip| ip.gateway);
-    supervisor
+    let mac = supervisor
         .ops
         .ensure_bridge(
             bridge_name.as_str(),
             port_iface_name.as_str(),
-            gateway,
             bridge_cfg.stp,
         )
         .await?;
@@ -146,7 +165,7 @@ async fn bridge_snapshot<N: Ops>(
         name: bridge_name.clone(),
         state: Lifecycle::Configured,
         index,
-        mac: bridge_snapshot.mac,
+        mac,
         link: State::Up,
         ip: bridge_snapshot.ip.clone(),
         lease: bridge_snapshot.lease.clone(),
@@ -252,16 +271,9 @@ fn ready_bridge_port<N: Ops>(
         return None;
     };
     let snap = state_rx.borrow();
-    if snap.state == Lifecycle::Configured && snap.lease.is_some() {
+    if snap.link == State::Up {
         return Some(port_iface_name);
     }
 
     None
-}
-
-/// Returns true when a bridge actor already owns the port actor's lease and address state.
-fn is_bridge_owned(handle: &ActorHandle) -> bool {
-    let snap = handle.state_rx.borrow();
-
-    snap.l3_owner != snap.name
 }

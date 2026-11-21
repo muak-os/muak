@@ -389,41 +389,41 @@ impl bridge::Ops for MockNetlinkOps {
     fn ensure_bridge(
         &self,
         bridge_name: &str,
-        _physical_iface: &str,
-        _gateway: Option<Ipv4Addr>,
+        port_name: &str,
         _stp: bool,
-    ) -> impl Future<Output = bridge::Result<()>> {
+    ) -> impl Future<Output = bridge::Result<[u8; 6]>> {
         let mut state = self.lock();
-        let index = state.next_index;
-        state.next_index = state.next_index.saturating_add(1);
-        state.links.insert(
-            bridge_name.to_owned(),
-            MockLink {
-                index,
-                mac: [0xBE, 0xEF, 0x00, 0x00, 0x00, 0x01],
-                up: true,
-                master_index: None,
-            },
-        );
+        let port_mac = state.links.get(port_name).map_or([0; 6], |link| link.mac);
+        let bridge_index = if let Some(link) = state.links.get(bridge_name) {
+            link.index
+        } else {
+            let index = state.next_index;
+            state.next_index = state.next_index.saturating_add(1);
+            state.links.insert(
+                bridge_name.to_owned(),
+                MockLink {
+                    index,
+                    mac: port_mac,
+                    up: true,
+                    master_index: None,
+                },
+            );
 
-        std::future::ready(Ok(()))
-    }
+            index
+        };
 
-    fn attach_to_bridge(
-        &self,
-        iface_name: &str,
-        bridge_name: &str,
-    ) -> impl Future<Output = bridge::Result<()>> {
-        let bridge_index = self
-            .lock()
-            .links
-            .get(bridge_name)
-            .map_or(0, |link| link.index);
-        if let Some(link) = self.lock().links.get_mut(iface_name) {
+        clear_bridge_ports(&mut state.links, bridge_index, port_name);
+
+        if let Some(link) = state.links.get_mut(port_name) {
             link.master_index = Some(bridge_index);
         }
 
-        std::future::ready(Ok(()))
+        let mac = state
+            .links
+            .get(bridge_name)
+            .map_or(port_mac, |link| link.mac);
+
+        std::future::ready(Ok(mac))
     }
 }
 
@@ -449,6 +449,22 @@ impl netdev::Ops for MockNetlinkOps {}
 
 fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
+}
+
+/// Detaches every port except `port_name` from the given bridge.
+fn clear_bridge_ports(links: &mut HashMap<String, MockLink>, bridge_index: u32, port_name: &str) {
+    let mut names: Vec<String> = links.keys().cloned().collect();
+    names.sort();
+    for name in names {
+        if name.as_str() != port_name
+            && links
+                .get(&name)
+                .is_some_and(|link| link.master_index == Some(bridge_index))
+            && let Some(link) = links.get_mut(&name)
+        {
+            link.master_index = None;
+        }
+    }
 }
 
 /// Builds an `Ethernet` snapshot from a mock link.

@@ -75,6 +75,38 @@ fn config_dhcp_named() -> Arc<network::Config> {
     Arc::new(cfg)
 }
 
+/// Returns a bridge config whose L3 intent is declared on the bridge entry.
+fn config_bridge_l3_on_bridge() -> Arc<network::Config> {
+    let mut cfg = network::Config::default();
+    cfg.dns.clear();
+    cfg.interfaces.clear();
+    cfg.interfaces.push(network::InterfaceConfig {
+        name: "eth0".to_owned(),
+        kind: network::InterfaceKind::Ethernet,
+        ipv4: None,
+        ipv6: None,
+        bridge: None,
+    });
+    cfg.interfaces.push(network::InterfaceConfig {
+        name: "br0".to_owned(),
+        kind: network::InterfaceKind::Bridge,
+        ipv4: Some(network::Ipv4InterfaceConfig {
+            dhcp: false,
+            addresses: vec![network::Cidr4 {
+                address: core::net::Ipv4Addr::new(10, 0, 0, 2),
+                prefix: 24,
+            }],
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
+        }),
+        ipv6: None,
+        bridge: Some(network::BridgeConfig {
+            port: vec!["eth0".to_owned()],
+            stp: false,
+        }),
+    });
+    Arc::new(cfg)
+}
+
 /// Returns a bridge config that targets an unresolved named port.
 fn config_bridge_missing_port() -> Arc<network::Config> {
     let mut cfg = network::Config::default();
@@ -252,47 +284,94 @@ async fn reconcile_named_missing_interface_is_non_fatal() {
 }
 
 #[tokio::test]
-async fn reconcile_refreshes_unconfigured_bridge() {
+async fn reconcile_recreates_missing_bridge() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
-    let br0_index = mock.add_link("br0", [0xBB; 6], true);
 
     let (event_tx, event_rx) = mpsc::channel(32);
-    let handle =
-        supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default());
+    let handle = supervisor::start_with(
+        mock.clone(),
+        event_rx,
+        config_bridge_l3_on_bridge(),
+        Resolver::default(),
+    );
     handle.initialize_with_retry().await.expect("init failed");
-    assert_eq!(mock.ensure_bridge_calls(), 0, "no bridge should exist yet");
+    sleep(Duration::from_millis(100)).await;
+    let br0_index = link_index(&mock, "br0").expect("bridge should exist");
+    let ensure_calls = mock.ensure_bridge_calls();
+    assert!(ensure_calls >= 1, "provisioning should create the bridge");
 
-    // ACT
+    mock.remove_link("br0");
     event_tx
-        .send(Event::Added {
+        .send(Event::Deleted {
             name: Name::new("br0").expect("valid bridge name"),
             index: br0_index,
-            mac: [0xBB; 6],
         })
         .await
         .expect("send failed");
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(100)).await;
 
+    // ACT
     handle.reconcile().await.expect("reconcile failed");
     sleep(Duration::from_millis(100)).await;
 
     // ASSERT
     assert_eq!(
         mock.ensure_bridge_calls(),
-        1,
-        "unconfigured bridge should be refreshed"
+        ensure_calls + 1,
+        "missing bridge should be recreated"
     );
-    assert_eq!(
-        link_index(&mock, "br0"),
-        Some(br0_index),
-        "bridge index should be unchanged"
-    );
+    let new_index = link_index(&mock, "br0").expect("bridge should be recreated");
+    assert_ne!(new_index, br0_index, "recreated bridge needs a new index");
     assert_eq!(
         master_index(&mock, "eth0"),
-        Some(br0_index),
-        "port should be attached to the bridge"
+        Some(new_index),
+        "port should be attached to the recreated bridge"
+    );
+    assert!(
+        ipv4_addrs(&mock, new_index).contains(&(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)),
+        "L3 intent should be reapplied to the recreated bridge"
+    );
+}
+
+#[tokio::test]
+async fn reconcile_reapplies_bridge_own_ipv4() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(
+        mock.clone(),
+        event_rx,
+        config_bridge_l3_on_bridge(),
+        Resolver::default(),
+    );
+    handle.initialize_with_retry().await.expect("init failed");
+    sleep(Duration::from_millis(100)).await;
+    let br0_index = link_index(&mock, "br0").expect("bridge should exist");
+
+    mock.remove_ipv4(br0_index, core::net::Ipv4Addr::new(10, 0, 0, 2))
+        .await
+        .expect("remove failed");
+    event_tx
+        .send(Event::Deleted {
+            name: Name::new("br0").expect("valid bridge name"),
+            index: br0_index,
+        })
+        .await
+        .expect("send failed");
+    sleep(Duration::from_millis(100)).await;
+
+    // ACT
+    handle.reconcile().await.expect("reconcile failed");
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    assert!(
+        ipv4_addrs(&mock, br0_index).contains(&(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)),
+        "bridge entry intent should be reapplied to the bridge"
     );
 }
 
@@ -301,28 +380,17 @@ async fn reconcile_skips_configured_bridge() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     mock.add_link("eth0", [0xAA; 6], true);
-    let br0_index = mock.add_link("br0", [0xBB; 6], true);
 
-    let (event_tx, event_rx) = mpsc::channel(32);
+    let (_event_tx, event_rx) = mpsc::channel(32);
     let handle =
         supervisor::start_with(mock.clone(), event_rx, config_bridge(), Resolver::default());
     handle.initialize_with_retry().await.expect("init failed");
-
-    event_tx
-        .send(Event::Added {
-            name: Name::new("br0").expect("valid bridge name"),
-            index: br0_index,
-            mac: [0xBB; 6],
-        })
-        .await
-        .expect("send failed");
-    sleep(Duration::from_millis(200)).await;
-    handle.reconcile().await.expect("reconcile failed");
     sleep(Duration::from_millis(100)).await;
+    let br0_index = link_index(&mock, "br0").expect("bridge should exist");
     let ensure_calls = mock.ensure_bridge_calls();
     assert_eq!(
         ensure_calls, 1,
-        "first reconcile should configure the bridge"
+        "provisioning should create the bridge once"
     );
 
     // ACT
@@ -344,5 +412,9 @@ async fn reconcile_skips_configured_bridge() {
         master_index(&mock, "eth0"),
         Some(br0_index),
         "port should remain attached to the bridge"
+    );
+    assert!(
+        ipv4_addrs(&mock, br0_index).contains(&(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)),
+        "L3 intent should remain on the bridge"
     );
 }

@@ -6,32 +6,23 @@ use netlink::link::ifname::Name;
 use netlink::link::state::State;
 
 use super::Actor;
-use super::lifecycle::DhcpState;
 use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
 
-/// Creates the bridge device, transfers the IP from this port, and returns the bridge snapshot.
+/// Creates the bridge device that owns this port and returns the bridge snapshot.
 pub(super) async fn configure<N: Ops>(
     actor: &mut Actor<N>,
     bridge_name: &str,
     stp: bool,
 ) -> Result<Snapshot> {
-    let lease = actor
-        .snapshot
-        .lease
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("no DHCP lease on {}", actor.snapshot.name))?;
-    let mac = actor.snapshot.mac;
-    let gateway = actor.snapshot.ip.as_ref().and_then(|ip| ip.gateway);
-
     kmsg::info!(
         "Setting up bridge {} with port {}",
         bridge_name,
         actor.snapshot.name
     );
-    actor
+    let mac = actor
         .ops
-        .ensure_bridge(bridge_name, actor.snapshot.name.as_str(), gateway, stp)
+        .ensure_bridge(bridge_name, actor.snapshot.name.as_str(), stp)
         .await?;
     kmsg::info!(
         "Bridge setup complete: {} <- {}",
@@ -42,22 +33,20 @@ pub(super) async fn configure<N: Ops>(
     actor.timers.disarm();
 
     let index = actor.ops.index(bridge_name).await?;
-    let ip = actor.snapshot.ip.clone();
     let br_iface_name =
         Name::new(bridge_name).with_context(|| format!("invalid bridge name: {bridge_name}"))?;
 
     let bridge_snapshot = Snapshot {
-        name: br_iface_name,
-        state: Lifecycle::Configured,
+        name: br_iface_name.clone(),
+        state: Lifecycle::Discovered,
         index,
         mac,
         link: State::Up,
-        ip,
-        lease: Some(lease),
-        dhcp_state: Some(DhcpState::Bound),
+        ip: None,
+        lease: None,
+        dhcp_state: None,
         ipv6: None,
-        l3_owner: Name::new(bridge_name)
-            .with_context(|| format!("invalid bridge name: {bridge_name}"))?,
+        l3_owner: br_iface_name,
     };
 
     let snapshot = &mut actor.snapshot;
@@ -65,9 +54,6 @@ pub(super) async fn configure<N: Ops>(
     snapshot.lease = None;
     snapshot.dhcp_state = None;
     snapshot.l3_owner = bridge_snapshot.name.clone();
-
-    actor.set_state(Lifecycle::Deconfiguring);
-    actor.set_state(Lifecycle::Discovered);
     actor.publish_snapshot();
 
     Ok(bridge_snapshot)

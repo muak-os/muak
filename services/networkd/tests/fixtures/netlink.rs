@@ -72,6 +72,35 @@ impl MockNetlinkOps {
         self.lock().links.get(name).map(|link| link.mac)
     }
 
+    /// Returns the master index recorded for a named link.
+    #[must_use = "the test asserts on the recorded master index"]
+    pub(crate) fn master_index(&self, name: &str) -> Option<u32> {
+        self.lock()
+            .links
+            .get(name)
+            .and_then(|link| link.master_index)
+    }
+
+    /// Enslaves a named port to a named bridge in the mock.
+    pub(crate) fn enslave(&self, port: &str, bridge: &str) {
+        let mut state = self.lock();
+        let Some(bridge_index) = state.links.get(bridge).map(|link| link.index) else {
+            return;
+        };
+        if let Some(link) = state.links.get_mut(port) {
+            link.master_index = Some(bridge_index);
+        }
+    }
+
+    /// Removes a link from the mock by name, as the kernel would.
+    pub(crate) fn remove_link(&self, name: &str) {
+        let mut state = self.lock();
+        let Some(index) = state.links.get(name).map(|link| link.index) else {
+            return;
+        };
+        drop_link(&mut state, index);
+    }
+
     /// Adds a link with a deterministic index.
     pub(crate) fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
         let mut state = self.lock();
@@ -219,10 +248,7 @@ impl link::Ops for MockNetlinkOps {
     }
 
     fn delete(&self, index: u32) -> impl Future<Output = link::Result<()>> {
-        let mut state = self.lock();
-        state.links.retain(|_, link| link.index != index);
-        state.ipv4_addrs.remove(&index);
-        state.ipv6_addrs.remove(&index);
+        drop_link(&mut self.lock(), index);
 
         std::future::ready(Ok(()))
     }
@@ -347,12 +373,12 @@ impl bridge::Ops for MockNetlinkOps {
     fn ensure_bridge(
         &self,
         bridge_name: &str,
-        physical_iface: &str,
-        _gateway: Option<Ipv4Addr>,
+        port_name: &str,
         _stp: bool,
-    ) -> impl Future<Output = bridge::Result<()>> {
+    ) -> impl Future<Output = bridge::Result<[u8; 6]>> {
         let mut state = self.lock();
         state.ensure_bridge_calls = state.ensure_bridge_calls.saturating_add(1);
+        let port_mac = state.links.get(port_name).map_or([0; 6], |link| link.mac);
         let bridge_index = if let Some(link) = state.links.get(bridge_name) {
             link.index
         } else {
@@ -362,7 +388,7 @@ impl bridge::Ops for MockNetlinkOps {
                 bridge_name.to_owned(),
                 MockLink {
                     index,
-                    mac: [0; 6],
+                    mac: port_mac,
                     up: true,
                     master_index: None,
                 },
@@ -371,23 +397,18 @@ impl bridge::Ops for MockNetlinkOps {
             index
         };
 
-        if let Some(link) = state.links.get_mut(physical_iface) {
+        clear_bridge_ports(&mut state.links, bridge_index, port_name);
+
+        if let Some(link) = state.links.get_mut(port_name) {
             link.master_index = Some(bridge_index);
         }
 
-        std::future::ready(Ok(()))
-    }
+        let mac = state
+            .links
+            .get(bridge_name)
+            .map_or(port_mac, |link| link.mac);
 
-    async fn attach_to_bridge(&self, iface_name: &str, bridge_name: &str) -> bridge::Result<()> {
-        let bridge_index = link::Ops::index(self, bridge_name).await?;
-        link::Ops::set_master(
-            self,
-            link::Ops::index(self, iface_name).await?,
-            bridge_index,
-        )
-        .await?;
-
-        Ok(())
+        std::future::ready(Ok(mac))
     }
 }
 
@@ -416,6 +437,29 @@ fn to_ethernet(name: Name, link: &MockLink) -> Ethernet {
     Ethernet::new(name, link.index, link.mac, link_state_kind(link.up))
 }
 
+/// Drops a link and its addresses from the mock state.
+fn drop_link(state: &mut MockInner, index: u32) {
+    state.links.retain(|_, link| link.index != index);
+    state.ipv4_addrs.remove(&index);
+    state.ipv6_addrs.remove(&index);
+}
+
+/// Detaches every port except `port_name` from the given bridge.
+fn clear_bridge_ports(links: &mut HashMap<String, MockLink>, bridge_index: u32, port_name: &str) {
+    let mut names: Vec<String> = links.keys().cloned().collect();
+    names.sort();
+    for name in names {
+        if name.as_str() != port_name
+            && links
+                .get(&name)
+                .is_some_and(|link| link.master_index == Some(bridge_index))
+            && let Some(link) = links.get_mut(&name)
+        {
+            link.master_index = None;
+        }
+    }
+}
+
 /// Returns the link state for the requested carrier flag.
 fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
@@ -439,5 +483,32 @@ mod tests {
 
         // ASSERT
         assert_eq!(mock.mac("eth0"), Some(mac));
+    }
+
+    #[tokio::test]
+    async fn ensure_bridge_detaches_previously_enslaved_port() {
+        // ARRANGE
+        let mock = MockNetlinkOps::new();
+        let _eth0 = mock.add_link("eth0", [0xAA; 6], true);
+        let _eth1 = mock.add_link("eth1", [0xBB; 6], true);
+        let br0_index = mock.add_link("br0", [0xCC; 6], true);
+        mock.enslave("eth1", "br0");
+
+        // ACT
+        netlink::bridge::Ops::ensure_bridge(&mock, "br0", "eth0", false)
+            .await
+            .expect("ensure bridge");
+
+        // ASSERT
+        assert_eq!(
+            mock.master_index("eth0"),
+            Some(br0_index),
+            "port should be attached"
+        );
+        assert_eq!(
+            mock.master_index("eth1"),
+            None,
+            "other port should be detached"
+        );
     }
 }

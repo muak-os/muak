@@ -1,6 +1,6 @@
 //! Link operations executed against a shared netlink connection handle.
 
-use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
+use rtnetlink::packet_route::link::{LinkFlags, LinkMessage};
 use rtnetlink::{Handle, LinkUnspec};
 use tokio_stream::StreamExt as _;
 
@@ -80,7 +80,7 @@ pub(crate) async fn set_master(handle: &Handle, slave_index: u32, master_index: 
 pub(crate) async fn detach(handle: &Handle, index: u32) -> Result<()> {
     handle
         .link()
-        .set(LinkUnspec::new_with_index(index).controller(0).build())
+        .set(LinkUnspec::new_with_index(index).nocontroller().build())
         .execute()
         .await
         .map_err(Failure::SetMaster)
@@ -118,13 +118,8 @@ pub(crate) async fn master_index(handle: &Handle, index: u32) -> Result<Option<u
         .await
         .map_err(Failure::Query)?
         .ok_or_else(|| Failure::NotFound(format!("index {index}")))?;
-    for attr in &link.attributes {
-        if let &LinkAttribute::Controller(master) = attr {
-            return Ok(Some(master));
-        }
-    }
 
-    Ok(None)
+    Ok(super::device::extract_master(&link))
 }
 
 /// Checks whether a link with the given name exists, mapping a missing link to `false`.

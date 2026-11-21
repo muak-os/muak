@@ -69,7 +69,9 @@ pub fn extract_name(link: &LinkMessage) -> Option<String> {
 #[must_use = "callers need the master index to detect enslaved links"]
 pub fn extract_master(link: &LinkMessage) -> Option<u32> {
     for attr in &link.attributes {
-        if let &LinkAttribute::Controller(master) = attr {
+        if let &LinkAttribute::Controller(master) = attr
+            && master != 0
+        {
             return Some(master);
         }
     }
@@ -161,6 +163,18 @@ mod tests {
 
         // ASSERT
         assert_eq!(master, Some(7));
+    }
+
+    #[test]
+    fn extract_master_returns_none_for_zero_controller() {
+        // ARRANGE
+        let link = link_with_attributes(vec![LinkAttribute::Controller(0)]);
+
+        // ACT
+        let master = extract_master(&link);
+
+        // ASSERT
+        assert!(master.is_none());
     }
 
     #[test]

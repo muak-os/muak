@@ -5,10 +5,8 @@ use core::time::Duration;
 use std::time::SystemTime;
 
 use ::dhcp_client::lease::Lease;
-use config::system::network;
 use netlink::address::IpConfig;
 use netlink::link::state::State;
-use networkd::interface::commands::ApplyMode;
 use networkd::interface::lifecycle::DhcpState;
 use tokio::sync::oneshot;
 
@@ -76,19 +74,21 @@ async fn bridge_configuration_creates_bridge_and_returns_snapshot() {
 
     // ASSERT
     assert_eq!(bridge_snap.name, "br0");
-    assert_eq!(bridge_snap.state, Lifecycle::Configured);
+    assert_eq!(bridge_snap.state, Lifecycle::Discovered);
     assert_eq!(bridge_snap.link, State::Up);
-    assert!(bridge_snap.lease.is_some());
-    assert_eq!(bridge_snap.dhcp_state, Some(DhcpState::Bound));
     assert_eq!(bridge_snap.l3_owner, bridge_snap.name);
-    assert_eq!(
-        bridge_snap.ip.as_ref().expect("ip").address,
-        Ipv4Addr::new(192, 168, 1, 100)
+    assert_eq!(bridge_snap.mac, [0xAA; 6], "bridge inherits the port MAC");
+    assert!(bridge_snap.ip.is_none(), "bridge starts without an IP");
+    assert!(bridge_snap.lease.is_none(), "bridge starts without a lease");
+    assert!(
+        bridge_snap.dhcp_state.is_none(),
+        "bridge starts without DHCP state"
     );
+    assert!(bridge_snap.ipv6.is_none(), "bridge starts without IPv6");
 }
 
 #[tokio::test]
-async fn bridge_port_deconfigured_after_bridge_creation() {
+async fn bridge_port_drops_l3_and_points_to_owner() {
     // ARRANGE
     let mock = MockNetlinkOps::new();
     let idx = mock.add_link("eth1", [0xBB; 6], true);
@@ -101,7 +101,7 @@ async fn bridge_port_deconfigured_after_bridge_creation() {
     handle
         .cmd_tx
         .send(Command::ConfigureBridge {
-            bridge_name: "br1".to_owned(),
+            bridge_name: "br0".to_owned(),
             stp: true,
             reply: reply_tx,
         })
@@ -113,71 +113,20 @@ async fn bridge_port_deconfigured_after_bridge_creation() {
         .expect("reply dropped")
         .expect("bridge failed");
 
-    wait_for_state(&handle, Lifecycle::Discovered).await;
-
     // ASSERT
     let port_snap = handle.state_rx.borrow().clone();
-    assert_eq!(port_snap.state, Lifecycle::Discovered);
-    assert!(
-        port_snap.ip.is_none(),
-        "port should have no IP after bridge"
-    );
-    assert!(
-        port_snap.lease.is_none(),
-        "port should have no lease after bridge"
-    );
+    assert_eq!(port_snap.state, Lifecycle::Configured);
+    assert!(port_snap.ip.is_none(), "port should drop its IP");
+    assert!(port_snap.lease.is_none(), "port should drop its lease");
     assert!(
         port_snap.dhcp_state.is_none(),
-        "port should have no DHCP state"
+        "port should drop its DHCP state"
     );
     assert_eq!(
         port_snap.l3_owner,
-        Name::new("br1").expect("valid name"),
+        Name::new("br0").expect("valid name"),
         "port should point to the bridge as its L3 owner"
     );
-}
-
-#[tokio::test]
-async fn bridge_without_lease_returns_error() {
-    // ARRANGE
-    let mock = MockNetlinkOps::new();
-    let idx = mock.add_link("eth2", [0xCC; 6], true);
-    let snapshot = make_snapshot(Name::new("eth2").expect("valid name"), idx, [0xCC; 6]);
-    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
-
-    let addr = network::Cidr4 {
-        address: Ipv4Addr::new(10, 0, 0, 2),
-        prefix: 24,
-    };
-    handle
-        .cmd_tx
-        .send(Command::ConfigureStaticIpv4 {
-            mode: ApplyMode::Provision,
-            index: idx,
-            addresses: vec![addr],
-            gateway: None,
-        })
-        .await
-        .expect("send failed");
-    wait_for_state(&handle, Lifecycle::Configured).await;
-
-    let (reply_tx, reply_rx) = oneshot::channel();
-
-    // ACT
-    handle
-        .cmd_tx
-        .send(Command::ConfigureBridge {
-            bridge_name: "br2".to_owned(),
-            stp: false,
-            reply: reply_tx,
-        })
-        .await
-        .expect("send failed");
-
-    let result = reply_rx.await.expect("reply dropped");
-
-    // ASSERT
-    assert!(result.is_err(), "should fail without a lease");
 }
 
 #[tokio::test]
@@ -239,51 +188,7 @@ async fn bridge_with_stp_enabled() {
 
     // ASSERT
     assert_eq!(bridge_snap.name, "br4");
-    assert_eq!(bridge_snap.state, Lifecycle::Configured);
-}
-
-#[tokio::test]
-async fn bridge_with_lease_but_no_ip_passes_none_gateway() {
-    // ARRANGE
-    let mock = MockNetlinkOps::new();
-    let idx = mock.add_link("eth5", [0xFF; 6], true);
-    let snapshot = Snapshot {
-        name: Name::new("eth5").expect("valid name"),
-        state: Lifecycle::Configured,
-        index: idx,
-        mac: [0xFF; 6],
-        link: State::Up,
-        ip: None,
-        lease: Some(make_lease()),
-        dhcp_state: Some(DhcpState::Bound),
-        ipv6: None,
-        l3_owner: Name::new("eth5").expect("valid name"),
-    };
-
-    let handle = Actor::spawn(snapshot, mock.clone(), make_config());
-
-    let (reply_tx, reply_rx) = oneshot::channel();
-
-    // ACT
-    handle
-        .cmd_tx
-        .send(Command::ConfigureBridge {
-            bridge_name: "br5".to_owned(),
-            stp: false,
-            reply: reply_tx,
-        })
-        .await
-        .expect("send failed");
-
-    let bridge_snap = reply_rx
-        .await
-        .expect("reply dropped")
-        .expect("bridge failed");
-
-    // ASSERT
-    assert_eq!(bridge_snap.name, "br5");
-    assert!(bridge_snap.ip.is_none(), "bridge should have no IP");
-    assert!(bridge_snap.lease.is_some(), "bridge should inherit lease");
+    assert_eq!(bridge_snap.state, Lifecycle::Discovered);
 }
 
 #[tokio::test]

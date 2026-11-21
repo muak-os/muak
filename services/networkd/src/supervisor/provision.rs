@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 
 use anyhow::Result;
 use config::system::network::{
-    BridgeConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
+    BridgeConfig, InterfaceConfig, InterfaceKind, Ipv4InterfaceConfig, Ipv6InterfaceConfig,
 };
 use netdev::Ops;
 use netlink::link::ifname::Name;
@@ -14,32 +14,12 @@ use tokio::sync::{oneshot, watch};
 use super::NetworkSupervisor;
 use crate::interface::ActorHandle;
 use crate::interface::commands::{ApplyMode, Command};
-use crate::interface::lifecycle::Lifecycle;
 use crate::interface::snapshot::Snapshot;
 
 /// Applies declarative interface configuration from the config file.
 pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
-    let interfaces = supervisor.config.interfaces.clone();
-    for iface_cfg in &interfaces {
-        let result = match iface_cfg.kind {
-            InterfaceKind::Bridge => {
-                let bridge_cfg = iface_cfg.bridge.clone().unwrap_or_default();
-                bridge(supervisor, &iface_cfg.name, &bridge_cfg).await
-            }
-            InterfaceKind::Ethernet => {
-                ethernet(
-                    supervisor,
-                    &iface_cfg.name,
-                    iface_cfg.ipv4.as_ref(),
-                    iface_cfg.ipv6.as_ref(),
-                )
-                .await
-            }
-        };
-        if let Err(e) = result {
-            kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
-        }
-    }
+    bridges(supervisor).await;
+    addresses(supervisor).await;
 }
 
 pub(super) async fn bridge<N: Ops>(
@@ -47,8 +27,7 @@ pub(super) async fn bridge<N: Ops>(
     bridge_name: &str,
     bridge_cfg: &BridgeConfig,
 ) -> Result<()> {
-    let (port_iface_name, mut state_rx) = bridge_port_handle(supervisor, bridge_cfg)?;
-    wait_for_configured(&mut state_rx).await?;
+    let (port_iface_name, _) = bridge_port_handle(supervisor, bridge_cfg)?;
 
     let actor_handle = supervisor
         .interfaces
@@ -73,7 +52,7 @@ pub(super) async fn bridge<N: Ops>(
     Ok(())
 }
 
-/// Returns the configured bridge port actor and a watch receiver for its state.
+/// Resolves a configured interface name, expanding the `auto` alias.
 pub(super) fn resolve_name<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &str) -> Result<Name> {
     let primary = supervisor.get_primary_name()?;
     if name == "auto" {
@@ -81,6 +60,40 @@ pub(super) fn resolve_name<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &str
     } else {
         Name::new(name).map_err(Into::into)
     }
+}
+
+/// Returns the bridge that owns `name` as a port, or `name` itself.
+pub(super) fn resolve_owner<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> Name {
+    let Ok(primary) = supervisor.get_primary_name() else {
+        return name.clone();
+    };
+
+    for iface_cfg in &supervisor.config.interfaces {
+        if iface_cfg.kind != InterfaceKind::Bridge {
+            continue;
+        }
+        let Some(bridge_cfg) = iface_cfg.bridge.as_ref() else {
+            continue;
+        };
+        if resolve_bridge_port(&bridge_cfg.port, &primary).as_ref() == name.as_str()
+            && let Ok(bridge_name) = Name::new(iface_cfg.name.as_str())
+        {
+            return bridge_name;
+        }
+    }
+
+    name.clone()
+}
+
+/// Returns the kernel index of a runtime interface actor.
+pub(super) fn actor_index<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> Result<u32> {
+    Ok(supervisor
+        .interfaces
+        .get(name)
+        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {name}"))?
+        .state_rx
+        .borrow()
+        .index)
 }
 
 pub(super) fn bridge_port_handle<N: Ops>(
@@ -123,52 +136,92 @@ pub(super) async fn respawn_actor<N: Ops>(
     supervisor.spawn_interface_actor(snapshot);
 }
 
-/// Resolves a configured interface name, expanding the `auto` alias.
-async fn ethernet<N: Ops>(
+// Creates every configured bridge before any address is applied to its owner.
+async fn bridges<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
+    let interfaces = supervisor.config.interfaces.clone();
+    for iface_cfg in &interfaces {
+        if iface_cfg.kind != InterfaceKind::Bridge {
+            continue;
+        }
+        let bridge_cfg = iface_cfg.bridge.clone().unwrap_or_default();
+        if let Err(e) = bridge(supervisor, &iface_cfg.name, &bridge_cfg).await {
+            kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
+        }
+    }
+}
+
+// Applies every configured address to the interface that owns L3.
+async fn addresses<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
+    let interfaces = supervisor.config.interfaces.clone();
+    for iface_cfg in &interfaces {
+        if iface_cfg.ipv4.is_none() && iface_cfg.ipv6.is_none() {
+            continue;
+        }
+        if let Err(e) = apply_addresses(supervisor, iface_cfg).await {
+            kmsg::warn!("Failed to provision {}: {}", iface_cfg.name, e);
+        }
+    }
+}
+
+async fn apply_addresses<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
-    name: &str,
-    ipv4_cfg: Option<&Ipv4InterfaceConfig>,
-    ipv6_cfg: Option<&Ipv6InterfaceConfig>,
+    iface_cfg: &InterfaceConfig,
 ) -> Result<()> {
-    let iface_name = resolve_name(supervisor, name)?;
+    let name = resolve_name(supervisor, &iface_cfg.name)?;
+    let owner = resolve_owner(supervisor, &name);
+    supervisor.ops.ensure_up(name.as_str()).await?;
 
-    let actor_handle = supervisor
-        .interfaces
-        .get(&iface_name)
-        .ok_or_else(|| anyhow::anyhow!("ethernet interface '{iface_name}' not found"))?;
-
-    kmsg::info!("Configuring ethernet interface: {}", iface_name);
-    let index = supervisor.ops.ensure_up(iface_name.as_str()).await?;
-
-    match ipv4_cfg {
-        Some(ipv4_cfg) if ipv4_cfg.dhcp => {
-            send_command(
-                actor_handle,
-                Command::ConfigureDhcp {
-                    mode: ApplyMode::Provision,
-                },
-                &iface_name,
-            )
-            .await?;
-        }
-        Some(ipv4_cfg) if !ipv4_cfg.addresses.is_empty() => {
-            send_command(
-                actor_handle,
-                Command::ConfigureStaticIpv4 {
-                    mode: ApplyMode::Provision,
-                    index,
-                    addresses: ipv4_cfg.addresses.clone(),
-                    gateway: ipv4_cfg.gateway,
-                },
-                &iface_name,
-            )
-            .await?;
-        }
-        _ => {}
+    if let Some(ipv4_cfg) = iface_cfg.ipv4.as_ref() {
+        let index = actor_index(supervisor, &owner)?;
+        ipv4(supervisor, &owner, index, ipv4_cfg).await?;
     }
 
-    if let Some(cfg) = ipv6_cfg {
-        ipv6(supervisor, &iface_name, index, cfg).await?;
+    if let Some(ipv6_cfg) = iface_cfg.ipv6.as_ref() {
+        // IPv6 follows the port until 5B moves it to the bridge.
+        let index = actor_index(supervisor, &name)?;
+        ipv6(supervisor, &name, index, ipv6_cfg).await?;
+    }
+
+    Ok(())
+}
+
+async fn ipv4<N: Ops>(
+    supervisor: &NetworkSupervisor<N>,
+    iface_name: &Name,
+    index: u32,
+    ipv4_cfg: &Ipv4InterfaceConfig,
+) -> Result<()> {
+    let actor_handle = supervisor
+        .interfaces
+        .get(iface_name)
+        .ok_or_else(|| anyhow::anyhow!("interface actor not found: {iface_name}"))?;
+
+    kmsg::info!("Configuring IPv4 on interface: {iface_name}");
+
+    if ipv4_cfg.dhcp {
+        send_command(
+            actor_handle,
+            Command::ConfigureDhcp {
+                mode: ApplyMode::Provision,
+            },
+            iface_name,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if !ipv4_cfg.addresses.is_empty() {
+        send_command(
+            actor_handle,
+            Command::ConfigureStaticIpv4 {
+                mode: ApplyMode::Provision,
+                index,
+                addresses: ipv4_cfg.addresses.clone(),
+                gateway: ipv4_cfg.gateway,
+            },
+            iface_name,
+        )
+        .await?;
     }
 
     Ok(())
@@ -211,18 +264,6 @@ async fn ipv6<N: Ops>(
     }
 
     Ok(())
-}
-
-/// Waits until the interface actor reports `Configured`.
-async fn wait_for_configured(rx: &mut watch::Receiver<Arc<Snapshot>>) -> Result<()> {
-    loop {
-        if rx.borrow().state == Lifecycle::Configured {
-            return Ok(());
-        }
-        rx.changed().await.map_err(|error| {
-            anyhow::anyhow!("interface actor dropped before reaching Configured: {error}")
-        })?;
-    }
 }
 
 fn resolve_bridge_port<'a>(ports: &'a [String], primary: &'a Name) -> Cow<'a, str> {
