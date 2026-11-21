@@ -23,7 +23,7 @@ impl Method {
         config: provision::v6::Config,
     ) -> Result<Self, std::io::Error> {
         if !config.addresses.is_empty() {
-            return Ok(Self::Static(provision::v6::Static::new(config)));
+            return Ok(Self::Static(provision::v6::Static::new(config.fixed())));
         }
         if config.autoconf {
             let socket = packet::icmpv6::Socket::open(
@@ -39,7 +39,7 @@ impl Method {
                 socket,
             )));
         }
-        Ok(Self::Static(provision::v6::Static::new(config)))
+        Ok(Self::Static(provision::v6::Static::new(config.fixed())))
     }
 
     /// Returns the next event produced by the method.

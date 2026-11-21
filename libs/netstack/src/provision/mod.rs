@@ -1,5 +1,6 @@
 //! Address provisioning state machine vocabulary.
 
+pub mod fixed;
 #[cfg(feature = "ipv4")]
 pub mod v4;
 #[cfg(feature = "ipv6")]

@@ -31,7 +31,7 @@ impl Method {
             return Ok(Self::Dhcp(method));
         }
 
-        Ok(Self::Static(provision::v4::Static::new(config)))
+        Ok(Self::Static(provision::v4::Static::new(config.fixed())))
     }
 
     /// Returns the next event produced by the method.
