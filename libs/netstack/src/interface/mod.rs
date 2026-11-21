@@ -149,7 +149,7 @@ impl<N: Ops> Interface<N> {
                 #[cfg(feature = "ipv4")]
                 self.configure_v4(v4);
                 #[cfg(feature = "ipv6")]
-                self.configure_v6(v6);
+                event::configure_v6(self, v6);
                 self.refresh_index().await;
                 self.publish();
             }
@@ -180,16 +180,6 @@ impl<N: Ops> Interface<N> {
         let mut method = v4::Method::from_config(config);
         method.on_command(provision::Command::Start);
         self.v4 = Some(method);
-    }
-
-    #[cfg(feature = "ipv6")]
-    fn configure_v6(&mut self, config: Option<provision::v6::Config>) {
-        let Some(config) = config else {
-            return;
-        };
-        let mut method = v6::Method::from_config(config);
-        method.on_command(provision::Command::Start);
-        self.v6 = Some(method);
     }
 
     fn stop_families(&mut self) {

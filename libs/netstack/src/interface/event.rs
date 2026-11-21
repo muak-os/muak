@@ -81,6 +81,27 @@ pub(super) async fn handle_v6<N: Ops>(interface: &mut Interface<N>, event: provi
     interface.publish();
 }
 
+#[cfg(feature = "ipv6")]
+pub(super) fn configure_v6<N: Ops>(
+    interface: &mut Interface<N>,
+    config: Option<provision::v6::Config>,
+) {
+    let Some(config) = config else {
+        return;
+    };
+    match v6::Method::from_config(&interface.link, config) {
+        Ok(mut method) => {
+            method.on_command(provision::Command::Start);
+            interface.v6 = Some(method);
+        }
+        Err(error) => {
+            kmsg::warn!("netstack: IPv6 method on {}: {error}", interface.link.name);
+            interface.v6 = None;
+            interface.v6_state = provision::State::Degraded;
+        }
+    }
+}
+
 #[cfg(feature = "ipv4")]
 async fn next_v4(method: &mut Option<v4::Method>) -> provision::Event {
     match method.as_mut() {
