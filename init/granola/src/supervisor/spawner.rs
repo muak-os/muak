@@ -79,11 +79,11 @@ impl Spawn for Spawner {
             .with_context(|| format!("Failed to create the cgroup of {name}"))?;
 
         let child = (|| {
-            let (program, argv) = command_line(&tokens)?;
+            let (exe, argv) = command_line(&tokens)?;
             let envp = environment()?;
             let argv: Vec<&CStr> = argv.iter().map(CString::as_c_str).collect();
             let envp: Vec<&CStr> = envp.iter().map(CString::as_c_str).collect();
-            let cmd = Cmd::new(&program, &argv, &envp)
+            let cmd = Cmd::new(&exe, &argv, &envp)
                 .stdout(stdout_writer.as_fd())
                 .stderr(stderr_writer.as_fd())
                 .pass(pass);

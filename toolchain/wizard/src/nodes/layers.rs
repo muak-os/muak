@@ -190,10 +190,10 @@ fn measure(
             mumi::payload::plan(core::slice::from_mut(payload), &config).map_err(|e| {
                 WizardError::BuildError(format!("plan layer payload {}: {e}", layer.name))
             })?;
-        let payload = one.pop().ok_or_else(|| {
+        let item = one.pop().ok_or_else(|| {
             WizardError::BuildError(format!("empty plan result for layer {}", layer.name))
         })?;
-        planned.push(payload);
+        planned.push(item);
     }
 
     Ok(planned)

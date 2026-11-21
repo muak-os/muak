@@ -57,8 +57,8 @@ impl Header {
 
         let mut uuid_buf = [0_u8; 40];
         let uuid_bytes = uuid_str.as_bytes();
-        let len = uuid_bytes.len().min(40);
-        copy_prefix(&mut uuid_buf, uuid_bytes, len)?;
+        let size = uuid_bytes.len().min(40);
+        copy_prefix(&mut uuid_buf, uuid_bytes, size)?;
 
         let mut salt = [0_u8; 64];
         getrandom::fill(&mut salt).map_err(|_error| Error::Rng)?;

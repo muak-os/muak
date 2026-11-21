@@ -204,9 +204,8 @@ fn build_and_write_signature<W: Write>(
     let mut hash = [0_u8; 32];
     hash.copy_from_slice(&digest);
     let spc_content = build_spc_indirect_data(&hash)?;
-    let digest = Sha256::digest(&spc_content);
     let mut digest_bytes = [0_u8; 32];
-    digest_bytes.copy_from_slice(&digest);
+    digest_bytes.copy_from_slice(&Sha256::digest(&spc_content));
     let signed_attrs = pkcs7::build_signed_attributes(SPC_INDIRECT_DATA_OBJID, &digest_bytes)?;
     let attrs_der = signed_attrs
         .to_der()

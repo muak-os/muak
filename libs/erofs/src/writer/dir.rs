@@ -29,9 +29,9 @@ pub(super) fn find_parent_nid(
         "/".to_owned()
     };
 
-    path_to_idx.get(&parent_rel).map_or(0, |&index| {
-        all_inodes.get(index).map_or(0, |inode| inode.nid)
-    })
+    path_to_idx
+        .get(&parent_rel)
+        .map_or(0, |&index| all_inodes.get(index).map_or(0, |node| node.nid))
 }
 
 pub(super) fn align8(val: usize) -> usize {

@@ -81,10 +81,10 @@ pub(crate) fn enforce(root: &Path, total: u64, free: u64) {
         });
     }
 
-    let keep = keep_bytes(stats.used, free, &limits);
-    if stats.used > keep {
+    let budget = keep_bytes(stats.used, free, &limits);
+    if stats.used > budget {
         fired = true;
-        drop(sweep(entries, &mut stats, |_, stats| stats.used >= keep));
+        drop(sweep(entries, &mut stats, |_, stats| stats.used >= budget));
     }
 
     remove_empty(root, &ingest);

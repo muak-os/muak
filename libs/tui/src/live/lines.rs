@@ -44,9 +44,9 @@ pub(crate) fn spinner_line(
     line.push(Span::styled(frame_text, theme.style(Role::Accent)));
     line.push(Span::plain(" "));
     line.push(Span::plain(label));
-    if let Some(elapsed) = elapsed_text {
+    if let Some(text) = elapsed_text {
         line.push(Span::plain("  "));
-        line.push(Span::styled(elapsed, theme.style(Role::Muted)));
+        line.push(Span::styled(text, theme.style(Role::Muted)));
     }
 
     line

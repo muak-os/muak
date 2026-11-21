@@ -115,10 +115,10 @@ fn decode_from_disk(content: &content::Content, digest: &str, size: u64) -> Resu
     file.read_exact(&mut footer).map_err(KociError::IoError)?;
     let offset = parse_footer_offset(&footer)?;
 
-    let file = content.open_blob(digest).map_err(KociError::IoError)?;
+    let reader = content.open_blob(digest).map_err(KociError::IoError)?;
     let span = footer_start.saturating_sub(offset);
-    skip(&file, offset)?;
-    let toc = fill_span(&file, span)?;
+    skip(&reader, offset)?;
+    let toc = fill_span(&reader, span)?;
     parse_toc_member(&toc)
 }
 

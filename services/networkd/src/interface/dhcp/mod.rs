@@ -88,11 +88,11 @@ pub(super) async fn acquired<N: Ops>(actor: &mut Actor<N>, lease: Lease) {
         return;
     }
     actor.set_state(Lifecycle::Configured);
-    if let Some(lease) = actor.snapshot.lease.as_ref() {
+    if let Some(current) = actor.snapshot.lease.as_ref() {
         kmsg::info!(
             "DHCP acquired on {}: {}",
             actor.snapshot.name,
-            lease.assigned_ip
+            current.assigned_ip
         );
     }
 }
@@ -137,11 +137,11 @@ pub(super) async fn do_full_dora<N: Ops, C: Connector>(
     commit::lease(actor, index, lease).await?;
     actor.set_state(Lifecycle::Configured);
 
-    if let Some(lease) = actor.snapshot.lease.as_ref() {
+    if let Some(current) = actor.snapshot.lease.as_ref() {
         kmsg::info!(
             "DHCP re-acquired on {}: {}",
             actor.snapshot.name,
-            lease.assigned_ip
+            current.assigned_ip
         );
     }
 

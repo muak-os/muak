@@ -397,10 +397,10 @@ impl VmActor {
             }
             Err(e) => {
                 eprintln!("Failed to start VM {}: {}", entry.config.name, e);
-                let tap_name = entry.tap_device.take().map(|tap| tap.name);
+                let stale = entry.tap_device.take().map(|dev| dev.name);
                 entry.state = VmState::Created;
                 save_vm(vm_id, &entry.to_persisted())?;
-                cleanup_tap_on_err(&self.rtnl, tap_name).await;
+                cleanup_tap_on_err(&self.rtnl, stale).await;
                 Err(e)
             }
         }

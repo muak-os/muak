@@ -86,11 +86,11 @@ pub fn get_fs_info(mount_point: &str) -> Result<Vec<u64>> {
         };
 
         // SAFETY: `BTRFS_IOC_DEV_INFO` updates `BtrfsIoctlDevInfoArgs` in place.
-        let updater =
+        let info =
             unsafe { Updater::<BTRFS_IOC_DEV_INFO, BtrfsIoctlDevInfoArgs>::new(&mut dev_info) };
 
         // SAFETY: The directory file descriptor is valid and the ioctl argument type matches.
-        let result = unsafe { ioctl(&fd, updater) };
+        let result = unsafe { ioctl(&fd, info) };
 
         match result {
             Ok(()) => device_ids.push(candidate_id),
