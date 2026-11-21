@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
 use super::*;
+use crate::fixtures::status::wait_for;
 
 #[tokio::test]
 async fn primary_link_down_triggers_failover_handling() {
@@ -17,6 +18,8 @@ async fn primary_link_down_triggers_failover_handling() {
     let mock = MockNetlinkOps::new();
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
     mock.add_link("eth1", [0xBB; 6], true);
+    let primary_name = Name::new("eth0").expect("valid name");
+    let backup_name = Name::new("eth1").expect("valid name");
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
@@ -25,16 +28,26 @@ async fn primary_link_down_triggers_failover_handling() {
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
     // ACT
-    let name = Name::new("eth0").expect("valid name");
     event_tx
-        .send(Event::Down { name, index: idx0 })
+        .send(Event::Down {
+            name: primary_name.clone(),
+            index: idx0,
+        })
         .await
         .expect("send event failed");
 
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
-    drop(event_tx);
+    let status = wait_for(&handle, |status| {
+        status.primary.as_ref() == Some(&backup_name)
+    })
+    .await;
+    assert_eq!(
+        status.backups,
+        vec![primary_name],
+        "the failed primary must be the only backup after promotion"
+    );
 }
 
 #[tokio::test]
@@ -158,7 +171,18 @@ async fn single_interface_deleted_leaves_no_primary() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
-    drop(event_tx);
+    let status = wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Degraded
+    })
+    .await;
+    assert!(
+        status.primary.is_none(),
+        "a removed primary must not stay elected"
+    );
+    assert!(
+        status.owner.is_none(),
+        "no interface can own L3 without a primary"
+    );
 }
 
 #[tokio::test]
@@ -322,11 +346,12 @@ async fn primary_down_then_backup_up_keeps_supervisor_alive() {
 }
 
 #[tokio::test]
-async fn double_link_down_on_primary_keeps_supervisor_alive() {
+async fn double_link_down_keeps_the_primary() {
     // ARRANGE
     let config = make_config();
     let mock = MockNetlinkOps::new();
     let idx0 = mock.add_link("eth0", [0xAA; 6], true);
+    mock.add_link("eth1", [0xBB; 6], false);
 
     let (event_tx, event_rx) = mpsc::channel(32);
     let handle = supervisor::start_with(mock, event_rx, config, Resolver::default());
@@ -358,11 +383,15 @@ async fn double_link_down_on_primary_keeps_supervisor_alive() {
     sleep(Duration::from_millis(200)).await;
 
     // ASSERT
-    timeout(Duration::from_secs(5), handle.reconcile())
-        .await
-        .expect("reconcile timed out")
-        .expect("the supervisor must stay responsive");
-    drop(event_tx);
+    let status = wait_for(&handle, |status| {
+        status.state == supervisor::NetworkState::Degraded
+    })
+    .await;
+    assert_eq!(
+        status.primary,
+        Some(name),
+        "a repeated link-down must not clear the primary"
+    );
 }
 
 #[tokio::test]
