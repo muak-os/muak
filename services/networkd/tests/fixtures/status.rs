@@ -10,22 +10,24 @@ const POLL_PAUSE: Duration = Duration::from_millis(20);
 
 /// Polls the supervisor until `predicate` holds, panicking with the last status seen.
 ///
-/// The pause between polls is required: the supervisor polls its command
-/// channel before netlink events, so a tight loop would starve event dispatch.
+/// # Panics
+///
+/// Panics when the supervisor is gone, or when the deadline passes before
+/// `predicate` holds.
+#[expect(
+    clippy::expect_used,
+    reason = "a closed supervisor channel is terminal, so retrying cannot help. Panicking in tests is fine."
+)]
 pub(crate) async fn wait_for<F>(handle: &NetworkActorHandle, predicate: F) -> Status
 where
     F: Fn(&Status) -> bool,
 {
     let start = Instant::now();
     loop {
-        let Ok(status) = handle.status().await else {
-            assert!(
-                start.elapsed() < POLL_TIMEOUT,
-                "the supervisor stopped before the network reached the expected state"
-            );
-            sleep(POLL_PAUSE).await;
-            continue;
-        };
+        let status = handle
+            .status()
+            .await
+            .expect("the supervisor must stay responsive");
         if predicate(&status) {
             return status;
         }
