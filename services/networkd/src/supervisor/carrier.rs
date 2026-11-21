@@ -32,10 +32,8 @@ pub(super) async fn refresh_owner<N: Ops>(supervisor: &NetworkSupervisor<N>) {
         return;
     };
 
-    if published.has_carrier() == device.carrier {
-        if !(device.carrier && recovering) {
-            return;
-        }
+    if published.has_carrier() == device.carrier && !(device.carrier && recovering) {
+        return;
     }
     let command = if device.carrier {
         Command::LinkUp
