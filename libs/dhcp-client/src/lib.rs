@@ -41,7 +41,7 @@ pub enum Failure {
     Io(#[from] std::io::Error),
     /// Raw packet socket operation failed.
     #[error("DHCP packet socket failed: {0}")]
-    Socket(#[from] packet::raw::Failure),
+    Socket(#[from] packet::v4::Failure),
     /// Binding the socket to an interface failed.
     #[error("DHCP socket bind failed: {0}")]
     Bind(#[from] packet::socket::Failure),

@@ -357,16 +357,16 @@ features *pkgs:
         for pkg in {{ pkgs }}; do
             extra=""
             case "$pkg" in
-                firmware | sbolt | partdev) extra="--exclude-no-default-features" ;;
+                firmware | sbolt | partdev | packet) extra="--exclude-no-default-features" ;;
             esac
             cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going $extra -p "$pkg"
         done
     else
         cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going \
             --workspace --exclude e2e --exclude firmware --exclude sbolt \
-            --exclude partdev
+            --exclude partdev --exclude packet
         cargo hack check {{ target }} --each-feature --no-dev-deps --keep-going \
-            --exclude-no-default-features -p firmware -p sbolt -p partdev
+            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet
     fi
 
 # Run tests with coverage (e.g., just coverage, just coverage --missing, or just coverage yuki)

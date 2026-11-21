@@ -9,6 +9,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["v4"]
+v4 = []
+
 [dependencies]
 # Asynchronous
 tokio = { workspace = true, features = ["net"] }

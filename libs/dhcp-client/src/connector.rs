@@ -4,8 +4,8 @@ use core::future::Future;
 use core::net::Ipv4Addr;
 
 use dhcp_proto::DHCP_CLIENT_PORT;
-use packet::raw::Socket;
 use packet::socket::bind_device;
+use packet::v4::Socket;
 use tokio::net::UdpSocket;
 
 use crate::{Failure, Result};

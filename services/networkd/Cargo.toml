@@ -29,7 +29,7 @@ mac = { workspace = true }
 netdev = { workspace = true }
 netlink = { workspace = true }
 netlink-monitor = { workspace = true }
-packet = { workspace = true }
+packet = { workspace = true, features = ["v4"] }
 slaac = { workspace = true, optional = true }
 
 # System/platform APIs

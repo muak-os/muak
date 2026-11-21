@@ -7,7 +7,7 @@ use anyhow::Result;
 use dhcp_client::connector::Connector;
 use dhcp_client::lease::Lease;
 use dhcp_client::{MAX_FRAME_LEN, MAX_MESSAGE_LEN, Scratch};
-use packet::raw::Socket;
+use packet::v4::Socket;
 use tokio::time::sleep;
 
 const RETRY_BASE: Duration = Duration::from_secs(2);

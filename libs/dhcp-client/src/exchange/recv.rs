@@ -7,7 +7,7 @@ use dhcp_proto::{
     DHCP_CLIENT_PORT, DHCP_SERVER_PORT, ParsedOptions, header, message_type, validate,
 };
 use ip::v4::udp;
-use packet::raw::Socket;
+use packet::v4::Socket;
 use tokio::net::UdpSocket;
 use tokio::time::{Instant, timeout_at};
 

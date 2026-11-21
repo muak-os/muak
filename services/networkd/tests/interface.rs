@@ -23,7 +23,7 @@ use networkd::interface::commands::Command;
 use networkd::interface::lifecycle::Lifecycle;
 use networkd::interface::snapshot::Snapshot;
 use networkd::interface::{Actor, ActorHandle};
-use packet::raw::Socket;
+use packet::v4::Socket;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::timeout;

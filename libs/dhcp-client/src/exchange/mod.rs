@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, builder, message_type, xid};
 use ip::v4::{Addr, udp};
-use packet::raw::{ETH_BROADCAST, Socket};
+use packet::v4::{ETH_BROADCAST, Socket};
 use tokio::net::UdpSocket;
 
 use crate::lease::Lease;

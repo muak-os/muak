@@ -19,7 +19,7 @@ thiserror = { workspace = true }
 # Internal
 dhcp-proto = { workspace = true }
 ip = { workspace = true, features = ["v4"] }
-packet = { workspace = true }
+packet = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true
