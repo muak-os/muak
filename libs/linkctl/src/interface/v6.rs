@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use netdev::interface::Ethernet;
 
-use crate::transport::icmpv6::Socket;
+use crate::icmpv6::Socket;
 use crate::view;
 
 /// IPv6 family adapter for the interface controller.

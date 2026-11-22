@@ -6,9 +6,10 @@ extern crate alloc;
 
 pub mod disabled;
 pub mod family;
+#[cfg(feature = "ipv6")]
+pub mod icmpv6;
 pub mod interface;
 pub mod system;
-pub mod transport;
 pub mod view;
 
 /// Interface controller driving the address families this build enables.
