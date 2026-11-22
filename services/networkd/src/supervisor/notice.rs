@@ -2,13 +2,13 @@
 
 use core::fmt::Display;
 
-use netlink::link::ifname::Name;
-use netstack::interface::Notice;
+use linkctl::interface::Notice;
 #[cfg(feature = "ipv4")]
-use netstack::interface::V4Notice;
+use linkctl::interface::V4Notice;
 #[cfg(feature = "ipv6")]
-use netstack::interface::V6Notice;
-use netstack::provision;
+use linkctl::interface::V6Notice;
+use linkctl::provision;
+use netlink::link::ifname::Name;
 use tokio::sync::mpsc;
 
 // Kernel log priority a described notice maps to.
@@ -66,10 +66,10 @@ mod tests {
     mod v4 {
         use core::net::Ipv4Addr;
 
+        use linkctl::interface::V4Notice;
+        use linkctl::provision;
+        use linkctl::view::V4State;
         use netlink::address::IpConfig;
-        use netstack::interface::V4Notice;
-        use netstack::provision;
-        use netstack::view::V4State;
 
         use super::super::{Level, describe};
 
@@ -143,10 +143,10 @@ mod tests {
     mod v6 {
         use core::net::Ipv6Addr;
 
+        use linkctl::interface::V6Notice;
+        use linkctl::provision;
+        use linkctl::view::V6State;
         use netlink::address::Ipv6Config;
-        use netstack::interface::V6Notice;
-        use netstack::provision;
-        use netstack::view::V6State;
 
         use super::super::{Level, describe};
 

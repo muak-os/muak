@@ -6,13 +6,13 @@ mod common;
 mod tests {
     use core::time::Duration;
 
+    use linkctl::interface::{Command, Interface, Snapshot};
+    #[cfg(feature = "ipv4")]
+    use linkctl::interface::{Handle, Notice, V4Notice};
+    use linkctl::provision;
     use netdev::interface::Ethernet;
     use netlink::link::ifname::Name;
     use netlink::link::state::State;
-    use netstack::interface::{Command, Interface, Snapshot};
-    #[cfg(feature = "ipv4")]
-    use netstack::interface::{Handle, Notice, V4Notice};
-    use netstack::provision;
     #[cfg(feature = "ipv4")]
     use tokio::sync::mpsc;
     use tokio::sync::watch;
@@ -55,7 +55,7 @@ mod tests {
     }
 
     #[cfg(feature = "ipv4")]
-    fn take_v4_configured(rx: &mut mpsc::Receiver<V4Notice>) -> Option<netstack::view::V4State> {
+    fn take_v4_configured(rx: &mut mpsc::Receiver<V4Notice>) -> Option<linkctl::view::V4State> {
         drain_v4(rx).find_map(|notice| match notice {
             Notice::Configured(view) => Some(view),
             Notice::State(_) | Notice::Warning(_) => None,
@@ -72,7 +72,7 @@ mod tests {
             rx.wait_for(|snapshot| {
                 matches!(
                     &snapshot.v4,
-                    Some(netstack::view::V4State::Static(config)) if config.address == address
+                    Some(linkctl::view::V4State::Static(config)) if config.address == address
                 )
             }),
         )
@@ -111,7 +111,7 @@ mod tests {
     async fn configure_static_v4_applies_address_and_route() {
         use core::net::Ipv4Addr;
 
-        use netstack::view::V4State;
+        use linkctl::view::V4State;
 
         // ARRANGE
         let mock = MockNetlinkOps::new();
@@ -159,7 +159,7 @@ mod tests {
     async fn configure_static_v6_applies_address_and_route() {
         use core::net::Ipv6Addr;
 
-        use netstack::view::V6State;
+        use linkctl::view::V6State;
 
         // ARRANGE
         let mock = MockNetlinkOps::new();
@@ -301,7 +301,7 @@ mod tests {
     async fn reconfigure_emits_configured_again() {
         use core::net::Ipv4Addr;
 
-        use netstack::view::V4State;
+        use linkctl::view::V4State;
 
         // ARRANGE
         let mock = MockNetlinkOps::new();

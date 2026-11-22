@@ -1,6 +1,6 @@
 [package]
-name = "netstack"
-description = "Address-method state machines and family-neutral interface controller"
+name = "linkctl"
+description = "Family-neutral per-interface address configuration controller"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

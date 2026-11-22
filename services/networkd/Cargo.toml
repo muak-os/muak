@@ -11,8 +11,8 @@ categories.workspace = true
 
 [features]
 default = ["ipv4", "ipv6"]
-ipv4 = ["netstack/ipv4"]
-ipv6 = ["netstack/ipv6"]
+ipv4 = ["linkctl/ipv4"]
+ipv6 = ["linkctl/ipv6"]
 
 [dependencies]
 # Asynchronous
@@ -29,7 +29,7 @@ mac = { workspace = true }
 netdev = { workspace = true }
 netlink = { workspace = true }
 netlink-monitor = { workspace = true }
-netstack = { workspace = true }
+linkctl = { workspace = true }
 
 [lints]
 workspace = true

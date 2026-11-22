@@ -47,7 +47,7 @@ members = [
     "libs/netdev",
     "libs/netlink",
     "libs/netlink-monitor",
-    "libs/netstack",
+    "libs/linkctl",
     "libs/oci",
     "libs/oci-client",
     "libs/packet",
@@ -100,7 +100,7 @@ mac = { path = "libs/mac" }
 netdev = { path = "libs/netdev" }
 netlink = { path = "libs/netlink" }
 netlink-monitor = { path = "libs/netlink-monitor" }
-netstack = { path = "libs/netstack", default-features = false }
+linkctl = { path = "libs/linkctl", default-features = false }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
 packet = { path = "libs/packet", default-features = false }

@@ -487,16 +487,16 @@ _feature-check flags *pkgs:
         for pkg in {{ pkgs }}; do
             extra=""
             case "$pkg" in
-                firmware | sbolt | partdev | packet | netstack | networkd) extra="--exclude-no-default-features" ;;
+                firmware | sbolt | partdev | packet | linkctl | networkd) extra="--exclude-no-default-features" ;;
             esac
             cargo hack check {{ target }} --each-feature {{ flags }} --keep-going $extra -p "$pkg"
         done
     else
         cargo hack check {{ target }} --each-feature {{ flags }} --keep-going \
             --workspace --exclude e2e --exclude firmware --exclude sbolt \
-            --exclude partdev --exclude packet --exclude netstack --exclude networkd
+            --exclude partdev --exclude packet --exclude linkctl --exclude networkd
         cargo hack check {{ target }} --each-feature {{ flags }} --keep-going \
-            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet -p netstack -p networkd
+            --exclude-no-default-features -p firmware -p sbolt -p partdev -p packet -p linkctl -p networkd
     fi
 
 [private]

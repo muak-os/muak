@@ -3,12 +3,12 @@
 use alloc::vec::Vec;
 use core::net::{Ipv4Addr, Ipv6Addr};
 
-use netdev::Ops;
-use netstack::interface::Handle;
+use linkctl::interface::Handle;
 #[cfg(feature = "ipv4")]
-use netstack::view::V4State;
+use linkctl::view::V4State;
 #[cfg(feature = "ipv6")]
-use netstack::view::V6State;
+use linkctl::view::V6State;
+use netdev::Ops;
 
 use super::{NetworkSupervisor, owner};
 

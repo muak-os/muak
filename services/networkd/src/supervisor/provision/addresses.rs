@@ -8,10 +8,10 @@ use config::system::network::InterfaceConfig;
 use config::system::network::Ipv4InterfaceConfig;
 #[cfg(feature = "ipv6")]
 use config::system::network::Ipv6InterfaceConfig;
+use linkctl::interface::Command;
+use linkctl::provision;
 use netdev::Ops;
 use netlink::link::ifname::Name;
-use netstack::interface::Command;
-use netstack::provision;
 
 use super::super::NetworkSupervisor;
 use super::{handle, resolve_name, resolve_owner, send_command};

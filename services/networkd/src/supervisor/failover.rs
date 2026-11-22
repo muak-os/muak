@@ -4,14 +4,14 @@
 use alloc::vec::Vec;
 
 use config::system::network::InterfaceKind;
+#[cfg(feature = "ipv4")]
+use linkctl::interface::Command;
+use linkctl::interface::Handle;
+#[cfg(feature = "ipv4")]
+use linkctl::provision as address;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
-#[cfg(feature = "ipv4")]
-use netstack::interface::Command;
-use netstack::interface::Handle;
-#[cfg(feature = "ipv4")]
-use netstack::provision as address;
 
 use super::{NetworkSupervisor, owner, provision, view};
 
@@ -282,7 +282,7 @@ async fn rebridge<N: Ops>(supervisor: &mut NetworkSupervisor<N>, port: &Name) ->
 
 #[cfg(test)]
 mod tests {
-    use netstack::interface::Snapshot;
+    use linkctl::interface::Snapshot;
     use tokio::sync::{mpsc, watch};
 
     use super::*;
@@ -293,11 +293,11 @@ mod tests {
             #[cfg(feature = "ipv4")]
             v4: None,
             #[cfg(feature = "ipv4")]
-            v4_state: netstack::provision::State::Stopped,
+            v4_state: linkctl::provision::State::Stopped,
             #[cfg(feature = "ipv6")]
             v6: None,
             #[cfg(feature = "ipv6")]
-            v6_state: netstack::provision::State::Stopped,
+            v6_state: linkctl::provision::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);
         let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);

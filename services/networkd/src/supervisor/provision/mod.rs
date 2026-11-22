@@ -7,9 +7,9 @@ use alloc::borrow::Cow;
 
 use anyhow::Result;
 use config::system::network::{BridgeConfig, InterfaceKind};
+use linkctl::interface::{Command, Handle};
 use netdev::Ops;
 use netlink::link::ifname::Name;
-use netstack::interface::{Command, Handle};
 
 use super::NetworkSupervisor;
 

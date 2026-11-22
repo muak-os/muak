@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
+use linkctl::interface::Handle;
 use netlink::link::ifname::Name;
-use netstack::interface::Handle;
 
 use super::NetworkSnapshot;
 
@@ -39,9 +39,9 @@ pub(super) fn is_enslaved(owners: &HashMap<Name, Name>, name: &Name) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use linkctl::interface::{Handle, Snapshot};
+    use linkctl::provision;
     use netlink::link::state::State;
-    use netstack::interface::{Handle, Snapshot};
-    use netstack::provision;
     use tokio::sync::{mpsc, watch};
 
     use super::*;

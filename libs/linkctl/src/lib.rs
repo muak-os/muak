@@ -1,4 +1,4 @@
-//! Address-method state machines and family-neutral interface controller.
+//! Family-neutral per-interface address configuration controller.
 
 #![warn(missing_docs)]
 

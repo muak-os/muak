@@ -1,8 +1,8 @@
 //! Snapshot inspection shared by the supervisor's policy modules.
 
+use linkctl::interface::Snapshot;
+use linkctl::provision::State as MethodState;
 use netlink::link::state::State;
-use netstack::interface::Snapshot;
-use netstack::provision::State as MethodState;
 
 /// Returns true when at least one address family has bound its configuration.
 pub(super) fn is_configured(snapshot: &Snapshot) -> bool {
@@ -73,7 +73,7 @@ mod tests {
     use core::net::Ipv4Addr;
 
     #[cfg(feature = "ipv4")]
-    use netstack::view::V4State;
+    use linkctl::view::V4State;
 
     #[cfg(feature = "ipv4")]
     use super::*;
