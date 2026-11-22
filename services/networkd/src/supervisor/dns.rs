@@ -58,7 +58,7 @@ fn collect<N: Ops>(
     if let Some(state) = snapshot.v6.as_ref() {
         match *state {
             V6State::Static(ref config) => ipv6_dns.clone_from(&config.dns),
-            V6State::Slaac { ref dns, .. } => ipv6_dns.clone_from(dns),
+            V6State::Slaac(ref view) => ipv6_dns.clone_from(&view.dns),
         }
     }
     #[cfg(feature = "ipv6")]

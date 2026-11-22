@@ -4,14 +4,15 @@ use std::time::Instant;
 
 use netdev::interface::Ethernet;
 
-use crate::{provision, view};
+use crate::transport::icmpv6::Socket;
+use crate::view;
 
 /// IPv6 address method the controller drives.
 pub enum Method {
     /// Static address method.
     Static(addrconf::v6::Static),
     /// Stateless address autoconfiguration.
-    Slaac(provision::v6::slaac::Slaac<packet::icmpv6::Socket>),
+    Slaac(slaac::method::Slaac<Socket>),
 }
 
 impl Method {
@@ -28,13 +29,9 @@ impl Method {
             return Ok(Self::Static(addrconf::v6::Static::new(config.fixed())));
         }
         if config.autoconf {
-            let socket = packet::icmpv6::Socket::open(
-                link.name.as_str(),
-                &[::slaac::icmpv6::ROUTER_ADVERTISEMENT],
-            )
-            .map_err(std::io::Error::other)?;
+            let socket = Socket::open(link.name.as_str())?;
             let interface = link.name.as_str().to_owned();
-            return Ok(Self::Slaac(provision::v6::slaac::Slaac::new(
+            return Ok(Self::Slaac(slaac::method::Slaac::new(
                 config,
                 interface,
                 link.mac_address,
@@ -74,7 +71,7 @@ impl Method {
     pub fn view(&self) -> Option<view::V6State> {
         match *self {
             Self::Static(ref method) => addrconf::Method::view(method).map(view::V6State::Static),
-            Self::Slaac(ref method) => addrconf::Method::view(method),
+            Self::Slaac(ref method) => addrconf::Method::view(method).map(view::V6State::Slaac),
         }
     }
 }

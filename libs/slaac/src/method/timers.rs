@@ -6,8 +6,8 @@ use std::time::Instant;
 use addrconf::{Event, Intent};
 
 use super::state::AddressState;
+use super::transport::Transport;
 use super::{RTR_SOLICITATION_INTERVAL, Slaac, intent};
-use crate::transport::icmpv6::Transport;
 
 pub(super) fn next_wake<T: Transport>(method: &Slaac<T>, now: Instant) -> Option<Instant> {
     if !method.running {

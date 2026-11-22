@@ -5,6 +5,7 @@ mod ra;
 mod solicit;
 mod state;
 mod timers;
+pub mod transport;
 
 use alloc::collections::VecDeque;
 use alloc::string::String;
@@ -18,11 +19,21 @@ use addrconf::v6::Config;
 use addrconf::{Command, Event, Intent, Method, State, Step};
 
 use self::state::{ManagedAddress, ManagedDns, ManagedRouter};
-use crate::transport::icmpv6::Transport;
-use crate::view::V6State;
+use self::transport::Transport;
 
 const MAX_RTR_SOLICITATIONS: u32 = 3;
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
+
+/// Addresses, routers, and DNS servers derived from router advertisements.
+#[derive(Debug, Clone)]
+pub struct View {
+    /// Address and prefix length pairs the method configured.
+    pub addresses: Vec<(Ipv6Addr, u8)>,
+    /// Known router addresses.
+    pub routers: Vec<Ipv6Addr>,
+    /// Learned DNS servers.
+    pub dns: Vec<Ipv6Addr>,
+}
 
 /// Stateless address autoconfiguration method.
 pub struct Slaac<T: Transport> {
@@ -130,7 +141,7 @@ impl<T: Transport> Slaac<T> {
 }
 
 impl<T: Transport + Send> Method for Slaac<T> {
-    type View = V6State;
+    type View = View;
 
     async fn next_event(&mut self, now: Instant) -> Event {
         run(self, now).await
@@ -151,7 +162,7 @@ impl<T: Transport + Send> Method for Slaac<T> {
 
     fn view(&self) -> Option<Self::View> {
         let address = self.address.as_ref()?;
-        Some(V6State::Slaac {
+        Some(View {
             addresses: vec![(address.address, address.prefix_len)],
             routers: self.router.iter().map(|router| router.value).collect(),
             dns: self.dns_servers.iter().map(|dns| dns.value).collect(),
@@ -194,7 +205,7 @@ mod tests {
     use alloc::vec::Vec;
     use core::future::Future;
     use core::net::{IpAddr, Ipv6Addr};
-    use core::task::{Context, Waker};
+    use core::task::{Context, Poll, Waker};
     use core::time::Duration;
     use std::sync::Mutex;
     use std::time::Instant;
@@ -202,9 +213,8 @@ mod tests {
     use addrconf::v6::Config;
     use addrconf::{Command, Event, Intent, Method as _, State};
 
-    use super::{RTR_SOLICITATION_INTERVAL, Slaac};
-    use crate::transport::icmpv6::Transport;
-    use crate::view::V6State;
+    use super::transport::Transport;
+    use super::{RTR_SOLICITATION_INTERVAL, Slaac, View};
 
     const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
     const ROUTER: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
@@ -274,7 +284,16 @@ mod tests {
             .expect("representable instant")
     }
 
-    fn is_pending<F: Future>(future: F) -> bool {
+    pub(super) fn next_event<T: Transport + Send>(method: &mut Slaac<T>, now: Instant) -> Event {
+        let mut event = core::pin::pin!(method.next_event(now));
+
+        match event.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(event) => event,
+            Poll::Pending => panic!("expected a queued event"),
+        }
+    }
+
+    pub(super) fn is_pending<F: Future>(future: F) -> bool {
         let mut future = core::pin::pin!(future);
         let mut context = Context::from_waker(Waker::noop());
 
@@ -283,7 +302,7 @@ mod tests {
 
     fn ra(router_lifetime: u16, prefix: Option<(u32, u32)>, dns: &[(Ipv6Addr, u32)]) -> Vec<u8> {
         let mut packet = Vec::new();
-        packet.extend([::slaac::icmpv6::ROUTER_ADVERTISEMENT, 0, 0, 0, 64, 0]);
+        packet.extend([crate::icmpv6::ROUTER_ADVERTISEMENT, 0, 0, 0, 64, 0]);
         packet.extend(router_lifetime.to_be_bytes());
         packet.extend([0_u8; 8]);
         if let Some((valid, preferred)) = prefix {
@@ -301,19 +320,19 @@ mod tests {
         packet
     }
 
-    async fn bound(transport: MockTransport, now: Instant) -> Slaac<MockTransport> {
+    fn bound(transport: MockTransport, now: Instant) -> Slaac<MockTransport> {
         transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event(now).await;
-        let _route = method.next_event(now).await;
-        let _bound = method.next_event(now).await;
+        let _configure = next_event(&mut method, now);
+        let _route = next_event(&mut method, now);
+        let _bound = next_event(&mut method, now);
 
         method
     }
 
-    #[tokio::test]
-    async fn solicitation_sends_rs_and_configures_address() {
+    #[test]
+    fn solicitation_sends_rs_and_configures_address() {
         // ARRANGE
         let now = Instant::now();
         let transport = MockTransport::default();
@@ -322,14 +341,14 @@ mod tests {
 
         // ACT
         method.on_command(Command::Start);
-        let configure = method.next_event(now).await;
-        let route = method.next_event(now).await;
-        let bound = method.next_event(now).await;
+        let configure = next_event(&mut method, now);
+        let route = next_event(&mut method, now);
+        let bound = next_event(&mut method, now);
 
         // ASSERT
         assert_eq!(
             method.socket.destinations(),
-            vec![::slaac::icmpv6::ALL_ROUTERS]
+            vec![crate::icmpv6::ALL_ROUTERS]
         );
         assert!(matches!(
             configure,
@@ -343,8 +362,8 @@ mod tests {
         assert!(matches!(bound, Event::State(State::Bound)));
     }
 
-    #[tokio::test]
-    async fn missing_router_advertisement_warns_after_three_attempts() {
+    #[test]
+    fn missing_router_advertisement_warns_after_three_attempts() {
         // ARRANGE
         let now = Instant::now();
         let mut method = new_method(MockTransport::default());
@@ -357,7 +376,7 @@ mod tests {
         let _second = is_pending(method.next_event(at(now, 4)));
         let second_wake = method.next_wake(at(now, 4));
         let _third = is_pending(method.next_event(at(now, 8)));
-        let warning = method.next_event(at(now, 12)).await;
+        let warning = next_event(&mut method, at(now, 12));
         let exhausted_wake = method.next_wake(at(now, 12));
 
         // ASSERT
@@ -371,8 +390,8 @@ mod tests {
         assert!(method.view().is_none());
     }
 
-    #[tokio::test]
-    async fn resolicit_wakes_after_the_solicitation_interval() {
+    #[test]
+    fn resolicit_wakes_after_the_solicitation_interval() {
         // ARRANGE
         let now = Instant::now();
         let mut method = new_method(MockTransport::default());
@@ -388,11 +407,11 @@ mod tests {
         assert_eq!(method.socket.destinations().len(), 1);
     }
 
-    #[tokio::test]
-    async fn stopped_method_has_no_wake_deadline() {
+    #[test]
+    fn stopped_method_has_no_wake_deadline() {
         // ARRANGE
         let now = Instant::now();
-        let mut method = bound(MockTransport::default(), now).await;
+        let mut method = bound(MockTransport::default(), now);
 
         // ACT
         method.on_command(Command::Stop);
@@ -402,8 +421,8 @@ mod tests {
         assert_eq!(wake, None);
     }
 
-    #[tokio::test]
-    async fn solicitation_schedule_is_one_router_solicitation_per_interval() {
+    #[test]
+    fn solicitation_schedule_is_one_router_solicitation_per_interval() {
         // ARRANGE
         let now = Instant::now();
         let mut method = new_method(MockTransport::default());
@@ -422,16 +441,16 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn reconcile_reemits_configuration_without_soliciting() {
+    #[test]
+    fn reconcile_reemits_configuration_without_soliciting() {
         // ARRANGE
         let now = Instant::now();
-        let mut method = bound(MockTransport::default(), now).await;
+        let mut method = bound(MockTransport::default(), now);
 
         // ACT
         method.on_command(Command::Reconcile);
-        let configure = method.next_event(now).await;
-        let route = method.next_event(now).await;
+        let configure = next_event(&mut method, now);
+        let route = next_event(&mut method, now);
         let silence = is_pending(method.next_event(now));
 
         // ASSERT
@@ -446,13 +465,13 @@ mod tests {
         ));
         assert_eq!(
             method.socket.destinations(),
-            vec![::slaac::icmpv6::ALL_ROUTERS]
+            vec![crate::icmpv6::ALL_ROUTERS]
         );
         assert!(silence);
     }
 
-    #[tokio::test]
-    async fn reconcile_without_configuration_does_nothing() {
+    #[test]
+    fn reconcile_without_configuration_does_nothing() {
         // ARRANGE
         let now = Instant::now();
         let mut method = new_method(MockTransport::default());
@@ -470,11 +489,11 @@ mod tests {
         assert_eq!(method.socket.destinations(), destinations);
     }
 
-    #[tokio::test]
-    async fn link_up_after_suspend_resolicits() {
+    #[test]
+    fn link_up_after_suspend_resolicits() {
         // ARRANGE
         let now = Instant::now();
-        let mut method = bound(MockTransport::default(), now).await;
+        let mut method = bound(MockTransport::default(), now);
         method.on_command(Command::LinkDown);
 
         // ACT
@@ -486,17 +505,17 @@ mod tests {
         assert_eq!(method.socket.destinations().len(), 2);
     }
 
-    #[tokio::test]
-    async fn preferred_lifetime_expiry_keeps_address_deprecated() {
+    #[test]
+    fn preferred_lifetime_expiry_keeps_address_deprecated() {
         // ARRANGE
         let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1800, Some((10, 1)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event(now).await;
-        let _route = method.next_event(now).await;
-        let _bound = method.next_event(now).await;
+        let _configure = next_event(&mut method, now);
+        let _route = next_event(&mut method, now);
+        let _bound = next_event(&mut method, now);
 
         // ACT
         let silence = is_pending(method.next_event(at(now, 1)));
@@ -505,24 +524,24 @@ mod tests {
         assert!(silence);
         assert!(matches!(
             method.view(),
-            Some(V6State::Slaac { addresses, .. }) if addresses == [(ADDRESS, 64)]
+            Some(View { addresses, .. }) if addresses == [(ADDRESS, 64)]
         ));
     }
 
-    #[tokio::test]
-    async fn router_expiry_removes_default_route() {
+    #[test]
+    fn router_expiry_removes_default_route() {
         // ARRANGE
         let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1, Some((100, 100)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event(now).await;
-        let _route = method.next_event(now).await;
-        let _bound = method.next_event(now).await;
+        let _configure = next_event(&mut method, now);
+        let _route = next_event(&mut method, now);
+        let _bound = next_event(&mut method, now);
 
         // ACT
-        let expired = method.next_event(at(now, 1)).await;
+        let expired = next_event(&mut method, at(now, 1));
 
         // ASSERT
         assert!(matches!(
@@ -531,17 +550,17 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn rdnss_update_is_reflected_in_view() {
+    #[test]
+    fn rdnss_update_is_reflected_in_view() {
         // ARRANGE
         let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1800, Some((100, 100)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event(now).await;
-        let _route = method.next_event(now).await;
-        let _bound = method.next_event(now).await;
+        let _configure = next_event(&mut method, now);
+        let _route = next_event(&mut method, now);
+        let _bound = next_event(&mut method, now);
         method
             .socket
             .push_ra(ra(1800, Some((100, 100)), &[(DNS, 3600)]), ROUTER);
@@ -552,12 +571,12 @@ mod tests {
         // ASSERT
         assert!(matches!(
             method.view(),
-            Some(V6State::Slaac { dns, .. }) if dns == vec![DNS]
+            Some(View { dns, .. }) if dns == vec![DNS]
         ));
     }
 
-    #[tokio::test]
-    async fn bound_waits_for_the_router_deadline() {
+    #[test]
+    fn bound_waits_for_the_router_deadline() {
         // ARRANGE
         let now = Instant::now();
         let transport = MockTransport::default();
@@ -566,9 +585,9 @@ mod tests {
 
         // ACT
         method.on_command(Command::Start);
-        let _configure = method.next_event(now).await;
-        let _route = method.next_event(now).await;
-        let _bound = method.next_event(now).await;
+        let _configure = next_event(&mut method, now);
+        let _route = next_event(&mut method, now);
+        let _bound = next_event(&mut method, now);
         let wake = method.next_wake(now);
 
         // ASSERT
@@ -576,11 +595,11 @@ mod tests {
         assert!(is_pending(method.next_event(now)));
     }
 
-    #[tokio::test]
-    async fn suspended_method_has_no_wake_deadline() {
+    #[test]
+    fn suspended_method_has_no_wake_deadline() {
         // ARRANGE
         let now = Instant::now();
-        let mut method = bound(MockTransport::default(), now).await;
+        let mut method = bound(MockTransport::default(), now);
 
         // ACT
         method.on_command(Command::LinkDown);

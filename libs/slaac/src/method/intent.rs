@@ -4,12 +4,12 @@ use alloc::vec::Vec;
 use core::net::{IpAddr, Ipv6Addr};
 use std::time::Instant;
 
-use ::slaac::icmpv6::types::RouterAdvertisement;
 use addrconf::{AddressConfig, Intent};
 
 use super::Slaac;
 use super::state::ManagedDns;
-use crate::transport::icmpv6::Transport;
+use super::transport::Transport;
+use crate::icmpv6::types::RouterAdvertisement;
 
 pub(super) const fn configure(address: Ipv6Addr, prefix_len: u8) -> Intent {
     Intent::Configure(AddressConfig {

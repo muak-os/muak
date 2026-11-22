@@ -4,17 +4,17 @@ use alloc::format;
 use core::net::{IpAddr, Ipv6Addr};
 use std::time::Instant;
 
-use ::slaac::address::generate;
-use ::slaac::icmpv6::build::router_solicitation;
-use ::slaac::icmpv6::parse::router_advertisement;
-use ::slaac::icmpv6::types::RouterAdvertisement;
-use ::slaac::icmpv6::{ALL_ROUTERS, ROUTER_ADVERTISEMENT};
 use addrconf::{Event, Failure, Intent, State, Step};
 
 use super::ra::process_unsolicited_ra;
 use super::state::{ManagedAddress, ManagedRouter};
+use super::transport::Transport;
 use super::{MAX_RTR_SOLICITATIONS, RTR_SOLICITATION_INTERVAL, Slaac, intent, timers};
-use crate::transport::icmpv6::Transport;
+use crate::address::generate;
+use crate::icmpv6::build::router_solicitation;
+use crate::icmpv6::parse::router_advertisement;
+use crate::icmpv6::types::RouterAdvertisement;
+use crate::icmpv6::{ALL_ROUTERS, ROUTER_ADVERTISEMENT};
 
 pub(super) async fn initial<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
     if method.solicitation_attempt >= MAX_RTR_SOLICITATIONS {
@@ -176,7 +176,6 @@ mod tests {
     use alloc::vec::Vec;
     use core::future::Future;
     use core::net::Ipv6Addr;
-    use core::task::{Context, Waker};
     use core::time::Duration;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Instant;
@@ -184,8 +183,9 @@ mod tests {
     use addrconf::v6::Config;
     use addrconf::{Command, Event, Failure, Method as _};
 
-    use crate::provision::v6::slaac::Slaac;
-    use crate::transport::icmpv6::Transport;
+    use super::Slaac;
+    use crate::method::tests::{is_pending, next_event};
+    use crate::method::transport::Transport;
 
     const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
 
@@ -237,21 +237,14 @@ mod tests {
             .expect("representable instant")
     }
 
-    fn is_pending<F: Future>(future: F) -> bool {
-        let mut future = core::pin::pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-
-        future.as_mut().poll(&mut context).is_pending()
-    }
-
-    #[tokio::test]
-    async fn receive_error_is_paced_by_the_back_off() {
+    #[test]
+    fn receive_error_is_paced_by_the_back_off() {
         // ARRANGE
         let now = Instant::now();
         let mut method = monitoring(FailingTransport::default());
 
         // ACT
-        let failed = method.next_event(now).await;
+        let failed = next_event(&mut method, now);
         let wake = method.next_wake(now);
         let receives_after_failure = method.socket.receives();
         let repeat = is_pending(method.next_event(now));
@@ -264,15 +257,15 @@ mod tests {
         assert_eq!(method.socket.receives(), 1);
     }
 
-    #[tokio::test]
-    async fn receive_error_retries_once_after_the_interval() {
+    #[test]
+    fn receive_error_retries_once_after_the_interval() {
         // ARRANGE
         let now = Instant::now();
         let mut method = monitoring(FailingTransport::default());
-        let _failed = method.next_event(now).await;
+        let _failed = next_event(&mut method, now);
 
         // ACT
-        let retried = method.next_event(at(now, 4)).await;
+        let retried = next_event(&mut method, at(now, 4));
         let wake = method.next_wake(at(now, 4));
 
         // ASSERT
@@ -281,12 +274,12 @@ mod tests {
         assert_eq!(wake, Some(at(now, 8)));
     }
 
-    #[tokio::test]
-    async fn stop_and_resolicit_clear_the_back_off() {
+    #[test]
+    fn stop_and_resolicit_clear_the_back_off() {
         // ARRANGE
         let now = Instant::now();
         let mut method = monitoring(FailingTransport::default());
-        let _failed = method.next_event(now).await;
+        let _failed = next_event(&mut method, now);
 
         // ACT
         method.on_command(Command::Stop);

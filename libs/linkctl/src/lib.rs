@@ -5,7 +5,6 @@
 extern crate alloc;
 
 pub mod interface;
-pub mod provision;
 pub mod transport;
 pub mod view;
 

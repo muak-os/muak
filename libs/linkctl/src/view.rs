@@ -1,7 +1,5 @@
 //! Point-in-time interface and address-method state.
 
-#[cfg(feature = "ipv6")]
-use alloc::vec::Vec;
 use core::fmt::{Display, Formatter, Result as FmtResult};
 #[cfg(feature = "ipv4")]
 use core::net::Ipv4Addr;
@@ -28,14 +26,7 @@ pub enum V6State {
     /// Static address configuration.
     Static(addrconf::fixed::StaticView<Ipv6Addr>),
     /// SLAAC-derived state.
-    Slaac {
-        /// Address and prefix length pairs.
-        addresses: Vec<(Ipv6Addr, u8)>,
-        /// Known router addresses.
-        routers: Vec<Ipv6Addr>,
-        /// Learned DNS servers.
-        dns: Vec<Ipv6Addr>,
-    },
+    Slaac(slaac::method::View),
 }
 
 #[cfg(feature = "ipv4")]
@@ -73,17 +64,13 @@ impl Display for V6State {
                 config.gateway,
                 &config.dns,
             ),
-            Self::Slaac {
-                ref addresses,
-                ref routers,
-                ref dns,
-            } => {
+            Self::Slaac(ref view) => {
                 f.write_str("slaac ")?;
-                write_addresses(f, addresses)?;
+                write_addresses(f, &view.addresses)?;
                 f.write_str(" routers ")?;
-                write_list(f, routers)?;
+                write_list(f, &view.routers)?;
                 f.write_str(" dns ")?;
-                write_list(f, dns)
+                write_list(f, &view.dns)
             }
         }
     }
@@ -265,6 +252,7 @@ mod tests {
         use core::net::Ipv6Addr;
 
         use addrconf::fixed::StaticView;
+        use slaac::method::View;
 
         use crate::view::V6State;
 
@@ -288,11 +276,11 @@ mod tests {
         #[test]
         fn slaac_renders_addresses_routers_and_dns() {
             // ARRANGE
-            let state = V6State::Slaac {
+            let state = V6State::Slaac(View {
                 addresses: vec![(Ipv6Addr::LOCALHOST, 64), (Ipv6Addr::UNSPECIFIED, 64)],
                 routers: vec![Ipv6Addr::LOCALHOST],
                 dns: vec![Ipv6Addr::UNSPECIFIED],
-            };
+            });
 
             // ACT
             let rendered = format!("{state}");
@@ -304,11 +292,11 @@ mod tests {
         #[test]
         fn slaac_renders_empty_lists_as_none() {
             // ARRANGE
-            let state = V6State::Slaac {
+            let state = V6State::Slaac(View {
                 addresses: Vec::new(),
                 routers: Vec::new(),
                 dns: Vec::new(),
-            };
+            });
 
             // ACT
             let rendered = format!("{state}");
@@ -320,7 +308,7 @@ mod tests {
         #[test]
         fn slaac_lists_are_capped() {
             // ARRANGE
-            let state = V6State::Slaac {
+            let state = V6State::Slaac(View {
                 addresses: (1..=5)
                     .map(|last| (Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, last), 64))
                     .collect(),
@@ -330,7 +318,7 @@ mod tests {
                 dns: (1..=4)
                     .map(|last| Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, last))
                     .collect(),
-            };
+            });
 
             // ACT
             let rendered = format!("{state}");

@@ -3,14 +3,14 @@
 use core::net::IpAddr;
 use std::time::Instant;
 
-use ::slaac::address::generate;
-use ::slaac::icmpv6::types::RouterAdvertisement;
 use addrconf::{Event, Intent};
 
 use super::Slaac;
 use super::solicit::process_initial_ra;
 use super::state::ManagedDns;
-use crate::transport::icmpv6::Transport;
+use super::transport::Transport;
+use crate::address::generate;
+use crate::icmpv6::types::RouterAdvertisement;
 
 pub(super) fn process_unsolicited_ra<T: Transport>(
     method: &mut Slaac<T>,
