@@ -1,35 +1,31 @@
 //! Point-in-time interface and address-method state.
 
 use core::fmt::{Display, Formatter, Result as FmtResult};
-#[cfg(feature = "ipv4")]
-use core::net::Ipv4Addr;
-#[cfg(feature = "ipv6")]
-use core::net::Ipv6Addr;
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 // Maximum entries a list renders before summarising the rest.
 const MAX_LISTED: usize = 4;
 
 /// IPv4 configuration source tracked by the v4 method.
-#[cfg(feature = "ipv4")]
 #[derive(Debug, Clone)]
 pub enum V4State {
     /// Static address configuration.
     Static(addrconf::fixed::StaticView<Ipv4Addr>),
     /// `DHCPv4` lease and phase.
+    #[cfg(feature = "ipv4")]
     Dhcp(dhcp_client::method::View),
 }
 
 /// IPv6 configuration source tracked by the v6 method.
-#[cfg(feature = "ipv6")]
 #[derive(Debug, Clone)]
 pub enum V6State {
     /// Static address configuration.
     Static(addrconf::fixed::StaticView<Ipv6Addr>),
     /// SLAAC-derived state.
+    #[cfg(feature = "ipv6")]
     Slaac(slaac::method::View),
 }
 
-#[cfg(feature = "ipv4")]
 impl Display for V4State {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match *self {
@@ -40,6 +36,7 @@ impl Display for V4State {
                 config.gateway,
                 &config.dns,
             ),
+            #[cfg(feature = "ipv4")]
             Self::Dhcp(ref view) => {
                 let lease = &view.lease;
                 write!(
@@ -53,7 +50,6 @@ impl Display for V4State {
     }
 }
 
-#[cfg(feature = "ipv6")]
 impl Display for V6State {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match *self {
@@ -64,6 +60,7 @@ impl Display for V6State {
                 config.gateway,
                 &config.dns,
             ),
+            #[cfg(feature = "ipv6")]
             Self::Slaac(ref view) => {
                 f.write_str("slaac ")?;
                 write_addresses(f, &view.addresses)?;

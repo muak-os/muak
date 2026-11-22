@@ -23,7 +23,8 @@ use std::collections::HashMap;
 use anyhow::Result;
 use commands::SupervisorCommand;
 use config::system::network;
-use linkctl::interface::{Command, Handle, Interface};
+use linkctl::System;
+use linkctl::interface::{Command, Handle};
 use netdev::Ops;
 use netdev::interface::Ethernet;
 use netlink::Rtnl;
@@ -185,7 +186,7 @@ impl<N: Ops> NetworkSupervisor<N> {
 
     fn spawn_interface(&mut self, link: Ethernet) {
         let name = link.name.clone();
-        let (handle, notices) = Interface::spawn(self.ops.clone(), link);
+        let (handle, notices) = System::spawn(self.ops.clone(), link);
         #[cfg(feature = "ipv4")]
         tokio::spawn(notice::log_v4(name.clone(), notices.v4));
         #[cfg(feature = "ipv6")]

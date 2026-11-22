@@ -5,6 +5,8 @@ use std::time::Instant;
 use netdev::Ops;
 
 use super::Interface;
+use crate::family::Family;
+use crate::view;
 
 pub(super) async fn wait_until(deadline: Option<Instant>) {
     match deadline {
@@ -13,26 +15,18 @@ pub(super) async fn wait_until(deadline: Option<Instant>) {
     }
 }
 
-pub(super) fn earliest_wake<N: Ops>(interface: &Interface<N>, now: Instant) -> Option<Instant> {
-    let deadline = None;
-    #[cfg(feature = "ipv4")]
-    let deadline = earliest(
-        deadline,
-        interface
-            .v4
-            .as_ref()
-            .and_then(|method| method.next_wake(now)),
-    );
-    #[cfg(feature = "ipv6")]
-    let deadline = earliest(
-        deadline,
-        interface
-            .v6
-            .as_ref()
-            .and_then(|method| method.next_wake(now)),
-    );
+pub(super) fn earliest_wake<N, V4, V6>(
+    interface: &Interface<N, V4, V6>,
+    now: Instant,
+) -> Option<Instant>
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
+    let deadline = earliest(None, interface.v4.next_wake(now));
 
-    deadline
+    earliest(deadline, interface.v6.next_wake(now))
 }
 
 fn earliest(current: Option<Instant>, candidate: Option<Instant>) -> Option<Instant> {

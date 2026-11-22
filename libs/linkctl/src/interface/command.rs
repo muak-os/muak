@@ -5,40 +5,44 @@ use core::fmt::Display;
 use netdev::Ops;
 use netlink::link::state::State as LinkState;
 
-#[cfg(feature = "ipv4")]
-use super::V4Notice;
-#[cfg(feature = "ipv6")]
-use super::V6Notice;
-use super::{Command, Interface, Snapshot, event, notice};
+use super::{Command, Interface, Notice, Snapshot, event};
+use crate::family::Family;
+use crate::view;
 
-pub(super) async fn run<N: Ops>(mut interface: Interface<N>) {
+pub(super) async fn run<N, V4, V6>(mut interface: Interface<N, V4, V6>)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
     while let Some(selected) = event::select(&mut interface).await {
         dispatch(&mut interface, selected).await;
     }
 }
 
-async fn dispatch<N: Ops>(interface: &mut Interface<N>, selected: event::Selected) {
+async fn dispatch<N, V4, V6>(interface: &mut Interface<N, V4, V6>, selected: event::Selected)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
     match selected {
         event::Selected::Command(command) => handle(interface, command).await,
-        #[cfg(feature = "ipv4")]
         event::Selected::V4(event) => event::handle_v4(interface, event).await,
-        #[cfg(feature = "ipv6")]
         event::Selected::V6(event) => event::handle_v6(interface, event).await,
     }
 }
 
-async fn handle<N: Ops>(interface: &mut Interface<N>, command: Command) {
+async fn handle<N, V4, V6>(interface: &mut Interface<N, V4, V6>, command: Command)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
     match command {
-        Command::Configure {
-            #[cfg(feature = "ipv4")]
-            v4,
-            #[cfg(feature = "ipv6")]
-            v6,
-        } => {
-            #[cfg(feature = "ipv4")]
+        Command::Configure { v4, v6 } => {
             event::configure_v4(interface, v4).await;
-            #[cfg(feature = "ipv6")]
-            event::configure_v6(interface, v6);
+            event::configure_v6(interface, v6).await;
             refresh_index(interface).await;
             publish(interface);
         }
@@ -61,71 +65,68 @@ async fn handle<N: Ops>(interface: &mut Interface<N>, command: Command) {
     }
 }
 
-fn stop_families<N: Ops>(interface: &mut Interface<N>) {
-    #[cfg(feature = "ipv4")]
-    {
-        notice::transition_v4(interface, addrconf::State::Stopped);
-        interface.v4 = None;
-    }
-    #[cfg(feature = "ipv6")]
-    {
-        notice::transition_v6(interface, addrconf::State::Stopped);
-        interface.v6 = None;
-    }
+fn stop_families<N, V4, V6>(interface: &mut Interface<N, V4, V6>)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
+    interface.v4.stop();
+    interface.v6.stop();
 }
 
-fn forward<N: Ops>(interface: &mut Interface<N>, command: addrconf::Command) {
-    #[cfg(feature = "ipv4")]
-    if let Some(method) = interface.v4.as_mut() {
-        method.on_command(command);
-    }
-    #[cfg(feature = "ipv6")]
-    if let Some(method) = interface.v6.as_mut() {
-        method.on_command(command);
-    }
+fn forward<N, V4, V6>(interface: &mut Interface<N, V4, V6>, command: addrconf::Command)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
+    interface.v4.forward(command);
+    interface.v6.forward(command);
 }
 
-async fn refresh_index<N: Ops>(interface: &mut Interface<N>) {
+async fn refresh_index<N, V4, V6>(interface: &mut Interface<N, V4, V6>)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
     match interface.ops.ensure_up(interface.link.name.as_str()).await {
         Ok(index) => interface.link.index = index,
         Err(error) => warn_refresh(interface, &error),
     }
 }
 
-fn warn_refresh<N: Ops, E: Display>(interface: &Interface<N>, error: &E) {
-    #[cfg(feature = "ipv4")]
-    if interface.v4.is_some() {
-        notice::notify_v4(
-            interface,
-            V4Notice::Warning(alloc::format!(
-                "ensure link {} is up: {error}",
-                interface.link.name
-            )),
-        );
+fn warn_refresh<N, V4, V6, E: Display>(interface: &Interface<N, V4, V6>, error: &E)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
+    if !interface.v4.is_active() && !interface.v6.is_active() {
+        return;
     }
-    #[cfg(feature = "ipv6")]
-    if interface.v6.is_some() {
-        notice::notify_v6(
-            interface,
-            V6Notice::Warning(alloc::format!(
-                "ensure link {} is up: {error}",
-                interface.link.name
-            )),
-        );
+    let warning = alloc::format!("ensure link {} is up: {error}", interface.link.name);
+    if interface.v4.is_active() {
+        interface.v4.notify(Notice::Warning(warning.clone()));
+    }
+    if interface.v6.is_active() {
+        interface.v6.notify(Notice::Warning(warning));
     }
 }
 
-pub(super) fn publish<N: Ops>(interface: &Interface<N>) {
+pub(super) fn publish<N, V4, V6>(interface: &Interface<N, V4, V6>)
+where
+    N: Ops,
+    V4: Family<Config = addrconf::v4::Config, View = view::V4State>,
+    V6: Family<Config = addrconf::v6::Config, View = view::V6State>,
+{
     let snapshot = Snapshot {
         link: interface.link.link_state,
-        #[cfg(feature = "ipv4")]
-        v4: interface.v4.as_ref().and_then(super::v4::Method::view),
-        #[cfg(feature = "ipv4")]
-        v4_state: interface.v4_state,
-        #[cfg(feature = "ipv6")]
-        v6: interface.v6.as_ref().and_then(super::v6::Method::view),
-        #[cfg(feature = "ipv6")]
-        v6_state: interface.v6_state,
+        v4: interface.v4.view(),
+        v4_state: interface.v4.state(),
+        v6: interface.v6.view(),
+        v6_state: interface.v6.state(),
     };
     drop(interface.snapshot_tx.send(snapshot));
 }

@@ -84,9 +84,7 @@ mod tests {
             link: State::Up,
             v4,
             v4_state,
-            #[cfg(feature = "ipv6")]
             v6: None,
-            #[cfg(feature = "ipv6")]
             v6_state: MethodState::Stopped,
         }
     }

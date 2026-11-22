@@ -240,7 +240,6 @@ async fn configure_promoted<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Na
                 name,
                 Command::Configure {
                     v4: Some(config),
-                    #[cfg(feature = "ipv6")]
                     v6: None,
                 },
             )
@@ -290,13 +289,9 @@ mod tests {
     fn handle(link: State) -> Handle {
         let snapshot = Snapshot {
             link,
-            #[cfg(feature = "ipv4")]
             v4: None,
-            #[cfg(feature = "ipv4")]
             v4_state: addrconf::State::Stopped,
-            #[cfg(feature = "ipv6")]
             v6: None,
-            #[cfg(feature = "ipv6")]
             v6_state: addrconf::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);

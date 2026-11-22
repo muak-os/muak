@@ -1,13 +1,16 @@
 //! Integration tests for the family-neutral interface controller.
 
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
 mod common;
 
 #[cfg(test)]
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
 mod tests {
     use core::time::Duration;
 
     use addrconf::State;
-    use linkctl::interface::{Command, Interface, Snapshot};
+    use linkctl::System;
+    use linkctl::interface::{Command, Snapshot};
     #[cfg(feature = "ipv4")]
     use linkctl::interface::{Handle, Notice, V4Notice};
     use netdev::interface::Ethernet;
@@ -125,10 +128,9 @@ mod tests {
             dns: Vec::new(),
             dhcp: false,
         };
-        let (mut handle, _notices) = Interface::spawn(mock.clone(), link);
+        let (mut handle, _notices) = System::spawn(mock.clone(), link);
         let command = Command::Configure {
             v4: Some(config),
-            #[cfg(feature = "ipv6")]
             v6: None,
         };
 
@@ -173,9 +175,8 @@ mod tests {
             dns: Vec::new(),
             autoconf: false,
         };
-        let (mut handle, _notices) = Interface::spawn(mock.clone(), link);
+        let (mut handle, _notices) = System::spawn(mock.clone(), link);
         let command = Command::Configure {
-            #[cfg(feature = "ipv4")]
             v4: None,
             v6: Some(config),
         };
@@ -208,7 +209,7 @@ mod tests {
 
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
-        let (mut handle, _notices) = Interface::spawn(mock.clone(), link);
+        let (mut handle, _notices) = System::spawn(mock.clone(), link);
         let config = addrconf::v4::Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
             gateway: None,
@@ -217,7 +218,6 @@ mod tests {
         };
         let command = Command::Configure {
             v4: Some(config),
-            #[cfg(feature = "ipv6")]
             v6: None,
         };
         handle
@@ -263,12 +263,11 @@ mod tests {
             dns: Vec::new(),
             dhcp: false,
         };
-        let (mut handle, mut notices) = Interface::spawn(mock.clone(), link);
+        let (mut handle, mut notices) = System::spawn(mock.clone(), link);
         handle
             .command_tx
             .send(Command::Configure {
                 v4: Some(config),
-                #[cfg(feature = "ipv6")]
                 v6: None,
             })
             .await
@@ -318,12 +317,11 @@ mod tests {
             dns: Vec::new(),
             dhcp: false,
         };
-        let (mut handle, mut notices) = Interface::spawn(mock, link);
+        let (mut handle, mut notices) = System::spawn(mock, link);
         handle
             .command_tx
             .send(Command::Configure {
                 v4: Some(first),
-                #[cfg(feature = "ipv6")]
                 v6: None,
             })
             .await
@@ -336,7 +334,6 @@ mod tests {
             .command_tx
             .send(Command::Configure {
                 v4: Some(second),
-                #[cfg(feature = "ipv6")]
                 v6: None,
             })
             .await
@@ -372,12 +369,11 @@ mod tests {
             dns: Vec::new(),
             dhcp: true,
         };
-        let (mut handle, mut notices) = Interface::spawn(mock, link);
+        let (mut handle, mut notices) = System::spawn(mock, link);
         handle
             .command_tx
             .send(Command::Configure {
                 v4: Some(config.clone()),
-                #[cfg(feature = "ipv6")]
                 v6: None,
             })
             .await
@@ -391,7 +387,6 @@ mod tests {
             .command_tx
             .send(Command::Configure {
                 v4: Some(config),
-                #[cfg(feature = "ipv6")]
                 v6: None,
             })
             .await
@@ -430,14 +425,13 @@ mod tests {
             dns: Vec::new(),
             dhcp: false,
         };
-        let (handle, mut notices) = Interface::spawn(mock, link);
+        let (handle, mut notices) = System::spawn(mock, link);
 
         // ACT
         handle
             .command_tx
             .send(Command::Configure {
                 v4: Some(config),
-                #[cfg(feature = "ipv6")]
                 v6: None,
             })
             .await
@@ -446,6 +440,36 @@ mod tests {
 
         // ASSERT
         assert!(matches!(notice, Notice::Warning(_)));
+    }
+
+    #[cfg(not(feature = "ipv4"))]
+    #[tokio::test]
+    async fn disabled_v4_stays_stopped_and_silent() {
+        // ARRANGE
+        let mock = MockNetlinkOps::new();
+        let link = ethernet(&mock);
+        let (handle, mut notices) = System::spawn(mock, link);
+        let command = Command::Configure {
+            v4: Some(addrconf::v4::Config {
+                addresses: Vec::new(),
+                gateway: None,
+                dns: Vec::new(),
+                dhcp: false,
+            }),
+            v6: None,
+        };
+
+        // ACT
+        handle
+            .command_tx
+            .send(command)
+            .await
+            .expect("send configure");
+        tokio::task::yield_now().await;
+
+        // ASSERT
+        assert_eq!(handle.snapshot_rx.borrow().v4_state, State::Stopped);
+        assert!(notices.v4.try_recv().is_err());
     }
 
     #[cfg(feature = "ipv4")]

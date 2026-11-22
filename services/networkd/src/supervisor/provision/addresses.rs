@@ -59,42 +59,27 @@ pub(in crate::supervisor) async fn configure<N: Ops>(
     owner: &Name,
     iface_cfg: &InterfaceConfig,
 ) -> Result<()> {
+    #[cfg(not(feature = "ipv4"))]
+    let v4 = None;
     #[cfg(feature = "ipv4")]
     let v4 = iface_cfg
         .ipv4
         .as_ref()
         .and_then(|cfg| v4_config(supervisor, cfg));
+    #[cfg(not(feature = "ipv6"))]
+    let v6 = None;
     #[cfg(feature = "ipv6")]
     let v6 = iface_cfg
         .ipv6
         .as_ref()
         .and_then(|cfg| v6_config(supervisor, cfg));
 
-    #[cfg(all(feature = "ipv4", feature = "ipv6"))]
     if v4.is_none() && v6.is_none() {
-        return Ok(());
-    }
-    #[cfg(all(feature = "ipv4", not(feature = "ipv6")))]
-    if v4.is_none() {
-        return Ok(());
-    }
-    #[cfg(all(feature = "ipv6", not(feature = "ipv4")))]
-    if v6.is_none() {
         return Ok(());
     }
 
     let target = handle(supervisor, owner)?;
-    send_command(
-        target,
-        Command::Configure {
-            #[cfg(feature = "ipv4")]
-            v4,
-            #[cfg(feature = "ipv6")]
-            v6,
-        },
-        owner,
-    )
-    .await?;
+    send_command(target, Command::Configure { v4, v6 }, owner).await?;
     kmsg::info!("Configuration sent to {}", owner.as_str());
 
     Ok(())
