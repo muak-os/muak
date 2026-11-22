@@ -3,6 +3,7 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::net::IpAddr;
+use std::time::Instant;
 
 use crate::provision::{AddressConfig, Command, Event, Intent, Method, State};
 
@@ -96,11 +97,15 @@ where
 {
     type View = F::View;
 
-    async fn next_event(&mut self) -> Event {
+    async fn next_event(&mut self, _now: Instant) -> Event {
         if let Some(event) = self.queue.pop_front() {
             return event;
         }
         core::future::pending::<Event>().await
+    }
+
+    fn next_wake(&self, _now: Instant) -> Option<Instant> {
+        None
     }
 
     fn on_command(&mut self, command: Command) {
@@ -125,6 +130,7 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
     use core::net::{IpAddr, Ipv4Addr};
+    use std::time::Instant;
 
     use super::{Config, Family, Static};
     use crate::provision::{Command, Event, Intent, Method as _, State};
@@ -171,7 +177,7 @@ mod tests {
     }
 
     async fn expect_intent(method: &mut Static<TestFamily>) -> Intent {
-        match method.next_event().await {
+        match method.next_event(Instant::now()).await {
             Event::Intent(intent) => intent,
             Event::State(_) | Event::Warning(_) | Event::Failed(_) => panic!("expected intent"),
         }
@@ -179,7 +185,7 @@ mod tests {
 
     async fn drain_start_events(method: &mut Static<TestFamily>) {
         for _ in 0_usize..4_usize {
-            method.next_event().await;
+            method.next_event(Instant::now()).await;
         }
     }
 
@@ -193,7 +199,7 @@ mod tests {
         let first = expect_intent(&mut method).await;
         let second = expect_intent(&mut method).await;
         let route = expect_intent(&mut method).await;
-        let state = method.next_event().await;
+        let state = method.next_event(Instant::now()).await;
 
         // ASSERT
         assert_configure(first, ADDRESS_A);
@@ -215,7 +221,7 @@ mod tests {
         let first = expect_intent(&mut method).await;
         let second = expect_intent(&mut method).await;
         let route = expect_intent(&mut method).await;
-        let state = method.next_event().await;
+        let state = method.next_event(Instant::now()).await;
 
         // ASSERT
         assert_deconfigure(first, ADDRESS_A);
@@ -239,7 +245,7 @@ mod tests {
 
         // ACT
         method.on_command(Command::Start);
-        let event = method.next_event().await;
+        let event = method.next_event(Instant::now()).await;
         let view = method.view();
 
         // ASSERT
@@ -271,7 +277,7 @@ mod tests {
 
         // ACT
         method.on_command(Command::LinkDown);
-        let event = method.next_event().await;
+        let event = method.next_event(Instant::now()).await;
         let view = method.view();
 
         // ASSERT

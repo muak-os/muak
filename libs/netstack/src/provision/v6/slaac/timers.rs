@@ -1,61 +1,60 @@
 //! Deadline computation and expiry handling for the SLAAC method.
 
 use core::net::IpAddr;
-use core::time::Duration;
+use std::time::Instant;
 
-use tokio::time::Instant;
-
-use super::state::{AddressState, Expiring};
-use super::{Slaac, deconfigure};
+use super::state::AddressState;
+use super::{RTR_SOLICITATION_INTERVAL, Slaac, intent};
 use crate::provision::{Event, Intent};
 use crate::transport::icmpv6::Transport;
 
-const IDLE_HORIZON: Duration = Duration::from_hours(1);
-
-pub(super) fn next_deadline<T: Transport>(method: &Slaac<T>) -> Instant {
-    let mut deadline = Instant::now()
-        .checked_add(IDLE_HORIZON)
-        .unwrap_or_else(Instant::now);
-
-    if let Some(address) = method.address.as_ref() {
-        if address.state == AddressState::Preferred && address.preferred_until < deadline {
-            deadline = address.preferred_until;
-        }
-        if address.valid_until < deadline {
-            deadline = address.valid_until;
-        }
+pub(super) fn next_wake<T: Transport>(method: &Slaac<T>, now: Instant) -> Option<Instant> {
+    if !method.running {
+        return None;
     }
 
-    if let Some(router) = method.router.as_ref()
-        && router.expires_at < deadline
-    {
-        deadline = router.expires_at;
-    }
-
-    for dns in &method.dns_servers {
-        if dns.expires_at < deadline {
-            deadline = dns.expires_at;
+    let solicitation = if method.solicited {
+        next_deadline(method)
+    } else {
+        match method.solicitation_at {
+            Some(at) if at > now => Some(at),
+            _ => now.checked_add(RTR_SOLICITATION_INTERVAL),
         }
-    }
+    };
+    let retry = method.retry_at.filter(|at| *at > now);
 
-    deadline
+    [solicitation, retry].into_iter().flatten().min()
 }
 
-pub(super) fn handle_expiration<T: Transport>(method: &mut Slaac<T>) {
-    let now = Instant::now();
+pub(super) fn next_deadline<T: Transport>(method: &Slaac<T>) -> Option<Instant> {
+    let address = method.address.as_ref();
+    let preferred = address
+        .filter(|address| address.state == AddressState::Preferred)
+        .map(|address| address.preferred_until);
+    let valid = address.map(|address| address.valid_until);
+    let router = method.router.as_ref().map(|router| router.expires_at);
+    let dns = method.dns_servers.iter().map(|dns| dns.expires_at).min();
 
+    [preferred, valid, router, dns].into_iter().flatten().min()
+}
+
+pub(super) fn due<T: Transport>(method: &Slaac<T>, now: Instant) -> bool {
+    next_deadline(method).is_some_and(|at| at <= now)
+}
+
+pub(super) fn handle_expiration<T: Transport>(method: &mut Slaac<T>, now: Instant) {
     if let Some(address) = method.address.as_mut()
         && address.state == AddressState::Preferred
-        && !address.is_preferred()
+        && !address.is_preferred(now)
     {
         address.state = AddressState::Deprecated;
         return;
     }
 
     if let Some(address) = method.address.as_ref()
-        && !address.is_valid()
+        && !address.is_valid(now)
     {
-        let intent = deconfigure(address.address, address.prefix_len);
+        let intent = intent::deconfigure(address.address, address.prefix_len);
         method.address = None;
         method.queue.push_back(Event::Intent(intent));
         return;
@@ -75,8 +74,8 @@ pub(super) fn handle_expiration<T: Transport>(method: &mut Slaac<T>) {
     }
 
     let had_dns = !method.dns_servers.is_empty();
-    method.dns_servers.retain(Expiring::is_valid);
+    method.dns_servers.retain(|dns| dns.is_valid(now));
     if had_dns && method.dns_servers.is_empty() {
-        method.dns_servers = method.dns_fallback();
+        method.dns_servers = method.dns_fallback(now);
     }
 }

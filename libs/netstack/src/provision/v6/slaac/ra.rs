@@ -1,6 +1,7 @@
 //! Router advertisement processing after initial acquisition.
 
 use core::net::IpAddr;
+use std::time::Instant;
 
 use ::slaac::address::generate;
 use ::slaac::icmpv6::types::RouterAdvertisement;
@@ -14,6 +15,7 @@ use crate::transport::icmpv6::Transport;
 pub(super) fn process_unsolicited_ra<T: Transport>(
     method: &mut Slaac<T>,
     ra: &RouterAdvertisement,
+    now: Instant,
 ) {
     if ra.router_lifetime == 0 {
         if let Some(router) = method.router.as_ref()
@@ -30,24 +32,28 @@ pub(super) fn process_unsolicited_ra<T: Transport>(
     }
 
     if method.address.is_none() || method.router.is_none() {
-        process_initial_ra(method, ra);
+        process_initial_ra(method, ra, now);
         return;
     }
 
     if let Some(router) = method.router.as_mut()
         && router.value == ra.source
     {
-        router.refresh_lifetime(u64::from(ra.router_lifetime));
+        router.refresh_lifetime(u64::from(ra.router_lifetime), now);
     }
 
-    refresh_address_from_ra(method, ra);
+    refresh_address_from_ra(method, ra, now);
 
     if !ra.dns_servers.is_empty() {
-        refresh_dns_from_ra(method, ra);
+        refresh_dns_from_ra(method, ra, now);
     }
 }
 
-fn refresh_address_from_ra<T: Transport>(method: &mut Slaac<T>, ra: &RouterAdvertisement) {
+fn refresh_address_from_ra<T: Transport>(
+    method: &mut Slaac<T>,
+    ra: &RouterAdvertisement,
+    now: Instant,
+) {
     let Some(address) = method.address.as_mut() else {
         return;
     };
@@ -59,24 +65,28 @@ fn refresh_address_from_ra<T: Transport>(method: &mut Slaac<T>, ra: &RouterAdver
             && address.router == ra.source
             && generated == Some(address.address)
         {
-            address.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime);
+            address.refresh_lifetimes(prefix.valid_lifetime, prefix.preferred_lifetime, now);
             return;
         }
     }
 }
 
-fn refresh_dns_from_ra<T: Transport>(method: &mut Slaac<T>, ra: &RouterAdvertisement) {
+fn refresh_dns_from_ra<T: Transport>(
+    method: &mut Slaac<T>,
+    ra: &RouterAdvertisement,
+    now: Instant,
+) {
     for server in &ra.dns_servers {
         if let Some(managed) = method
             .dns_servers
             .iter_mut()
             .find(|dns| dns.value == *server)
         {
-            managed.refresh_lifetime(u64::from(ra.dns_lifetime));
+            managed.refresh_lifetime(u64::from(ra.dns_lifetime), now);
         } else {
             method
                 .dns_servers
-                .push(ManagedDns::new(*server, u64::from(ra.dns_lifetime)));
+                .push(ManagedDns::new(*server, u64::from(ra.dns_lifetime), now));
         }
     }
 }

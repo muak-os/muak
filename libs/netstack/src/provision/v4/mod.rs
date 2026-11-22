@@ -1,8 +1,10 @@
 //! IPv4 address provisioning methods.
 
 mod dhcp;
+mod exchange;
 mod intent;
 mod lease;
+mod retry;
 mod timer;
 
 use alloc::collections::VecDeque;
@@ -10,6 +12,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::future::Future;
 use core::net::{IpAddr, Ipv4Addr};
+use std::time::Instant;
 
 use dhcp::Phase;
 use dhcp_client::lease::Lease;
@@ -67,6 +70,8 @@ pub struct Dhcp<E: Exchange> {
     phase: Phase,
     lease: Option<Lease>,
     deadlines: Deadlines,
+    retry_at: Option<Instant>,
+    attempts: u32,
     queue: VecDeque<Event>,
 }
 

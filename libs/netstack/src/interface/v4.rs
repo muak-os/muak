@@ -1,5 +1,7 @@
 //! IPv4 address method driven by the interface controller.
 
+use std::time::Instant;
+
 use netdev::interface::Ethernet;
 
 use crate::transport::dhcp::{Exchange, System};
@@ -34,11 +36,20 @@ impl Method {
         Ok(Self::Static(provision::v4::Static::new(config.fixed())))
     }
 
-    /// Returns the next event produced by the method.
-    pub async fn next_event(&mut self) -> provision::Event {
+    /// Performs at most one I/O step and returns the next event.
+    pub async fn next_event(&mut self, now: Instant) -> provision::Event {
         match *self {
-            Self::Static(ref mut method) => provision::Method::next_event(method).await,
-            Self::Dhcp(ref mut method) => provision::Method::next_event(method).await,
+            Self::Static(ref mut method) => provision::Method::next_event(method, now).await,
+            Self::Dhcp(ref mut method) => provision::Method::next_event(method, now).await,
+        }
+    }
+
+    /// Returns the earliest instant at which the method must be polled again.
+    #[must_use = "callers arm the controller wake deadline with it"]
+    pub fn next_wake(&self, now: Instant) -> Option<Instant> {
+        match *self {
+            Self::Static(ref method) => provision::Method::next_wake(method, now),
+            Self::Dhcp(ref method) => provision::Method::next_wake(method, now),
         }
     }
 

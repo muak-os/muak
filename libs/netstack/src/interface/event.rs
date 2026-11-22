@@ -1,7 +1,7 @@
 //! Events an interface controller selects between and dispatches.
 
-#[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use core::task::Poll;
+use std::time::Instant;
 
 use netdev::Ops;
 
@@ -9,8 +9,7 @@ use netdev::Ops;
 use super::v4;
 #[cfg(feature = "ipv6")]
 use super::v6;
-use super::{Interface, command, intent, notice};
-#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+use super::{Interface, command, intent, notice, wake};
 use crate::provision;
 
 /// One input event the controller loop selected.
@@ -25,24 +24,50 @@ pub(super) enum Selected {
     V6(provision::Event),
 }
 
+enum Wait {
+    Input(Selected),
+    Closed,
+    Wake,
+}
+
 pub(super) async fn select<N: Ops>(interface: &mut Interface<N>) -> Option<Selected> {
+    loop {
+        match wait(interface).await {
+            Wait::Input(selected) => return Some(selected),
+            Wait::Closed => return None,
+            Wait::Wake => {}
+        }
+    }
+}
+
+async fn wait<N: Ops>(interface: &mut Interface<N>) -> Wait {
+    let now = Instant::now();
+    let deadline = wake::earliest_wake(interface, now);
+
     let mut command = core::pin::pin!(interface.command_rx.recv());
     #[cfg(feature = "ipv4")]
-    let mut v4 = core::pin::pin!(next_v4(&mut interface.v4));
+    let mut v4 = core::pin::pin!(next_v4(&mut interface.v4, now));
     #[cfg(feature = "ipv6")]
-    let mut v6 = core::pin::pin!(next_v6(&mut interface.v6));
+    let mut v6 = core::pin::pin!(next_v6(&mut interface.v6, now));
+    let mut timer = core::pin::pin!(wake::wait_until(deadline));
 
     core::future::poll_fn(|cx| {
         if let Poll::Ready(command) = command.as_mut().poll(cx) {
-            return Poll::Ready(command.map(Selected::Command));
+            return Poll::Ready(match command {
+                Some(command) => Wait::Input(Selected::Command(command)),
+                None => Wait::Closed,
+            });
         }
         #[cfg(feature = "ipv4")]
         if let Poll::Ready(event) = v4.as_mut().poll(cx) {
-            return Poll::Ready(Some(Selected::V4(event)));
+            return Poll::Ready(Wait::Input(Selected::V4(event)));
         }
         #[cfg(feature = "ipv6")]
         if let Poll::Ready(event) = v6.as_mut().poll(cx) {
-            return Poll::Ready(Some(Selected::V6(event)));
+            return Poll::Ready(Wait::Input(Selected::V6(event)));
+        }
+        if timer.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Wait::Wake);
         }
         Poll::Pending
     })
@@ -118,17 +143,17 @@ pub(super) fn configure_v6<N: Ops>(
 }
 
 #[cfg(feature = "ipv4")]
-async fn next_v4(method: &mut Option<v4::Method>) -> provision::Event {
+async fn next_v4(method: &mut Option<v4::Method>, now: Instant) -> provision::Event {
     match method.as_mut() {
-        Some(method) => method.next_event().await,
+        Some(method) => method.next_event(now).await,
         None => core::future::pending().await,
     }
 }
 
 #[cfg(feature = "ipv6")]
-async fn next_v6(method: &mut Option<v6::Method>) -> provision::Event {
+async fn next_v6(method: &mut Option<v6::Method>, now: Instant) -> provision::Event {
     match method.as_mut() {
-        Some(method) => method.next_event().await,
+        Some(method) => method.next_event(now).await,
         None => core::future::pending().await,
     }
 }

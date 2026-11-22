@@ -9,6 +9,7 @@ pub mod v6;
 use alloc::string::String;
 use core::future::Future;
 use core::net::IpAddr;
+use std::time::Instant;
 
 use thiserror::Error;
 
@@ -45,6 +46,15 @@ pub enum State {
     Degraded,
     /// Method is stopped.
     Stopped,
+}
+
+/// Outcome of one address method step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    /// The step changed state or queued events, so another step must follow.
+    Advance,
+    /// The step is waiting for I/O or for its wake deadline.
+    Wait,
 }
 
 /// Commands the controller sends to an address method.
@@ -91,8 +101,16 @@ pub trait Method {
     /// Point-in-time state the method exposes to the controller.
     type View;
 
-    /// Returns the next event produced by the method.
-    fn next_event(&mut self) -> impl Future<Output = Event> + Send;
+    /// Performs at most one I/O step and returns the next event.
+    ///
+    /// Every deadline at or before `now` must be handled before awaiting I/O.
+    fn next_event(&mut self, now: Instant) -> impl Future<Output = Event> + Send;
+
+    /// Earliest instant at which the method must be polled again with no I/O pending.
+    ///
+    /// Returning an earlier instant is safe; a later one is a bug. Returning `now`
+    /// asks the controller for an immediate step.
+    fn next_wake(&self, now: Instant) -> Option<Instant>;
 
     /// Applies a command from the controller.
     fn on_command(&mut self, command: Command);
