@@ -34,6 +34,7 @@ pub struct Slaac<T: Transport> {
     solicited: bool,
     solicitation_attempt: u32,
     solicitation_at: Option<Instant>,
+    retry_at: Option<Instant>,
     reconcile: bool,
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
@@ -57,6 +58,7 @@ impl<T: Transport> Slaac<T> {
             solicited: false,
             solicitation_attempt: 0,
             solicitation_at: None,
+            retry_at: None,
             reconcile: false,
             address: None,
             router: None,
@@ -77,6 +79,7 @@ impl<T: Transport> Slaac<T> {
         self.solicited = false;
         self.solicitation_attempt = 0;
         self.solicitation_at = None;
+        self.retry_at = None;
     }
 
     const fn suspend(&mut self) {
@@ -113,6 +116,7 @@ impl<T: Transport> Slaac<T> {
         self.running = false;
         self.solicited = true;
         self.solicitation_at = None;
+        self.retry_at = None;
         if let Some(address) = self.address.take() {
             let intent = intent::deconfigure(address.address, address.prefix_len);
             self.queue.push_back(Event::Intent(intent));

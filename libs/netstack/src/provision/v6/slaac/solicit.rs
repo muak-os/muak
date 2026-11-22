@@ -34,6 +34,17 @@ pub(super) async fn monitor<T: Transport>(method: &mut Slaac<T>, now: Instant) -
         return Step::Advance;
     }
 
+    // Expirations are serviced first: `next_wake` still reports an elapsed
+    // deadline, so the back-off must not hide it from the step.
+    if let Some(at) = method.retry_at {
+        if now < at {
+            return Step::Wait;
+        }
+        // The deadline elapsed: clear it before reading the socket so the
+        // controller never reads a past wake instant while the read is in flight.
+        method.retry_at = None;
+    }
+
     match try_recv_ra(method).await {
         Ok(Some(ra)) => {
             process_unsolicited_ra(method, &ra, now);
@@ -41,6 +52,9 @@ pub(super) async fn monitor<T: Transport>(method: &mut Slaac<T>, now: Instant) -
         }
         Ok(None) => Step::Advance,
         Err(error) => {
+            // A socket level error repeats until the socket is usable again, so
+            // the retry is paced by the interval instead of the step rate.
+            method.retry_at = now.checked_add(RTR_SOLICITATION_INTERVAL);
             method.queue.push_back(Event::Failed(Failure::Io(error)));
             Step::Advance
         }
@@ -163,4 +177,134 @@ async fn try_recv_ra<T: Transport>(
     let ra = router_advertisement(data, source).map_err(std::io::Error::other)?;
 
     Ok(Some(ra))
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+    use core::future::Future;
+    use core::net::Ipv6Addr;
+    use core::task::{Context, Waker};
+    use core::time::Duration;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Instant;
+
+    use crate::provision::v6::Config;
+    use crate::provision::v6::slaac::Slaac;
+    use crate::provision::{Command, Event, Failure, Method as _};
+    use crate::transport::icmpv6::Transport;
+
+    const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
+
+    #[derive(Default)]
+    struct FailingTransport {
+        receives: AtomicU32,
+    }
+
+    impl FailingTransport {
+        fn receives(&self) -> u32 {
+            self.receives.load(Ordering::Relaxed)
+        }
+    }
+
+    impl Transport for FailingTransport {
+        fn recv_from(
+            &self,
+            _buf: &mut [u8],
+        ) -> impl Future<Output = std::io::Result<(usize, Option<Ipv6Addr>)>> + Send {
+            self.receives.fetch_add(1, Ordering::Relaxed);
+            core::future::ready(Err(std::io::Error::from(std::io::ErrorKind::NotConnected)))
+        }
+
+        fn send_to(
+            &self,
+            _dst: Ipv6Addr,
+            _payload: &[u8],
+        ) -> impl Future<Output = std::io::Result<usize>> + Send {
+            core::future::ready(Ok(0))
+        }
+    }
+
+    fn monitoring(transport: FailingTransport) -> Slaac<FailingTransport> {
+        let config = Config {
+            addresses: Vec::new(),
+            gateway: None,
+            dns: Vec::new(),
+            autoconf: true,
+        };
+        let mut method = Slaac::new(config, String::from("eth0"), MAC, transport);
+        method.running = true;
+        method.solicited = true;
+
+        method
+    }
+
+    fn at(now: Instant, secs: u64) -> Instant {
+        now.checked_add(Duration::from_secs(secs))
+            .expect("representable instant")
+    }
+
+    fn is_pending<F: Future>(future: F) -> bool {
+        let mut future = core::pin::pin!(future);
+        let mut context = Context::from_waker(Waker::noop());
+
+        future.as_mut().poll(&mut context).is_pending()
+    }
+
+    #[tokio::test]
+    async fn receive_error_is_paced_by_the_back_off() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = monitoring(FailingTransport::default());
+
+        // ACT
+        let failed = method.next_event(now).await;
+        let wake = method.next_wake(now);
+        let receives_after_failure = method.socket.receives();
+        let repeat = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert!(matches!(failed, Event::Failed(Failure::Io(_))));
+        assert_eq!(wake, Some(at(now, 4)));
+        assert_eq!(receives_after_failure, 1);
+        assert!(repeat);
+        assert_eq!(method.socket.receives(), 1);
+    }
+
+    #[tokio::test]
+    async fn receive_error_retries_once_after_the_interval() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = monitoring(FailingTransport::default());
+        let _failed = method.next_event(now).await;
+
+        // ACT
+        let retried = method.next_event(at(now, 4)).await;
+        let wake = method.next_wake(at(now, 4));
+
+        // ASSERT
+        assert!(matches!(retried, Event::Failed(Failure::Io(_))));
+        assert_eq!(method.socket.receives(), 2);
+        assert_eq!(wake, Some(at(now, 8)));
+    }
+
+    #[tokio::test]
+    async fn stop_and_resolicit_clear_the_back_off() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = monitoring(FailingTransport::default());
+        let _failed = method.next_event(now).await;
+
+        // ACT
+        method.on_command(Command::Stop);
+        let stopped = method.next_wake(now);
+        method.on_command(Command::Start);
+        let resolicited = method.next_wake(at(now, 1));
+
+        // ASSERT
+        assert_eq!(stopped, None);
+        // The resolicitation interval of the fresh attempt, not the old back-off.
+        assert_eq!(resolicited, Some(at(now, 5)));
+    }
 }

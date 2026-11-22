@@ -12,16 +12,20 @@ pub(super) fn next_wake<T: Transport>(method: &Slaac<T>, now: Instant) -> Option
     if !method.running {
         return None;
     }
-    if !method.solicited {
+
+    let solicitation = if method.solicited {
+        next_deadline(method)
+    } else {
         // While the next solicitation is not yet armed, the step about to run
         // sends one and arms it, so that interval is the earliest wake.
-        return match method.solicitation_at {
+        match method.solicitation_at {
             Some(at) if at > now => Some(at),
             _ => now.checked_add(RTR_SOLICITATION_INTERVAL),
-        };
-    }
+        }
+    };
+    let retry = method.retry_at.filter(|at| *at > now);
 
-    next_deadline(method)
+    [solicitation, retry].into_iter().flatten().min()
 }
 
 pub(super) fn next_deadline<T: Transport>(method: &Slaac<T>) -> Option<Instant> {
