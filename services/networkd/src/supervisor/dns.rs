@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::net::{Ipv4Addr, Ipv6Addr};
 
-use linkctl::interface::Handle;
+use linkctl::interface::{Handle, Snapshot};
 #[cfg(feature = "ipv4")]
 use linkctl::view::V4State;
 #[cfg(feature = "ipv6")]
@@ -36,39 +36,53 @@ fn collect<N: Ops>(
     handle: &Handle,
 ) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
     let snapshot = handle.snapshot_rx.borrow();
-    #[cfg(feature = "ipv4")]
-    let mut ipv4_dns = Vec::new();
-    #[cfg(feature = "ipv4")]
+
+    (
+        collect_v4(supervisor, &snapshot),
+        collect_v6(supervisor, &snapshot),
+    )
+}
+
+#[cfg(feature = "ipv4")]
+fn collect_v4<N: Ops>(supervisor: &NetworkSupervisor<N>, snapshot: &Snapshot) -> Vec<Ipv4Addr> {
+    let mut dns = Vec::new();
     if let Some(state) = snapshot.v4.as_ref() {
         match *state {
-            V4State::Static(ref config) => ipv4_dns.clone_from(&config.dns),
-            V4State::Dhcp(ref view) => ipv4_dns.clone_from(&view.lease.dns_servers),
+            V4State::Static(ref config) => dns.clone_from(&config.dns),
+            V4State::Dhcp(ref view) => dns.clone_from(&view.lease.dns_servers),
         }
     }
-    #[cfg(feature = "ipv4")]
-    if ipv4_dns.is_empty() {
-        ipv4_dns = supervisor.config.ipv4_dns().collect();
+    if dns.is_empty() {
+        dns = supervisor.config.ipv4_dns().collect();
     }
-    #[cfg(not(feature = "ipv4"))]
-    let ipv4_dns = Vec::new();
 
-    #[cfg(feature = "ipv6")]
-    let mut ipv6_dns = Vec::new();
-    #[cfg(feature = "ipv6")]
+    dns
+}
+
+#[cfg(not(feature = "ipv4"))]
+fn collect_v4<N: Ops>(_: &NetworkSupervisor<N>, _: &Snapshot) -> Vec<Ipv4Addr> {
+    Vec::new()
+}
+
+#[cfg(feature = "ipv6")]
+fn collect_v6<N: Ops>(supervisor: &NetworkSupervisor<N>, snapshot: &Snapshot) -> Vec<Ipv6Addr> {
+    let mut dns = Vec::new();
     if let Some(state) = snapshot.v6.as_ref() {
         match *state {
-            V6State::Static(ref config) => ipv6_dns.clone_from(&config.dns),
-            V6State::Slaac(ref view) => ipv6_dns.clone_from(&view.dns),
+            V6State::Static(ref config) => dns.clone_from(&config.dns),
+            V6State::Slaac(ref view) => dns.clone_from(&view.dns),
         }
     }
-    #[cfg(feature = "ipv6")]
-    if ipv6_dns.is_empty() {
-        ipv6_dns = supervisor.config.ipv6_dns().collect();
+    if dns.is_empty() {
+        dns = supervisor.config.ipv6_dns().collect();
     }
-    #[cfg(not(feature = "ipv6"))]
-    let ipv6_dns = Vec::new();
 
-    (ipv4_dns, ipv6_dns)
+    dns
+}
+
+#[cfg(not(feature = "ipv6"))]
+fn collect_v6<N: Ops>(_: &NetworkSupervisor<N>, _: &Snapshot) -> Vec<Ipv6Addr> {
+    Vec::new()
 }
 
 fn apply<N: Ops>(
