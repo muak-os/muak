@@ -1,7 +1,7 @@
 //! Snapshot inspection shared by the supervisor's policy modules.
 
+use addrconf::State as MethodState;
 use linkctl::interface::Snapshot;
-use linkctl::provision::State as MethodState;
 use netlink::link::state::State;
 
 /// Returns true when at least one address family has bound its configuration.
@@ -93,7 +93,7 @@ mod tests {
 
     #[cfg(feature = "ipv4")]
     const fn static_view() -> V4State {
-        V4State::Static(netlink::address::IpConfig {
+        V4State::Static(addrconf::fixed::StaticView {
             address: Ipv4Addr::new(10, 0, 0, 2),
             prefix_len: 24,
             gateway: None,

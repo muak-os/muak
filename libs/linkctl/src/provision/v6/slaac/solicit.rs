@@ -9,11 +9,11 @@ use ::slaac::icmpv6::build::router_solicitation;
 use ::slaac::icmpv6::parse::router_advertisement;
 use ::slaac::icmpv6::types::RouterAdvertisement;
 use ::slaac::icmpv6::{ALL_ROUTERS, ROUTER_ADVERTISEMENT};
+use addrconf::{Event, Failure, Intent, State, Step};
 
 use super::ra::process_unsolicited_ra;
 use super::state::{ManagedAddress, ManagedRouter};
 use super::{MAX_RTR_SOLICITATIONS, RTR_SOLICITATION_INTERVAL, Slaac, intent, timers};
-use crate::provision::{Event, Failure, Intent, State, Step};
 use crate::transport::icmpv6::Transport;
 
 pub(super) async fn initial<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
@@ -181,9 +181,10 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Instant;
 
-    use crate::provision::v6::Config;
+    use addrconf::v6::Config;
+    use addrconf::{Command, Event, Failure, Method as _};
+
     use crate::provision::v6::slaac::Slaac;
-    use crate::provision::{Command, Event, Failure, Method as _};
     use crate::transport::icmpv6::Transport;
 
     const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];

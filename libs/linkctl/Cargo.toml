@@ -18,10 +18,8 @@ ipv6 = ["dep:packet", "packet/v6", "dep:slaac"]
 # Asynchronous
 tokio = { workspace = true, features = ["sync", "time", "rt", "net"] }
 
-# Error handling
-thiserror = { workspace = true }
-
 # Internal
+addrconf = { workspace = true }
 dhcp-client = { workspace = true, optional = true }
 dhcp-proto = { workspace = true, optional = true }
 netdev = { workspace = true }

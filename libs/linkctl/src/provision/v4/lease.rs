@@ -4,13 +4,13 @@ use alloc::collections::VecDeque;
 use alloc::string::String;
 use std::time::Instant;
 
+use addrconf::{Event, Failure, State, Step};
 use dhcp_client::Failure as DhcpFailure;
 use dhcp_client::lease::Lease;
 
 use super::dhcp::Phase;
 use super::timer::Deadlines;
 use super::{Dhcp, Exchange, intent};
-use crate::provision::{Event, Failure, State, Step};
 
 impl<E: Exchange> Dhcp<E> {
     /// Creates a DHCP method that runs exchanges through `exchange`.

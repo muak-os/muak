@@ -3,6 +3,7 @@
 use core::fmt::Display;
 use core::net::IpAddr;
 
+use addrconf::{AddressConfig, Intent};
 use netdev::Ops;
 
 #[cfg(feature = "ipv4")]
@@ -10,8 +11,6 @@ use super::V4Notice;
 #[cfg(feature = "ipv6")]
 use super::V6Notice;
 use super::{Interface, notice};
-use crate::provision;
-use crate::provision::AddressConfig;
 
 #[derive(Clone, Copy)]
 enum Family {
@@ -21,12 +20,12 @@ enum Family {
     V6,
 }
 
-pub(super) async fn apply<N: Ops>(interface: &mut Interface<N>, intent: provision::Intent) {
+pub(super) async fn apply<N: Ops>(interface: &mut Interface<N>, intent: Intent) {
     match intent {
-        provision::Intent::Configure(config) => ensure_address(interface, config).await,
-        provision::Intent::Deconfigure(config) => remove_address(interface, config).await,
-        provision::Intent::EnsureDefaultRoute(gateway) => ensure_route(interface, gateway).await,
-        provision::Intent::RemoveDefaultRoute(gateway) => remove_route(interface, gateway).await,
+        Intent::Configure(config) => ensure_address(interface, config).await,
+        Intent::Deconfigure(config) => remove_address(interface, config).await,
+        Intent::EnsureDefaultRoute(gateway) => ensure_route(interface, gateway).await,
+        Intent::RemoveDefaultRoute(gateway) => remove_route(interface, gateway).await,
     }
 }
 

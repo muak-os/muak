@@ -14,9 +14,10 @@ use core::net::{IpAddr, Ipv6Addr};
 use core::time::Duration;
 use std::time::Instant;
 
+use addrconf::v6::Config;
+use addrconf::{Command, Event, Intent, Method, State, Step};
+
 use self::state::{ManagedAddress, ManagedDns, ManagedRouter};
-use super::Config;
-use crate::provision::{Command, Event, Intent, Method, State, Step};
 use crate::transport::icmpv6::Transport;
 use crate::view::V6State;
 
@@ -198,9 +199,10 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Instant;
 
+    use addrconf::v6::Config;
+    use addrconf::{Command, Event, Intent, Method as _, State};
+
     use super::{RTR_SOLICITATION_INTERVAL, Slaac};
-    use crate::provision::v6::Config;
-    use crate::provision::{Command, Event, Intent, Method as _, State};
     use crate::transport::icmpv6::Transport;
     use crate::view::V6State;
 

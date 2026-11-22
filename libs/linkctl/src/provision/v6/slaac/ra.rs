@@ -5,11 +5,11 @@ use std::time::Instant;
 
 use ::slaac::address::generate;
 use ::slaac::icmpv6::types::RouterAdvertisement;
+use addrconf::{Event, Intent};
 
 use super::Slaac;
 use super::solicit::process_initial_ra;
 use super::state::ManagedDns;
-use crate::provision::{Event, Intent};
 use crate::transport::icmpv6::Transport;
 
 pub(super) fn process_unsolicited_ra<T: Transport>(

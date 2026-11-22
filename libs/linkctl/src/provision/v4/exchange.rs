@@ -4,12 +4,12 @@ use alloc::format;
 use core::net::Ipv4Addr;
 use std::time::Instant;
 
+use addrconf::{Event, Step};
 use dhcp_client::Failure as DhcpFailure;
 use dhcp_client::lease::Lease;
 
 use super::dhcp::Phase;
 use super::{Dhcp, Exchange, retry};
-use crate::provision::{Event, Step};
 
 pub(super) async fn acquire<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Step {
     if let Some(at) = method.retry_at {

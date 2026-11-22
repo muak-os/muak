@@ -3,9 +3,10 @@
 use core::net::IpAddr;
 use std::time::Instant;
 
+use addrconf::{Event, Intent};
+
 use super::state::AddressState;
 use super::{RTR_SOLICITATION_INTERVAL, Slaac, intent};
-use crate::provision::{Event, Intent};
 use crate::transport::icmpv6::Transport;
 
 pub(super) fn next_wake<T: Transport>(method: &Slaac<T>, now: Instant) -> Option<Instant> {

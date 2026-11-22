@@ -2,9 +2,10 @@
 
 use std::time::Instant;
 
+use addrconf::{Command, Event, Method, Step};
+
 use super::timer::Deadlines;
 use super::{Dhcp, Exchange, exchange};
-use crate::provision::{Command, Event, Method, Step};
 use crate::view::{DhcpState, V4State};
 
 // Lifecycle phase of the DHCP method.
@@ -102,11 +103,11 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Instant, SystemTime};
 
+    use addrconf::{Command, Event, Intent, Method as _, State};
     use dhcp_client::Failure as DhcpFailure;
     use dhcp_client::lease::Lease;
 
     use super::{Dhcp, Exchange, Phase};
-    use crate::provision::{Command, Event, Intent, Method as _, State};
     use crate::view::{DhcpState, V4State};
 
     const MAC: [u8; 6] = [0xAA; 6];

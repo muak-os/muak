@@ -6,13 +6,13 @@ mod common;
 mod tests {
     use core::time::Duration;
 
+    use addrconf::State;
     use linkctl::interface::{Command, Interface, Snapshot};
     #[cfg(feature = "ipv4")]
     use linkctl::interface::{Handle, Notice, V4Notice};
-    use linkctl::provision;
     use netdev::interface::Ethernet;
     use netlink::link::ifname::Name;
-    use netlink::link::state::State;
+    use netlink::link::state::State as LinkState;
     #[cfg(feature = "ipv4")]
     use tokio::sync::mpsc;
     use tokio::sync::watch;
@@ -26,7 +26,7 @@ mod tests {
             Name::new("eth0").expect("valid name"),
             index,
             [0xAA; 6],
-            State::Up,
+            LinkState::Up,
         )
     }
 
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[cfg(feature = "ipv4")]
-    async fn wait_for_v4(rx: &mut watch::Receiver<Snapshot>, state: provision::State) -> Snapshot {
+    async fn wait_for_v4(rx: &mut watch::Receiver<Snapshot>, state: State) -> Snapshot {
         tokio::time::timeout(
             Duration::from_secs(1),
             rx.wait_for(|snapshot| snapshot.v4_state == state),
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[cfg(feature = "ipv6")]
-    async fn wait_for_v6(rx: &mut watch::Receiver<Snapshot>, state: provision::State) -> Snapshot {
+    async fn wait_for_v6(rx: &mut watch::Receiver<Snapshot>, state: State) -> Snapshot {
         tokio::time::timeout(
             Duration::from_secs(1),
             rx.wait_for(|snapshot| snapshot.v6_state == state),
@@ -119,7 +119,7 @@ mod tests {
         let index = link.index;
         let address = Ipv4Addr::new(10, 0, 0, 2);
         let gateway = Ipv4Addr::new(10, 0, 0, 1);
-        let config = provision::v4::Config {
+        let config = addrconf::v4::Config {
             addresses: vec![(address, 24)],
             gateway: Some(gateway),
             dns: Vec::new(),
@@ -138,7 +138,7 @@ mod tests {
             .send(command)
             .await
             .expect("send configure");
-        let snapshot = wait_for_v4(&mut handle.snapshot_rx, provision::State::Bound).await;
+        let snapshot = wait_for_v4(&mut handle.snapshot_rx, State::Bound).await;
 
         // ASSERT
         assert!(matches!(
@@ -167,7 +167,7 @@ mod tests {
         let index = link.index;
         let address = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2);
         let gateway = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1);
-        let config = provision::v6::Config {
+        let config = addrconf::v6::Config {
             addresses: vec![(address, 64)],
             gateway: Some(gateway),
             dns: Vec::new(),
@@ -186,7 +186,7 @@ mod tests {
             .send(command)
             .await
             .expect("send configure");
-        let snapshot = wait_for_v6(&mut handle.snapshot_rx, provision::State::Bound).await;
+        let snapshot = wait_for_v6(&mut handle.snapshot_rx, State::Bound).await;
 
         // ASSERT
         assert!(matches!(
@@ -209,7 +209,7 @@ mod tests {
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
         let (mut handle, _notices) = Interface::spawn(mock.clone(), link);
-        let config = provision::v4::Config {
+        let config = addrconf::v4::Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
             gateway: None,
             dns: Vec::new(),
@@ -225,7 +225,7 @@ mod tests {
             .send(command)
             .await
             .expect("send configure");
-        wait_for_v4(&mut handle.snapshot_rx, provision::State::Bound).await;
+        wait_for_v4(&mut handle.snapshot_rx, State::Bound).await;
 
         (mock, handle)
     }
@@ -242,11 +242,11 @@ mod tests {
             .send(Command::LinkDown)
             .await
             .expect("send link down");
-        let snapshot = wait_for_v4(&mut handle.snapshot_rx, provision::State::Degraded).await;
+        let snapshot = wait_for_v4(&mut handle.snapshot_rx, State::Degraded).await;
 
         // ASSERT
         assert!(snapshot.v4.is_some());
-        assert_eq!(snapshot.link, State::Down);
+        assert_eq!(snapshot.link, LinkState::Down);
     }
 
     #[cfg(feature = "ipv4")]
@@ -257,7 +257,7 @@ mod tests {
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
-        let config = provision::v4::Config {
+        let config = addrconf::v4::Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
             gateway: None,
             dns: Vec::new(),
@@ -273,7 +273,7 @@ mod tests {
             })
             .await
             .expect("send configure");
-        wait_for_v4(&mut handle.snapshot_rx, provision::State::Bound).await;
+        wait_for_v4(&mut handle.snapshot_rx, State::Bound).await;
         let mut configured = drain_v4_configured(&mut notices.v4);
 
         // ACT
@@ -282,14 +282,14 @@ mod tests {
             .send(Command::LinkDown)
             .await
             .expect("send link down");
-        wait_for_v4(&mut handle.snapshot_rx, provision::State::Degraded).await;
+        wait_for_v4(&mut handle.snapshot_rx, State::Degraded).await;
         let _drained = drain_v4_configured(&mut notices.v4);
         handle
             .command_tx
             .send(Command::LinkUp)
             .await
             .expect("send link up");
-        wait_for_v4(&mut handle.snapshot_rx, provision::State::Bound).await;
+        wait_for_v4(&mut handle.snapshot_rx, State::Bound).await;
         configured = configured.saturating_add(drain_v4_configured(&mut notices.v4));
 
         // ASSERT
@@ -306,13 +306,13 @@ mod tests {
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
-        let first = provision::v4::Config {
+        let first = addrconf::v4::Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
             gateway: None,
             dns: Vec::new(),
             dhcp: false,
         };
-        let second = provision::v4::Config {
+        let second = addrconf::v4::Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 3), 24)],
             gateway: None,
             dns: Vec::new(),
@@ -328,7 +328,7 @@ mod tests {
             })
             .await
             .expect("send configure");
-        wait_for_v4(&mut handle.snapshot_rx, provision::State::Bound).await;
+        wait_for_v4(&mut handle.snapshot_rx, State::Bound).await;
         let first_view = take_v4_configured(&mut notices.v4).expect("first configured notice");
 
         // ACT
@@ -364,9 +364,9 @@ mod tests {
             Name::new("ghost").expect("valid name"),
             1,
             [0xAA; 6],
-            State::Up,
+            LinkState::Up,
         );
-        let config = provision::v4::Config {
+        let config = addrconf::v4::Config {
             addresses: Vec::new(),
             gateway: None,
             dns: Vec::new(),
@@ -382,7 +382,7 @@ mod tests {
             })
             .await
             .expect("send configure");
-        wait_for_v4(&mut handle.snapshot_rx, provision::State::Degraded).await;
+        wait_for_v4(&mut handle.snapshot_rx, State::Degraded).await;
         let first_warning = next_v4_notice(&mut notices.v4).await;
         let first_state = next_v4_notice(&mut notices.v4).await;
 
@@ -402,15 +402,12 @@ mod tests {
 
         // ASSERT
         assert!(matches!(first_warning, Notice::Warning(_)));
-        assert!(matches!(
-            first_state,
-            Notice::State(provision::State::Degraded)
-        ));
+        assert!(matches!(first_state, Notice::State(State::Degraded)));
         assert!(matches!(second_warning, Notice::Warning(_)));
         assert!(
             !leftovers
                 .iter()
-                .any(|notice| matches!(notice, Notice::State(provision::State::Degraded)))
+                .any(|notice| matches!(notice, Notice::State(State::Degraded)))
         );
     }
 
@@ -425,9 +422,9 @@ mod tests {
             Name::new("ghost").expect("valid name"),
             1,
             [0xAA; 6],
-            State::Up,
+            LinkState::Up,
         );
-        let config = provision::v4::Config {
+        let config = addrconf::v4::Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
             gateway: None,
             dns: Vec::new(),
@@ -463,10 +460,10 @@ mod tests {
             .send(Command::Shutdown)
             .await
             .expect("send shutdown");
-        let snapshot = wait_for_v4(&mut handle.snapshot_rx, provision::State::Stopped).await;
+        let snapshot = wait_for_v4(&mut handle.snapshot_rx, State::Stopped).await;
 
         // ASSERT
         assert!(snapshot.v4.is_none());
-        assert_eq!(snapshot.v4_state, provision::State::Stopped);
+        assert_eq!(snapshot.v4_state, State::Stopped);
     }
 }

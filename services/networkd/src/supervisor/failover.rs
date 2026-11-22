@@ -3,12 +3,12 @@
 #[cfg(feature = "ipv4")]
 use alloc::vec::Vec;
 
+#[cfg(feature = "ipv4")]
+use addrconf::v4;
 use config::system::network::InterfaceKind;
 #[cfg(feature = "ipv4")]
 use linkctl::interface::Command;
 use linkctl::interface::Handle;
-#[cfg(feature = "ipv4")]
-use linkctl::provision as address;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
@@ -229,7 +229,7 @@ async fn configure_promoted<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Na
         if !ipv4.dhcp {
             return;
         }
-        let config = address::v4::Config {
+        let config = v4::Config {
             addresses: Vec::new(),
             gateway: None,
             dns: supervisor.config.ipv4_dns().collect(),
@@ -293,11 +293,11 @@ mod tests {
             #[cfg(feature = "ipv4")]
             v4: None,
             #[cfg(feature = "ipv4")]
-            v4_state: linkctl::provision::State::Stopped,
+            v4_state: addrconf::State::Stopped,
             #[cfg(feature = "ipv6")]
             v6: None,
             #[cfg(feature = "ipv6")]
-            v6_state: linkctl::provision::State::Stopped,
+            v6_state: addrconf::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);
         let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);

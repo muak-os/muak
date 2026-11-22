@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "addrconf"
+version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1138,6 +1145,7 @@ checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 name = "linkctl"
 version = "0.0.0"
 dependencies = [
+ "addrconf",
  "dhcp-client",
  "dhcp-proto",
  "ip",
@@ -1145,7 +1153,6 @@ dependencies = [
  "netlink",
  "packet",
  "slaac",
- "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -1473,6 +1480,7 @@ dependencies = [
 name = "networkd"
 version = "0.0.0"
 dependencies = [
+ "addrconf",
  "anyhow",
  "config",
  "granola",

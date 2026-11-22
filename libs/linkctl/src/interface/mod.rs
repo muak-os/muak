@@ -12,12 +12,13 @@ mod wake;
 
 use alloc::string::String;
 
+use addrconf::State;
 use netdev::Ops;
 use netdev::interface::Ethernet;
 use netlink::link::state::State as LinkState;
 use tokio::sync::{mpsc, watch};
 
-use crate::{provision, view};
+use crate::view;
 
 /// Commands the supervisor sends to an interface controller.
 #[derive(Debug)]
@@ -26,10 +27,10 @@ pub enum Command {
     Configure {
         /// IPv4 configuration to apply.
         #[cfg(feature = "ipv4")]
-        v4: Option<provision::v4::Config>,
+        v4: Option<addrconf::v4::Config>,
         /// IPv6 configuration to apply.
         #[cfg(feature = "ipv6")]
-        v6: Option<provision::v6::Config>,
+        v6: Option<addrconf::v6::Config>,
     },
     /// Reconcile desired and actual configuration.
     Reconcile,
@@ -51,13 +52,13 @@ pub struct Snapshot {
     pub v4: Option<view::V4State>,
     /// IPv4 provisioning phase.
     #[cfg(feature = "ipv4")]
-    pub v4_state: provision::State,
+    pub v4_state: State,
     /// IPv6 method view, when enabled and configured.
     #[cfg(feature = "ipv6")]
     pub v6: Option<view::V6State>,
     /// IPv6 provisioning phase.
     #[cfg(feature = "ipv6")]
-    pub v6_state: provision::State,
+    pub v6_state: State,
 }
 
 /// Handle used to drive and observe an interface controller.
@@ -71,7 +72,7 @@ pub struct Handle {
 /// Transitional notice emitted by an interface controller.
 pub enum Notice<V> {
     /// Method lifecycle state changed.
-    State(provision::State),
+    State(State),
     /// Family configuration became available.
     Configured(V),
     /// Non-fatal family warning.
@@ -107,9 +108,9 @@ pub struct Interface<N: Ops> {
     snapshot_tx: watch::Sender<Snapshot>,
     command_rx: mpsc::Receiver<Command>,
     #[cfg(feature = "ipv4")]
-    v4_state: provision::State,
+    v4_state: State,
     #[cfg(feature = "ipv6")]
-    v6_state: provision::State,
+    v6_state: State,
     #[cfg(feature = "ipv4")]
     v4_notice_tx: mpsc::Sender<V4Notice>,
     #[cfg(feature = "ipv6")]
@@ -128,11 +129,11 @@ impl<N: Ops> Interface<N> {
             #[cfg(feature = "ipv4")]
             v4: None,
             #[cfg(feature = "ipv4")]
-            v4_state: provision::State::Stopped,
+            v4_state: State::Stopped,
             #[cfg(feature = "ipv6")]
             v6: None,
             #[cfg(feature = "ipv6")]
-            v6_state: provision::State::Stopped,
+            v6_state: State::Stopped,
         };
         let (command_tx, command_rx) = mpsc::channel(32);
         let (snapshot_tx, snapshot_rx) = watch::channel(snapshot);
@@ -151,9 +152,9 @@ impl<N: Ops> Interface<N> {
             snapshot_tx,
             command_rx,
             #[cfg(feature = "ipv4")]
-            v4_state: provision::State::Stopped,
+            v4_state: State::Stopped,
             #[cfg(feature = "ipv6")]
-            v6_state: provision::State::Stopped,
+            v6_state: State::Stopped,
             #[cfg(feature = "ipv4")]
             v4_notice_tx,
             #[cfg(feature = "ipv6")]

@@ -9,7 +9,6 @@ use config::system::network::Ipv4InterfaceConfig;
 #[cfg(feature = "ipv6")]
 use config::system::network::Ipv6InterfaceConfig;
 use linkctl::interface::Command;
-use linkctl::provision;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 
@@ -105,10 +104,10 @@ pub(in crate::supervisor) async fn configure<N: Ops>(
 fn v4_config<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     cfg: &Ipv4InterfaceConfig,
-) -> Option<provision::v4::Config> {
+) -> Option<addrconf::v4::Config> {
     let dns = supervisor.config.ipv4_dns().collect();
     if cfg.dhcp {
-        return Some(provision::v4::Config {
+        return Some(addrconf::v4::Config {
             addresses: Vec::new(),
             gateway: None,
             dns,
@@ -119,7 +118,7 @@ fn v4_config<N: Ops>(
         return None;
     }
 
-    Some(provision::v4::Config {
+    Some(addrconf::v4::Config {
         addresses: cfg
             .addresses
             .iter()
@@ -135,10 +134,10 @@ fn v4_config<N: Ops>(
 fn v6_config<N: Ops>(
     supervisor: &NetworkSupervisor<N>,
     cfg: &Ipv6InterfaceConfig,
-) -> Option<provision::v6::Config> {
+) -> Option<addrconf::v6::Config> {
     let dns = supervisor.config.ipv6_dns().collect();
     if !cfg.addresses.is_empty() {
-        return Some(provision::v6::Config {
+        return Some(addrconf::v6::Config {
             addresses: cfg
                 .addresses
                 .iter()
@@ -150,7 +149,7 @@ fn v6_config<N: Ops>(
         });
     }
     if cfg.autoconf && supervisor.config.ipv6 {
-        return Some(provision::v6::Config {
+        return Some(addrconf::v6::Config {
             addresses: Vec::new(),
             gateway: None,
             dns,

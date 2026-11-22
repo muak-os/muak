@@ -40,7 +40,6 @@ pub(super) fn is_enslaved(owners: &HashMap<Name, Name>, name: &Name) -> bool {
 #[cfg(test)]
 mod tests {
     use linkctl::interface::{Handle, Snapshot};
-    use linkctl::provision;
     use netlink::link::state::State;
     use tokio::sync::{mpsc, watch};
 
@@ -56,11 +55,11 @@ mod tests {
             #[cfg(feature = "ipv4")]
             v4: None,
             #[cfg(feature = "ipv4")]
-            v4_state: provision::State::Stopped,
+            v4_state: addrconf::State::Stopped,
             #[cfg(feature = "ipv6")]
             v6: None,
             #[cfg(feature = "ipv6")]
-            v6_state: provision::State::Stopped,
+            v6_state: addrconf::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);
         let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);

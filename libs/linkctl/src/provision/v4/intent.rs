@@ -2,8 +2,9 @@
 
 use core::net::IpAddr;
 
+use addrconf::{AddressConfig, Event, Intent};
+
 use super::{Dhcp, Exchange};
-use crate::provision::{AddressConfig, Event, Intent};
 
 pub(super) fn configure<E: Exchange>(method: &mut Dhcp<E>) {
     let Some(lease) = method.lease.as_ref() else {

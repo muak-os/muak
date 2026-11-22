@@ -3,6 +3,8 @@
 #[cfg(feature = "ipv6")]
 use alloc::vec::Vec;
 use core::fmt::{Display, Formatter, Result as FmtResult};
+#[cfg(feature = "ipv4")]
+use core::net::Ipv4Addr;
 #[cfg(feature = "ipv6")]
 use core::net::Ipv6Addr;
 
@@ -32,7 +34,7 @@ pub enum DhcpState {
 #[derive(Debug, Clone)]
 pub enum V4State {
     /// Static address configuration.
-    Static(netlink::address::IpConfig),
+    Static(addrconf::fixed::StaticView<Ipv4Addr>),
     /// `DHCPv4` lease and phase.
     Dhcp {
         /// Current lease.
@@ -47,7 +49,7 @@ pub enum V4State {
 #[derive(Debug, Clone)]
 pub enum V6State {
     /// Static address configuration.
-    Static(netlink::address::Ipv6Config),
+    Static(addrconf::fixed::StaticView<Ipv6Addr>),
     /// SLAAC-derived state.
     Slaac {
         /// Address and prefix length pairs.
@@ -183,8 +185,8 @@ mod tests {
         use core::time::Duration;
         use std::time::SystemTime;
 
+        use addrconf::fixed::StaticView;
         use dhcp_client::lease::Lease;
-        use netlink::address::IpConfig;
 
         use crate::view::{DhcpState, V4State};
 
@@ -205,7 +207,7 @@ mod tests {
         #[test]
         fn static_renders_address_gateway_and_dns() {
             // ARRANGE
-            let state = V4State::Static(IpConfig {
+            let state = V4State::Static(StaticView {
                 address: Ipv4Addr::new(192, 168, 1, 10),
                 prefix_len: 24,
                 gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
@@ -225,7 +227,7 @@ mod tests {
         #[test]
         fn static_renders_absent_gateway_and_empty_dns() {
             // ARRANGE
-            let state = V4State::Static(IpConfig {
+            let state = V4State::Static(StaticView {
                 address: Ipv4Addr::new(192, 168, 1, 10),
                 prefix_len: 24,
                 gateway: None,
@@ -242,7 +244,7 @@ mod tests {
         #[test]
         fn static_dns_list_is_capped() {
             // ARRANGE
-            let state = V4State::Static(IpConfig {
+            let state = V4State::Static(StaticView {
                 address: Ipv4Addr::new(192, 168, 1, 10),
                 prefix_len: 24,
                 gateway: None,
@@ -283,14 +285,14 @@ mod tests {
         use alloc::{format, vec};
         use core::net::Ipv6Addr;
 
-        use netlink::address::Ipv6Config;
+        use addrconf::fixed::StaticView;
 
         use crate::view::V6State;
 
         #[test]
         fn static_renders_address_gateway_and_dns() {
             // ARRANGE
-            let state = V6State::Static(Ipv6Config {
+            let state = V6State::Static(StaticView {
                 address: Ipv6Addr::LOCALHOST,
                 prefix_len: 64,
                 gateway: Some(Ipv6Addr::UNSPECIFIED),

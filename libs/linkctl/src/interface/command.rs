@@ -10,7 +10,6 @@ use super::V4Notice;
 #[cfg(feature = "ipv6")]
 use super::V6Notice;
 use super::{Command, Interface, Snapshot, event, notice};
-use crate::provision;
 
 pub(super) async fn run<N: Ops>(mut interface: Interface<N>) {
     while let Some(selected) = event::select(&mut interface).await {
@@ -43,15 +42,15 @@ async fn handle<N: Ops>(interface: &mut Interface<N>, command: Command) {
             refresh_index(interface).await;
             publish(interface);
         }
-        Command::Reconcile => forward(interface, provision::Command::Reconcile),
+        Command::Reconcile => forward(interface, addrconf::Command::Reconcile),
         Command::LinkUp => {
             interface.link.link_state = LinkState::Up;
-            forward(interface, provision::Command::LinkUp);
+            forward(interface, addrconf::Command::LinkUp);
             publish(interface);
         }
         Command::LinkDown => {
             interface.link.link_state = LinkState::Down;
-            forward(interface, provision::Command::LinkDown);
+            forward(interface, addrconf::Command::LinkDown);
             publish(interface);
         }
         Command::Shutdown => {
@@ -65,17 +64,17 @@ async fn handle<N: Ops>(interface: &mut Interface<N>, command: Command) {
 fn stop_families<N: Ops>(interface: &mut Interface<N>) {
     #[cfg(feature = "ipv4")]
     {
-        notice::transition_v4(interface, provision::State::Stopped);
+        notice::transition_v4(interface, addrconf::State::Stopped);
         interface.v4 = None;
     }
     #[cfg(feature = "ipv6")]
     {
-        notice::transition_v6(interface, provision::State::Stopped);
+        notice::transition_v6(interface, addrconf::State::Stopped);
         interface.v6 = None;
     }
 }
 
-fn forward<N: Ops>(interface: &mut Interface<N>, command: provision::Command) {
+fn forward<N: Ops>(interface: &mut Interface<N>, command: addrconf::Command) {
     #[cfg(feature = "ipv4")]
     if let Some(method) = interface.v4.as_mut() {
         method.on_command(command);

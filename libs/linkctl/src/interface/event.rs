@@ -3,6 +3,7 @@
 use core::task::Poll;
 use std::time::Instant;
 
+use addrconf::Event;
 use netdev::Ops;
 
 #[cfg(feature = "ipv4")]
@@ -10,7 +11,6 @@ use super::v4;
 #[cfg(feature = "ipv6")]
 use super::v6;
 use super::{Interface, command, intent, notice, wake};
-use crate::provision;
 
 /// One input event the controller loop selected.
 pub(super) enum Selected {
@@ -18,10 +18,10 @@ pub(super) enum Selected {
     Command(super::Command),
     /// Event from the IPv4 method.
     #[cfg(feature = "ipv4")]
-    V4(provision::Event),
+    V4(Event),
     /// Event from the IPv6 method.
     #[cfg(feature = "ipv6")]
-    V6(provision::Event),
+    V6(Event),
 }
 
 enum Wait {
@@ -75,27 +75,27 @@ async fn wait<N: Ops>(interface: &mut Interface<N>) -> Wait {
 }
 
 #[cfg(feature = "ipv4")]
-pub(super) async fn handle_v4<N: Ops>(interface: &mut Interface<N>, event: provision::Event) {
+pub(super) async fn handle_v4<N: Ops>(interface: &mut Interface<N>, event: Event) {
     match event {
-        provision::Event::Intent(intent) => intent::apply(interface, intent).await,
-        provision::Event::State(state) => notice::transition_v4(interface, state),
-        provision::Event::Warning(text) => {
+        Event::Intent(intent) => intent::apply(interface, intent).await,
+        Event::State(state) => notice::transition_v4(interface, state),
+        Event::Warning(text) => {
             notice::notify_v4(interface, super::V4Notice::Warning(text));
         }
-        provision::Event::Failed(failure) => notice::fail_v4(interface, failure.to_string()),
+        Event::Failed(failure) => notice::fail_v4(interface, failure.to_string()),
     }
     command::publish(interface);
 }
 
 #[cfg(feature = "ipv6")]
-pub(super) async fn handle_v6<N: Ops>(interface: &mut Interface<N>, event: provision::Event) {
+pub(super) async fn handle_v6<N: Ops>(interface: &mut Interface<N>, event: Event) {
     match event {
-        provision::Event::Intent(intent) => intent::apply(interface, intent).await,
-        provision::Event::State(state) => notice::transition_v6(interface, state),
-        provision::Event::Warning(text) => {
+        Event::Intent(intent) => intent::apply(interface, intent).await,
+        Event::State(state) => notice::transition_v6(interface, state),
+        Event::Warning(text) => {
             notice::notify_v6(interface, super::V6Notice::Warning(text));
         }
-        provision::Event::Failed(failure) => notice::fail_v6(interface, failure.to_string()),
+        Event::Failed(failure) => notice::fail_v6(interface, failure.to_string()),
     }
     command::publish(interface);
 }
@@ -103,14 +103,14 @@ pub(super) async fn handle_v6<N: Ops>(interface: &mut Interface<N>, event: provi
 #[cfg(feature = "ipv4")]
 pub(super) async fn configure_v4<N: Ops>(
     interface: &mut Interface<N>,
-    config: Option<provision::v4::Config>,
+    config: Option<addrconf::v4::Config>,
 ) {
     let Some(config) = config else {
         return;
     };
     match v4::Method::from_config(config, &interface.link).await {
         Ok(mut method) => {
-            method.on_command(provision::Command::Start);
+            method.on_command(addrconf::Command::Start);
             interface.v4 = Some(method);
             interface.v4_configured = false;
         }
@@ -124,14 +124,14 @@ pub(super) async fn configure_v4<N: Ops>(
 #[cfg(feature = "ipv6")]
 pub(super) fn configure_v6<N: Ops>(
     interface: &mut Interface<N>,
-    config: Option<provision::v6::Config>,
+    config: Option<addrconf::v6::Config>,
 ) {
     let Some(config) = config else {
         return;
     };
     match v6::Method::from_config(&interface.link, config) {
         Ok(mut method) => {
-            method.on_command(provision::Command::Start);
+            method.on_command(addrconf::Command::Start);
             interface.v6 = Some(method);
             interface.v6_configured = false;
         }
@@ -143,7 +143,7 @@ pub(super) fn configure_v6<N: Ops>(
 }
 
 #[cfg(feature = "ipv4")]
-async fn next_v4(method: &mut Option<v4::Method>, now: Instant) -> provision::Event {
+async fn next_v4(method: &mut Option<v4::Method>, now: Instant) -> Event {
     match method.as_mut() {
         Some(method) => method.next_event(now).await,
         None => core::future::pending().await,
@@ -151,7 +151,7 @@ async fn next_v4(method: &mut Option<v4::Method>, now: Instant) -> provision::Ev
 }
 
 #[cfg(feature = "ipv6")]
-async fn next_v6(method: &mut Option<v6::Method>, now: Instant) -> provision::Event {
+async fn next_v6(method: &mut Option<v6::Method>, now: Instant) -> Event {
     match method.as_mut() {
         Some(method) => method.next_event(now).await,
         None => core::future::pending().await,
