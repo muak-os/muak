@@ -5,23 +5,10 @@ use std::time::Instant;
 use addrconf::{Command, Event, Method, Step};
 
 use super::timer::Deadlines;
-use super::{Dhcp, Exchange, exchange};
-use crate::view::{DhcpState, V4State};
+use super::{Dhcp, Operations, Phase, View, operations};
 
-// Lifecycle phase of the DHCP method.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Phase {
-    Idle,
-    Acquiring,
-    Bound,
-    Renewing,
-    Rebinding,
-    Degraded,
-    Stopped,
-}
-
-impl<E: Exchange> Method for Dhcp<E> {
-    type View = V4State;
+impl<E: Operations> Method for Dhcp<E> {
+    type View = View;
 
     async fn next_event(&mut self, now: Instant) -> Event {
         run(self, now).await
@@ -56,14 +43,14 @@ impl<E: Exchange> Method for Dhcp<E> {
 
     fn view(&self) -> Option<Self::View> {
         let lease = self.lease.clone()?;
-        Some(V4State::Dhcp {
+        Some(View {
             lease,
-            phase: view_phase(self.phase),
+            phase: self.phase,
         })
     }
 }
 
-async fn run<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Event {
+async fn run<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Event {
     loop {
         if let Some(event) = method.queue.pop_front() {
             return event;
@@ -74,22 +61,13 @@ async fn run<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Event {
     }
 }
 
-async fn step<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Step {
+async fn step<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
     match method.phase {
-        Phase::Acquiring => exchange::acquire(method, now).await,
+        Phase::Acquiring => operations::acquire(method, now).await,
         Phase::Bound => method.wait_bound(now),
-        Phase::Renewing => exchange::renew(method, now).await,
-        Phase::Rebinding => exchange::rebind(method, now).await,
+        Phase::Renewing => operations::renew(method, now).await,
+        Phase::Rebinding => operations::rebind(method, now).await,
         Phase::Idle | Phase::Stopped | Phase::Degraded => Step::Wait,
-    }
-}
-
-const fn view_phase(phase: Phase) -> DhcpState {
-    match phase {
-        Phase::Acquiring => DhcpState::Init,
-        Phase::Renewing => DhcpState::Renewing,
-        Phase::Rebinding => DhcpState::Rebinding,
-        Phase::Idle | Phase::Bound | Phase::Degraded | Phase::Stopped => DhcpState::Bound,
     }
 }
 
@@ -104,11 +82,10 @@ mod tests {
     use std::time::{Instant, SystemTime};
 
     use addrconf::{Command, Event, Intent, Method as _, State};
-    use dhcp_client::Failure as DhcpFailure;
-    use dhcp_client::lease::Lease;
 
-    use super::{Dhcp, Exchange, Phase};
-    use crate::view::{DhcpState, V4State};
+    use super::{Dhcp, Operations, Phase, View};
+    use crate::Failure as DhcpFailure;
+    use crate::lease::Lease;
 
     const MAC: [u8; 6] = [0xAA; 6];
     const SERVER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 1);
@@ -116,7 +93,7 @@ mod tests {
     const ADDRESS_A: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
     const ADDRESS_B: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 3);
 
-    type Results = Mutex<VecDeque<dhcp_client::Result<Lease>>>;
+    type Results = Mutex<VecDeque<crate::Result<Lease>>>;
 
     #[derive(Default)]
     struct Mock {
@@ -127,12 +104,12 @@ mod tests {
 
     struct Stalled;
 
-    impl Exchange for Mock {
+    impl Operations for Mock {
         fn acquire(
             &self,
             _interface: &str,
             _mac: [u8; 6],
-        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+        ) -> impl Future<Output = crate::Result<Lease>> + Send {
             core::future::ready(
                 self.acquire
                     .lock()
@@ -148,7 +125,7 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+        ) -> impl Future<Output = crate::Result<Lease>> + Send {
             core::future::ready(
                 self.renew
                     .lock()
@@ -164,7 +141,7 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+        ) -> impl Future<Output = crate::Result<Lease>> + Send {
             core::future::ready(
                 self.rebind
                     .lock()
@@ -175,12 +152,12 @@ mod tests {
         }
     }
 
-    impl Exchange for Stalled {
+    impl Operations for Stalled {
         fn acquire(
             &self,
             _interface: &str,
             _mac: [u8; 6],
-        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+        ) -> impl Future<Output = crate::Result<Lease>> + Send {
             core::future::pending()
         }
 
@@ -190,7 +167,7 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+        ) -> impl Future<Output = crate::Result<Lease>> + Send {
             core::future::pending()
         }
 
@@ -200,15 +177,15 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+        ) -> impl Future<Output = crate::Result<Lease>> + Send {
             core::future::pending()
         }
     }
 
     fn mock(
-        acquire: Vec<dhcp_client::Result<Lease>>,
-        renew: Vec<dhcp_client::Result<Lease>>,
-        rebind: Vec<dhcp_client::Result<Lease>>,
+        acquire: Vec<crate::Result<Lease>>,
+        renew: Vec<crate::Result<Lease>>,
+        rebind: Vec<crate::Result<Lease>>,
     ) -> Mock {
         Mock {
             acquire: Mutex::new(acquire.into()),
@@ -310,9 +287,9 @@ mod tests {
         assert!(has_route(&events));
         assert!(matches!(
             view,
-            Some(V4State::Dhcp {
+            Some(View {
                 lease,
-                phase: DhcpState::Bound
+                phase: Phase::Bound
             }) if lease.assigned_ip == ADDRESS_A
         ));
     }
@@ -345,9 +322,9 @@ mod tests {
         assert_eq!(wake, Some(at(renew_at, 50)));
         assert!(matches!(
             view,
-            Some(V4State::Dhcp {
+            Some(View {
                 lease,
-                phase: DhcpState::Bound
+                phase: Phase::Bound
             }) if lease.assigned_ip == ADDRESS_B
         ));
     }
@@ -408,18 +385,18 @@ mod tests {
         assert!(matches!(warning, Event::Warning(_)));
         assert!(matches!(
             after_failed_renew,
-            Some(V4State::Dhcp {
+            Some(View {
                 lease,
-                phase: DhcpState::Bound
+                phase: Phase::Bound
             }) if lease.assigned_ip == ADDRESS_A
         ));
         assert_eq!(wake, Some(at(now, 87)));
         assert!(has_configure(&events, ADDRESS_B));
         assert!(matches!(
             view,
-            Some(V4State::Dhcp {
+            Some(View {
                 lease,
-                phase: DhcpState::Bound
+                phase: Phase::Bound
             }) if lease.assigned_ip == ADDRESS_B
         ));
     }
@@ -558,7 +535,7 @@ mod tests {
 
         // ASSERT
         assert!(matches!(event, Event::State(State::Degraded)));
-        assert!(matches!(view, Some(V4State::Dhcp { .. })));
+        assert!(matches!(view, Some(View { .. })));
     }
 
     #[tokio::test]

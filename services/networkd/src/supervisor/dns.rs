@@ -42,7 +42,7 @@ fn collect<N: Ops>(
     if let Some(state) = snapshot.v4.as_ref() {
         match *state {
             V4State::Static(ref config) => ipv4_dns.clone_from(&config.dns),
-            V4State::Dhcp { ref lease, .. } => ipv4_dns.clone_from(&lease.dns_servers),
+            V4State::Dhcp(ref view) => ipv4_dns.clone_from(&view.lease.dns_servers),
         }
     }
     #[cfg(feature = "ipv4")]

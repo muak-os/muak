@@ -1,17 +1,15 @@
 //! `DHCPv4` exchanges driven by the lease state machine.
 
-use alloc::format;
 use core::net::Ipv4Addr;
 use std::time::Instant;
 
 use addrconf::{Event, Step};
-use dhcp_client::Failure as DhcpFailure;
-use dhcp_client::lease::Lease;
 
-use super::dhcp::Phase;
-use super::{Dhcp, Exchange, retry};
+use super::{Dhcp, Operations, Phase, retry};
+use crate::Failure as DhcpFailure;
+use crate::lease::Lease;
 
-pub(super) async fn acquire<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Step {
+pub(super) async fn acquire<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
     if let Some(at) = method.retry_at {
         if now < at {
             return Step::Wait;
@@ -44,7 +42,7 @@ pub(super) async fn acquire<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> 
     }
 }
 
-pub(super) async fn renew<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Step {
+pub(super) async fn renew<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
     if method.deadlines.expired(now) {
         method.expire();
         return Step::Advance;
@@ -80,7 +78,7 @@ pub(super) async fn renew<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> St
     }
 }
 
-pub(super) async fn rebind<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Step {
+pub(super) async fn rebind<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
     if method.deadlines.expired(now) {
         method.expire();
         return Step::Advance;

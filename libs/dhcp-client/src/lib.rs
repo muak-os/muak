@@ -2,9 +2,13 @@
 
 #![warn(missing_docs)]
 
+extern crate alloc;
+
 pub mod datagram;
 pub mod exchange;
 pub mod lease;
+pub mod method;
+pub mod system;
 
 use core::result::Result as CoreResult;
 

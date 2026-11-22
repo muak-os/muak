@@ -11,24 +11,6 @@ use core::net::Ipv6Addr;
 // Maximum entries a list renders before summarising the rest.
 const MAX_LISTED: usize = 4;
 
-/// `DHCPv4` phase tracked by the v4 method.
-#[cfg(feature = "ipv4")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DhcpState {
-    /// Discovering a server.
-    Init,
-    /// Selecting among offers.
-    Selecting,
-    /// Requesting the selected lease.
-    Requesting,
-    /// Lease acquired.
-    Bound,
-    /// Renewing the lease.
-    Renewing,
-    /// Rebinding the lease.
-    Rebinding,
-}
-
 /// IPv4 configuration source tracked by the v4 method.
 #[cfg(feature = "ipv4")]
 #[derive(Debug, Clone)]
@@ -36,12 +18,7 @@ pub enum V4State {
     /// Static address configuration.
     Static(addrconf::fixed::StaticView<Ipv4Addr>),
     /// `DHCPv4` lease and phase.
-    Dhcp {
-        /// Current lease.
-        lease: dhcp_client::lease::Lease,
-        /// Current DHCP phase.
-        phase: DhcpState,
-    },
+    Dhcp(dhcp_client::method::View),
 }
 
 /// IPv6 configuration source tracked by the v6 method.
@@ -72,7 +49,8 @@ impl Display for V4State {
                 config.gateway,
                 &config.dns,
             ),
-            Self::Dhcp { ref lease, .. } => {
+            Self::Dhcp(ref view) => {
+                let lease = &view.lease;
                 write!(
                     f,
                     "dhcp {}/{} server {} ",
@@ -187,8 +165,9 @@ mod tests {
 
         use addrconf::fixed::StaticView;
         use dhcp_client::lease::Lease;
+        use dhcp_client::method::{Phase, View};
 
-        use crate::view::{DhcpState, V4State};
+        use crate::view::V4State;
 
         fn lease() -> Lease {
             Lease {
@@ -264,10 +243,10 @@ mod tests {
         #[test]
         fn dhcp_renders_server_address_and_absent_gateway() {
             // ARRANGE
-            let state = V4State::Dhcp {
+            let state = V4State::Dhcp(View {
                 lease: lease(),
-                phase: DhcpState::Bound,
-            };
+                phase: Phase::Bound,
+            });
 
             // ACT
             let rendered = format!("{state}");

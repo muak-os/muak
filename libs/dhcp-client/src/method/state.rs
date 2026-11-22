@@ -5,14 +5,13 @@ use alloc::string::String;
 use std::time::Instant;
 
 use addrconf::{Event, Failure, State, Step};
-use dhcp_client::Failure as DhcpFailure;
-use dhcp_client::lease::Lease;
 
-use super::dhcp::Phase;
 use super::timer::Deadlines;
-use super::{Dhcp, Exchange, intent};
+use super::{Dhcp, Operations, Phase, intent};
+use crate::Failure as DhcpFailure;
+use crate::lease::Lease;
 
-impl<E: Exchange> Dhcp<E> {
+impl<E: Operations> Dhcp<E> {
     /// Creates a DHCP method that runs exchanges through `exchange`.
     #[must_use = "the method owns the provisioning state"]
     pub fn new(exchange: E, interface: &str, mac: [u8; 6]) -> Self {
@@ -124,6 +123,12 @@ impl<E: Exchange> Dhcp<E> {
             .push_back(Event::Failed(Failure::Protocol(error.to_string())));
     }
 
+    pub(super) fn expire(&mut self) {
+        intent::deconfigure(self);
+        self.lease = None;
+        self.begin_acquire();
+    }
+
     fn reapply(&mut self) {
         if self.lease.is_none() {
             return;
@@ -132,11 +137,5 @@ impl<E: Exchange> Dhcp<E> {
         self.phase = Phase::Bound;
         intent::configure(self);
         self.queue.push_back(Event::State(State::Bound));
-    }
-
-    pub(super) fn expire(&mut self) {
-        intent::deconfigure(self);
-        self.lease = None;
-        self.begin_acquire();
     }
 }

@@ -2,17 +2,18 @@
 
 use std::time::Instant;
 
+use dhcp_client::method::Dhcp;
+use dhcp_client::system::{Exchange, Kernel};
 use netdev::interface::Ethernet;
 
-use crate::transport::dhcp::{Exchange, System};
-use crate::{provision, view};
+use crate::view;
 
 /// IPv4 address method the controller drives.
 pub enum Method {
     /// Static address method.
     Static(addrconf::v4::Static),
     /// `DHCPv4` address method.
-    Dhcp(provision::v4::Dhcp<Exchange<System>>),
+    Dhcp(Dhcp<Exchange<Kernel>>),
 }
 
 impl Method {
@@ -29,7 +30,7 @@ impl Method {
             let exchange = Exchange::open(link.name.as_str())
                 .await
                 .map_err(|error| addrconf::Failure::Protocol(error.to_string()))?;
-            let method = provision::v4::Dhcp::new(exchange, link.name.as_str(), link.mac_address);
+            let method = Dhcp::new(exchange, link.name.as_str(), link.mac_address);
             return Ok(Self::Dhcp(method));
         }
 
@@ -66,7 +67,7 @@ impl Method {
     pub fn view(&self) -> Option<view::V4State> {
         match *self {
             Self::Static(ref method) => addrconf::Method::view(method).map(view::V4State::Static),
-            Self::Dhcp(ref method) => addrconf::Method::view(method),
+            Self::Dhcp(ref method) => addrconf::Method::view(method).map(view::V4State::Dhcp),
         }
     }
 }

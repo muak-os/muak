@@ -1,6 +1,4 @@
-//! Family-neutral transport traits used by address methods.
+//! IPv6 `ICMPv6` transport adapter used by the IPv6 address method.
 
-#[cfg(feature = "ipv4")]
-pub mod dhcp;
 #[cfg(feature = "ipv6")]
 pub mod icmpv6;

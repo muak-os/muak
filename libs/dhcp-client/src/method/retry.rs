@@ -2,8 +2,8 @@
 
 use core::time::Duration;
 
-use dhcp_client::Failure as DhcpFailure;
-use dhcp_client::lease::Lease;
+use crate::Failure as DhcpFailure;
+use crate::lease::Lease;
 
 pub(super) const MAX_ATTEMPTS: u32 = 3;
 
@@ -20,7 +20,7 @@ pub(super) enum Outcome {
     Failed(DhcpFailure),
 }
 
-pub(super) fn classify(attempt: u32, result: dhcp_client::Result<Lease>) -> Outcome {
+pub(super) fn classify(attempt: u32, result: crate::Result<Lease>) -> Outcome {
     match result {
         Ok(lease) => Outcome::Acquired(lease),
         Err(error) if attempt >= MAX_ATTEMPTS => Outcome::Failed(error),
@@ -40,9 +40,8 @@ fn backoff(attempt: u32) -> Duration {
 mod tests {
     use core::time::Duration;
 
-    use dhcp_client::Failure as DhcpFailure;
-
     use super::{MAX_ATTEMPTS, Outcome, backoff, classify};
+    use crate::Failure as DhcpFailure;
 
     #[test]
     fn backoff_doubles_from_the_base_and_saturates() {

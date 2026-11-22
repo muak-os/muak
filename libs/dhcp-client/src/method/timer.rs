@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use dhcp_client::lease::Lease;
+use crate::lease::Lease;
 
 // Absolute times at which a held lease must be renewed, rebound and expired.
 #[derive(Debug, Clone, Copy, Default)]
@@ -64,9 +64,8 @@ mod tests {
     use core::time::Duration;
     use std::time::{Instant, SystemTime};
 
-    use dhcp_client::lease::Lease;
-
     use super::Deadlines;
+    use crate::lease::Lease;
 
     const SERVER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 1);
     const ASSIGNED: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);

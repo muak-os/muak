@@ -11,7 +11,7 @@ categories.workspace = true
 
 [features]
 default = ["ipv4", "ipv6"]
-ipv4 = ["dep:dhcp-client", "dep:packet", "packet/v4", "dep:dhcp-proto"]
+ipv4 = ["dep:dhcp-client"]
 ipv6 = ["dep:packet", "packet/v6", "dep:slaac"]
 
 [dependencies]
@@ -21,14 +21,12 @@ tokio = { workspace = true, features = ["sync", "time", "rt", "net"] }
 # Internal
 addrconf = { workspace = true }
 dhcp-client = { workspace = true, optional = true }
-dhcp-proto = { workspace = true, optional = true }
 netdev = { workspace = true }
 netlink = { workspace = true }
 packet = { workspace = true, optional = true }
 slaac = { workspace = true, optional = true }
 
 [dev-dependencies]
-ip = { workspace = true, features = ["v4"] }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
