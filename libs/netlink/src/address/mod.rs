@@ -32,32 +32,6 @@ pub enum Failure {
 /// Address management result type.
 pub type Result<T> = core::result::Result<T, Failure>;
 
-/// IPv4 address configuration acquired via DHCP or static assignment.
-#[derive(Debug, Clone)]
-pub struct IpConfig {
-    /// IPv4 address.
-    pub address: Ipv4Addr,
-    /// Prefix length in bits.
-    pub prefix_len: u8,
-    /// Optional default gateway.
-    pub gateway: Option<Ipv4Addr>,
-    /// DNS server addresses.
-    pub dns: Vec<Ipv4Addr>,
-}
-
-/// IPv6 address configuration acquired via SLAAC or static assignment.
-#[derive(Debug, Clone)]
-pub struct Ipv6Config {
-    /// IPv6 address.
-    pub address: Ipv6Addr,
-    /// Prefix length in bits.
-    pub prefix_len: u8,
-    /// Optional default gateway.
-    pub gateway: Option<Ipv6Addr>,
-    /// DNS server addresses.
-    pub dns: Vec<Ipv6Addr>,
-}
-
 /// Trait covering all address-layer netlink operations.
 pub trait Ops: Clone + Send + Sync + 'static {
     /// Adds or confirms an IPv4 address on an interface.
