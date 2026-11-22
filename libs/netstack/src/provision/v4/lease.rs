@@ -108,11 +108,6 @@ impl<E: Exchange> Dhcp<E> {
     }
 
     pub(super) fn bind(&mut self, lease: Lease) {
-        // The deadlines arm on the next bound step so they anchor to the clock
-        // read after the exchange instead of the one read before it. Disarming
-        // first drops the deadlines of the cycle that produced this bind, so a
-        // renewed or rebound lease is re-anchored instead of keeping the stale
-        // acquisition deadlines.
         self.deadlines.disarm();
         self.lease = Some(lease);
         self.phase = Phase::Bound;

@@ -34,14 +34,10 @@ pub(super) async fn monitor<T: Transport>(method: &mut Slaac<T>, now: Instant) -
         return Step::Advance;
     }
 
-    // Expirations are serviced first: `next_wake` still reports an elapsed
-    // deadline, so the back-off must not hide it from the step.
     if let Some(at) = method.retry_at {
         if now < at {
             return Step::Wait;
         }
-        // The deadline elapsed: clear it before reading the socket so the
-        // controller never reads a past wake instant while the read is in flight.
         method.retry_at = None;
     }
 
@@ -52,8 +48,6 @@ pub(super) async fn monitor<T: Transport>(method: &mut Slaac<T>, now: Instant) -
         }
         Ok(None) => Step::Advance,
         Err(error) => {
-            // A socket level error repeats until the socket is usable again, so
-            // the retry is paced by the interval instead of the step rate.
             method.retry_at = now.checked_add(RTR_SOLICITATION_INTERVAL);
             method.queue.push_back(Event::Failed(Failure::Io(error)));
             Step::Advance
@@ -108,7 +102,6 @@ pub(super) fn process_initial_ra<T: Transport>(
     true
 }
 
-// Sends one solicitation, arms the next one and processes the reply it triggers.
 async fn solicit<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
     let packet = router_solicitation(Ipv6Addr::UNSPECIFIED, &method.mac);
 
@@ -126,8 +119,6 @@ async fn solicit<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
     receive(method, now).await
 }
 
-// Waits for one inbound packet. A receive error keeps the solicitation deadline
-// armed, so the next attempt is paced by the controller.
 async fn receive<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
     match try_recv_ra(method).await {
         Ok(Some(ra)) => settle(method, &ra, now),
@@ -304,7 +295,6 @@ mod tests {
 
         // ASSERT
         assert_eq!(stopped, None);
-        // The resolicitation interval of the fresh attempt, not the old back-off.
         assert_eq!(resolicited, Some(at(now, 5)));
     }
 }

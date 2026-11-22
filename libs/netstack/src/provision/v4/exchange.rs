@@ -16,8 +16,6 @@ pub(super) async fn acquire<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> 
         if now < at {
             return Step::Wait;
         }
-        // The deadline elapsed: clear it before awaiting I/O so the controller
-        // never reads a past wake instant while the exchange is in flight.
         method.retry_at = None;
     }
 
@@ -31,8 +29,6 @@ pub(super) async fn acquire<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> 
         }
         retry::Outcome::Retry(delay) => {
             method.retry_at = now.checked_add(delay);
-            // The warning also publishes the retry: the controller rereads the
-            // wake deadline only after it has dispatched an event.
             method.queue.push_back(Event::Warning(format!(
                 "DHCP acquire failed on {} after attempt {}, retrying",
                 method.interface, method.attempts

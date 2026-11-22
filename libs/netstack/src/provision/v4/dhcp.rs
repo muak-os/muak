@@ -29,8 +29,6 @@ impl<E: Exchange> Method for Dhcp<E> {
     fn next_wake(&self, now: Instant) -> Option<Instant> {
         match self.phase {
             Phase::Acquiring => self.retry_at.filter(|at| *at > now),
-            // A freshly bound or reapplied lease arms its deadlines on the next
-            // bound step, so the deadline it is about to arm is previewed here.
             Phase::Bound => self
                 .deadlines
                 .next()
@@ -39,7 +37,6 @@ impl<E: Exchange> Method for Dhcp<E> {
                     Deadlines::preview(now, lease)
                 })
                 .filter(|at| *at > now),
-            // Renewing, rebinding and idle phases wait for I/O or for a command.
             Phase::Renewing | Phase::Rebinding | Phase::Idle | Phase::Stopped | Phase::Degraded => {
                 None
             }
@@ -127,7 +124,6 @@ mod tests {
         rebind: Results,
     }
 
-    // An exchange whose every operation never resolves, modelling real I/O in flight.
     struct Stalled;
 
     impl Exchange for Mock {
@@ -258,8 +254,6 @@ mod tests {
         events
     }
 
-    // Runs the first bound step and parks it, as the controller does before it
-    // reads the wake deadline, so the deadlines arm at `now`.
     fn arm(method: &mut Dhcp<Mock>, now: Instant) {
         assert!(is_pending(method.next_event(now)));
     }
@@ -642,8 +636,6 @@ mod tests {
         next_until_state(&mut method, State::Bound, now).await;
 
         // ACT
-        // The exchange took seven seconds, so the next controller iteration reads
-        // a later clock than the one the acquire step started with.
         let bound_at = at(now, 7);
         let waiting = is_pending(method.next_event(bound_at));
         let wake = method.next_wake(bound_at);
@@ -740,7 +732,6 @@ mod tests {
         // ARRANGE
         let now = Instant::now();
         let mut method = bound(now).await;
-        // Simulates a step re-entered while a renewal was in flight.
         method.phase = Phase::Renewing;
 
         // ACT

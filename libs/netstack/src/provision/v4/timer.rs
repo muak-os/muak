@@ -44,6 +44,7 @@ impl Deadlines {
     pub(super) fn preview(now: Instant, lease: &Lease) -> Option<Instant> {
         let mut deadlines = Self::default();
         deadlines.arm(now, lease);
+
         deadlines.next()
     }
 

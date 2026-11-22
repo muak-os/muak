@@ -25,8 +25,6 @@ const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 
 /// Stateless address autoconfiguration method.
 pub struct Slaac<T: Transport> {
-    // Only the configured DNS servers are used while autoconfiguring.
-    fallback_dns: Vec<Ipv6Addr>,
     interface: String,
     mac: [u8; 6],
     socket: T,
@@ -39,18 +37,15 @@ pub struct Slaac<T: Transport> {
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
     dns_servers: Vec<ManagedDns>,
+    fallback_dns: Vec<Ipv6Addr>,
     queue: VecDeque<Event>,
 }
 
 impl<T: Transport> Slaac<T> {
     /// Creates a SLAAC method around an already-open `ICMPv6` transport.
-    ///
-    /// Only the DNS servers of `config` are retained: the static fields are unused
-    /// while autoconfiguring.
     #[must_use = "the method owns the provisioning state"]
     pub fn new(config: Config, interface: String, mac: [u8; 6], socket: T) -> Self {
         Self {
-            fallback_dns: config.dns,
             interface,
             mac,
             socket,
@@ -63,6 +58,7 @@ impl<T: Transport> Slaac<T> {
             address: None,
             router: None,
             dns_servers: Vec::new(),
+            fallback_dns: config.dns,
             queue: VecDeque::new(),
         }
     }
@@ -173,7 +169,6 @@ async fn run<T: Transport + Send>(method: &mut Slaac<T>, now: Instant) -> Event 
     }
 }
 
-// Performs one step: a deferred reconcile, then solicitation or monitoring.
 async fn step<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
     if method.reconcile {
         method.reconcile = false;

@@ -103,7 +103,6 @@ pub trait Method {
 
     /// Performs at most one I/O step and returns the next event.
     ///
-    /// Never sleeps. `now` is the controller's clock reading for this step.
     /// Every deadline at or before `now` must be handled before awaiting I/O.
     fn next_event(&mut self, now: Instant) -> impl Future<Output = Event> + Send;
 

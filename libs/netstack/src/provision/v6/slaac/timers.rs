@@ -16,8 +16,6 @@ pub(super) fn next_wake<T: Transport>(method: &Slaac<T>, now: Instant) -> Option
     let solicitation = if method.solicited {
         next_deadline(method)
     } else {
-        // While the next solicitation is not yet armed, the step about to run
-        // sends one and arms it, so that interval is the earliest wake.
         match method.solicitation_at {
             Some(at) if at > now => Some(at),
             _ => now.checked_add(RTR_SOLICITATION_INTERVAL),
