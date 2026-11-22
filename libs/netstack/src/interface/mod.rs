@@ -8,6 +8,7 @@ mod notice;
 pub mod v4;
 #[cfg(feature = "ipv6")]
 pub mod v6;
+mod wake;
 
 use alloc::string::String;
 

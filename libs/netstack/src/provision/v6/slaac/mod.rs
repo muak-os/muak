@@ -1,5 +1,6 @@
 //! Stateless address autoconfiguration method.
 
+mod intent;
 mod ra;
 mod solicit;
 mod state;
@@ -7,16 +8,15 @@ mod timers;
 
 use alloc::collections::VecDeque;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
-use alloc::{format, vec};
 use core::net::{IpAddr, Ipv6Addr};
 use core::time::Duration;
-
-use ::slaac::icmpv6::types::RouterAdvertisement;
+use std::time::Instant;
 
 use self::state::{ManagedAddress, ManagedDns, ManagedRouter};
 use super::Config;
-use crate::provision::{AddressConfig, Command, Event, Intent, Method, State};
+use crate::provision::{Command, Event, Intent, Method, State, Step};
 use crate::transport::icmpv6::Transport;
 use crate::view::V6State;
 
@@ -25,13 +25,16 @@ const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 
 /// Stateless address autoconfiguration method.
 pub struct Slaac<T: Transport> {
-    config: Config,
+    // Only the configured DNS servers are used while autoconfiguring.
+    fallback_dns: Vec<Ipv6Addr>,
     interface: String,
     mac: [u8; 6],
     socket: T,
     running: bool,
     solicited: bool,
     solicitation_attempt: u32,
+    solicitation_at: Option<Instant>,
+    reconcile: bool,
     address: Option<ManagedAddress>,
     router: Option<ManagedRouter>,
     dns_servers: Vec<ManagedDns>,
@@ -40,16 +43,21 @@ pub struct Slaac<T: Transport> {
 
 impl<T: Transport> Slaac<T> {
     /// Creates a SLAAC method around an already-open `ICMPv6` transport.
+    ///
+    /// Only the DNS servers of `config` are retained: the static fields are unused
+    /// while autoconfiguring.
     #[must_use = "the method owns the provisioning state"]
-    pub const fn new(config: Config, interface: String, mac: [u8; 6], socket: T) -> Self {
+    pub fn new(config: Config, interface: String, mac: [u8; 6], socket: T) -> Self {
         Self {
-            config,
+            fallback_dns: config.dns,
             interface,
             mac,
             socket,
             running: false,
             solicited: false,
             solicitation_attempt: 0,
+            solicitation_at: None,
+            reconcile: false,
             address: None,
             router: None,
             dns_servers: Vec::new(),
@@ -57,11 +65,10 @@ impl<T: Transport> Slaac<T> {
         }
     }
 
-    fn dns_fallback(&self) -> Vec<ManagedDns> {
-        self.config
-            .dns
+    fn dns_fallback(&self, now: Instant) -> Vec<ManagedDns> {
+        self.fallback_dns
             .iter()
-            .map(|&server| ManagedDns::new(server, u64::from(u32::MAX)))
+            .map(|&server| ManagedDns::new(server, u64::from(u32::MAX), now))
             .collect()
     }
 
@@ -69,20 +76,29 @@ impl<T: Transport> Slaac<T> {
         self.running = true;
         self.solicited = false;
         self.solicitation_attempt = 0;
+        self.solicitation_at = None;
     }
 
-    fn reapply(&mut self) {
+    const fn suspend(&mut self) {
+        self.running = false;
+    }
+
+    fn reapply(&mut self, now: Instant) {
         if !self.running {
             return;
         }
-        let Some(address) = self.address.as_ref().filter(|address| address.is_valid()) else {
+        let Some(address) = self
+            .address
+            .as_ref()
+            .filter(|address| address.is_valid(now))
+        else {
             return;
         };
-        let intent = configure(address.address, address.prefix_len);
+        let intent = intent::configure(address.address, address.prefix_len);
         let router = self
             .router
             .as_ref()
-            .filter(|router| router.is_valid())
+            .filter(|router| router.is_valid(now))
             .map(|router| router.value);
         self.queue.push_back(Event::Intent(intent));
         if let Some(router) = router {
@@ -93,15 +109,12 @@ impl<T: Transport> Slaac<T> {
         }
     }
 
-    const fn suspend(&mut self) {
-        self.running = false;
-    }
-
     fn stop(&mut self) {
         self.running = false;
         self.solicited = true;
+        self.solicitation_at = None;
         if let Some(address) = self.address.take() {
-            let intent = deconfigure(address.address, address.prefix_len);
+            let intent = intent::deconfigure(address.address, address.prefix_len);
             self.queue.push_back(Event::Intent(intent));
         }
         if let Some(router) = self.router.take() {
@@ -118,14 +131,18 @@ impl<T: Transport> Slaac<T> {
 impl<T: Transport + Send> Method for Slaac<T> {
     type View = V6State;
 
-    async fn next_event(&mut self) -> Event {
-        self.advance().await
+    async fn next_event(&mut self, now: Instant) -> Event {
+        run(self, now).await
+    }
+
+    fn next_wake(&self, now: Instant) -> Option<Instant> {
+        timers::next_wake(self, now)
     }
 
     fn on_command(&mut self, command: Command) {
         match command {
             Command::Start | Command::LinkUp => self.resolicit(),
-            Command::Reconcile => self.reapply(),
+            Command::Reconcile => self.reconcile = true,
             Command::LinkDown => self.suspend(),
             Command::Stop => self.stop(),
         }
@@ -141,72 +158,48 @@ impl<T: Transport + Send> Method for Slaac<T> {
     }
 }
 
-impl<T: Transport + Send> Slaac<T> {
-    async fn advance(&mut self) -> Event {
-        if let Some(event) = self.queue.pop_front() {
+async fn run<T: Transport + Send>(method: &mut Slaac<T>, now: Instant) -> Event {
+    loop {
+        if let Some(event) = method.queue.pop_front() {
             return event;
         }
-        self.solicit_if_needed().await;
-        if let Some(event) = self.queue.pop_front() {
-            return event;
+        if step(method, now).await == Step::Wait {
+            return core::future::pending().await;
         }
-        if !self.running {
-            return core::future::pending::<Event>().await;
-        }
-        solicit::monitor(self).await
-    }
-
-    async fn solicit_if_needed(&mut self) {
-        if self.running && !self.solicited {
-            self.solicit().await;
-        }
-    }
-
-    async fn solicit(&mut self) {
-        if let Err(reason) = solicit::initial(self).await {
-            self.queue
-                .push_back(Event::Warning(format!("{reason}, continuing to listen")));
-        }
-        self.solicited = true;
     }
 }
 
-pub(super) const fn configure(address: Ipv6Addr, prefix_len: u8) -> Intent {
-    Intent::Configure(AddressConfig {
-        address: IpAddr::V6(address),
-        prefix_len,
-    })
-}
-
-pub(super) const fn deconfigure(address: Ipv6Addr, prefix_len: u8) -> Intent {
-    Intent::Deconfigure(AddressConfig {
-        address: IpAddr::V6(address),
-        prefix_len,
-    })
-}
-
-fn resolve_dns<T: Transport>(method: &Slaac<T>, ra: &RouterAdvertisement) -> Vec<ManagedDns> {
-    if ra.dns_servers.is_empty() {
-        method.dns_fallback()
-    } else {
-        ra.dns_servers
-            .iter()
-            .map(|&server| ManagedDns::new(server, u64::from(ra.dns_lifetime)))
-            .collect()
+// Performs one step: a deferred reconcile, then solicitation or monitoring.
+async fn step<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
+    if method.reconcile {
+        method.reconcile = false;
+        method.reapply(now);
+        return Step::Advance;
     }
+    if !method.running {
+        return Step::Wait;
+    }
+    if !method.solicited {
+        return solicit::initial(method, now).await;
+    }
+
+    solicit::monitor(method, now).await
 }
 
 #[cfg(test)]
 mod tests {
     use alloc::collections::VecDeque;
+    use alloc::string::String;
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::future::Future;
     use core::net::{IpAddr, Ipv6Addr};
+    use core::task::{Context, Waker};
     use core::time::Duration;
     use std::sync::Mutex;
+    use std::time::Instant;
 
-    use tokio::time::timeout;
-
-    use super::Slaac;
+    use super::{RTR_SOLICITATION_INTERVAL, Slaac};
     use crate::provision::v6::Config;
     use crate::provision::{Command, Event, Intent, Method as _, State};
     use crate::transport::icmpv6::Transport;
@@ -275,6 +268,18 @@ mod tests {
         Slaac::new(config, String::from("eth0"), MAC, transport)
     }
 
+    fn at(now: Instant, secs: u64) -> Instant {
+        now.checked_add(Duration::from_secs(secs))
+            .expect("representable instant")
+    }
+
+    fn is_pending<F: Future>(future: F) -> bool {
+        let mut future = core::pin::pin!(future);
+        let mut context = Context::from_waker(Waker::noop());
+
+        future.as_mut().poll(&mut context).is_pending()
+    }
+
     fn ra(router_lifetime: u16, prefix: Option<(u32, u32)>, dns: &[(Ipv6Addr, u32)]) -> Vec<u8> {
         let mut packet = Vec::new();
         packet.extend([::slaac::icmpv6::ROUTER_ADVERTISEMENT, 0, 0, 0, 64, 0]);
@@ -295,108 +300,30 @@ mod tests {
         packet
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn missing_router_advertisement_warns() {
-        // ARRANGE
-        let transport = MockTransport::default();
-        let mut method = new_method(transport);
-
-        // ACT
-        method.on_command(Command::Start);
-        let event = method.next_event().await;
-
-        // ASSERT
-        assert!(matches!(&event, Event::Warning(text) if text.contains("continuing to listen")));
-        assert!(method.view().is_none());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn reconcile_reemits_configuration_without_soliciting() {
-        // ARRANGE
-        let transport = MockTransport::default();
+    async fn bound(transport: MockTransport, now: Instant) -> Slaac<MockTransport> {
         transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event().await;
-        let _route = method.next_event().await;
-        let _bound = method.next_event().await;
+        let _configure = method.next_event(now).await;
+        let _route = method.next_event(now).await;
+        let _bound = method.next_event(now).await;
 
-        // ACT
-        method.on_command(Command::Reconcile);
-        let configure = method.next_event().await;
-        let route = method.next_event().await;
-        let warned = timeout(Duration::from_secs(2), method.next_event()).await;
-
-        // ASSERT
-        assert!(matches!(
-            configure,
-            Event::Intent(Intent::Configure(config))
-                if config.address == IpAddr::V6(ADDRESS) && config.prefix_len == 64
-        ));
-        assert!(matches!(
-            route,
-            Event::Intent(Intent::EnsureDefaultRoute(IpAddr::V6(ROUTER)))
-        ));
-        assert_eq!(
-            method.socket.destinations(),
-            vec![::slaac::icmpv6::ALL_ROUTERS]
-        );
-        let _silence = warned.expect_err("reconcile must not warn");
+        method
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn reconcile_without_configuration_does_nothing() {
-        // ARRANGE
-        let transport = MockTransport::default();
-        let mut method = new_method(transport);
-        method.on_command(Command::Start);
-        let warning = method.next_event().await;
-        assert!(matches!(warning, Event::Warning(_)));
-        let destinations = method.socket.destinations();
-
-        // ACT
-        method.on_command(Command::Reconcile);
-        let outcome = timeout(Duration::from_secs(2), method.next_event()).await;
-
-        // ASSERT
-        let _silence = outcome.expect_err("reconcile must not emit an event");
-        assert!(method.view().is_none());
-        assert_eq!(method.socket.destinations(), destinations);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn link_up_after_suspend_resolicits() {
-        // ARRANGE
-        let transport = MockTransport::default();
-        transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
-        let mut method = new_method(transport);
-        method.on_command(Command::Start);
-        let _configure = method.next_event().await;
-        let _route = method.next_event().await;
-        let _bound = method.next_event().await;
-        method.on_command(Command::LinkDown);
-
-        // ACT
-        method.on_command(Command::LinkUp);
-        let event = method.next_event().await;
-
-        // ASSERT
-        assert!(matches!(event, Event::Warning(_)));
-        assert_eq!(method.socket.destinations().len(), 4);
-    }
-
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn solicitation_sends_rs_and_configures_address() {
         // ARRANGE
+        let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
         let mut method = new_method(transport);
 
         // ACT
         method.on_command(Command::Start);
-        let configure = method.next_event().await;
-        let route = method.next_event().await;
-        let bound = method.next_event().await;
+        let configure = method.next_event(now).await;
+        let route = method.next_event(now).await;
+        let bound = method.next_event(now).await;
 
         // ASSERT
         assert_eq!(
@@ -415,41 +342,186 @@ mod tests {
         assert!(matches!(bound, Event::State(State::Bound)));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
+    async fn missing_router_advertisement_warns_after_three_attempts() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = new_method(MockTransport::default());
+
+        // ACT
+        method.on_command(Command::Start);
+        let silence = is_pending(method.next_event(now));
+        let first_wake = method.next_wake(now);
+        let sent_after_first = method.socket.destinations().len();
+        let _second = is_pending(method.next_event(at(now, 4)));
+        let second_wake = method.next_wake(at(now, 4));
+        let _third = is_pending(method.next_event(at(now, 8)));
+        let warning = method.next_event(at(now, 12)).await;
+        let exhausted_wake = method.next_wake(at(now, 12));
+
+        // ASSERT
+        assert!(silence);
+        assert_eq!(first_wake, Some(at(now, 4)));
+        assert_eq!(sent_after_first, 1);
+        assert_eq!(second_wake, Some(at(now, 8)));
+        assert_eq!(exhausted_wake, None);
+        assert_eq!(method.socket.destinations().len(), 3);
+        assert!(matches!(&warning, Event::Warning(text) if text.contains("continuing to listen")));
+        assert!(method.view().is_none());
+    }
+
+    #[tokio::test]
+    async fn resolicit_wakes_after_the_solicitation_interval() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = new_method(MockTransport::default());
+
+        // ACT
+        method.on_command(Command::Start);
+        let wake = method.next_wake(now);
+        let silence = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert_eq!(wake, Some(at(now, 4)));
+        assert!(silence);
+        assert_eq!(method.socket.destinations().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn stopped_method_has_no_wake_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(MockTransport::default(), now).await;
+
+        // ACT
+        method.on_command(Command::Stop);
+        let wake = method.next_wake(now);
+
+        // ASSERT
+        assert_eq!(wake, None);
+    }
+
+    #[tokio::test]
+    async fn solicitation_schedule_is_one_router_solicitation_per_interval() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = new_method(MockTransport::default());
+
+        // ACT
+        method.on_command(Command::Start);
+        let _silence = is_pending(method.next_event(now));
+        let _second = is_pending(method.next_event(at(now, 4)));
+        let _third = is_pending(method.next_event(at(now, 8)));
+
+        // ASSERT
+        assert_eq!(method.socket.destinations().len(), 3);
+        assert_eq!(
+            method.next_wake(at(now, 8)),
+            Some(at(now, 8) + RTR_SOLICITATION_INTERVAL)
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_reemits_configuration_without_soliciting() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(MockTransport::default(), now).await;
+
+        // ACT
+        method.on_command(Command::Reconcile);
+        let configure = method.next_event(now).await;
+        let route = method.next_event(now).await;
+        let silence = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert!(matches!(
+            configure,
+            Event::Intent(Intent::Configure(config))
+                if config.address == IpAddr::V6(ADDRESS) && config.prefix_len == 64
+        ));
+        assert!(matches!(
+            route,
+            Event::Intent(Intent::EnsureDefaultRoute(IpAddr::V6(ROUTER)))
+        ));
+        assert_eq!(
+            method.socket.destinations(),
+            vec![::slaac::icmpv6::ALL_ROUTERS]
+        );
+        assert!(silence);
+    }
+
+    #[tokio::test]
+    async fn reconcile_without_configuration_does_nothing() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = new_method(MockTransport::default());
+        method.on_command(Command::Start);
+        let _silence = is_pending(method.next_event(now));
+        let destinations = method.socket.destinations();
+
+        // ACT
+        method.on_command(Command::Reconcile);
+        let silence = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert!(silence);
+        assert!(method.view().is_none());
+        assert_eq!(method.socket.destinations(), destinations);
+    }
+
+    #[tokio::test]
+    async fn link_up_after_suspend_resolicits() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(MockTransport::default(), now).await;
+        method.on_command(Command::LinkDown);
+
+        // ACT
+        method.on_command(Command::LinkUp);
+        let silence = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert!(silence);
+        assert_eq!(method.socket.destinations().len(), 2);
+    }
+
+    #[tokio::test]
     async fn preferred_lifetime_expiry_keeps_address_deprecated() {
         // ARRANGE
+        let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1800, Some((10, 1)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event().await;
-        let _route = method.next_event().await;
-        let _bound = method.next_event().await;
+        let _configure = method.next_event(now).await;
+        let _route = method.next_event(now).await;
+        let _bound = method.next_event(now).await;
 
         // ACT
-        let outcome = timeout(Duration::from_secs(2), method.next_event()).await;
+        let silence = is_pending(method.next_event(at(now, 1)));
 
         // ASSERT
-        let _elapsed = outcome.expect_err("deprecation must not deconfigure the address");
+        assert!(silence);
         assert!(matches!(
             method.view(),
             Some(V6State::Slaac { addresses, .. }) if addresses == [(ADDRESS, 64)]
         ));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn router_expiry_removes_default_route() {
         // ARRANGE
+        let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1, Some((100, 100)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event().await;
-        let _route = method.next_event().await;
-        let _bound = method.next_event().await;
+        let _configure = method.next_event(now).await;
+        let _route = method.next_event(now).await;
+        let _bound = method.next_event(now).await;
 
         // ACT
-        let expired = method.next_event().await;
+        let expired = method.next_event(at(now, 1)).await;
 
         // ASSERT
         assert!(matches!(
@@ -458,31 +530,63 @@ mod tests {
         ));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn rdnss_update_is_reflected_in_view() {
         // ARRANGE
+        let now = Instant::now();
         let transport = MockTransport::default();
         transport.push_ra(ra(1800, Some((100, 100)), &[]), ROUTER);
         let mut method = new_method(transport);
         method.on_command(Command::Start);
-        let _configure = method.next_event().await;
-        let _route = method.next_event().await;
-        let _bound = method.next_event().await;
-        assert!(matches!(
-            method.view(),
-            Some(V6State::Slaac { dns, .. }) if dns.is_empty()
-        ));
+        let _configure = method.next_event(now).await;
+        let _route = method.next_event(now).await;
+        let _bound = method.next_event(now).await;
         method
             .socket
             .push_ra(ra(1800, Some((100, 100)), &[(DNS, 3600)]), ROUTER);
 
         // ACT
-        let _outcome = timeout(Duration::from_millis(10), method.next_event()).await;
+        let _silence = is_pending(method.next_event(now));
 
         // ASSERT
         assert!(matches!(
             method.view(),
             Some(V6State::Slaac { dns, .. }) if dns == vec![DNS]
         ));
+    }
+
+    #[tokio::test]
+    async fn bound_waits_for_the_router_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let transport = MockTransport::default();
+        transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
+        let mut method = new_method(transport);
+
+        // ACT
+        method.on_command(Command::Start);
+        let _configure = method.next_event(now).await;
+        let _route = method.next_event(now).await;
+        let _bound = method.next_event(now).await;
+        let wake = method.next_wake(now);
+
+        // ASSERT
+        assert_eq!(wake, Some(at(now, 1800)));
+        assert!(is_pending(method.next_event(now)));
+    }
+
+    #[tokio::test]
+    async fn suspended_method_has_no_wake_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(MockTransport::default(), now).await;
+
+        // ACT
+        method.on_command(Command::LinkDown);
+        let wake = method.next_wake(now);
+
+        // ASSERT
+        assert_eq!(wake, None);
+        assert!(is_pending(method.next_event(now)));
     }
 }

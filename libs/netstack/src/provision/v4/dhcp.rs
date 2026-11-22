@@ -1,7 +1,10 @@
 //! `DHCPv4` address method state machine.
 
-use super::{Dhcp, Exchange};
-use crate::provision::{Command, Event, Method};
+use std::time::Instant;
+
+use super::timer::Deadlines;
+use super::{Dhcp, Exchange, exchange};
+use crate::provision::{Command, Event, Method, Step};
 use crate::view::{DhcpState, V4State};
 
 // Lifecycle phase of the DHCP method.
@@ -19,19 +22,27 @@ pub(super) enum Phase {
 impl<E: Exchange> Method for Dhcp<E> {
     type View = V4State;
 
-    async fn next_event(&mut self) -> Event {
-        while self.queue.is_empty() {
-            match self.phase {
-                Phase::Acquiring => self.run_acquire().await,
-                Phase::Bound => self.wait_bound().await,
-                Phase::Renewing => self.run_renew().await,
-                Phase::Rebinding => self.run_rebind().await,
-                Phase::Idle | Phase::Stopped | Phase::Degraded => self.idle().await,
+    async fn next_event(&mut self, now: Instant) -> Event {
+        run(self, now).await
+    }
+
+    fn next_wake(&self, now: Instant) -> Option<Instant> {
+        match self.phase {
+            Phase::Acquiring => self.retry_at.filter(|at| *at > now),
+            // A reapplied lease arms its deadlines on the next bound step, so the
+            // deadline it is about to arm is previewed here.
+            Phase::Bound => self
+                .deadlines
+                .next()
+                .or_else(|| {
+                    let lease = self.lease.as_ref()?;
+                    Deadlines::preview(now, lease)
+                })
+                .filter(|at| *at > now),
+            // Renewing, rebinding and idle phases wait for I/O or for a command.
+            Phase::Renewing | Phase::Rebinding | Phase::Idle | Phase::Stopped | Phase::Degraded => {
+                None
             }
-        }
-        match self.queue.pop_front() {
-            Some(event) => event,
-            None => core::future::pending::<Event>().await,
         }
     }
 
@@ -54,6 +65,27 @@ impl<E: Exchange> Method for Dhcp<E> {
     }
 }
 
+async fn run<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Event {
+    loop {
+        if let Some(event) = method.queue.pop_front() {
+            return event;
+        }
+        if step(method, now).await == Step::Wait {
+            return core::future::pending().await;
+        }
+    }
+}
+
+async fn step<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> Step {
+    match method.phase {
+        Phase::Acquiring => exchange::acquire(method, now).await,
+        Phase::Bound => method.wait_bound(now),
+        Phase::Renewing => exchange::renew(method, now).await,
+        Phase::Rebinding => exchange::rebind(method, now).await,
+        Phase::Idle | Phase::Stopped | Phase::Degraded => Step::Wait,
+    }
+}
+
 const fn view_phase(phase: Phase) -> DhcpState {
     match phase {
         Phase::Acquiring => DhcpState::Init,
@@ -68,15 +100,15 @@ mod tests {
     use alloc::collections::VecDeque;
     use core::future::Future;
     use core::net::{IpAddr, Ipv4Addr};
+    use core::task::{Context, Waker};
     use core::time::Duration;
     use std::sync::Mutex;
-    use std::time::SystemTime;
+    use std::time::{Instant, SystemTime};
 
     use dhcp_client::Failure as DhcpFailure;
     use dhcp_client::lease::Lease;
-    use tokio::time::advance;
 
-    use super::{Dhcp, Exchange};
+    use super::{Dhcp, Exchange, Phase};
     use crate::provision::{Command, Event, Intent, Method as _, State};
     use crate::view::{DhcpState, V4State};
 
@@ -94,6 +126,9 @@ mod tests {
         renew: Results,
         rebind: Results,
     }
+
+    // An exchange whose every operation never resolves, modelling real I/O in flight.
+    struct Stalled;
 
     impl Exchange for Mock {
         fn acquire(
@@ -143,6 +178,36 @@ mod tests {
         }
     }
 
+    impl Exchange for Stalled {
+        fn acquire(
+            &self,
+            _interface: &str,
+            _mac: [u8; 6],
+        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+            core::future::pending()
+        }
+
+        fn renew(
+            &self,
+            _interface: &str,
+            _mac: [u8; 6],
+            _server: Ipv4Addr,
+            _assigned: Ipv4Addr,
+        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+            core::future::pending()
+        }
+
+        fn rebind(
+            &self,
+            _interface: &str,
+            _mac: [u8; 6],
+            _server: Ipv4Addr,
+            _assigned: Ipv4Addr,
+        ) -> impl Future<Output = dhcp_client::Result<Lease>> + Send {
+            core::future::pending()
+        }
+    }
+
     fn mock(
         acquire: Vec<dhcp_client::Result<Lease>>,
         renew: Vec<dhcp_client::Result<Lease>>,
@@ -169,23 +234,38 @@ mod tests {
         }
     }
 
-    async fn next_until_state(method: &mut Dhcp<Mock>, wanted: State) -> Vec<Event> {
+    fn at(now: Instant, secs: u64) -> Instant {
+        now.checked_add(Duration::from_secs(secs))
+            .expect("representable instant")
+    }
+
+    fn is_pending<F: Future>(future: F) -> bool {
+        let mut future = core::pin::pin!(future);
+        let mut context = Context::from_waker(Waker::noop());
+
+        future.as_mut().poll(&mut context).is_pending()
+    }
+
+    async fn next_until_state(method: &mut Dhcp<Mock>, wanted: State, now: Instant) -> Vec<Event> {
         let mut events = Vec::new();
-        events.push(method.next_event().await);
-        while !matches!(events.last(), Some(Event::State(state)) if *state == wanted) {
-            events.push(method.next_event().await);
+        let mut event = method.next_event(now).await;
+        while !matches!(&event, Event::State(state) if *state == wanted) {
+            events.push(event);
+            event = method.next_event(now).await;
         }
+        events.push(event);
+
         events
     }
 
-    async fn bound() -> Dhcp<Mock> {
+    async fn bound(now: Instant) -> Dhcp<Mock> {
         let mut method = Dhcp::new(
             mock(vec![Ok(lease(ADDRESS_A))], Vec::new(), Vec::new()),
             "eth0",
             MAC,
         );
         method.on_command(Command::Start);
-        next_until_state(&mut method, State::Bound).await;
+        next_until_state(&mut method, State::Bound, now).await;
 
         method
     }
@@ -208,9 +288,10 @@ mod tests {
         })
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn start_configures_route_binds_and_views() {
         // ARRANGE
+        let now = Instant::now();
         let mut method = Dhcp::new(
             mock(vec![Ok(lease(ADDRESS_A))], Vec::new(), Vec::new()),
             "eth0",
@@ -219,7 +300,7 @@ mod tests {
 
         // ACT
         method.on_command(Command::Start);
-        let events = next_until_state(&mut method, State::Bound).await;
+        let events = next_until_state(&mut method, State::Bound, now).await;
         let view = method.view();
 
         // ASSERT
@@ -234,9 +315,10 @@ mod tests {
         ));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn renew_timer_replaces_the_lease() {
         // ARRANGE
+        let now = Instant::now();
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A))],
@@ -247,11 +329,10 @@ mod tests {
             MAC,
         );
         method.on_command(Command::Start);
-        next_until_state(&mut method, State::Bound).await;
+        next_until_state(&mut method, State::Bound, now).await;
 
         // ACT
-        advance(Duration::from_secs(50)).await;
-        let events = next_until_state(&mut method, State::Bound).await;
+        let events = next_until_state(&mut method, State::Bound, at(now, 50)).await;
         let view = method.view();
 
         // ASSERT
@@ -265,16 +346,17 @@ mod tests {
         ));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn expire_deconfigures_and_reacquires() {
         // ARRANGE
-        let mut method = bound().await;
+        let now = Instant::now();
+        let mut method = bound(now).await;
+        let expiry = at(now, 100);
 
         // ACT
-        advance(Duration::from_secs(100)).await;
-        let first = method.next_event().await;
-        let second = method.next_event().await;
-        let third = method.next_event().await;
+        let first = method.next_event(expiry).await;
+        let second = method.next_event(expiry).await;
+        let third = method.next_event(expiry).await;
         let view = method.view();
 
         // ASSERT
@@ -291,9 +373,10 @@ mod tests {
         assert!(view.is_none());
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn renewal_failure_rebinds() {
         // ARRANGE
+        let now = Instant::now();
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A))],
@@ -304,14 +387,14 @@ mod tests {
             MAC,
         );
         method.on_command(Command::Start);
-        next_until_state(&mut method, State::Bound).await;
+        next_until_state(&mut method, State::Bound, now).await;
+        let renew_at = at(now, 50);
 
         // ACT
-        advance(Duration::from_secs(50)).await;
-        let warning = method.next_event().await;
+        let warning = method.next_event(renew_at).await;
         let after_failed_renew = method.view();
-        advance(Duration::from_secs(27)).await;
-        let events = next_until_state(&mut method, State::Bound).await;
+        let wake = method.next_wake(renew_at);
+        let events = next_until_state(&mut method, State::Bound, at(now, 87)).await;
         let view = method.view();
 
         // ASSERT
@@ -323,6 +406,7 @@ mod tests {
                 phase: DhcpState::Bound
             }) if lease.assigned_ip == ADDRESS_A
         ));
+        assert_eq!(wake, Some(at(now, 87)));
         assert!(has_configure(&events, ADDRESS_B));
         assert!(matches!(
             view,
@@ -333,9 +417,10 @@ mod tests {
         ));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn rebind_failure_expires() {
         // ARRANGE
+        let now = Instant::now();
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A))],
@@ -346,19 +431,21 @@ mod tests {
             MAC,
         );
         method.on_command(Command::Start);
-        next_until_state(&mut method, State::Bound).await;
+        next_until_state(&mut method, State::Bound, now).await;
+        let rebind_at = at(now, 87);
 
         // ACT
-        advance(Duration::from_secs(87)).await;
-        let warning = method.next_event().await;
-        advance(Duration::from_secs(13)).await;
-        let first = method.next_event().await;
-        let second = method.next_event().await;
-        let third = method.next_event().await;
+        let warning = method.next_event(rebind_at).await;
+        let wake = method.next_wake(rebind_at);
+        let expiry = at(now, 100);
+        let first = method.next_event(expiry).await;
+        let second = method.next_event(expiry).await;
+        let third = method.next_event(expiry).await;
         let view = method.view();
 
         // ASSERT
         assert!(matches!(warning, Event::Warning(_)));
+        assert_eq!(wake, Some(at(now, 100)));
         assert!(matches!(
             first,
             Event::Intent(Intent::Deconfigure(config))
@@ -372,18 +459,19 @@ mod tests {
         assert!(view.is_none());
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn link_up_after_link_down_reapplies_the_lease() {
         // ARRANGE
-        let mut method = bound().await;
+        let now = Instant::now();
+        let mut method = bound(now).await;
         method.on_command(Command::LinkDown);
-        method.next_event().await;
+        method.next_event(now).await;
 
         // ACT
         method.on_command(Command::LinkUp);
-        let first = method.next_event().await;
-        let second = method.next_event().await;
-        let third = method.next_event().await;
+        let first = method.next_event(now).await;
+        let second = method.next_event(now).await;
+        let third = method.next_event(now).await;
 
         // ASSERT
         assert!(matches!(
@@ -398,9 +486,10 @@ mod tests {
         assert!(matches!(third, Event::State(State::Bound)));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn reconcile_without_lease_restarts_discovery() {
         // ARRANGE
+        let now = Instant::now();
         let mut method = Dhcp::new(
             mock(vec![Ok(lease(ADDRESS_A))], Vec::new(), Vec::new()),
             "eth0",
@@ -409,7 +498,7 @@ mod tests {
 
         // ACT
         method.on_command(Command::Reconcile);
-        let event = method.next_event().await;
+        let event = method.next_event(now).await;
         let view = method.view();
 
         // ASSERT
@@ -417,9 +506,10 @@ mod tests {
         assert!(view.is_none());
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn nak_restarts_discovery() {
         // ARRANGE
+        let now = Instant::now();
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A)), Ok(lease(ADDRESS_B))],
@@ -430,12 +520,12 @@ mod tests {
             MAC,
         );
         method.on_command(Command::Start);
-        next_until_state(&mut method, State::Bound).await;
+        next_until_state(&mut method, State::Bound, now).await;
 
         // ACT
-        advance(Duration::from_secs(50)).await;
-        let restarted = method.next_event().await;
-        let reconfigured = method.next_event().await;
+        let renew_at = at(now, 50);
+        let restarted = method.next_event(renew_at).await;
+        let reconfigured = method.next_event(renew_at).await;
 
         // ASSERT
         assert!(matches!(restarted, Event::State(State::Acquiring)));
@@ -446,14 +536,15 @@ mod tests {
         ));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn link_down_degrades_and_keeps_the_lease() {
         // ARRANGE
-        let mut method = bound().await;
+        let now = Instant::now();
+        let mut method = bound(now).await;
 
         // ACT
         method.on_command(Command::LinkDown);
-        let event = method.next_event().await;
+        let event = method.next_event(now).await;
         let view = method.view();
 
         // ASSERT
@@ -461,16 +552,17 @@ mod tests {
         assert!(matches!(view, Some(V4State::Dhcp { .. })));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn stop_deconfigures_and_stops() {
         // ARRANGE
-        let mut method = bound().await;
+        let now = Instant::now();
+        let mut method = bound(now).await;
 
         // ACT
         method.on_command(Command::Stop);
-        let first = method.next_event().await;
-        let second = method.next_event().await;
-        let third = method.next_event().await;
+        let first = method.next_event(now).await;
+        let second = method.next_event(now).await;
+        let third = method.next_event(now).await;
         let view = method.view();
 
         // ASSERT
@@ -481,5 +573,182 @@ mod tests {
         ));
         assert!(matches!(third, Event::State(State::Stopped)));
         assert!(view.is_none());
+    }
+
+    #[tokio::test]
+    async fn bound_waits_for_the_renewal_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(now).await;
+
+        // ACT
+        let wake = method.next_wake(now);
+        let waiting = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert_eq!(wake, Some(at(now, 50)));
+        assert!(waiting);
+    }
+
+    #[tokio::test]
+    async fn failed_acquire_arms_a_retry_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = Dhcp::new(
+            mock(
+                vec![Err(DhcpFailure::Timeout), Ok(lease(ADDRESS_A))],
+                Vec::new(),
+                Vec::new(),
+            ),
+            "eth0",
+            MAC,
+        );
+        method.on_command(Command::Start);
+        let acquiring = method.next_event(now).await;
+
+        // ACT
+        let warning = method.next_event(now).await;
+        let wake = method.next_wake(now);
+        let waiting = is_pending(method.next_event(now));
+
+        // ASSERT
+        assert!(matches!(acquiring, Event::State(State::Acquiring)));
+        assert!(matches!(warning, Event::Warning(_)));
+        assert_eq!(wake, Some(at(now, 2)));
+        assert!(waiting);
+    }
+
+    #[tokio::test]
+    async fn exhausted_acquire_attempts_degrade() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = Dhcp::new(
+            mock(
+                vec![
+                    Err(DhcpFailure::Timeout),
+                    Err(DhcpFailure::Timeout),
+                    Err(DhcpFailure::Timeout),
+                ],
+                Vec::new(),
+                Vec::new(),
+            ),
+            "eth0",
+            MAC,
+        );
+        method.on_command(Command::Start);
+        let _acquiring = method.next_event(now).await;
+
+        // ACT
+        let _first = method.next_event(now).await;
+        let _second = method.next_event(at(now, 2)).await;
+        let failed = method.next_event(at(now, 6)).await;
+        let wake = method.next_wake(at(now, 6));
+
+        // ASSERT
+        assert!(matches!(failed, Event::Failed(_)));
+        assert_eq!(wake, None);
+    }
+
+    #[tokio::test]
+    async fn reapplied_lease_rearms_its_deadlines() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(now).await;
+        method.on_command(Command::LinkDown);
+        method.next_event(now).await;
+        method.on_command(Command::LinkUp);
+        let _configure = method.next_event(now).await;
+        let _route = method.next_event(now).await;
+        let _bound = method.next_event(now).await;
+
+        // ACT
+        let predicted = method.next_wake(now);
+        let waiting = is_pending(method.next_event(now));
+        let wake = method.next_wake(now);
+
+        // ASSERT
+        assert_eq!(predicted, Some(at(now, 50)));
+        assert!(waiting);
+        assert_eq!(wake, Some(at(now, 50)));
+    }
+
+    #[tokio::test]
+    async fn renewal_after_expiry_deconfigures_instead_of_renewing() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = bound(now).await;
+        // Simulates a step re-entered while a renewal was in flight.
+        method.phase = Phase::Renewing;
+
+        // ACT
+        let first = method.next_event(at(now, 100)).await;
+
+        // ASSERT
+        assert!(matches!(
+            first,
+            Event::Intent(Intent::Deconfigure(config))
+                if config.address == IpAddr::V4(ADDRESS_A)
+        ));
+    }
+
+    #[tokio::test]
+    async fn due_retry_starts_the_exchange_without_a_stale_wake() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = Dhcp::new(Stalled, "eth0", MAC);
+        method.on_command(Command::Start);
+        let _started = method.next_event(now).await;
+        method.retry_at = Some(now);
+
+        // ACT
+        let acquiring = is_pending(method.next_event(now));
+        let wake = method.next_wake(now);
+
+        // ASSERT
+        assert!(acquiring);
+        assert_eq!(wake, None);
+    }
+
+    #[tokio::test]
+    async fn renewing_and_rebinding_have_no_wake_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut renewing = Dhcp::new(Stalled, "eth0", MAC);
+        renewing.lease = Some(lease(ADDRESS_A));
+        renewing.phase = Phase::Renewing;
+        let mut rebinding = Dhcp::new(Stalled, "eth0", MAC);
+        rebinding.lease = Some(lease(ADDRESS_A));
+        rebinding.phase = Phase::Rebinding;
+
+        // ACT
+        let renewing_pending = is_pending(renewing.next_event(now));
+        let renewing_wake = renewing.next_wake(now);
+        let rebinding_pending = is_pending(rebinding.next_event(now));
+        let rebinding_wake = rebinding.next_wake(now);
+
+        // ASSERT
+        assert!(renewing_pending);
+        assert_eq!(renewing_wake, None);
+        assert!(rebinding_pending);
+        assert_eq!(rebinding_wake, None);
+    }
+
+    #[tokio::test]
+    async fn idle_and_stopped_have_no_wake_deadline() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = Dhcp::new(mock(Vec::new(), Vec::new(), Vec::new()), "eth0", MAC);
+        let idle = method.next_wake(now);
+        let idle_waiting = is_pending(method.next_event(now));
+        method.on_command(Command::Stop);
+
+        // ACT
+        let _stopped = method.next_event(now).await;
+        let stopped = method.next_wake(now);
+
+        // ASSERT
+        assert_eq!(idle, None);
+        assert!(idle_waiting);
+        assert_eq!(stopped, None);
     }
 }

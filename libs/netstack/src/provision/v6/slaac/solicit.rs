@@ -1,87 +1,48 @@
 //! Router solicitation, initial advertisement handling, and monitoring.
 
 use alloc::format;
-use alloc::string::String;
 use core::net::{IpAddr, Ipv6Addr};
-use core::time::Duration;
+use std::time::Instant;
 
 use ::slaac::address::generate;
 use ::slaac::icmpv6::build::router_solicitation;
 use ::slaac::icmpv6::parse::router_advertisement;
 use ::slaac::icmpv6::types::RouterAdvertisement;
 use ::slaac::icmpv6::{ALL_ROUTERS, ROUTER_ADVERTISEMENT};
-use tokio::time::{Instant, sleep, timeout};
 
 use super::ra::process_unsolicited_ra;
 use super::state::{ManagedAddress, ManagedRouter};
-use super::{MAX_RTR_SOLICITATIONS, RTR_SOLICITATION_INTERVAL, Slaac, configure, resolve_dns};
-use crate::provision::{Event, Failure, Intent, State};
+use super::{MAX_RTR_SOLICITATIONS, RTR_SOLICITATION_INTERVAL, Slaac, intent, timers};
+use crate::provision::{Event, Failure, Intent, State, Step};
 use crate::transport::icmpv6::Transport;
 
-pub(super) async fn initial<T: Transport>(method: &mut Slaac<T>) -> Result<(), String> {
-    let packet = router_solicitation(Ipv6Addr::UNSPECIFIED, &method.mac);
-    let mut last_error = None;
-
-    while method.solicitation_attempt < MAX_RTR_SOLICITATIONS {
-        method.solicitation_attempt = method.solicitation_attempt.saturating_add(1);
-        let attempt = method.solicitation_attempt;
-
-        if let Err(error) = method.socket.send_to(ALL_ROUTERS, &packet).await {
-            last_error = Some(error);
-            pause_before_retry(attempt).await;
-            continue;
-        }
-
-        last_error = None;
-
-        if let Some(ra) = wait_for_ra(method, RTR_SOLICITATION_INTERVAL).await {
-            return process_initial(method, &ra);
-        }
+pub(super) async fn initial<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
+    if method.solicitation_attempt >= MAX_RTR_SOLICITATIONS {
+        return exhaust(method);
     }
 
-    Err(match last_error {
-        Some(error) => format!(
-            "could not send RS on {} after {MAX_RTR_SOLICITATIONS} attempts: {error}",
-            method.interface
-        ),
-        None => format!(
-            "no Router Advertisement on {} after {MAX_RTR_SOLICITATIONS} attempts",
-            method.interface
-        ),
-    })
-}
-
-fn process_initial<T: Transport>(
-    method: &mut Slaac<T>,
-    ra: &RouterAdvertisement,
-) -> Result<(), String> {
-    if process_initial_ra(method, ra) {
-        Ok(())
-    } else {
-        Err(format!(
-            "no usable autonomous prefix on {}",
-            method.interface
-        ))
+    if method.solicitation_at.is_none_or(|at| now >= at) {
+        return solicit(method, now).await;
     }
+
+    receive(method, now).await
 }
 
-pub(super) async fn monitor<T: Transport + Send>(method: &mut Slaac<T>) -> Event {
-    loop {
-        if let Some(event) = method.queue.pop_front() {
-            return event;
+pub(super) async fn monitor<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
+    if timers::due(method, now) {
+        timers::handle_expiration(method, now);
+        return Step::Advance;
+    }
+
+    match try_recv_ra(method).await {
+        Ok(Some(ra)) => {
+            process_unsolicited_ra(method, &ra, now);
+            Step::Advance
         }
-
-        let deadline = super::timers::next_deadline(method);
-        let remaining = deadline.saturating_duration_since(Instant::now());
-
-        match timeout(remaining, try_recv_ra(method)).await {
-            Ok(Ok(Some(ra))) => process_unsolicited_ra(method, &ra),
-            Ok(Ok(None)) => {}
-            Ok(Err(error)) => {
-                sleep(RTR_SOLICITATION_INTERVAL).await;
-                return Event::Failed(Failure::Io(error));
-            }
-            Err(_elapsed) => super::timers::handle_expiration(method),
+        Ok(None) => Step::Advance,
+        Err(error) => {
+            method.queue.push_back(Event::Failed(Failure::Io(error)));
+            Step::Advance
         }
     }
 }
@@ -89,6 +50,7 @@ pub(super) async fn monitor<T: Transport + Send>(method: &mut Slaac<T>) -> Event
 pub(super) fn process_initial_ra<T: Transport>(
     method: &mut Slaac<T>,
     ra: &RouterAdvertisement,
+    now: Instant,
 ) -> bool {
     let Some(prefix) = ra
         .prefixes
@@ -108,13 +70,18 @@ pub(super) fn process_initial_ra<T: Transport>(
         ra.source,
         prefix.valid_lifetime,
         prefix.preferred_lifetime,
+        now,
     ));
-    method.router = Some(ManagedRouter::new(ra.source, u64::from(ra.router_lifetime)));
-    method.dns_servers = resolve_dns(method, ra);
+    method.router = Some(ManagedRouter::new(
+        ra.source,
+        u64::from(ra.router_lifetime),
+        now,
+    ));
+    method.dns_servers = intent::resolve_dns(method, ra, now);
 
     method
         .queue
-        .push_back(Event::Intent(configure(address, prefix.prefix_len)));
+        .push_back(Event::Intent(intent::configure(address, prefix.prefix_len)));
     if ra.router_lifetime != 0 {
         method
             .queue
@@ -127,32 +94,57 @@ pub(super) fn process_initial_ra<T: Transport>(
     true
 }
 
-async fn pause_before_retry(attempt: u32) {
-    if attempt < MAX_RTR_SOLICITATIONS {
-        sleep(RTR_SOLICITATION_INTERVAL).await;
+// Sends one solicitation, arms the next one and processes the reply it triggers.
+async fn solicit<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
+    let packet = router_solicitation(Ipv6Addr::UNSPECIFIED, &method.mac);
+
+    method.solicitation_attempt = method.solicitation_attempt.saturating_add(1);
+    method.solicitation_at = now.checked_add(RTR_SOLICITATION_INTERVAL);
+
+    if let Err(error) = method.socket.send_to(ALL_ROUTERS, &packet).await {
+        method.queue.push_back(Event::Warning(format!(
+            "could not send RS on {}: {error}",
+            method.interface
+        )));
+        return Step::Advance;
+    }
+
+    receive(method, now).await
+}
+
+// Waits for one inbound packet. A receive error keeps the solicitation deadline
+// armed, so the next attempt is paced by the controller.
+async fn receive<T: Transport>(method: &mut Slaac<T>, now: Instant) -> Step {
+    match try_recv_ra(method).await {
+        Ok(Some(ra)) => settle(method, &ra, now),
+        Ok(None) => Step::Advance,
+        Err(_error) => Step::Wait,
     }
 }
 
-async fn wait_for_ra<T: Transport>(
-    method: &Slaac<T>,
-    wait_timeout: Duration,
-) -> Option<RouterAdvertisement> {
-    let deadline = Instant::now()
-        .checked_add(wait_timeout)
-        .unwrap_or_else(Instant::now);
+fn settle<T: Transport>(method: &mut Slaac<T>, ra: &RouterAdvertisement, now: Instant) -> Step {
+    method.solicited = true;
+    method.solicitation_at = None;
 
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return None;
-        }
-
-        match timeout(remaining, try_recv_ra(method)).await {
-            Ok(Ok(Some(ra))) => return Some(ra),
-            Ok(Ok(None)) => {}
-            Ok(Err(_)) | Err(_) => return None,
-        }
+    if !process_initial_ra(method, ra, now) {
+        method.queue.push_back(Event::Warning(format!(
+            "no usable autonomous prefix on {}, continuing to listen",
+            method.interface
+        )));
     }
+
+    Step::Advance
+}
+
+fn exhaust<T: Transport>(method: &mut Slaac<T>) -> Step {
+    method.solicited = true;
+    method.solicitation_at = None;
+    method.queue.push_back(Event::Warning(format!(
+        "no Router Advertisement on {} after {MAX_RTR_SOLICITATIONS} attempts, continuing to listen",
+        method.interface
+    )));
+
+    Step::Advance
 }
 
 async fn try_recv_ra<T: Transport>(
