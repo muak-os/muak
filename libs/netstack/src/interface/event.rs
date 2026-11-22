@@ -24,24 +24,23 @@ pub(super) enum Selected {
     V6(provision::Event),
 }
 
-// Outcome of one controller wait.
-enum Outcome {
-    // An input event, or a closed command channel.
-    Selected(Option<Selected>),
-    // A wake deadline or an I/O progress forced the controller to poll again.
+enum Wait {
+    Input(Selected),
+    Closed,
     Wake,
 }
 
 pub(super) async fn select<N: Ops>(interface: &mut Interface<N>) -> Option<Selected> {
     loop {
         match wait(interface).await {
-            Outcome::Wake => {}
-            Outcome::Selected(selected) => return selected,
+            Wait::Input(selected) => return Some(selected),
+            Wait::Closed => return None,
+            Wait::Wake => {}
         }
     }
 }
 
-async fn wait<N: Ops>(interface: &mut Interface<N>) -> Outcome {
+async fn wait<N: Ops>(interface: &mut Interface<N>) -> Wait {
     let now = Instant::now();
     let deadline = wake::earliest_wake(interface, now);
 
@@ -54,18 +53,21 @@ async fn wait<N: Ops>(interface: &mut Interface<N>) -> Outcome {
 
     core::future::poll_fn(|cx| {
         if let Poll::Ready(command) = command.as_mut().poll(cx) {
-            return Poll::Ready(Outcome::Selected(command.map(Selected::Command)));
+            return Poll::Ready(match command {
+                Some(command) => Wait::Input(Selected::Command(command)),
+                None => Wait::Closed,
+            });
         }
         #[cfg(feature = "ipv4")]
         if let Poll::Ready(event) = v4.as_mut().poll(cx) {
-            return Poll::Ready(Outcome::Selected(Some(Selected::V4(event))));
+            return Poll::Ready(Wait::Input(Selected::V4(event)));
         }
         #[cfg(feature = "ipv6")]
         if let Poll::Ready(event) = v6.as_mut().poll(cx) {
-            return Poll::Ready(Outcome::Selected(Some(Selected::V6(event))));
+            return Poll::Ready(Wait::Input(Selected::V6(event)));
         }
         if timer.as_mut().poll(cx).is_ready() {
-            return Poll::Ready(Outcome::Wake);
+            return Poll::Ready(Wait::Wake);
         }
         Poll::Pending
     })
