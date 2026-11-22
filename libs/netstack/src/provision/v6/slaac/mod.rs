@@ -7,8 +7,8 @@ mod timers;
 
 use alloc::collections::VecDeque;
 use alloc::string::String;
-use alloc::vec;
 use alloc::vec::Vec;
+use alloc::{format, vec};
 use core::net::{IpAddr, Ipv6Addr};
 use core::time::Duration;
 
@@ -71,6 +71,28 @@ impl<T: Transport> Slaac<T> {
         self.solicitation_attempt = 0;
     }
 
+    fn reapply(&mut self) {
+        if !self.running {
+            return;
+        }
+        let Some(address) = self.address.as_ref().filter(|address| address.is_valid()) else {
+            return;
+        };
+        let intent = configure(address.address, address.prefix_len);
+        let router = self
+            .router
+            .as_ref()
+            .filter(|router| router.is_valid())
+            .map(|router| router.value);
+        self.queue.push_back(Event::Intent(intent));
+        if let Some(router) = router {
+            self.queue
+                .push_back(Event::Intent(Intent::EnsureDefaultRoute(IpAddr::V6(
+                    router,
+                ))));
+        }
+    }
+
     const fn suspend(&mut self) {
         self.running = false;
     }
@@ -102,7 +124,8 @@ impl<T: Transport + Send> Method for Slaac<T> {
 
     fn on_command(&mut self, command: Command) {
         match command {
-            Command::Start | Command::Reconcile | Command::LinkUp => self.resolicit(),
+            Command::Start | Command::LinkUp => self.resolicit(),
+            Command::Reconcile => self.reapply(),
             Command::LinkDown => self.suspend(),
             Command::Stop => self.stop(),
         }
@@ -141,7 +164,8 @@ impl<T: Transport + Send> Slaac<T> {
 
     async fn solicit(&mut self) {
         if let Err(reason) = solicit::initial(self).await {
-            self.queue.push_back(Event::Warning(reason));
+            self.queue
+                .push_back(Event::Warning(format!("{reason}, continuing to listen")));
         }
         self.solicited = true;
     }
@@ -282,8 +306,83 @@ mod tests {
         let event = method.next_event().await;
 
         // ASSERT
-        assert!(matches!(event, Event::Warning(_)));
+        assert!(matches!(&event, Event::Warning(text) if text.contains("continuing to listen")));
         assert!(method.view().is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconcile_reemits_configuration_without_soliciting() {
+        // ARRANGE
+        let transport = MockTransport::default();
+        transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
+        let mut method = new_method(transport);
+        method.on_command(Command::Start);
+        let _configure = method.next_event().await;
+        let _route = method.next_event().await;
+        let _bound = method.next_event().await;
+
+        // ACT
+        method.on_command(Command::Reconcile);
+        let configure = method.next_event().await;
+        let route = method.next_event().await;
+        let warned = timeout(Duration::from_secs(2), method.next_event()).await;
+
+        // ASSERT
+        assert!(matches!(
+            configure,
+            Event::Intent(Intent::Configure(config))
+                if config.address == IpAddr::V6(ADDRESS) && config.prefix_len == 64
+        ));
+        assert!(matches!(
+            route,
+            Event::Intent(Intent::EnsureDefaultRoute(IpAddr::V6(ROUTER)))
+        ));
+        assert_eq!(
+            method.socket.destinations(),
+            vec![::slaac::icmpv6::ALL_ROUTERS]
+        );
+        let _silence = warned.expect_err("reconcile must not warn");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconcile_without_configuration_does_nothing() {
+        // ARRANGE
+        let transport = MockTransport::default();
+        let mut method = new_method(transport);
+        method.on_command(Command::Start);
+        let warning = method.next_event().await;
+        assert!(matches!(warning, Event::Warning(_)));
+        let destinations = method.socket.destinations();
+
+        // ACT
+        method.on_command(Command::Reconcile);
+        let outcome = timeout(Duration::from_secs(2), method.next_event()).await;
+
+        // ASSERT
+        let _silence = outcome.expect_err("reconcile must not emit an event");
+        assert!(method.view().is_none());
+        assert_eq!(method.socket.destinations(), destinations);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn link_up_after_suspend_resolicits() {
+        // ARRANGE
+        let transport = MockTransport::default();
+        transport.push_ra(ra(1800, Some((7200, 3600)), &[]), ROUTER);
+        let mut method = new_method(transport);
+        method.on_command(Command::Start);
+        let _configure = method.next_event().await;
+        let _route = method.next_event().await;
+        let _bound = method.next_event().await;
+        method.on_command(Command::LinkDown);
+
+        // ACT
+        method.on_command(Command::LinkUp);
+        let event = method.next_event().await;
+
+        // ASSERT
+        assert!(matches!(event, Event::Warning(_)));
+        assert_eq!(method.socket.destinations().len(), 4);
     }
 
     #[tokio::test(start_paused = true)]
