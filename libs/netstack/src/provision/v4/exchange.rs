@@ -26,7 +26,7 @@ pub(super) async fn acquire<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> 
 
     match retry::classify(method.attempts, result) {
         retry::Outcome::Acquired(lease) => {
-            method.bind(now, lease);
+            method.bind(lease);
             Step::Advance
         }
         retry::Outcome::Retry(delay) => {
@@ -65,7 +65,7 @@ pub(super) async fn renew<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> St
         .await
     {
         Ok(lease) => {
-            method.bind(now, lease);
+            method.bind(lease);
             Step::Advance
         }
         Err(DhcpFailure::Nak) => {
@@ -101,7 +101,7 @@ pub(super) async fn rebind<E: Exchange>(method: &mut Dhcp<E>, now: Instant) -> S
         .await
     {
         Ok(lease) => {
-            method.bind(now, lease);
+            method.bind(lease);
             Step::Advance
         }
         Err(DhcpFailure::Nak) => {

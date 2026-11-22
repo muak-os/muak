@@ -29,8 +29,8 @@ impl<E: Exchange> Method for Dhcp<E> {
     fn next_wake(&self, now: Instant) -> Option<Instant> {
         match self.phase {
             Phase::Acquiring => self.retry_at.filter(|at| *at > now),
-            // A reapplied lease arms its deadlines on the next bound step, so the
-            // deadline it is about to arm is previewed here.
+            // A freshly bound or reapplied lease arms its deadlines on the next
+            // bound step, so the deadline it is about to arm is previewed here.
             Phase::Bound => self
                 .deadlines
                 .next()
@@ -258,6 +258,12 @@ mod tests {
         events
     }
 
+    // Runs the first bound step and parks it, as the controller does before it
+    // reads the wake deadline, so the deadlines arm at `now`.
+    fn arm(method: &mut Dhcp<Mock>, now: Instant) {
+        assert!(is_pending(method.next_event(now)));
+    }
+
     async fn bound(now: Instant) -> Dhcp<Mock> {
         let mut method = Dhcp::new(
             mock(vec![Ok(lease(ADDRESS_A))], Vec::new(), Vec::new()),
@@ -266,6 +272,7 @@ mod tests {
         );
         method.on_command(Command::Start);
         next_until_state(&mut method, State::Bound, now).await;
+        arm(&mut method, now);
 
         method
     }
@@ -330,13 +337,17 @@ mod tests {
         );
         method.on_command(Command::Start);
         next_until_state(&mut method, State::Bound, now).await;
+        arm(&mut method, now);
 
         // ACT
-        let events = next_until_state(&mut method, State::Bound, at(now, 50)).await;
+        let renew_at = at(now, 50);
+        let events = next_until_state(&mut method, State::Bound, renew_at).await;
+        let wake = method.next_wake(renew_at);
         let view = method.view();
 
         // ASSERT
         assert!(has_configure(&events, ADDRESS_B));
+        assert_eq!(wake, Some(at(renew_at, 50)));
         assert!(matches!(
             view,
             Some(V4State::Dhcp {
@@ -388,6 +399,7 @@ mod tests {
         );
         method.on_command(Command::Start);
         next_until_state(&mut method, State::Bound, now).await;
+        arm(&mut method, now);
         let renew_at = at(now, 50);
 
         // ACT
@@ -432,6 +444,7 @@ mod tests {
         );
         method.on_command(Command::Start);
         next_until_state(&mut method, State::Bound, now).await;
+        arm(&mut method, now);
         let rebind_at = at(now, 87);
 
         // ACT
@@ -521,6 +534,7 @@ mod tests {
         );
         method.on_command(Command::Start);
         next_until_state(&mut method, State::Bound, now).await;
+        arm(&mut method, now);
 
         // ACT
         let renew_at = at(now, 50);
@@ -588,6 +602,55 @@ mod tests {
         // ASSERT
         assert_eq!(wake, Some(at(now, 50)));
         assert!(waiting);
+    }
+
+    #[tokio::test]
+    async fn bind_defers_arming_to_the_next_bound_step() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = Dhcp::new(
+            mock(vec![Ok(lease(ADDRESS_A))], Vec::new(), Vec::new()),
+            "eth0",
+            MAC,
+        );
+        method.on_command(Command::Start);
+
+        // ACT
+        next_until_state(&mut method, State::Bound, now).await;
+        let armed = method.deadlines.next();
+        let preview = method.next_wake(now);
+        let waiting = is_pending(method.next_event(now));
+        let armed_wake = method.next_wake(now);
+
+        // ASSERT
+        assert_eq!(armed, None);
+        assert_eq!(preview, Some(at(now, 50)));
+        assert!(waiting);
+        assert_eq!(armed_wake, preview);
+    }
+
+    #[tokio::test]
+    async fn deadlines_anchor_to_the_bound_step_clock() {
+        // ARRANGE
+        let now = Instant::now();
+        let mut method = Dhcp::new(
+            mock(vec![Ok(lease(ADDRESS_A))], Vec::new(), Vec::new()),
+            "eth0",
+            MAC,
+        );
+        method.on_command(Command::Start);
+        next_until_state(&mut method, State::Bound, now).await;
+
+        // ACT
+        // The exchange took seven seconds, so the next controller iteration reads
+        // a later clock than the one the acquire step started with.
+        let bound_at = at(now, 7);
+        let waiting = is_pending(method.next_event(bound_at));
+        let wake = method.next_wake(bound_at);
+
+        // ASSERT
+        assert!(waiting);
+        assert_eq!(wake, Some(at(now, 57)));
     }
 
     #[tokio::test]
