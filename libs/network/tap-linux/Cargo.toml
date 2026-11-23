@@ -13,9 +13,6 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
-# Error handling
-thiserror = { workspace = true }
-
 # System/platform APIs
 libc = { workspace = true }
 rustix = { workspace = true }
