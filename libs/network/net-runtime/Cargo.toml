@@ -17,8 +17,6 @@ default = []
 mock = []
 
 [dependencies]
-# Error handling
-thiserror = { workspace = true }
-
 # Internal
+ip-method = { workspace = true }
 netmodel = { workspace = true }
