@@ -1,7 +1,7 @@
 //! Carrier-driven link reconciliation for the interface that owns L3.
 
+use linkctl::interface::Command;
 use netdev::Ops;
-use netstack::interface::Command;
 
 use super::{NetworkSupervisor, owner, view};
 

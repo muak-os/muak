@@ -1,6 +1,6 @@
 [package]
 name = "slaac"
-description = "IPv6 stateless address autoconfiguration and ICMPv6 router discovery"
+description = "IPv6 stateless address autoconfiguration, ICMPv6 router discovery, and the SLAAC address method"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,5 +13,9 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+# Internal
+addrconf = { workspace = true }
 ip = { workspace = true, features = ["v6"] }
+
+# Error handling
 thiserror = { workspace = true }

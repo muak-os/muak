@@ -7,6 +7,7 @@ mod dispatch;
 mod dns;
 mod failover;
 mod monitor;
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
 mod notice;
 mod owner;
 mod provision;
@@ -23,13 +24,14 @@ use std::collections::HashMap;
 use anyhow::Result;
 use commands::SupervisorCommand;
 use config::system::network;
+use linkctl::System;
+use linkctl::interface::{Command, Handle};
 use netdev::Ops;
 use netdev::interface::Ethernet;
 use netlink::Rtnl;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use netlink_monitor::Event;
-use netstack::interface::{Command, Handle, Interface};
 use selection::SupervisorEvent;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
@@ -185,11 +187,13 @@ impl<N: Ops> NetworkSupervisor<N> {
 
     fn spawn_interface(&mut self, link: Ethernet) {
         let name = link.name.clone();
-        let (handle, notices) = Interface::spawn(self.ops.clone(), link);
+        let (handle, notices) = System::spawn(self.ops.clone(), link);
         #[cfg(feature = "ipv4")]
         tokio::spawn(notice::log_v4(name.clone(), notices.v4));
         #[cfg(feature = "ipv6")]
         tokio::spawn(notice::log_v6(name.clone(), notices.v6));
+        #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
+        let _notices = notices;
         self.owners
             .entry(name.clone())
             .or_insert_with(|| name.clone());

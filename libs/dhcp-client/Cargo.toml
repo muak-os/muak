@@ -1,6 +1,6 @@
 [package]
 name = "dhcp-client"
-description = "DHCPv4 lease acquisition client"
+description = "DHCPv4 address method and kernel-backed transport"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -17,6 +17,7 @@ tokio = { workspace = true, features = ["net", "time"] }
 thiserror = { workspace = true }
 
 # Internal
+addrconf = { workspace = true }
 dhcp-proto = { workspace = true }
 ip = { workspace = true, features = ["v4"] }
 packet = { workspace = true, features = ["v4"] }

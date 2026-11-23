@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "addrconf"
+version = "0.0.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -506,6 +513,7 @@ dependencies = [
 name = "dhcp-client"
 version = "0.0.0"
 dependencies = [
+ "addrconf",
  "dhcp-proto",
  "ip",
  "packet",
@@ -1135,6 +1143,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
+name = "linkctl"
+version = "0.0.0"
+dependencies = [
+ "addrconf",
+ "dhcp-client",
+ "netdev",
+ "netlink",
+ "packet",
+ "slaac",
+ "tokio",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1455,33 +1476,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "netstack"
-version = "0.0.0"
-dependencies = [
- "dhcp-client",
- "dhcp-proto",
- "ip",
- "netdev",
- "netlink",
- "packet",
- "slaac",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "networkd"
 version = "0.0.0"
 dependencies = [
+ "addrconf",
  "anyhow",
  "config",
  "granola",
  "kmsg",
+ "linkctl",
  "mac",
  "netdev",
  "netlink",
  "netlink-monitor",
- "netstack",
  "tempfile",
  "tokio",
 ]
@@ -2293,6 +2300,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 name = "slaac"
 version = "0.0.0"
 dependencies = [
+ "addrconf",
  "ip",
  "thiserror 2.0.21",
 ]

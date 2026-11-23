@@ -2,9 +2,9 @@
 
 use anyhow::Result;
 use config::system::network;
+use linkctl::interface::Command;
 use netdev::Ops;
 use netlink::link::ifname::Name;
-use netstack::interface::Command;
 use network::{InterfaceConfig, InterfaceKind};
 
 use super::{NetworkSupervisor, dns, provision, view};

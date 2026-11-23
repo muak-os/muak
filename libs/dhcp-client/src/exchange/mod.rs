@@ -8,17 +8,18 @@ use std::time::SystemTime;
 use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, builder, message_type, xid};
 use ip::v4::Addr;
 
+use crate::Scratch;
 use crate::datagram::Datagram;
+use crate::error::{DhcpError, Result};
 use crate::lease::Lease;
-use crate::{Failure, Result, Scratch};
 
 /// Runs a full `DHCPDISCOVER` / `DHCPOFFER` / `DHCPREQUEST` / `DHCPACK` exchange.
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Timeout`] when a response does not arrive in time, [`Failure::Nak`] when
-/// the server refuses the request, [`Failure::MissingServerId`] when the offer carries no server
-/// identifier, [`Failure::MissingAddress`] when a response carries no usable address, and any
+/// Returns [`DhcpError::Timeout`] when a response does not arrive in time, [`DhcpError::Nak`] when
+/// the server refuses the request, [`DhcpError::MissingServerId`] when the offer carries no server
+/// identifier, [`DhcpError::MissingAddress`] when a response carries no usable address, and any
 /// message, framing or socket failure of the exchange.
 pub async fn acquire<D: Datagram>(socket: &D, mac: [u8; 6], scratch: Scratch<'_>) -> Result<Lease> {
     let Scratch { msg, frame } = scratch;
@@ -36,7 +37,7 @@ pub async fn acquire<D: Datagram>(socket: &D, mac: [u8; 6], scratch: Scratch<'_>
 
     let (offered, offer) = recv::raw(socket, frame, xid, message_type::OFFER).await?;
     let offered_ip = lease_address(offered, None)?;
-    let server_id = offer.server_id.ok_or(Failure::MissingServerId)?;
+    let server_id = offer.server_id.ok_or(DhcpError::MissingServerId)?;
 
     let request = builder::request(
         msg,
@@ -69,7 +70,7 @@ pub async fn acquire<D: Datagram>(socket: &D, mac: [u8; 6], scratch: Scratch<'_>
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Timeout`] when the ACK does not arrive in time, [`Failure::Nak`] when the
+/// Returns [`DhcpError::Timeout`] when the ACK does not arrive in time, [`DhcpError::Nak`] when the
 /// server refuses the renewal, and any message, framing or socket failure of the exchange.
 pub async fn renew<D: Datagram>(
     socket: &D,
@@ -94,7 +95,7 @@ pub async fn renew<D: Datagram>(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Timeout`] when the ACK does not arrive in time, [`Failure::Nak`] when the
+/// Returns [`DhcpError::Timeout`] when the ACK does not arrive in time, [`DhcpError::Nak`] when the
 /// server refuses the rebind, and any message, framing or socket failure of the exchange.
 pub async fn rebind<D: Datagram>(
     socket: &D,
@@ -120,7 +121,7 @@ fn lease_address(received: Ipv4Addr, fallback: Option<Ipv4Addr>) -> Result<Ipv4A
         return Ok(received);
     }
 
-    fallback.ok_or(Failure::MissingAddress)
+    fallback.ok_or(DhcpError::MissingAddress)
 }
 
 async fn send<D: Datagram>(
@@ -147,7 +148,7 @@ mod tests {
     use core::net::Ipv4Addr;
 
     use super::lease_address;
-    use crate::Failure;
+    use crate::error::DhcpError;
 
     #[test]
     fn lease_address_prefers_received() {
@@ -183,6 +184,6 @@ mod tests {
         let result = lease_address(received, None);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::MissingAddress)));
+        assert!(matches!(result, Err(DhcpError::MissingAddress)));
     }
 }

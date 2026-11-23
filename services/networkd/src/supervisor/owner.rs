@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
+use linkctl::interface::Handle;
 use netlink::link::ifname::Name;
-use netstack::interface::Handle;
 
 use super::NetworkSnapshot;
 
@@ -39,9 +39,8 @@ pub(super) fn is_enslaved(owners: &HashMap<Name, Name>, name: &Name) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use linkctl::interface::{Handle, Snapshot};
     use netlink::link::state::State;
-    use netstack::interface::{Handle, Snapshot};
-    use netstack::provision;
     use tokio::sync::{mpsc, watch};
 
     use super::*;
@@ -53,14 +52,10 @@ mod tests {
     fn handle(link: State) -> Handle {
         let snapshot = Snapshot {
             link,
-            #[cfg(feature = "ipv4")]
             v4: None,
-            #[cfg(feature = "ipv4")]
-            v4_state: provision::State::Stopped,
-            #[cfg(feature = "ipv6")]
+            v4_state: addrconf::State::Stopped,
             v6: None,
-            #[cfg(feature = "ipv6")]
-            v6_state: provision::State::Stopped,
+            v6_state: addrconf::State::Stopped,
         };
         let (command_tx, _command_rx) = mpsc::channel(1);
         let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);

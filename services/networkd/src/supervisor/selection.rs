@@ -1,7 +1,7 @@
 //! Supervisor event selection: waits for the next command, monitor event, L3 owner change, or reconcile tick.
 
+use linkctl::interface::Snapshot;
 use netlink_monitor::Event;
-use netstack::interface::Snapshot;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Interval;
 

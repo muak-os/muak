@@ -1,12 +1,12 @@
 //! Netlink event consumer: dispatches received netlink events to supervisor state handlers.
 
+use linkctl::interface::Command;
 use mac::format as format_mac;
 use netdev::Ops;
 use netdev::interface::Ethernet;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
 use netlink_monitor::{Event, Failure};
-use netstack::interface::Command;
 
 use super::{NetworkSupervisor, carrier, dns, failover, owner, reconcile};
 

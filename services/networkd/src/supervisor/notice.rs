@@ -2,13 +2,13 @@
 
 use core::fmt::Display;
 
-use netlink::link::ifname::Name;
-use netstack::interface::Notice;
+use addrconf::State;
+use linkctl::interface::Notice;
 #[cfg(feature = "ipv4")]
-use netstack::interface::V4Notice;
+use linkctl::interface::V4Notice;
 #[cfg(feature = "ipv6")]
-use netstack::interface::V6Notice;
-use netstack::provision;
+use linkctl::interface::V6Notice;
+use netlink::link::ifname::Name;
 use tokio::sync::mpsc;
 
 // Kernel log priority a described notice maps to.
@@ -44,19 +44,19 @@ async fn log<V: Display>(name: Name, family: &'static str, mut rx: mpsc::Receive
 
 fn describe<V: Display>(notice: Notice<V>, family: &'static str) -> Option<(Level, String)> {
     match notice {
-        Notice::State(provision::State::Bound) => None,
+        Notice::State(State::Bound) => None,
         Notice::State(state) => Some((Level::Info, format!("{family} state {}", phase(state)))),
         Notice::Configured(state) => Some((Level::Info, format!("{family} {state}"))),
         Notice::Warning(warning) => Some((Level::Warn, format!("{family} {warning}"))),
     }
 }
 
-const fn phase(state: provision::State) -> &'static str {
+const fn phase(state: State) -> &'static str {
     match state {
-        provision::State::Acquiring => "acquiring",
-        provision::State::Bound => "bound",
-        provision::State::Degraded => "degraded",
-        provision::State::Stopped => "stopped",
+        State::Acquiring => "acquiring",
+        State::Bound => "bound",
+        State::Degraded => "degraded",
+        State::Stopped => "stopped",
     }
 }
 
@@ -66,15 +66,15 @@ mod tests {
     mod v4 {
         use core::net::Ipv4Addr;
 
-        use netlink::address::IpConfig;
-        use netstack::interface::V4Notice;
-        use netstack::provision;
-        use netstack::view::V4State;
+        use addrconf::State;
+        use addrconf::fixed::StaticView;
+        use linkctl::interface::V4Notice;
+        use linkctl::view::V4State;
 
         use super::super::{Level, describe};
 
         fn configured() -> V4Notice {
-            V4Notice::Configured(V4State::Static(IpConfig {
+            V4Notice::Configured(V4State::Static(StaticView {
                 address: Ipv4Addr::new(192, 168, 1, 10),
                 prefix_len: 24,
                 gateway: None,
@@ -99,7 +99,7 @@ mod tests {
         #[test]
         fn bound_state_is_not_described() {
             // ARRANGE
-            let notice = V4Notice::State(provision::State::Bound);
+            let notice = V4Notice::State(State::Bound);
 
             // ACT
             let described = describe(notice, "IPv4");
@@ -111,7 +111,7 @@ mod tests {
         #[test]
         fn degraded_state_is_described_at_info() {
             // ARRANGE
-            let notice = V4Notice::State(provision::State::Degraded);
+            let notice = V4Notice::State(State::Degraded);
 
             // ACT
             let described = describe(notice, "IPv4");
@@ -143,15 +143,15 @@ mod tests {
     mod v6 {
         use core::net::Ipv6Addr;
 
-        use netlink::address::Ipv6Config;
-        use netstack::interface::V6Notice;
-        use netstack::provision;
-        use netstack::view::V6State;
+        use addrconf::State;
+        use addrconf::fixed::StaticView;
+        use linkctl::interface::V6Notice;
+        use linkctl::view::V6State;
 
         use super::super::{Level, describe};
 
         fn configured() -> V6Notice {
-            V6Notice::Configured(V6State::Static(Ipv6Config {
+            V6Notice::Configured(V6State::Static(StaticView {
                 address: Ipv6Addr::LOCALHOST,
                 prefix_len: 64,
                 gateway: Some(Ipv6Addr::UNSPECIFIED),
@@ -176,7 +176,7 @@ mod tests {
         #[test]
         fn bound_state_is_not_described() {
             // ARRANGE
-            let notice = V6Notice::State(provision::State::Bound);
+            let notice = V6Notice::State(State::Bound);
 
             // ACT
             let described = describe(notice, "IPv6");
@@ -188,7 +188,7 @@ mod tests {
         #[test]
         fn acquiring_state_is_described_at_info() {
             // ARRANGE
-            let notice = V6Notice::State(provision::State::Acquiring);
+            let notice = V6Notice::State(State::Acquiring);
 
             // ACT
             let described = describe(notice, "IPv6");
