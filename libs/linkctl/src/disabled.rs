@@ -7,13 +7,15 @@ use std::time::Instant;
 
 use netdev::interface::Ethernet;
 
+use crate::family;
+
 /// Address family that is never configured because its feature is disabled.
 pub struct Family<C, V>(Infallible, PhantomData<(C, V)>);
 
 /// Address method of an address family that is never configured.
 pub struct Never<V>(Infallible, PhantomData<V>);
 
-impl<C: 'static, V: Send + 'static> crate::family::Family for Family<C, V> {
+impl<C: 'static, V: Send + 'static> family::Family for Family<C, V> {
     const ENABLED: bool = false;
 
     type Config = C;

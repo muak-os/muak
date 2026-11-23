@@ -6,6 +6,10 @@ mod common;
 #[cfg(test)]
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 mod tests {
+    #[cfg(feature = "ipv4")]
+    use core::net::Ipv4Addr;
+    #[cfg(feature = "ipv6")]
+    use core::net::Ipv6Addr;
     use core::time::Duration;
 
     use addrconf::State;
@@ -13,6 +17,10 @@ mod tests {
     use linkctl::interface::{Command, Snapshot};
     #[cfg(feature = "ipv4")]
     use linkctl::interface::{Handle, Notice, V4Notice};
+    #[cfg(feature = "ipv4")]
+    use linkctl::view::V4State;
+    #[cfg(feature = "ipv6")]
+    use linkctl::view::V6State;
     use netdev::interface::Ethernet;
     use netlink::link::ifname::Name;
     use netlink::link::state::State as LinkState;
@@ -58,7 +66,7 @@ mod tests {
     }
 
     #[cfg(feature = "ipv4")]
-    fn take_v4_configured(rx: &mut mpsc::Receiver<V4Notice>) -> Option<linkctl::view::V4State> {
+    fn take_v4_configured(rx: &mut mpsc::Receiver<V4Notice>) -> Option<V4State> {
         drain_v4(rx).find_map(|notice| match notice {
             Notice::Configured(view) => Some(view),
             Notice::State(_) | Notice::Warning(_) => None,
@@ -68,14 +76,14 @@ mod tests {
     #[cfg(feature = "ipv4")]
     async fn wait_for_v4_address(
         rx: &mut watch::Receiver<Snapshot>,
-        address: core::net::Ipv4Addr,
+        address: Ipv4Addr,
     ) -> Snapshot {
         tokio::time::timeout(
             Duration::from_secs(1),
             rx.wait_for(|snapshot| {
                 matches!(
                     &snapshot.v4,
-                    Some(linkctl::view::V4State::Static(config)) if config.address == address
+                    Some(V4State::Static(config)) if config.address == address
                 )
             }),
         )
@@ -112,10 +120,6 @@ mod tests {
     #[cfg(feature = "ipv4")]
     #[tokio::test]
     async fn configure_static_v4_applies_address_and_route() {
-        use core::net::Ipv4Addr;
-
-        use linkctl::view::V4State;
-
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
@@ -159,10 +163,6 @@ mod tests {
     #[cfg(feature = "ipv6")]
     #[tokio::test]
     async fn configure_static_v6_applies_address_and_route() {
-        use core::net::Ipv6Addr;
-
-        use linkctl::view::V6State;
-
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
@@ -205,8 +205,6 @@ mod tests {
 
     #[cfg(feature = "ipv4")]
     async fn configured_v4() -> (MockNetlinkOps, Handle) {
-        use core::net::Ipv4Addr;
-
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
         let (mut handle, _notices) = System::spawn(mock.clone(), link);
@@ -252,8 +250,6 @@ mod tests {
     #[cfg(feature = "ipv4")]
     #[tokio::test]
     async fn bound_emits_configured_once() {
-        use core::net::Ipv4Addr;
-
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
@@ -298,10 +294,6 @@ mod tests {
     #[cfg(feature = "ipv4")]
     #[tokio::test]
     async fn reconfigure_emits_configured_again() {
-        use core::net::Ipv4Addr;
-
-        use linkctl::view::V4State;
-
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = ethernet(&mock);
@@ -409,8 +401,6 @@ mod tests {
     #[cfg(feature = "ipv4")]
     #[tokio::test]
     async fn refresh_failure_emits_warning() {
-        use core::net::Ipv4Addr;
-
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let link = Ethernet::new(

@@ -5,7 +5,7 @@ use std::time::Instant;
 use netdev::interface::Ethernet;
 
 use crate::icmpv6::Socket;
-use crate::view;
+use crate::{family, view};
 
 /// IPv6 family adapter for the interface controller.
 pub struct Family;
@@ -18,7 +18,7 @@ pub enum Method {
     Slaac(slaac::method::Slaac<Socket>),
 }
 
-impl crate::family::Family for Family {
+impl family::Family for Family {
     const ENABLED: bool = true;
 
     type Config = addrconf::v6::Config;
@@ -80,6 +80,7 @@ impl Method {
                 socket,
             )));
         }
+
         Ok(Self::Static(addrconf::v6::Static::new(config.fixed())))
     }
 }

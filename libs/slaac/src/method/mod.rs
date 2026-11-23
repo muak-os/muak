@@ -215,6 +215,7 @@ mod tests {
 
     use super::transport::Transport;
     use super::{RTR_SOLICITATION_INTERVAL, Slaac, View};
+    use crate::icmpv6::{ALL_ROUTERS, ROUTER_ADVERTISEMENT};
 
     const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
     const ROUTER: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
@@ -302,7 +303,7 @@ mod tests {
 
     fn ra(router_lifetime: u16, prefix: Option<(u32, u32)>, dns: &[(Ipv6Addr, u32)]) -> Vec<u8> {
         let mut packet = Vec::new();
-        packet.extend([crate::icmpv6::ROUTER_ADVERTISEMENT, 0, 0, 0, 64, 0]);
+        packet.extend([ROUTER_ADVERTISEMENT, 0, 0, 0, 64, 0]);
         packet.extend(router_lifetime.to_be_bytes());
         packet.extend([0_u8; 8]);
         if let Some((valid, preferred)) = prefix {
@@ -346,10 +347,7 @@ mod tests {
         let bound = next_event(&mut method, now);
 
         // ASSERT
-        assert_eq!(
-            method.socket.destinations(),
-            vec![crate::icmpv6::ALL_ROUTERS]
-        );
+        assert_eq!(method.socket.destinations(), vec![ALL_ROUTERS]);
         assert!(matches!(
             configure,
             Event::Intent(Intent::Configure(config))
@@ -463,10 +461,7 @@ mod tests {
             route,
             Event::Intent(Intent::EnsureDefaultRoute(IpAddr::V6(ROUTER)))
         ));
-        assert_eq!(
-            method.socket.destinations(),
-            vec![crate::icmpv6::ALL_ROUTERS]
-        );
+        assert_eq!(method.socket.destinations(), vec![ALL_ROUTERS]);
         assert!(silence);
     }
 

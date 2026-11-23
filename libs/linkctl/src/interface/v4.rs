@@ -6,7 +6,7 @@ use dhcp_client::method::Dhcp;
 use dhcp_client::system::{Exchange, Kernel};
 use netdev::interface::Ethernet;
 
-use crate::view;
+use crate::{family, view};
 
 /// IPv4 family adapter for the interface controller.
 pub struct Family;
@@ -19,7 +19,7 @@ pub enum Method {
     Dhcp(Dhcp<Exchange<Kernel>>),
 }
 
-impl crate::family::Family for Family {
+impl family::Family for Family {
     const ENABLED: bool = true;
 
     type Config = addrconf::v4::Config;
