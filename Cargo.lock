@@ -1462,12 +1462,11 @@ dependencies = [
 name = "net-loop"
 version = "0.0.0"
 dependencies = [
- "futures-util",
  "iface",
+ "ip-method",
  "net-runtime",
  "net-supervisor",
  "netmodel",
- "thiserror 2.0.21",
 ]
 
 [[package]]
