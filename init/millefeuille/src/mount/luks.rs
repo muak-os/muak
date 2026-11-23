@@ -4,6 +4,7 @@ use anyhow::{Context as _, Result};
 use blockdev::discover;
 use disk::role::Role;
 use luks2::key::Passphrase;
+use luks2::metadata::tokens::Tpm2Token;
 use rustix::fs::{AtFlags, CWD, Mode, mkdirat, unlinkat};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
@@ -13,42 +14,112 @@ const ESP_MOUNT: &str = "/run/efi";
 const ESP_KEY_NAME: &str = "luks";
 const ESP_FSTYPE: &str = "vfat";
 
-// Resolve the LUKS key for the given device, trying TPM2 unseal, then the ESP key file.
+// Resolve the LUKS key for the given device, trying every TPM2 token, then the ESP key file.
 pub(super) fn resolve_key(device: &str) -> Result<Option<Passphrase>> {
-    match try_tpm2_unseal(device) {
-        Ok(Some(key)) => Ok(Some(key)),
-        Ok(None) => Ok(try_esp_key()),
-        Err(error) => Err(anyhow::anyhow!("TPM2 unseal failed: {error}")),
+    let Some(tokens) = tpm2_tokens(device) else {
+        return Ok(try_esp_key());
+    };
+
+    unseal_or_esp(&tokens, &unseal_tpm2, &try_esp_key)
+}
+
+// Unseals the first token that succeeds, falling back to the ESP key file when every token fails.
+fn unseal_or_esp(
+    tokens: &[Tpm2Token],
+    unseal: &dyn Fn(&[u8]) -> Result<Passphrase>,
+    esp_key: &dyn Fn() -> Option<Passphrase>,
+) -> Result<Option<Passphrase>> {
+    match unseal_tokens(tokens, unseal) {
+        Ok(key) => Ok(Some(key)),
+        Err(error) => match esp_key() {
+            Some(key) => {
+                kmsg::warn!(
+                    "LUKS key read from the ESP, TPM2 unseal abandoned: {:#}",
+                    error
+                );
+                Ok(Some(key))
+            }
+            None => Err(error),
+        },
     }
 }
 
-fn try_tpm2_unseal(device: &str) -> Result<Option<Passphrase>> {
+// Reads the TPM2 tokens, or returns None when the TPM is unavailable or the header has none.
+fn tpm2_tokens(device: &str) -> Option<Vec<Tpm2Token>> {
     if !device::is_available(None) {
-        return Ok(None);
+        return None;
     }
 
-    let Ok(tokens) = luks2::read_tpm2_tokens(device) else {
-        return Ok(None);
+    let tokens = match luks2::read_tpm2_tokens(device) {
+        Ok(tokens) => tokens,
+        Err(error) => {
+            kmsg::warn!("Failed to read the LUKS2 tokens of {device}: {error:#}");
+            return None;
+        }
     };
-    let Some(token) = tokens.first() else {
-        return Ok(None);
+    if tokens.is_empty() {
+        return None;
+    }
+
+    Some(tokens)
+}
+
+// Tries every token in order and returns the key of the first token that unseals.
+fn unseal_tokens(
+    tokens: &[Tpm2Token],
+    unseal: &dyn Fn(&[u8]) -> Result<Passphrase>,
+) -> Result<Passphrase> {
+    let Some((first, rest)) = tokens.split_first() else {
+        return Err(anyhow::anyhow!(
+            "TPM2 unseal failed: no TPM2 token in the LUKS2 header"
+        ));
     };
 
-    let blob_bytes = token
+    let mut last_error = match try_token(first, 1, unseal) {
+        Ok(key) => return Ok(key),
+        Err(error) => error,
+    };
+
+    for (index, token) in rest.iter().enumerate() {
+        match try_token(token, index.saturating_add(2), unseal) {
+            Ok(key) => return Ok(key),
+            Err(error) => last_error = error,
+        }
+    }
+
+    let attempted = tokens.len();
+
+    Err(last_error.context(format!("TPM2 unseal failed ({attempted} tokens tried)")))
+}
+
+// Tries a single token, logs the outcome and returns its failure unchanged.
+fn try_token(
+    token: &Tpm2Token,
+    number: usize,
+    unseal: &dyn Fn(&[u8]) -> Result<Passphrase>,
+) -> Result<Passphrase> {
+    let result = token
         .sealed_blob()
-        .context("Failed to decode TPM2 blob from LUKS token")?;
-    let blob = blob::Sealed::deserialize(&blob_bytes).context("Failed to deserialize TPM2 blob")?;
+        .context("Failed to decode TPM2 blob from LUKS token")
+        .and_then(|blob| unseal(&blob));
 
-    match operations::unseal(&blob) {
+    match result {
         Ok(key) => {
             kmsg::info!("LUKS key unsealed from TPM2");
-            Ok(Some(key))
+            Ok(key)
         }
         Err(error) => {
-            kmsg::error!("TPM2 unseal failed: {}", error);
-            Err(anyhow::anyhow!("TPM2 unseal failed: {error}"))
+            kmsg::info!("TPM2 token {number} failed to unseal: {:#}", error);
+            Err(error)
         }
     }
+}
+
+// Deserializes a sealed blob and unseals it through the TPM.
+fn unseal_tpm2(bytes: &[u8]) -> Result<Passphrase> {
+    let sealed = blob::Sealed::deserialize(bytes).context("Failed to deserialize TPM2 blob")?;
+
+    Ok(operations::unseal(&sealed)?)
 }
 
 fn try_esp_key() -> Option<Passphrase> {
@@ -110,5 +181,141 @@ fn remove_mountpoint() {
         && error != Errno::NOENT
     {
         kmsg::warn!("Failed to remove {}: {}", ESP_MOUNT, error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn token(marker: u8) -> Tpm2Token {
+        Tpm2Token::new(&[11], &[marker], &[0_u8; 32])
+    }
+
+    fn key(marker: u8) -> Passphrase {
+        luks2::key::from_raw(vec![marker; luks2::key::VOLUME_KEY_SIZE])
+            .expect("test key should have the volume key length")
+    }
+
+    // Fails on the first marker and unseals every other marker into its own key.
+    fn stale_first(bytes: &[u8]) -> Result<Passphrase> {
+        let marker = *bytes.first().expect("test blob should carry a marker");
+
+        if marker == 1 {
+            return Err(anyhow::anyhow!("stale PCR"));
+        }
+
+        Ok(key(marker))
+    }
+
+    #[test]
+    fn unseal_tokens_returns_the_first_token_key() {
+        // ARRANGE
+        let tokens = [token(1), token(2)];
+
+        // ACT
+        let result = unseal_tokens(&tokens, &|bytes: &[u8]| -> Result<Passphrase> {
+            Ok(key(bytes[0]))
+        });
+
+        // ASSERT
+        assert_eq!(
+            result.expect("the first token should unseal").as_slice(),
+            key(1).as_slice()
+        );
+    }
+
+    #[test]
+    fn unseal_tokens_continues_after_a_failing_token() {
+        // ARRANGE
+        let tokens = [token(1), token(2)];
+
+        // ACT
+        let result = unseal_tokens(&tokens, &stale_first);
+
+        // ASSERT
+        assert_eq!(
+            result.expect("the second token should unseal").as_slice(),
+            key(2).as_slice()
+        );
+    }
+
+    #[test]
+    fn unseal_or_esp_fails_when_every_token_and_the_esp_fail() {
+        // ARRANGE
+        let tokens = [token(1), token(2)];
+        let unseal = |_bytes: &[u8]| -> Result<Passphrase> { Err(anyhow::anyhow!("stale PCR")) };
+
+        // ACT
+        let result = unseal_or_esp(&tokens, &unseal, &|| None);
+
+        // ASSERT
+        let message = format!("{:#}", result.expect_err("no key should resolve"));
+        assert!(
+            message.contains("TPM2 unseal failed"),
+            "message should stay greppable: {message}"
+        );
+        assert!(
+            message.contains("2 tokens tried"),
+            "message should name the token count: {message}"
+        );
+    }
+
+    #[test]
+    fn unseal_tokens_reports_a_single_attempted_token() {
+        // ARRANGE
+        let tokens = [token(1)];
+        let unseal = |_bytes: &[u8]| -> Result<Passphrase> { Err(anyhow::anyhow!("stale PCR")) };
+
+        // ACT
+        let message = format!(
+            "{:#}",
+            unseal_tokens(&tokens, &unseal).expect_err("the only token should fail")
+        );
+
+        // ASSERT
+        assert!(
+            message.contains("1 tokens tried"),
+            "message should name the token count: {message}"
+        );
+    }
+
+    #[test]
+    fn unseal_or_esp_consults_the_tpm_before_the_esp_key() {
+        // ARRANGE
+        let tokens = [token(1)];
+        let unseal = |bytes: &[u8]| -> Result<Passphrase> {
+            Ok(key(*bytes
+                .first()
+                .expect("test blob should carry a marker")))
+        };
+        let esp_key = || -> Option<Passphrase> {
+            panic!("the ESP key must not be read when a token unseals")
+        };
+
+        // ACT
+        let result = unseal_or_esp(&tokens, &unseal, &esp_key);
+
+        // ASSERT
+        let resolved = result
+            .expect("the token should unseal")
+            .expect("a key should be present");
+        assert_eq!(resolved.as_slice(), key(1).as_slice());
+    }
+
+    #[test]
+    fn unseal_or_esp_falls_back_to_the_esp_key() {
+        // ARRANGE
+        let tokens = [token(1), token(2)];
+        let unseal = |_bytes: &[u8]| -> Result<Passphrase> { Err(anyhow::anyhow!("stale PCR")) };
+
+        // ACT
+        let result = unseal_or_esp(&tokens, &unseal, &|| Some(key(9)));
+
+        // ASSERT
+        let resolved = result
+            .expect("the ESP key should resolve")
+            .expect("a key should be present");
+        assert_eq!(resolved.as_slice(), key(9).as_slice());
     }
 }

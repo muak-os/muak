@@ -38,12 +38,14 @@ pub(super) async fn apply() -> Result<()> {
         measure::from_file(&staged).context("Failed to read UKI sections from the staged image")?;
 
     let luks_key = match secrets::resolve_luks_key(state_device.as_deref(), &efi_device)? {
-        Some(key) => reseal_luks_key(
+        Some(secrets::LuksKey::Tpm(key)) => reseal_luks_key(
             key,
             state_device.as_deref(),
             ephemeral_device.as_deref(),
             &sections,
         )?,
+        // The ESP key stays plaintext, and resealing it would replace a working token.
+        Some(secrets::LuksKey::Esp(key)) => Some(key),
         None => None,
     };
 
