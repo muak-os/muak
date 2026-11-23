@@ -1,0 +1,31 @@
+[package]
+name = "net-loop"
+description = "Runtime-agnostic driver loop for network finite state machines"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["ipv4", "ipv6"]
+ipv4 = ["iface/ipv4", "net-supervisor/ipv4"]
+ipv6 = ["iface/ipv6", "net-supervisor/ipv6"]
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Utilities
+futures-util = { workspace = true }
+
+# Internal
+iface = { workspace = true, default-features = false }
+netmodel = { workspace = true }
+net-runtime = { workspace = true }
+net-supervisor = { workspace = true, default-features = false }

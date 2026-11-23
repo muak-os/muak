@@ -1,0 +1,20 @@
+[package]
+name = "ndp"
+description = "ICMPv6 Neighbor Discovery codec"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+ip = { workspace = true, features = ["v6"] }

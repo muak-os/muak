@@ -1,0 +1,24 @@
+[package]
+name = "net-runtime"
+description = "Platform-agnostic network runtime ports and Runtime bundle"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+mock = []
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Internal
+netmodel = { workspace = true }

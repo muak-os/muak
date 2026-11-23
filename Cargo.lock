@@ -510,6 +510,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dhcp"
+version = "0.0.0"
+dependencies = [
+ "dhcp-proto",
+ "ethernet",
+ "ip",
+ "ip-method",
+ "netmodel",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "dhcp-client"
 version = "0.0.0"
 dependencies = [
@@ -637,6 +649,13 @@ name = "esp"
 version = "0.0.0"
 dependencies = [
  "fatfs",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ethernet"
+version = "0.0.0"
+dependencies = [
  "thiserror 2.0.21",
 ]
 
@@ -1017,6 +1036,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "icmpv6-linux"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "netmodel",
+ "rustix",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "iface"
+version = "0.0.0"
+dependencies = [
+ "dhcp",
+ "ip-method",
+ "ip-static",
+ "netmodel",
+ "slaac",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1040,6 +1081,22 @@ name = "ip"
 version = "0.0.0"
 dependencies = [
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ip-method"
+version = "0.0.0"
+dependencies = [
+ "netmodel",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ip-static"
+version = "0.0.0"
+dependencies = [
+ "ip-method",
+ "netmodel",
 ]
 
 [[package]]
@@ -1398,6 +1455,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndp"
+version = "0.0.0"
+dependencies = [
+ "ip",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "net-loop"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "iface",
+ "net-runtime",
+ "net-supervisor",
+ "netmodel",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "net-runtime"
+version = "0.0.0"
+dependencies = [
+ "netmodel",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "net-runtime-linux"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "icmpv6-linux",
+ "net-runtime",
+ "netlink-linux",
+ "netlink-proto",
+ "netlink-sys",
+ "netmodel",
+ "packet-v4-linux",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
+name = "net-supervisor"
+version = "0.0.0"
+dependencies = [
+ "iface",
+ "ip-method",
+ "netmodel",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "netdev"
 version = "0.0.0"
 dependencies = [
@@ -1413,6 +1524,16 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "netlink-linux"
+version = "0.0.0"
+dependencies = [
+ "netlink-packet-core",
+ "netlink-packet-route",
+ "netmodel",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1473,6 +1594,14 @@ dependencies = [
  "libc",
  "log",
  "tokio",
+]
+
+[[package]]
+name = "netmodel"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1585,6 +1714,17 @@ dependencies = [
  "rustix",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "packet-v4-linux"
+version = "0.0.0"
+dependencies = [
+ "ethernet",
+ "libc",
+ "netmodel",
+ "rustix",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2382,6 +2522,15 @@ name = "tap"
 version = "0.0.0"
 dependencies = [
  "netlink",
+ "rustix",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "tap-linux"
+version = "0.0.0"
+dependencies = [
+ "libc",
  "rustix",
  "thiserror 2.0.21",
 ]

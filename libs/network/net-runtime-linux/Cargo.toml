@@ -1,0 +1,44 @@
+[package]
+name = "net-runtime-linux"
+description = "Linux network runtime backend with optional tokio support"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+tokio = [
+    "dep:tokio",
+    "dep:netlink-sys",
+    "netlink-sys/tokio_socket",
+    "dep:netlink-proto",
+    "dep:futures-util",
+    "dep:netlink-linux",
+    "dep:packet-v4-linux",
+    "dep:icmpv6-linux",
+]
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Asynchronous
+futures-util = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["net", "time", "sync"], optional = true }
+
+# Networking
+netlink-proto = { workspace = true, optional = true }
+netlink-sys = { workspace = true, optional = true }
+
+# Internal
+icmpv6-linux = { workspace = true, optional = true }
+netlink-linux = { workspace = true, optional = true }
+net-runtime = { workspace = true }
+netmodel = { workspace = true }
+packet-v4-linux = { workspace = true, optional = true }

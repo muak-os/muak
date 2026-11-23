@@ -1,0 +1,25 @@
+[package]
+name = "packet-v4-linux"
+description = "AF_PACKET IPv4 socket adapter for Linux"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# System/platform APIs
+libc = { workspace = true }
+rustix = { workspace = true, features = ["net"] }
+
+# Internal
+ethernet = { workspace = true }
+netmodel = { workspace = true }
