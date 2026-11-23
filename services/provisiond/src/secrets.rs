@@ -68,11 +68,12 @@ pub(crate) fn resolve_luks_key(
     }
 }
 
-/// Writes a LUKS2 TPM2 token to each of the given device paths.
-pub(crate) fn write_token_to_devices(token: &Tpm2Token, devices: &[&str]) -> Result<()> {
+/// Adds a LUKS2 TPM2 token to each of the given device paths, keeping every
+/// existing token in the header.
+pub(crate) fn add_token_to_devices(token: &Tpm2Token, devices: &[&str]) -> Result<()> {
     for dev in devices {
-        luks2::set_tpm2_tokens(dev, std::slice::from_ref(token))
-            .with_context(|| format!("Failed to write TPM2 token to {dev}"))?;
+        luks2::add_tpm2_token(dev, token)
+            .with_context(|| format!("Failed to add TPM2 token to {dev}"))?;
     }
 
     Ok(())
@@ -200,6 +201,59 @@ mod tests {
         }
 
         Ok(key(marker))
+    }
+
+    #[test]
+    fn add_token_to_devices_reports_the_failing_device() {
+        // ARRANGE
+        let devices = ["/nonexistent/muak-state", "/nonexistent/muak-ephemeral"];
+
+        // ACT
+        let message = format!(
+            "{:#}",
+            add_token_to_devices(&token(1), &devices)
+                .expect_err("a missing device should not accept a token")
+        );
+
+        // ASSERT
+        assert!(
+            message.contains("Failed to add TPM2 token to /nonexistent/muak-state"),
+            "message should name the failing device: {message}"
+        );
+    }
+
+    #[test]
+    fn add_token_to_devices_keeps_the_existing_token() {
+        // ARRANGE
+        let device = tempfile::NamedTempFile::new().expect("the temp device should be created");
+        device
+            .as_file()
+            .set_len(16 * 1024 * 1024)
+            .expect("the temp device should be sized for a LUKS2 header");
+        let path = device
+            .path()
+            .to_str()
+            .expect("the temp device path should be UTF-8");
+        luks2::format(path, b"passphrase", "label").expect("the temp device should format");
+        let first = token(1);
+        let second = token(2);
+
+        // ACT
+        add_token_to_devices(&first, &[path]).expect("the first token should be added");
+        add_token_to_devices(&second, &[path]).expect("the second token should be added");
+        let tokens = luks2::read_tpm2_tokens(path).expect("the tokens should be readable");
+        let markers: Vec<u8> = tokens.iter().map(marker).collect();
+
+        // ASSERT
+        assert_eq!(tokens.len(), 2, "both tokens should stay in the header");
+        assert!(
+            markers.contains(&1),
+            "the existing token should survive: {markers:?}"
+        );
+        assert!(
+            markers.contains(&2),
+            "the new token should be added: {markers:?}"
+        );
     }
 
     #[test]

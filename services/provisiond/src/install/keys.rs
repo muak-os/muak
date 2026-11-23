@@ -50,7 +50,7 @@ pub(super) fn seal_luks_key(
 
     match secrets::seal_luks_key(luks_key, sections)? {
         secrets::SealResult::Sealed(token) => {
-            secrets::write_token_to_devices(&token, &[&partitions.state, &partitions.ephemeral])?;
+            secrets::add_token_to_devices(&token, &[&partitions.state, &partitions.ephemeral])?;
             println!("LUKS key sealed to TPM2 with PCR#11 values");
             Ok(())
         }

@@ -38,25 +38,35 @@ pub(super) async fn apply() -> Result<()> {
         measure::from_file(&staged).context("Failed to read UKI sections from the staged image")?;
 
     let luks_key = match secrets::resolve_luks_key(state_device.as_deref(), &efi_device)? {
-        Some(secrets::LuksKey::Tpm(key)) => reseal_luks_key(
-            key,
-            state_device.as_deref(),
-            ephemeral_device.as_deref(),
-            &sections,
-        )?,
-        // The ESP key stays plaintext, and resealing it would replace a working token.
-        Some(secrets::LuksKey::Esp(key)) => Some(key),
+        Some(secrets::LuksKey::Tpm(key)) => {
+            kmsg::info!("LUKS key unsealed from a TPM2 token, resealing it");
+            reseal_luks_key(
+                key,
+                state_device.as_deref(),
+                ephemeral_device.as_deref(),
+                &sections,
+            )?
+        }
+        // The ESP key stays plaintext and is not resealed.
+        Some(secrets::LuksKey::Esp(key)) => {
+            kmsg::info!("LUKS key read from the ESP key file, not resealing");
+            Some(key)
+        }
         None => None,
     };
 
+    kmsg::info!("Reading the staged system config");
     let secureboot_enabled = config::system::host()?.secureboot;
 
     if secureboot_enabled {
+        kmsg::info!("Secure Boot enabled, enrolling keys");
         secureboot::enroll_if_missing()?;
     } else {
+        kmsg::info!("Secure Boot disabled, unenrolling keys");
         secureboot::unenroll_if_present()?;
     }
 
+    kmsg::info!("Opening the staged UKI {}", staged.display());
     let mut uki_file = std::fs::File::open(&staged)
         .with_context(|| format!("Failed to open staged UKI {}", staged.display()))?;
     let uki_len = uki_file
@@ -64,15 +74,19 @@ pub(super) async fn apply() -> Result<()> {
         .with_context(|| format!("Failed to get metadata for {}", staged.display()))?
         .len();
 
+    kmsg::info!("Mounting the EFI partition {efi_device}");
     efi::mount(&efi_device)?;
+    kmsg::info!("Writing the new UKI ({uki_len} bytes) to the EFI partition");
     efi::write_file(
         Path::new(efi::MOUNT_POINT),
         esp::arch::Arch::current().boot_path(),
         uki_len,
         &mut uki_file,
     )?;
+    kmsg::info!("New UKI deployed to the EFI partition");
     remove_previous_config();
     if let Some(ref key) = luks_key {
+        kmsg::info!("Writing the LUKS key to the EFI partition");
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", key)?;
     }
     efi::unmount();
@@ -127,6 +141,7 @@ fn reseal_luks_key(
     sections: &[MeasuredSection],
 ) -> Result<Option<Passphrase>> {
     if !tpm2::device::is_available(None) {
+        kmsg::warn!("TPM2 unavailable, keeping the LUKS key on the ESP");
         return Ok(Some(key));
     }
 
@@ -140,7 +155,11 @@ fn reseal_luks_key(
         .into_iter()
         .flatten()
         .collect();
-    secrets::write_token_to_devices(&token, &devices)?;
+    kmsg::info!(
+        "Adding the LUKS key as a new TPM2 token to {}",
+        devices.join(", ")
+    );
+    secrets::add_token_to_devices(&token, &devices)?;
     kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
 
     Ok(None)
