@@ -5,6 +5,7 @@ mod commit;
 mod failure;
 pub(crate) mod kexec;
 mod progress;
+mod prune;
 mod readiness;
 mod recovery;
 pub(crate) mod rollback;
@@ -47,11 +48,16 @@ pub(crate) fn status(update_id: &str) -> UpdateStatus {
 }
 
 pub(crate) fn check_and_handle_pending_validation() {
+    let marked = has_update_marker();
+    if !marked {
+        prune::stale_tokens();
+    }
+
     let Some((update_id, snapshot_path)) = snapshot::find_pending() else {
         return;
     };
 
-    if !has_update_marker() {
+    if !marked {
         let failed_version = medium::version().unwrap_or_else(|_| "unknown".to_owned());
         match snapshot::restore(
             &update_id,

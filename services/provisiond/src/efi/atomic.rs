@@ -9,7 +9,7 @@ use esp::path::validate_relative;
 use rustix::fs::statvfs;
 
 const NEW_SUFFIX: &str = ".new";
-const OLD_SUFFIX: &str = ".old";
+pub(super) const OLD_SUFFIX: &str = ".old";
 const HEADROOM: u64 = 1024 * 1024;
 
 pub(super) fn write_file(
@@ -86,6 +86,10 @@ pub(super) fn restore_previous(esp_root: &Path, relative_path: &str) -> Result<(
     }
 
     Ok(())
+}
+
+pub(super) fn backup_path(relative_path: &str) -> PathBuf {
+    suffixed(Path::new(relative_path), OLD_SUFFIX)
 }
 
 pub(super) fn discard_previous(esp_root: &Path, relative_path: &str) -> Result<()> {

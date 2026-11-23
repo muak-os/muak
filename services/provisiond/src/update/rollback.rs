@@ -20,8 +20,6 @@ use crate::{efi, medium};
 pub(crate) fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     kmsg::info!("Rolling back update {update_id}: {reason}");
 
-    // The boot image is the only state that a crash or power loss during the rest of the
-    // rollback cannot recover, so it is restored before anything that can fail.
     restore_previous_image();
 
     let previous = fs::read_to_string(snapshot_path).ok();
@@ -60,7 +58,6 @@ fn restore_previous_image() {
     };
 
     kmsg::info!("Restoring the previous UKI on the EFI partition {efi_device}");
-    // A failed commit can leave the ESP mounted, so drop any stacked mount first.
     efi::unmount();
     let restored = efi::mount(&efi_device).and_then(|()| {
         efi::restore_previous(

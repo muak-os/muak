@@ -1,7 +1,4 @@
 //! Pure-Rust LUKS2 format and open implementation.
-//!
-//! Using AES-256-XTS-plain64 with Argon2id key derivation and PBKDF2-SHA256
-//! digest verification.
 
 #![warn(missing_docs)]
 
@@ -164,6 +161,33 @@ fn max_keyslot_area_size(meta: &Metadata) -> Result<usize> {
         .try_fold(0_usize, |max, size| size.map(|size| max.max(size)))
 }
 
+/// Reads every TPM2 token from a LUKS2 device header.
+///
+/// # Errors
+///
+/// Returns an error when the JSON metadata cannot be read or decoded.
+pub fn read_tpm2_tokens(device: &str) -> Result<Vec<metadata::tokens::Tpm2Token>> {
+    read_metadata(device)?.tpm2_tokens()
+}
+
+/// Adds a TPM2 token to both copies of the LUKS2 JSON metadata.
+///
+/// # Errors
+///
+/// Returns an error when metadata cannot be read, updated, serialized, or written back to disk.
+pub fn add_tpm2_token(device: &str, token: &metadata::tokens::Tpm2Token) -> Result<()> {
+    edit_metadata(device, |meta| meta.add_tpm2_token(token))
+}
+
+/// Replaces every TPM2 token in both copies of the LUKS2 JSON metadata.
+///
+/// # Errors
+///
+/// Returns an error when metadata cannot be read, updated, serialized, or written back to disk.
+pub fn set_tpm2_tokens(device: &str, tokens: &[metadata::tokens::Tpm2Token]) -> Result<()> {
+    edit_metadata(device, |meta| meta.set_tpm2_tokens(tokens))
+}
+
 /// Attempts to decrypt each keyslot and verify against digests.
 fn try_keyslots<Fd: AsFd>(
     fd: &Fd,
@@ -210,7 +234,6 @@ fn try_keyslots<Fd: AsFd>(
     Err(Error::WrongPassphrase)
 }
 
-/// Checks whether a volume key candidate matches any digest for the given keyslot.
 fn verify_candidate(candidate: &[u8], slot_id: &str, meta: &Metadata) -> bool {
     meta.digests
         .values()
@@ -223,42 +246,11 @@ fn verify_candidate(candidate: &[u8], slot_id: &str, meta: &Metadata) -> bool {
         .any(|dig| matches!(digest::verify(candidate, dig), Ok(true)))
 }
 
-/// Reads every TPM2 token from a LUKS2 device header.
-///
-/// # Errors
-///
-/// Returns an error when the JSON metadata cannot be read or decoded.
-pub fn read_tpm2_tokens(device: &str) -> Result<Vec<metadata::tokens::Tpm2Token>> {
-    read_metadata(device)?.tpm2_tokens()
-}
-
-/// Adds a TPM2 token to both copies of the LUKS2 JSON metadata.
-///
-/// # Errors
-///
-/// Returns an error when metadata cannot be read, updated, serialized, or
-/// written back to disk.
-pub fn add_tpm2_token(device: &str, token: &metadata::tokens::Tpm2Token) -> Result<()> {
-    edit_metadata(device, |meta| meta.add_tpm2_token(token))
-}
-
-/// Replaces every TPM2 token in both copies of the LUKS2 JSON metadata.
-///
-/// # Errors
-///
-/// Returns an error when metadata cannot be read, updated, serialized, or
-/// written back to disk.
-pub fn set_tpm2_tokens(device: &str, tokens: &[metadata::tokens::Tpm2Token]) -> Result<()> {
-    edit_metadata(device, |meta| meta.set_tpm2_tokens(tokens))
-}
-
-// Reads the primary copy of the JSON metadata.
 fn read_metadata(device: &str) -> Result<Metadata> {
     let fd = dm::device::open(device, OFlags::RDONLY)?;
     read_json_metadata(&fd)
 }
 
-// Applies `edit` to the primary copy of the JSON metadata and rewrites both copies.
 fn edit_metadata<F>(device: &str, edit: F) -> Result<()>
 where
     F: FnOnce(&mut Metadata) -> Result<()>,
@@ -281,10 +273,10 @@ where
     Ok(())
 }
 
-// Reads and parses the primary copy of the JSON metadata from an open file descriptor.
 fn read_json_metadata<Fd: AsFd>(fd: &Fd) -> Result<Metadata> {
     let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
     blockdev::io::read_at(fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
+
     Metadata::from_json_buffer(&json_buf)
 }
 

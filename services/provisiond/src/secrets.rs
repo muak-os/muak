@@ -37,6 +37,11 @@ pub(crate) fn seal_luks_key(key: &[u8], sections: &[MeasuredSection]) -> Result<
     Ok(SealResult::EspKey)
 }
 
+/// Computes the TPM2 policy digest that an image measuring `sections` seals against.
+pub(crate) fn expected_policy(sections: &[MeasuredSection]) -> [u8; 32] {
+    tpm2::pcr::policy_digest(&sorted_sections(sections))
+}
+
 /// Resolves the LUKS key for an update, preferring a TPM2 token and falling back
 /// to the ESP key file.
 ///
@@ -79,14 +84,12 @@ pub(crate) fn add_token_to_devices(token: &Tpm2Token, devices: &[&str]) -> Resul
     Ok(())
 }
 
-// Reads the LUKS2 header of the STATE device and unseals the first token that succeeds.
 fn unseal_luks_key(state_device: &str) -> Result<Passphrase> {
     let tokens = luks2::read_tpm2_tokens(state_device).context("Failed to read the TPM2 tokens")?;
 
     unseal_first(&tokens, &unseal_token)
 }
 
-// Tries every token in order and returns the key of the first token that unseals.
 fn unseal_first(
     tokens: &[Tpm2Token],
     unseal: &dyn Fn(&Tpm2Token) -> Result<Passphrase>,
@@ -118,7 +121,6 @@ fn unseal_first(
     }
 }
 
-// Decodes and unseals a single LUKS2 TPM2 token.
 fn unseal_token(token: &Tpm2Token) -> Result<Passphrase> {
     let blob_bytes = token
         .sealed_blob()
@@ -129,13 +131,8 @@ fn unseal_token(token: &Tpm2Token) -> Result<Passphrase> {
     tpm2::operations::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")
 }
 
-// Seals a LUKS key to TPM2 PCR#11 predicted from the UKI and returns a LUKS2 token.
 fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2Token> {
-    let mut sections: Vec<(&str, &[u8; 32])> = sections
-        .iter()
-        .map(|section| (section.name, &section.hash))
-        .collect();
-    sections.sort_by_key(|&(name, _hash)| canonical_rank(name));
+    let sections = sorted_sections(sections);
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
     let sealed = tpm2::operations::seal(luks_key, &expected_pcr)
         .context("Failed to seal LUKS key to TPM2")?;
@@ -145,6 +142,16 @@ fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2To
         &sealed.blob.serialize(),
         &sealed.policy_digest,
     ))
+}
+
+fn sorted_sections(sections: &[MeasuredSection]) -> Vec<(&str, &[u8; 32])> {
+    let mut sorted: Vec<(&str, &[u8; 32])> = sections
+        .iter()
+        .map(|section| (section.name, &section.hash))
+        .collect();
+    sorted.sort_by_key(|&(name, _hash)| canonical_rank(name));
+
+    sorted
 }
 
 fn read_esp_key(efi_device: &str) -> Option<Passphrase> {
@@ -254,6 +261,33 @@ mod tests {
             markers.contains(&2),
             "the new token should be added: {markers:?}"
         );
+    }
+
+    #[test]
+    fn expected_policy_sorts_the_sections_canonically() {
+        // ARRANGE
+        let cmdline_hash = [0x11_u8; 32];
+        let kernel_hash = [0x22_u8; 32];
+        let out_of_order = [
+            MeasuredSection {
+                name: uki::section::KERNEL,
+                hash: kernel_hash,
+            },
+            MeasuredSection {
+                name: uki::section::CMDLINE,
+                hash: cmdline_hash,
+            },
+        ];
+        let canonical: [(&str, &[u8; 32]); 2] = [
+            (uki::section::CMDLINE, &cmdline_hash),
+            (uki::section::KERNEL, &kernel_hash),
+        ];
+
+        // ACT
+        let policy = expected_policy(&out_of_order);
+
+        // ASSERT
+        assert_eq!(policy, tpm2::pcr::policy_digest(&canonical));
     }
 
     #[test]

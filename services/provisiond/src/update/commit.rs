@@ -47,7 +47,6 @@ pub(super) async fn apply() -> Result<()> {
                 &sections,
             )?
         }
-        // The ESP key stays plaintext and is not resealed.
         Some(secrets::LuksKey::Esp(key)) => {
             kmsg::info!("LUKS key read from the ESP key file, not resealing");
             Some(key)

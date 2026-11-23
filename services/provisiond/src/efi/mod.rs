@@ -58,6 +58,11 @@ pub(crate) fn discard_previous(esp_root: &Path, relative_path: &str) -> Result<(
     atomic::discard_previous(esp_root, relative_path)
 }
 
+/// Returns the path of the backup `relative_path` had before its last replacement.
+pub(crate) fn backup_path(relative_path: &str) -> PathBuf {
+    atomic::backup_path(relative_path)
+}
+
 /// Extracts a streaming tar archive onto the ESP.
 pub(crate) fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
     let mut archive = tar::Archive::new(reader);
