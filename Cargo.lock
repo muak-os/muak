@@ -537,7 +537,6 @@ dependencies = [
 name = "dhcp-proto"
 version = "0.0.0"
 dependencies = [
- "getrandom 0.4.3",
  "thiserror 2.0.21",
 ]
 
@@ -1092,7 +1091,6 @@ name = "ip-static"
 version = "0.0.0"
 dependencies = [
  "ip-method",
- "netmodel",
 ]
 
 [[package]]
