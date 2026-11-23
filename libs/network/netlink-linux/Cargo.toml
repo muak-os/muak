@@ -13,9 +13,6 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
-# Error handling
-thiserror = { workspace = true }
-
 # Networking
 netlink-packet-core = { workspace = true }
 netlink-packet-route = { workspace = true }
