@@ -2,13 +2,13 @@
 
 #[cfg(feature = "ipv4")]
 use alloc::vec::Vec;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "ipv4")]
 use addrconf::v4;
 use config::system::network::InterfaceKind;
 #[cfg(feature = "ipv4")]
 use linkctl::interface::Command;
-use linkctl::interface::Handle;
 use netdev::Ops;
 use netlink::link::ifname::Name;
 use netlink::link::state::State;
@@ -156,15 +156,22 @@ pub(super) async fn handle_primary_removed<N: Ops>(
     }
 }
 
-fn is_eligible_backup(handle: &Handle) -> bool {
-    handle.snapshot_rx.borrow().link == State::Up
+fn is_eligible(
+    physical: &HashSet<Name>,
+    owners: &HashMap<Name, Name>,
+    name: &Name,
+    link: State,
+) -> bool {
+    physical.contains(name) && !owner::is_enslaved(owners, name) && link == State::Up
 }
 
-fn is_eligible<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
-    supervisor
-        .interfaces
-        .get(name)
-        .is_some_and(is_eligible_backup)
+fn is_eligible_backup<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Name) -> bool {
+    let Some(handle) = supervisor.interfaces.get(name) else {
+        return false;
+    };
+    let link = handle.snapshot_rx.borrow().link;
+
+    is_eligible(&supervisor.physical, &supervisor.owners, name, link)
 }
 
 fn first_eligible_backup<N: Ops>(supervisor: &NetworkSupervisor<N>) -> Option<Name> {
@@ -172,7 +179,7 @@ fn first_eligible_backup<N: Ops>(supervisor: &NetworkSupervisor<N>) -> Option<Na
         .state
         .backups
         .iter()
-        .find(|backup| is_eligible(supervisor, backup))
+        .find(|backup| is_eligible_backup(supervisor, backup))
         .cloned()
 }
 
@@ -182,7 +189,7 @@ async fn try_failover_to_backup<N: Ops>(supervisor: &mut NetworkSupervisor<N>, f
         .backups
         .iter()
         .find(|backup| {
-            is_interface_configured(supervisor, backup) && is_eligible(supervisor, backup)
+            is_interface_configured(supervisor, backup) && is_eligible_backup(supervisor, backup)
         })
         .cloned();
     let Some(new_primary) = configured_backup.or_else(|| first_eligible_backup(supervisor)) else {
@@ -281,43 +288,55 @@ async fn rebridge<N: Ops>(supervisor: &mut NetworkSupervisor<N>, port: &Name) ->
 
 #[cfg(test)]
 mod tests {
-    use linkctl::interface::Snapshot;
-    use tokio::sync::{mpsc, watch};
-
     use super::*;
 
-    fn handle(link: State) -> Handle {
-        let snapshot = Snapshot {
-            link,
-            v4: None,
-            v4_state: addrconf::State::Stopped,
-            v6: None,
-            v6_state: addrconf::State::Stopped,
-        };
-        let (command_tx, _command_rx) = mpsc::channel(1);
-        let (_snapshot_tx, snapshot_rx) = watch::channel(snapshot);
+    fn name(value: &str) -> Name {
+        Name::new(value).expect("valid name")
+    }
 
-        Handle {
-            command_tx,
-            snapshot_rx,
-        }
+    fn physical() -> HashSet<Name> {
+        HashSet::from([name("eth0")])
+    }
+
+    fn owners_self() -> HashMap<Name, Name> {
+        HashMap::from([(name("eth0"), name("eth0"))])
     }
 
     #[test]
-    fn backup_eligibility_requires_carrier() {
+    fn backup_eligibility_requires_physical_carrier() {
         // ARRANGE
-        let down = handle(State::Down);
-        let ready = handle(State::Up);
+        let eth0 = name("eth0");
+        let physical = physical();
+        let owners = owners_self();
 
         // ACT
-        let down_eligible = is_eligible_backup(&down);
-        let ready_eligible = is_eligible_backup(&ready);
+        let up_eligible = is_eligible(&physical, &owners, &eth0, State::Up);
+        let down_eligible = is_eligible(&physical, &owners, &eth0, State::Down);
+        let virtual_eligible = is_eligible(&HashSet::new(), &owners, &eth0, State::Up);
 
         // ASSERT
+        assert!(up_eligible, "a physical link with carrier is eligible");
         assert!(
             !down_eligible,
             "a link without carrier must not be a backup"
         );
-        assert!(ready_eligible, "a link with carrier is eligible");
+        assert!(
+            !virtual_eligible,
+            "a link outside the physical set must not be a backup"
+        );
+    }
+
+    #[test]
+    fn backup_eligibility_rejects_enslaved_links() {
+        // ARRANGE
+        let eth0 = name("eth0");
+        let physical = physical();
+        let owners = HashMap::from([(eth0.clone(), name("br0")), (name("br0"), name("br0"))]);
+
+        // ACT
+        let eligible = is_eligible(&physical, &owners, &eth0, State::Up);
+
+        // ASSERT
+        assert!(!eligible, "a bridge port must not be a backup");
     }
 }

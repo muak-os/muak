@@ -49,8 +49,15 @@ async fn release<N: Ops>(
         Err(error) => return Err(error.into()),
     };
 
-    if supervisor.ops.master(index).await? == Some(master_index) {
-        supervisor.ops.detach(index).await?;
+    match supervisor.ops.master(index).await? {
+        Some(current) if current == master_index => {
+            supervisor.ops.detach(index).await?;
+            supervisor.owners.insert(port.clone(), port.clone());
+        }
+        None => {
+            supervisor.owners.insert(port.clone(), port.clone());
+        }
+        Some(_) => {}
     }
     supervisor.enslaved.remove(port);
 

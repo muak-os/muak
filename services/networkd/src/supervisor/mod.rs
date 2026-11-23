@@ -19,7 +19,7 @@ mod view;
 
 use core::fmt;
 use core::time::Duration;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use commands::SupervisorCommand;
@@ -102,6 +102,7 @@ struct NetworkSupervisor<N: Ops> {
     interfaces: HashMap<Name, Handle>,
     owners: HashMap<Name, Name>,
     enslaved: HashMap<Name, Name>,
+    physical: HashSet<Name>,
     dns: Resolver,
     processed_events: u64,
 }
@@ -121,6 +122,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             interfaces: HashMap::new(),
             owners: HashMap::new(),
             enslaved: HashMap::new(),
+            physical: HashSet::new(),
             dns,
             processed_events: 0,
         }
@@ -146,6 +148,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             drop(handle.command_tx.send(Command::Shutdown).await);
         }
         self.owners.clear();
+        self.physical.clear();
         self.state = NetworkSnapshot::empty();
     }
 

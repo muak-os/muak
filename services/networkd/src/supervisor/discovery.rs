@@ -61,6 +61,7 @@ pub(super) async fn interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>) ->
 
 fn spawn_interfaces<N: Ops>(supervisor: &mut NetworkSupervisor<N>, discovered: &[Ethernet]) {
     for iface in discovered {
+        supervisor.physical.insert(iface.name.clone());
         supervisor.spawn_interface(iface.clone());
     }
 }

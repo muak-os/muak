@@ -95,6 +95,7 @@ async fn on_link_added<N: Ops>(
         return;
     }
 
+    supervisor.physical.insert(name.clone());
     supervisor.spawn_interface(Ethernet::new(name.clone(), index, mac, State::Up));
 
     if supervisor.state.primary.is_none() {
@@ -116,6 +117,7 @@ async fn on_link_deleted<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Na
     kmsg::info!("Event: Link deleted {} (index {})", name, index);
 
     supervisor.enslaved.remove(&name);
+    supervisor.physical.remove(&name);
 
     let Some(handle) = supervisor.interfaces.remove(&name) else {
         return;
