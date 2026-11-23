@@ -27,7 +27,10 @@ fn try_tpm2_unseal(device: &str) -> Result<Option<Passphrase>> {
         return Ok(None);
     }
 
-    let Ok(token) = luks2::read_tpm2_token(device) else {
+    let Ok(tokens) = luks2::read_tpm2_tokens(device) else {
+        return Ok(None);
+    };
+    let Some(token) = tokens.first() else {
         return Ok(None);
     };
 

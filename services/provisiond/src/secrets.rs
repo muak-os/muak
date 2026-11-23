@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use luks2::key::Passphrase;
-use luks2::metadata::Tpm2Token;
+use luks2::metadata::tokens::Tpm2Token;
 use uki::measure::MeasuredSection;
 use uki::section::canonical_rank;
 
@@ -37,7 +37,10 @@ pub(crate) fn seal_luks_key(key: &[u8], sections: &[MeasuredSection]) -> Result<
 /// cannot be read, or TPM2 unsealing fails.
 pub(crate) fn unseal_luks_key(state_device: Option<&str>) -> Result<Passphrase> {
     let state_device = state_device.context("STATE partition not found")?;
-    let token = luks2::read_tpm2_token(state_device).context("Failed to read the TPM2 token")?;
+    let tokens = luks2::read_tpm2_tokens(state_device).context("Failed to read the TPM2 token")?;
+    let token = tokens
+        .first()
+        .context("No TPM2 token in the LUKS2 header")?;
     let blob_bytes = token
         .sealed_blob()
         .context("Failed to decode the TPM2 blob")?;
@@ -71,7 +74,7 @@ pub(crate) fn resolve_luks_key(
 /// Writes a LUKS2 TPM2 token to each of the given device paths.
 pub(crate) fn write_token_to_devices(token: &Tpm2Token, devices: &[&str]) -> Result<()> {
     for dev in devices {
-        luks2::write_tpm2_token(dev, token)
+        luks2::set_tpm2_tokens(dev, std::slice::from_ref(token))
             .with_context(|| format!("Failed to write TPM2 token to {dev}"))?;
     }
 

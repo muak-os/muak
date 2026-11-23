@@ -223,35 +223,49 @@ fn verify_candidate(candidate: &[u8], slot_id: &str, meta: &Metadata) -> bool {
         .any(|dig| matches!(digest::verify(candidate, dig), Ok(true)))
 }
 
-/// Reads the TPM2 token from a LUKS2 device header.
+/// Reads every TPM2 token from a LUKS2 device header.
 ///
 /// # Errors
 ///
-/// Returns an error when the JSON metadata cannot be read or does not contain a
-/// TPM2 token.
-pub fn read_tpm2_token(device: &str) -> Result<metadata::Tpm2Token> {
-    let fd = dm::device::open(device, OFlags::RDONLY)?;
-
-    let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-    blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
-    let meta = Metadata::from_json_buffer(&json_buf)?;
-
-    meta.get_tpm2_token()
+/// Returns an error when the JSON metadata cannot be read or decoded.
+pub fn read_tpm2_tokens(device: &str) -> Result<Vec<metadata::tokens::Tpm2Token>> {
+    read_metadata(device)?.tpm2_tokens()
 }
 
-/// Writes a TPM2 token to both copies of the LUKS2 JSON metadata.
+/// Adds a TPM2 token to both copies of the LUKS2 JSON metadata.
 ///
 /// # Errors
 ///
 /// Returns an error when metadata cannot be read, updated, serialized, or
 /// written back to disk.
-pub fn write_tpm2_token(device: &str, token: &metadata::Tpm2Token) -> Result<()> {
-    let fd = dm::device::open(device, OFlags::RDWR)?;
+pub fn add_tpm2_token(device: &str, token: &metadata::tokens::Tpm2Token) -> Result<()> {
+    edit_metadata(device, |meta| meta.add_tpm2_token(token))
+}
 
-    let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
-    blockdev::io::read_at(&fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
-    let mut meta = Metadata::from_json_buffer(&json_buf)?;
-    meta.set_tpm2_token(token)?;
+/// Replaces every TPM2 token in both copies of the LUKS2 JSON metadata.
+///
+/// # Errors
+///
+/// Returns an error when metadata cannot be read, updated, serialized, or
+/// written back to disk.
+pub fn set_tpm2_tokens(device: &str, tokens: &[metadata::tokens::Tpm2Token]) -> Result<()> {
+    edit_metadata(device, |meta| meta.set_tpm2_tokens(tokens))
+}
+
+// Reads the primary copy of the JSON metadata.
+fn read_metadata(device: &str) -> Result<Metadata> {
+    let fd = dm::device::open(device, OFlags::RDONLY)?;
+    read_json_metadata(&fd)
+}
+
+// Applies `edit` to the primary copy of the JSON metadata and rewrites both copies.
+fn edit_metadata<F>(device: &str, edit: F) -> Result<()>
+where
+    F: FnOnce(&mut Metadata) -> Result<()>,
+{
+    let fd = dm::device::open(device, OFlags::RDWR)?;
+    let mut meta = read_json_metadata(&fd)?;
+    edit(&mut meta)?;
 
     let new_json = meta.to_json_buffer(DEFAULT_JSON_SIZE)?;
 
@@ -267,10 +281,18 @@ pub fn write_tpm2_token(device: &str, token: &metadata::Tpm2Token) -> Result<()>
     Ok(())
 }
 
+// Reads and parses the primary copy of the JSON metadata from an open file descriptor.
+fn read_json_metadata<Fd: AsFd>(fd: &Fd) -> Result<Metadata> {
+    let mut json_buf = [0_u8; DEFAULT_JSON_SIZE_USIZE];
+    blockdev::io::read_at(fd, BINARY_HEADER_SIZE_U64, &mut json_buf)?;
+    Metadata::from_json_buffer(&json_buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata::{Digest, Tpm2Token};
+    use crate::metadata::Digest;
+    use crate::metadata::tokens::Tpm2Token;
 
     fn create_test_device(size: u64) -> tempfile::NamedTempFile {
         let file = tempfile::NamedTempFile::new().unwrap();
@@ -417,10 +439,11 @@ mod tests {
 
         // ACT
         format(path_str(&device), b"passphrase", "label").unwrap();
-        write_tpm2_token(path_str(&device), &token).unwrap();
-        let read_back = read_tpm2_token(path_str(&device)).unwrap();
+        add_tpm2_token(path_str(&device), &token).unwrap();
+        let read_back = read_tpm2_tokens(path_str(&device)).unwrap();
 
         // ASSERT
+        let read_back = read_back.first().unwrap();
         assert_eq!(read_back.r#type, token.r#type);
         assert_eq!(read_back.keyslots, token.keyslots);
         assert_eq!(read_back.tpm2_pcrs, token.tpm2_pcrs);
@@ -428,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn write_tpm2_token_replaces_existing_token() {
+    fn read_tpm2_tokens_returns_every_token() {
         // ARRANGE
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         let first = Tpm2Token {
@@ -450,26 +473,60 @@ mod tests {
 
         // ACT
         format(path_str(&device), b"passphrase", "label").unwrap();
-        write_tpm2_token(path_str(&device), &first).unwrap();
-        write_tpm2_token(path_str(&device), &second).unwrap();
-        let read_back = read_tpm2_token(path_str(&device)).unwrap();
+        add_tpm2_token(path_str(&device), &first).unwrap();
+        add_tpm2_token(path_str(&device), &second).unwrap();
+        let read_back = read_tpm2_tokens(path_str(&device)).unwrap();
 
         // ASSERT
-        assert_eq!(read_back.tpm2_blob, "second");
-        assert_eq!(read_back.tpm2_policy_hash, "policy-b");
+        assert_eq!(read_back.len(), 2);
+        assert_eq!(read_back[0].tpm2_blob, "first");
+        assert_eq!(read_back[1].tpm2_blob, "second");
     }
 
     #[test]
-    fn read_tpm2_token_returns_error_when_missing() {
+    fn set_tpm2_tokens_replaces_all_tokens() {
+        // ARRANGE
+        let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
+        let first = Tpm2Token {
+            r#type: String::from("tpm2"),
+            keyslots: vec![String::from("0")],
+            tpm2_pcrs: vec![11],
+            tpm2_hash_alg: String::from("sha256"),
+            tpm2_blob: String::from("first"),
+            tpm2_policy_hash: String::from("policy-a"),
+        };
+        let second = Tpm2Token {
+            r#type: String::from("tpm2"),
+            keyslots: vec![String::from("0")],
+            tpm2_pcrs: vec![11],
+            tpm2_hash_alg: String::from("sha256"),
+            tpm2_blob: String::from("second"),
+            tpm2_policy_hash: String::from("policy-b"),
+        };
+
+        // ACT
+        format(path_str(&device), b"passphrase", "label").unwrap();
+        add_tpm2_token(path_str(&device), &first).unwrap();
+        set_tpm2_tokens(path_str(&device), std::slice::from_ref(&second)).unwrap();
+        let read_back = read_tpm2_tokens(path_str(&device)).unwrap();
+
+        // ASSERT
+        assert_eq!(read_back.len(), 1);
+        assert_eq!(read_back[0].tpm2_blob, "second");
+        assert_eq!(read_back[0].tpm2_policy_hash, "policy-b");
+    }
+
+    #[test]
+    fn read_tpm2_tokens_returns_empty_when_missing() {
         // ARRANGE
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
 
         // ACT
-        let result = read_tpm2_token(path_str(&device));
+        let result = read_tpm2_tokens(path_str(&device)).unwrap();
 
         // ASSERT
-        assert!(matches!(result, Err(Error::NoTpm2Token)));
+        assert!(result.is_empty());
     }
 
     #[test]
@@ -539,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn write_tpm2_token_returns_error_for_invalid_json() {
+    fn add_tpm2_token_returns_error_for_invalid_json() {
         // ARRANGE
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
@@ -555,7 +612,7 @@ mod tests {
         };
 
         // ACT
-        let result = write_tpm2_token(path_str(&device), &token);
+        let result = add_tpm2_token(path_str(&device), &token);
 
         // ASSERT
         assert!(matches!(result, Err(Error::Json(_))));
@@ -571,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn read_tpm2_token_returns_error_for_invalid_json() {
+    fn read_tpm2_tokens_returns_error_for_invalid_json() {
         // ARRANGE
         let device = create_test_device(DEFAULT_HEADER_SIZE + 1024 * 1024);
         format(path_str(&device), b"passphrase", "label").unwrap();
@@ -579,7 +636,7 @@ mod tests {
         blockdev::io::write_at(&fd, BINARY_HEADER_SIZE_U64, b"not-json").unwrap();
 
         // ACT
-        let result = read_tpm2_token(path_str(&device));
+        let result = read_tpm2_tokens(path_str(&device));
 
         // ASSERT
         assert!(matches!(result, Err(Error::Json(_))));

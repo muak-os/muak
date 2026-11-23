@@ -78,10 +78,6 @@ pub enum Luks2Error {
     #[error("invalid header field: {0}")]
     InvalidField(String),
 
-    /// TPM2 token was not found.
-    #[error("TPM2 token not found")]
-    NoTpm2Token,
-
     /// Random number generation failed.
     #[error("RNG failure")]
     Rng,
