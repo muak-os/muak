@@ -1042,19 +1042,15 @@ dependencies = [
  "libc",
  "netmodel",
  "rustix",
- "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "iface"
 version = "0.0.0"
 dependencies = [
- "dhcp",
  "ip-method",
  "ip-static",
  "netmodel",
- "slaac",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1478,8 +1474,8 @@ dependencies = [
 name = "net-runtime"
 version = "0.0.0"
 dependencies = [
+ "ip-method",
  "netmodel",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1505,7 +1501,6 @@ dependencies = [
  "iface",
  "ip-method",
  "netmodel",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1533,7 +1528,6 @@ dependencies = [
  "netlink-packet-core",
  "netlink-packet-route",
  "netmodel",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1720,11 +1714,9 @@ dependencies = [
 name = "packet-v4-linux"
 version = "0.0.0"
 dependencies = [
- "ethernet",
  "libc",
  "netmodel",
  "rustix",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2532,7 +2524,6 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "rustix",
- "thiserror 2.0.21",
 ]
 
 [[package]]
