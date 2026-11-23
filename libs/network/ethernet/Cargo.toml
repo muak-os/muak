@@ -1,6 +1,6 @@
 [package]
 name = "ethernet"
-description = "Ethernet frame codec, EtherType and MAC helpers"
+description = "RFC 894 Ethernet II frame codec"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

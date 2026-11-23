@@ -1,4 +1,4 @@
-//! MAC address formatting and generation.
+//! IEEE 802 MAC address formatting and generation.
 
 #![warn(missing_docs)]
 

@@ -1,4 +1,4 @@
-//! IPv4 datagram framing and IPv6 upper-layer checksum helpers.
+//! RFC 791/8200/768 framing and RFC 1071 checksums.
 
 #![warn(missing_docs)]
 

@@ -1,4 +1,4 @@
-//! IPv4 header construction and parsing.
+//! IPv4 header construction and parsing, as defined by RFC 791.
 
 use core::net::Ipv4Addr;
 

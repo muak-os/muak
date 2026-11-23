@@ -1,4 +1,4 @@
-//! IPv4 datagram framing.
+//! IPv4 datagram framing, as defined by RFC 791.
 
 pub mod header;
 pub mod udp;

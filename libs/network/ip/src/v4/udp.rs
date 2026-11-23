@@ -1,4 +1,4 @@
-//! UDP segment framing over IPv4.
+//! UDP segment framing over IPv4, as defined by RFC 768.
 
 use core::net::Ipv4Addr;
 

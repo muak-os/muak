@@ -1,4 +1,4 @@
-//! IPv6 upper-layer checksum support.
+//! IPv6 upper-layer checksum support, as defined by RFC 8200 section 8.1.
 
 use core::net::Ipv6Addr;
 
