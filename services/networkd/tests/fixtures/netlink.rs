@@ -33,6 +33,7 @@ pub(crate) struct MockLink {
     pub(crate) index: u32,
     pub(crate) mac: [u8; 6],
     pub(crate) up: bool,
+    pub(crate) is_virtual: bool,
     pub(crate) is_bridge: bool,
     pub(crate) master_index: Option<u32>,
 }
@@ -112,6 +113,15 @@ impl MockNetlinkOps {
 
     /// Adds a link with a deterministic index.
     pub(crate) fn add_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
+        self.insert_link(name, mac, up, false)
+    }
+
+    /// Adds a virtual link with a deterministic index.
+    pub(crate) fn add_virtual_link(&self, name: &str, mac: [u8; 6], up: bool) -> u32 {
+        self.insert_link(name, mac, up, true)
+    }
+
+    fn insert_link(&self, name: &str, mac: [u8; 6], up: bool, is_virtual: bool) -> u32 {
         let mut state = self.lock();
         let index = state.next_index;
         state.next_index = state.next_index.saturating_add(1);
@@ -121,6 +131,7 @@ impl MockNetlinkOps {
                 index,
                 mac,
                 up,
+                is_virtual,
                 is_bridge: false,
                 master_index: None,
             },
@@ -142,7 +153,7 @@ impl link::Ops for MockNetlinkOps {
                     index: link.index,
                     name: name.clone(),
                     mac: link.mac,
-                    is_virtual: false,
+                    is_virtual: link.is_virtual,
                     admin_up: link.up,
                     carrier,
                     master: link.master_index,
@@ -404,6 +415,7 @@ impl bridge::Ops for MockNetlinkOps {
                     index,
                     mac: port_mac,
                     up: true,
+                    is_virtual: true,
                     is_bridge: true,
                     master_index: None,
                 },

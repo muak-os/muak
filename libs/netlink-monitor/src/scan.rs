@@ -15,10 +15,11 @@ pub(super) async fn state(
         index,
         name,
         carrier,
+        is_virtual,
         ..
     } in link.devices().await.map_err(Failure::List)?
     {
-        if !device::is_ethernet(&name) {
+        if !device::is_ethernet(&name) || is_virtual {
             continue;
         }
         link_states.insert(index, carrier);
@@ -35,15 +36,27 @@ mod tests {
     use super::*;
 
     #[derive(Clone)]
-    struct FailingOps;
+    struct MockOps {
+        devices: Option<Vec<Device>>,
+    }
 
-    impl FailingOps {
+    impl MockOps {
+        fn failing() -> Self {
+            Self { devices: None }
+        }
+
+        fn listing(devices: Vec<Device>) -> Self {
+            Self {
+                devices: Some(devices),
+            }
+        }
+
         fn failure() -> link::Failure {
             link::Failure::NotFound("mock".to_owned())
         }
     }
 
-    impl link::Ops for FailingOps {
+    impl link::Ops for MockOps {
         fn bring_down(&self, _index: u32) -> impl Future<Output = link::Result<()>> {
             std::future::ready(Err(Self::failure()))
         }
@@ -57,7 +70,7 @@ mod tests {
         }
 
         fn devices(&self) -> impl Future<Output = link::Result<Vec<Device>>> {
-            std::future::ready(Err(Self::failure()))
+            std::future::ready(self.devices.clone().ok_or_else(Self::failure))
         }
 
         fn ensure_up(&self, _name: &str) -> impl Future<Output = link::Result<u32>> {
@@ -105,10 +118,22 @@ mod tests {
         }
     }
 
+    fn device(index: u32, name: &str, is_virtual: bool) -> Device {
+        Device {
+            index,
+            name: name.to_owned(),
+            mac: [0xAA; 6],
+            is_virtual,
+            admin_up: true,
+            carrier: true,
+            master: None,
+        }
+    }
+
     #[tokio::test]
     async fn state_propagates_enumeration_failure() {
         // ARRANGE
-        let ops = FailingOps;
+        let ops = MockOps::failing();
         let mut link_states = HashMap::new();
 
         // ACT
@@ -117,5 +142,23 @@ mod tests {
         // ASSERT
         assert!(result.is_err());
         assert!(link_states.is_empty());
+    }
+
+    #[tokio::test]
+    async fn state_seeds_only_physical_ethernet_links() {
+        // ARRANGE
+        let ops = MockOps::listing(vec![device(1, "eth0", false), device(2, "eth1", true)]);
+        let mut link_states = HashMap::new();
+
+        // ACT
+        let result = state(&ops, &mut link_states).await;
+
+        // ASSERT
+        result.expect("enumeration should succeed");
+        assert_eq!(
+            link_states,
+            HashMap::from([(1, true)]),
+            "a virtual device with an Ethernet name must not be seeded"
+        );
     }
 }

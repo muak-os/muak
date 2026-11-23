@@ -16,7 +16,7 @@ pub(super) async fn handle_event<N: Ops>(supervisor: &mut NetworkSupervisor<N>, 
         Event::Up { name, index } => on_link_up(supervisor, name, index).await,
         Event::Down { name, index } => on_link_down(supervisor, name, index).await,
         Event::Added { name, index, mac } => {
-            on_link_added(supervisor, name, index, mac);
+            on_link_added(supervisor, name, index, mac).await;
         }
         Event::Deleted { name, index } => on_link_deleted(supervisor, name, index).await,
         Event::Error(failure) => on_monitor_error(supervisor, failure).await,
@@ -51,7 +51,7 @@ async fn on_link_down<N: Ops>(supervisor: &mut NetworkSupervisor<N>, name: Name,
     }
 }
 
-fn on_link_added<N: Ops>(
+async fn on_link_added<N: Ops>(
     supervisor: &mut NetworkSupervisor<N>,
     name: Name,
     index: u32,
@@ -65,6 +65,33 @@ fn on_link_added<N: Ops>(
     );
 
     if supervisor.interfaces.contains_key(&name) {
+        return;
+    }
+
+    let device = match supervisor.ops.devices().await {
+        Ok(devices) => devices.into_iter().find(|device| device.index == index),
+        Err(e) => {
+            kmsg::warn!("Failed to query devices for link {index}: {e}");
+            return;
+        }
+    };
+    let Some(device) = device else {
+        kmsg::warn!("Link {index} ({name}) is not reported by the kernel");
+        return;
+    };
+    if device.name != name.as_str() {
+        kmsg::warn!(
+            "Ignoring added link {name} (index {index}): the kernel reports {}",
+            device.name
+        );
+        return;
+    }
+    if device.is_virtual {
+        kmsg::info!("Ignoring virtual link {name} (index {index})");
+        return;
+    }
+    if device.master.is_some() {
+        kmsg::info!("Ignoring enslaved link {name} (index {index})");
         return;
     }
 

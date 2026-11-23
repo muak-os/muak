@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
 use super::*;
+use crate::fixtures::status::wait_for_events;
 
 #[tokio::test]
 async fn link_down_event_dispatched_to_interface() {
@@ -75,21 +76,154 @@ async fn link_added_event_spawns_new_actor() {
     let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
     assert!(result.is_ok() && result.expect("timeout").is_ok());
 
+    let before = handle
+        .status()
+        .await
+        .expect("status query failed")
+        .processed_events;
+
     // ACT
-    mock.add_link("eth1", [0xBB; 6], true);
+    let idx1 = mock.add_link("eth1", [0xBB; 6], true);
     let name = Name::new("eth1").expect("valid name");
     event_tx
         .send(Event::Added {
-            name,
-            index: 2,
+            name: name.clone(),
+            index: idx1,
             mac: [0xBB; 6],
         })
         .await
         .expect("send event failed");
-
-    sleep(Duration::from_millis(100)).await;
+    wait_for_events(&handle, before).await;
 
     // ASSERT
+    let status = handle.status().await.expect("status query failed");
+    assert_eq!(
+        status.backups,
+        vec![name],
+        "a physical link reported by the kernel must become a backup uplink"
+    );
+    drop(event_tx);
+}
+
+#[tokio::test]
+async fn virtual_link_added_event_is_ignored() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+    let initial = handle.status().await.expect("status query failed");
+    let primary_name = Name::new("eth0").expect("valid name");
+    assert_eq!(initial.primary.as_ref(), Some(&primary_name));
+
+    // ACT
+    let idx = mock.add_virtual_link("tap-0", [0xDD; 6], true);
+    let name = Name::new("tap-0").expect("valid name");
+    event_tx
+        .send(Event::Added {
+            name: name.clone(),
+            index: idx,
+            mac: [0xDD; 6],
+        })
+        .await
+        .expect("send event failed");
+    wait_for_events(&handle, initial.processed_events).await;
+
+    // ASSERT
+    let status = handle.status().await.expect("status query failed");
+    assert_eq!(
+        status.primary.as_ref(),
+        Some(&primary_name),
+        "a virtual link must not take over as primary"
+    );
+    assert!(
+        !status.backups.contains(&name),
+        "a virtual link must not become a backup uplink"
+    );
+    drop(event_tx);
+}
+
+#[tokio::test]
+async fn enslaved_link_added_event_is_ignored() {
+    // ARRANGE
+    let config = config_bridge();
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+    let initial = handle.status().await.expect("status query failed");
+
+    // ACT
+    let idx = mock.add_link("eth2", [0xCC; 6], true);
+    mock.enslave("eth2", "br0");
+    let name = Name::new("eth2").expect("valid name");
+    event_tx
+        .send(Event::Added {
+            name: name.clone(),
+            index: idx,
+            mac: [0xCC; 6],
+        })
+        .await
+        .expect("send event failed");
+    wait_for_events(&handle, initial.processed_events).await;
+
+    // ASSERT
+    let status = handle.status().await.expect("status query failed");
+    assert!(
+        !status.backups.contains(&name),
+        "a bridge port must not become a backup uplink"
+    );
+    drop(event_tx);
+}
+
+#[tokio::test]
+async fn added_event_with_mismatched_device_name_is_ignored() {
+    // ARRANGE
+    let config = make_config();
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+
+    let (event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(mock.clone(), event_rx, config, Resolver::default());
+
+    let result = timeout(Duration::from_secs(5), handle.initialize_with_retry()).await;
+    assert!(result.is_ok() && result.expect("timeout").is_ok());
+    let initial = handle.status().await.expect("status query failed");
+    let primary_name = Name::new("eth0").expect("valid name");
+
+    // ACT
+    let idx = mock.add_link("eth1", [0xBB; 6], true);
+    let event_name = Name::new("eth2").expect("valid name");
+    event_tx
+        .send(Event::Added {
+            name: event_name.clone(),
+            index: idx,
+            mac: [0xBB; 6],
+        })
+        .await
+        .expect("send event failed");
+    wait_for_events(&handle, initial.processed_events).await;
+
+    // ASSERT
+    let status = handle.status().await.expect("status query failed");
+    assert_eq!(
+        status.primary.as_ref(),
+        Some(&primary_name),
+        "an event whose name does not match the kernel device must not become primary"
+    );
+    assert!(
+        !status.backups.contains(&event_name),
+        "an event whose name does not match the kernel device must not become a backup uplink"
+    );
     drop(event_tx);
 }
 

@@ -78,6 +78,12 @@ pub fn extract_master(link: &LinkMessage) -> Option<u32> {
     None
 }
 
+/// Returns true if the link message carries a virtual link kind.
+#[must_use = "callers must skip links that the kernel reports as virtual"]
+pub fn is_virtual(link: &LinkMessage) -> bool {
+    parse_attributes(&link.attributes).2
+}
+
 /// Returns true if the name matches a physical Ethernet naming convention.
 #[must_use = "callers must skip links that are not Ethernet"]
 pub fn is_ethernet(name: &str) -> bool {
@@ -121,7 +127,7 @@ fn parse_attributes(attributes: &[LinkAttribute]) -> (String, [u8; 6], bool) {
 mod tests {
     use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo, LinkMessage};
 
-    use super::{Device, extract_mac, extract_master, extract_name, is_ethernet};
+    use super::{Device, extract_mac, extract_master, extract_name, is_ethernet, is_virtual};
 
     fn link_with_attributes(attributes: Vec<LinkAttribute>) -> LinkMessage {
         let mut link = LinkMessage::default();
@@ -246,6 +252,24 @@ mod tests {
         assert_eq!(device.name, "eth0");
         assert_eq!(device.mac, [0; 6]);
         assert!(!device.is_virtual);
+    }
+
+    #[test]
+    fn is_virtual_reports_link_kind() {
+        // ARRANGE
+        let virtual_link =
+            link_with_attributes(vec![LinkAttribute::LinkInfo(vec![LinkInfo::Kind(
+                InfoKind::Veth,
+            )])]);
+        let physical_link = link_with_attributes(vec![LinkAttribute::IfName("eth0".to_owned())]);
+
+        // ACT
+        let virtual_flag = is_virtual(&virtual_link);
+        let physical_flag = is_virtual(&physical_link);
+
+        // ASSERT
+        assert!(virtual_flag);
+        assert!(!physical_flag);
     }
 
     #[test]

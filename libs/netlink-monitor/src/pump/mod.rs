@@ -79,6 +79,9 @@ async fn handle_new_link(
     if !device::is_ethernet(&raw_name) {
         return;
     }
+    if device::is_virtual(&msg) {
+        return;
+    }
 
     let carrier_present = msg.header.flags.contains(LinkFlags::LowerUp);
 
@@ -156,6 +159,9 @@ async fn handle_del_link(
     if !device::is_ethernet(&raw_name) {
         return;
     }
+    if device::is_virtual(&msg) {
+        return;
+    }
     if !config.monitor_link_changes {
         return;
     }
@@ -182,7 +188,7 @@ mod tests {
     use core::num::NonZeroI32;
 
     use rtnetlink::packet_core::{ErrorBuffer, ErrorMessage, NetlinkHeader, Parseable as _};
-    use rtnetlink::packet_route::link::LinkAttribute;
+    use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo};
 
     use super::*;
 
@@ -203,6 +209,15 @@ mod tests {
         if let Some(mac) = mac {
             link.attributes.push(LinkAttribute::Address(mac.to_vec()));
         }
+        link
+    }
+
+    fn virtual_link_message(name: &str, index: u32, mac: [u8; 6], carrier: bool) -> LinkMessage {
+        let mut link = link_message(Some(name), index, Some(mac), carrier);
+        link.attributes
+            .push(LinkAttribute::LinkInfo(vec![LinkInfo::Kind(
+                InfoKind::Veth,
+            )]));
         link
     }
 
@@ -328,6 +343,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_new_link_ignores_virtual_ethernet_and_seeds_no_state() {
+        // ARRANGE
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut states = HashMap::new();
+        let link = virtual_link_message("eth0", 2, [1, 2, 3, 4, 5, 6], true);
+
+        // ACT
+        handle_new_link(link, &tx, &config(), &mut states).await;
+
+        // ASSERT
+        rx.try_recv().unwrap_err();
+        assert!(
+            states.is_empty(),
+            "a virtual link must not seed link state, so it cannot emit Up or Down later"
+        );
+    }
+
+    #[tokio::test]
     async fn handle_new_link_ignores_unchanged_carrier() {
         // ARRANGE
         let (tx, mut rx) = mpsc::channel(1);
@@ -388,6 +421,21 @@ mod tests {
             !states.contains_key(&1),
             "state is dropped before the ethernet filter, so a renamed link leaves nothing behind"
         );
+    }
+
+    #[tokio::test]
+    async fn handle_del_link_emits_no_event_for_virtual_ethernet() {
+        // ARRANGE
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut states = HashMap::from([(2, true)]);
+        let link = virtual_link_message("eth0", 2, [1, 2, 3, 4, 5, 6], true);
+
+        // ACT
+        handle_del_link(link, &tx, &config(), &mut states).await;
+
+        // ASSERT
+        rx.try_recv().unwrap_err();
+        assert!(!states.contains_key(&2));
     }
 
     #[tokio::test]
