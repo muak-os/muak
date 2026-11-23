@@ -1,5 +1,4 @@
-//! IPv6 stateless address autoconfiguration: `ICMPv6` router discovery, address generation, and
-//! the RFC 4862 address method.
+//! IPv6 stateless address autoconfiguration with `ICMPv6` router discovery, address generation, and the RFC 4862 address method.
 
 #![warn(missing_docs)]
 

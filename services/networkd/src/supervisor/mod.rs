@@ -192,7 +192,6 @@ impl<N: Ops> NetworkSupervisor<N> {
         tokio::spawn(notice::log_v4(name.clone(), notices.v4));
         #[cfg(feature = "ipv6")]
         tokio::spawn(notice::log_v6(name.clone(), notices.v6));
-        // A build without address families never emits a notice.
         #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
         let _notices = notices;
         self.owners

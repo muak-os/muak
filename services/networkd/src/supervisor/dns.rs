@@ -3,7 +3,9 @@
 use alloc::vec::Vec;
 use core::net::{Ipv4Addr, Ipv6Addr};
 
-use linkctl::interface::{Handle, Snapshot};
+use linkctl::interface::Handle;
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+use linkctl::interface::Snapshot;
 #[cfg(feature = "ipv4")]
 use linkctl::view::V4State;
 #[cfg(feature = "ipv6")]
@@ -37,10 +39,20 @@ fn collect<N: Ops>(
 ) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
     let snapshot = handle.snapshot_rx.borrow();
 
-    (
-        collect_v4(supervisor, &snapshot),
-        collect_v6(supervisor, &snapshot),
-    )
+    #[cfg(feature = "ipv4")]
+    let v4 = collect_v4(supervisor, &snapshot);
+    #[cfg(not(feature = "ipv4"))]
+    let v4 = Vec::new();
+
+    #[cfg(feature = "ipv6")]
+    let v6 = collect_v6(supervisor, &snapshot);
+    #[cfg(not(feature = "ipv6"))]
+    let v6 = Vec::new();
+
+    #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
+    let (_supervisor, _snapshot) = (supervisor, &snapshot);
+
+    (v4, v6)
 }
 
 #[cfg(feature = "ipv4")]
@@ -59,11 +71,6 @@ fn collect_v4<N: Ops>(supervisor: &NetworkSupervisor<N>, snapshot: &Snapshot) ->
     dns
 }
 
-#[cfg(not(feature = "ipv4"))]
-fn collect_v4<N: Ops>(_: &NetworkSupervisor<N>, _: &Snapshot) -> Vec<Ipv4Addr> {
-    Vec::new()
-}
-
 #[cfg(feature = "ipv6")]
 fn collect_v6<N: Ops>(supervisor: &NetworkSupervisor<N>, snapshot: &Snapshot) -> Vec<Ipv6Addr> {
     let mut dns = Vec::new();
@@ -78,11 +85,6 @@ fn collect_v6<N: Ops>(supervisor: &NetworkSupervisor<N>, snapshot: &Snapshot) ->
     }
 
     dns
-}
-
-#[cfg(not(feature = "ipv6"))]
-fn collect_v6<N: Ops>(_: &NetworkSupervisor<N>, _: &Snapshot) -> Vec<Ipv6Addr> {
-    Vec::new()
 }
 
 fn apply<N: Ops>(

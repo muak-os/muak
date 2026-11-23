@@ -1,7 +1,4 @@
 //! Snapshot inspection shared by the supervisor's policy modules.
-//!
-//! networkd's family features imply linkctl's family features and never the
-//! reverse, so reading `V4::ENABLED` and `V6::ENABLED` here is sound.
 
 use addrconf::State as MethodState;
 use linkctl::family::Family as _;

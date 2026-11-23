@@ -39,7 +39,6 @@ pub(in crate::supervisor) const fn has_config(iface_cfg: &InterfaceConfig) -> bo
     let ipv6 = iface_cfg.ipv6.is_some();
     #[cfg(not(feature = "ipv6"))]
     let ipv6 = false;
-    // A build without address families never honours a declared config.
     #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
     let _iface_cfg = iface_cfg;
 
@@ -77,7 +76,6 @@ pub(in crate::supervisor) async fn configure<N: Ops>(
         .ipv6
         .as_ref()
         .and_then(|cfg| v6_config(supervisor, cfg));
-    // A build without address families sends nothing to the controller.
     #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
     let _iface_cfg = iface_cfg;
 
