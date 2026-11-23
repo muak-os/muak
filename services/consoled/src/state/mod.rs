@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use netinfo::read_interfaces;
 use proc::{
-    read_cpu, read_dns, read_hostname, read_memory, read_ntp_server, read_secure_boot,
+    read_cpu, read_dns, read_host_name, read_memory, read_ntp_server, read_secure_boot,
     read_system_status, read_uptime,
 };
 
@@ -73,9 +73,7 @@ pub(crate) struct PollState {
     scratch: String,
     net_scratch: String,
     config_stamp: Option<SystemTime>,
-    ntp_cache: Option<String>,
-    secureboot_stamp: Option<SystemTime>,
-    secureboot_cache: bool,
+    config: Option<config::system::Config>,
     version_cache: Option<String>,
 }
 
@@ -90,7 +88,7 @@ impl MemoryInfo {
 
 /// Collects a full system state snapshot.
 pub(crate) fn collect(poll: &mut PollState) -> SystemState {
-    let hostname = read_hostname(&mut poll.scratch);
+    let hostname = read_host_name(poll);
     let uptime = read_uptime(&mut poll.scratch);
     let cpu = read_cpu(&mut poll.scratch, &mut poll.prev_cpu);
     let memory = read_memory(&mut poll.scratch);
@@ -173,7 +171,7 @@ mod tests {
         assert_eq!(poll.scratch, "");
         assert_eq!(poll.net_scratch, "");
         assert!(poll.config_stamp.is_none());
-        assert!(poll.ntp_cache.is_none());
+        assert!(poll.config.is_none());
         assert!(poll.version_cache.is_none());
     }
 }

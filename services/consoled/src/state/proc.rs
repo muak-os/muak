@@ -7,6 +7,7 @@ use super::{CpuTicks, CpuUsage, MemoryInfo, PollState, SystemStatus, Uptime};
 
 const CONFIG_PATH: &str = "/run/state/config.toml";
 const PLATFORM_KEY_PATH: &str = "/run/state/secrets/secureboot/pk.der";
+const FALLBACK_NAME: &str = "Muak";
 
 /// Reads a whole file into `buf` and returns its trimmed content.
 pub(super) fn read_file<'a>(path: &str, buf: &'a mut String) -> Option<&'a str> {
@@ -17,11 +18,8 @@ pub(super) fn read_file<'a>(path: &str, buf: &'a mut String) -> Option<&'a str> 
     Some(buf.trim())
 }
 
-pub(super) fn read_hostname(buf: &mut String) -> String {
-    read_file("/proc/sys/kernel/hostname", buf)
-        .filter(|&hostname| !hostname.is_empty() && hostname != "(none)")
-        .unwrap_or("Muak")
-        .to_owned()
+pub(super) fn read_host_name(poll: &mut PollState) -> String {
+    host_name(config(poll))
 }
 
 pub(super) fn read_uptime(buf: &mut String) -> Uptime {
@@ -100,33 +98,41 @@ pub(super) fn read_secure_boot(
 }
 
 pub(super) fn read_ntp_server(poll: &mut PollState) -> Option<String> {
-    let stamp = fs::metadata(CONFIG_PATH).ok()?.modified().ok()?;
-    if poll.config_stamp == Some(stamp) {
-        return poll.ntp_cache.clone();
-    }
-
-    let server = config::system::load_from_path(Path::new(CONFIG_PATH))
-        .ok()
-        .map(|cfg| cfg.host.ntp)
-        .filter(|server| !server.is_empty());
-    poll.config_stamp = Some(stamp);
-    poll.ntp_cache.clone_from(&server);
-
-    server
+    config(poll)
+        .map(|cfg| cfg.host.ntp.clone())
+        .filter(|server| !server.is_empty())
 }
 
 fn config_wants_secureboot(poll: &mut PollState) -> bool {
-    let Ok(stamp) = fs::metadata(CONFIG_PATH).and_then(|meta| meta.modified()) else {
-        return false;
-    };
-    if poll.secureboot_stamp == Some(stamp) {
-        return poll.secureboot_cache;
-    }
-    poll.secureboot_stamp = Some(stamp);
-    poll.secureboot_cache =
-        config::system::load_from_path(Path::new(CONFIG_PATH)).is_ok_and(|cfg| cfg.host.secureboot);
+    config(poll).is_some_and(|cfg| cfg.host.secureboot)
+}
 
-    poll.secureboot_cache
+fn config(poll: &mut PollState) -> Option<&config::system::Config> {
+    let stamp = fs::metadata(CONFIG_PATH)
+        .and_then(|meta| meta.modified())
+        .ok();
+    if stamp.is_some() && poll.config_stamp == stamp {
+        return poll.config.as_ref();
+    }
+
+    poll.config_stamp = stamp;
+    poll.config = stamp.and_then(|_| load_config(Path::new(CONFIG_PATH)));
+
+    poll.config.as_ref()
+}
+
+fn load_config(path: &Path) -> Option<config::system::Config> {
+    path.exists()
+        .then(|| config::system::load_from_path(path).ok())
+        .flatten()
+}
+
+fn host_name(config: Option<&config::system::Config>) -> String {
+    config
+        .map(|cfg| cfg.host.name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(FALLBACK_NAME)
+        .to_owned()
 }
 
 fn parse_cpu(line: &str, prev: &mut CpuTicks) -> CpuUsage {
@@ -255,15 +261,108 @@ mod tests {
         assert_eq!(field_kb("MemTotal: junk", "MemTotal:"), None);
     }
 
+    fn write_config(dir: &Path, name: &str) -> std::path::PathBuf {
+        write_config_parts(dir, name, "pool.ntp.org", true)
+    }
+
+    fn write_config_parts(
+        dir: &Path,
+        name: &str,
+        ntp: &str,
+        secureboot: bool,
+    ) -> std::path::PathBuf {
+        let path = dir.join("config.toml");
+        let contents = format!(
+            "api_version = \"muak.dev/config/v1-beta\"\n[host]\nname = {name:?}\nntp = {ntp:?}\n\
+             secureboot = {secureboot}\n"
+        );
+        fs::write(&path, contents).unwrap();
+
+        path
+    }
+
     #[test]
-    fn read_ntp_server_missing_config_is_none() {
+    fn host_name_uses_trimmed_config_name() {
         // ARRANGE
-        let mut poll = PollState::default();
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_config(dir.path(), "  lab-node  ");
 
         // ACT
-        let server = read_ntp_server(&mut poll);
+        let name = host_name(load_config(&path).as_ref());
+
+        // ASSERT
+        assert_eq!(name, "lab-node");
+    }
+
+    #[test]
+    fn host_name_empty_config_name_falls_back() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_config(dir.path(), "");
+
+        // ACT
+        let name = host_name(load_config(&path).as_ref());
+
+        // ASSERT
+        assert_eq!(name, "Muak");
+    }
+
+    #[test]
+    fn host_name_blank_config_name_falls_back() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_config(dir.path(), "   ");
+
+        // ACT
+        let name = host_name(load_config(&path).as_ref());
+
+        // ASSERT
+        assert_eq!(name, "Muak");
+    }
+
+    #[test]
+    fn missing_config_falls_back_without_builtin_default() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("absent.toml");
+
+        // ACT
+        let config = load_config(&path);
+
+        // ASSERT: the raw loader would yield the built-in `muak` default.
+        assert!(config.is_none());
+        assert_eq!(host_name(config.as_ref()), "Muak");
+        assert_eq!(
+            config::system::load_from_path(&path).unwrap().host.name,
+            "muak"
+        );
+    }
+
+    #[test]
+    fn ntp_server_absent_without_config() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("absent.toml");
+
+        // ACT
+        let server = load_config(&path)
+            .map(|cfg| cfg.host.ntp)
+            .filter(|server| !server.is_empty());
 
         // ASSERT
         assert_eq!(server, None);
+    }
+
+    #[test]
+    fn secureboot_disabled_config_is_false() {
+        // ARRANGE
+        let dir = tempfile::tempdir().unwrap();
+        let disabled = write_config_parts(dir.path(), "lab-node", "", false);
+
+        // ACT
+        let wants = load_config(&disabled).is_some_and(|cfg| cfg.host.secureboot);
+
+        // ASSERT
+        assert!(!wants);
     }
 }
