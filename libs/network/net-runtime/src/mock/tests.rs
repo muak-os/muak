@@ -7,7 +7,7 @@ use core::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant, SystemTime};
 
 use super::Mock;
-use crate::{Address, Clock, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, Udp};
+use crate::{Address, Clock as _, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, Udp};
 
 // Helpers live under `src` rather than `tests/` because the mock is cfg gated
 // and must be reachable from the crate's own tests.
@@ -46,8 +46,8 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn bundle_clock<R: Runtime + Clock>(runtime: &R) -> Instant {
-    runtime.now()
+fn bundle_clock<R: Runtime>(runtime: &R) -> Instant {
+    runtime.clock().now()
 }
 
 fn assert_bundle<R: Runtime>() {}
@@ -407,11 +407,20 @@ fn runtime_bundle_exposes_ports() {
     // ARRANGE
     let start = Instant::now();
     let mock = Mock::new(start, SystemTime::UNIX_EPOCH);
+    let name = netmodel::Name::new("eth0").expect("valid name");
+    mock.set_link(link(&name, 2));
+    let spec = spec(ip_method::SocketKind::RawL2);
 
     // ACT
     assert_bundle::<Mock>();
     let observed = bundle_clock(&mock);
+    let links = block_on(Runtime::link(&mock).links()).expect("list links");
+    let id = block_on(Packet::open(&mock, &spec)).expect("open socket");
+    let sent = block_on(Packet::send(&mock, id, &[1, 2])).expect("send frame");
 
     // ASSERT
     assert_eq!(observed, start);
+    assert_eq!(links, vec![link(&name, 2)]);
+    assert_eq!(sent, 2);
+    assert_eq!(mock.sent(id).expect("sent frames"), vec![vec![1, 2]]);
 }

@@ -85,8 +85,8 @@ can be tested with fixed buffers.
 
 ## No `Spawn` in `Runtime`
 
-The `Runtime` bundle exposes link, address, route, events, packet, ICMPv6, clock, and entropy
-capabilities. It deliberately has no task spawner. FSMs are driven by `net-loop` on the
+The `Runtime` bundle exposes link, address, route, events, packet, UDP, ICMPv6, clock, and
+entropy capabilities. It deliberately has no task spawner. FSMs are driven by `net-loop` on the
 backend's own single task, so no FSM state can be moved to another thread behind the driver's
 back.
 

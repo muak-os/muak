@@ -82,6 +82,8 @@ pub enum Effect<'a> {
         link: netmodel::Name,
         /// Address to remove.
         address: IpAddr,
+        /// Prefix length in bits, the address port needs the exact pair.
+        prefix_len: u8,
     },
     /// Ensure a default route through the gateway.
     EnsureRoute {
@@ -105,6 +107,10 @@ pub enum Effect<'a> {
         spec: ip_method::SocketSpec,
     },
     /// Send a frame on a socket the family already opened.
+    ///
+    /// `dst` is `None` for raw layer 2 and `UDP` sockets, whose destination
+    /// comes from the frame and the socket peer, and required for raw
+    /// `ICMPv6` sockets.
     Send {
         /// Family the socket belongs to.
         family: Family,
@@ -112,6 +118,8 @@ pub enum Effect<'a> {
         slot: ip_method::SocketSlot,
         /// Raw frame bytes to send.
         frame: &'a [u8],
+        /// Destination address, required only for `ICMPv6` sockets.
+        dst: Option<core::net::SocketAddr>,
     },
     /// Close a socket the family opened.
     CloseSocket {
@@ -333,6 +341,7 @@ mod tests {
             family: Family::V6,
             slot: ip_method::SocketSlot::Primary,
             frame: &frame,
+            dst: None,
         };
 
         // ASSERT

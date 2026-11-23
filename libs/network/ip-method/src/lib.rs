@@ -184,11 +184,20 @@ pub enum Effect<'a> {
     /// Open a socket described by the specification.
     OpenSocket(SocketSpec),
     /// Send a frame on an already open socket.
+    ///
+    /// `dst` is `None` for a [`SocketKind::RawL2`] socket, whose Ethernet
+    /// destination is inside the frame, and for a [`SocketKind::Udp`] socket,
+    /// which is connected through [`SocketSpec::peer`]. A
+    /// [`SocketKind::RawIcmpv6`] socket requires
+    /// `Some(SocketAddr::V6(..))` because the frame does not carry its
+    /// destination.
     Send {
         /// Slot to send the frame on.
         slot: SocketSlot,
         /// Raw frame bytes to send.
         frame: &'a [u8],
+        /// Destination address, required only for `ICMPv6` sockets.
+        dst: Option<SocketAddr>,
     },
     /// Close an open socket.
     CloseSocket {

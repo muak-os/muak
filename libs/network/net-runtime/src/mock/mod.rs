@@ -101,6 +101,42 @@ impl crate::Runtime for Mock {
     type Packet = Self;
     type Route = Self;
     type Udp = Self;
+
+    fn address(&self) -> &Self::Address {
+        self
+    }
+
+    fn clock(&self) -> &Self::Clock {
+        self
+    }
+
+    fn entropy(&self) -> &Self::Entropy {
+        self
+    }
+
+    fn events(&self) -> &Self::Events {
+        self
+    }
+
+    fn icmpv6(&self) -> &Self::Icmpv6 {
+        self
+    }
+
+    fn link(&self) -> &Self::Link {
+        self
+    }
+
+    fn packet(&self) -> &Self::Packet {
+        self
+    }
+
+    fn route(&self) -> &Self::Route {
+        self
+    }
+
+    fn udp(&self) -> &Self::Udp {
+        self
+    }
 }
 
 fn sent_frames(state: &State, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {

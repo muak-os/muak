@@ -322,6 +322,9 @@ pub trait Entropy {
 }
 
 /// Bundle of the ports a network runtime provides.
+///
+/// The driver reaches every capability through the accessors, so it never
+/// needs to know how a backend stores its ports.
 pub trait Runtime {
     /// Address management port.
     type Address: Address;
@@ -341,4 +344,31 @@ pub trait Runtime {
     type Route: Route;
     /// Datagram socket port.
     type Udp: Udp;
+
+    /// Returns the address management port.
+    fn address(&self) -> &Self::Address;
+
+    /// Returns the clock port.
+    fn clock(&self) -> &Self::Clock;
+
+    /// Returns the entropy port.
+    fn entropy(&self) -> &Self::Entropy;
+
+    /// Returns the link event port.
+    fn events(&self) -> &Self::Events;
+
+    /// Returns the `ICMPv6` socket port.
+    fn icmpv6(&self) -> &Self::Icmpv6;
+
+    /// Returns the link control port.
+    fn link(&self) -> &Self::Link;
+
+    /// Returns the packet socket port.
+    fn packet(&self) -> &Self::Packet;
+
+    /// Returns the default route management port.
+    fn route(&self) -> &Self::Route;
+
+    /// Returns the datagram socket port.
+    fn udp(&self) -> &Self::Udp;
 }
