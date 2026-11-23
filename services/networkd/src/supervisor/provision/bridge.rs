@@ -7,7 +7,7 @@ use netdev::interface::Ethernet;
 use netlink::link::ifname::Name;
 
 use super::super::{NetworkSupervisor, carrier};
-use super::bridge_port;
+use super::{bridge_port, enslave};
 
 // Creates every configured bridge before any address is applied to its owner.
 pub(super) async fn configure_all<N: Ops>(supervisor: &mut NetworkSupervisor<N>) {
@@ -49,11 +49,20 @@ pub(in crate::supervisor) async fn ensure<N: Ops>(
         );
     }
 
-    supervisor.owners.insert(port, bridge_name.clone());
+    supervisor.owners.insert(port.clone(), bridge_name.clone());
     supervisor
         .owners
         .insert(bridge_name.clone(), bridge_name.clone());
-    supervisor.state.l3_owner = Some(bridge_name);
+    supervisor.state.l3_owner = Some(bridge_name.clone());
+
+    enslave::record(supervisor, &port, &bridge_name);
+    enslave::release_stale(
+        supervisor,
+        &bridge_name,
+        index,
+        core::slice::from_ref(&port),
+    )
+    .await?;
 
     carrier::refresh_owner(supervisor).await;
 

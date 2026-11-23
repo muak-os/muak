@@ -3,7 +3,7 @@
 use linkctl::interface::Command;
 use netdev::Ops;
 
-use super::{NetworkSupervisor, owner, view};
+use super::{NetworkSupervisor, owner, provision, view};
 
 /// Aligns the L3 owner's published link with the kernel after a topology change.
 pub(super) async fn refresh_owner<N: Ops>(supervisor: &NetworkSupervisor<N>) {
@@ -42,10 +42,18 @@ pub(super) async fn refresh_owner<N: Ops>(supervisor: &NetworkSupervisor<N>) {
         return;
     };
 
-    if published.has_carrier() == device.carrier && !(device.carrier && recovering) {
+    let carrier = match provision::configured_bridge_port(supervisor, &owner) {
+        Some(port) => devices
+            .iter()
+            .find(|device| device.name == port.as_str())
+            .is_some_and(|device| device.carrier),
+        None => device.carrier,
+    };
+
+    if published.has_carrier() == carrier && !(carrier && recovering) {
         return;
     }
-    let command = if device.carrier {
+    let command = if carrier {
         Command::LinkUp
     } else {
         Command::LinkDown

@@ -101,6 +101,7 @@ struct NetworkSupervisor<N: Ops> {
     state: NetworkSnapshot,
     interfaces: HashMap<Name, Handle>,
     owners: HashMap<Name, Name>,
+    enslaved: HashMap<Name, Name>,
     dns: Resolver,
     processed_events: u64,
 }
@@ -119,6 +120,7 @@ impl<N: Ops> NetworkSupervisor<N> {
             state: NetworkSnapshot::empty(),
             interfaces: HashMap::new(),
             owners: HashMap::new(),
+            enslaved: HashMap::new(),
             dns,
             processed_events: 0,
         }

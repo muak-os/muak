@@ -466,3 +466,45 @@ async fn reconcile_repoints_a_configured_bridge() {
         "the bridge must keep its static IPv4"
     );
 }
+
+#[tokio::test]
+async fn reconcile_keeps_a_foreign_bridge_port() {
+    // ARRANGE
+    let mock = MockNetlinkOps::new();
+    mock.add_link("eth0", [0xAA; 6], true);
+
+    let (_event_tx, event_rx) = mpsc::channel(32);
+    let handle = supervisor::start_with(
+        mock.clone(),
+        event_rx,
+        config_bridge_l3_on_bridge(),
+        Resolver::default(),
+    );
+    handle.initialize_with_retry().await.expect("init failed");
+    sleep(Duration::from_millis(100)).await;
+    let br0_index = link_index(&mock, "br0").expect("bridge should exist");
+    let ensure_calls = mock.ensure_bridge_calls();
+    mock.add_link("tap-0", [0xDD; 6], true);
+    mock.enslave("tap-0", "br0");
+
+    // ACT
+    handle.reconcile().await.expect("reconcile failed");
+    sleep(Duration::from_millis(100)).await;
+
+    // ASSERT
+    assert_eq!(
+        mock.ensure_bridge_calls(),
+        ensure_calls + 1,
+        "reconcile must re-ensure the configured bridge"
+    );
+    assert_eq!(
+        master_index(&mock, "tap-0"),
+        Some(br0_index),
+        "reconcile must not detach a foreign bridge port"
+    );
+    assert_eq!(
+        master_index(&mock, "eth0"),
+        Some(br0_index),
+        "reconcile must keep the configured port attached"
+    );
+}

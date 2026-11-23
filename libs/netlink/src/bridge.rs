@@ -69,7 +69,7 @@ impl Ops for Rtnl {
             .ok_or_else(|| Failure::Link(link::Failure::NotFound(port_name.to_owned())))?;
 
         if let Some(bridge) = devices.iter().find(|device| device.name == bridge_name)
-            && is_attached(port, bridge, &devices)
+            && is_attached(port, bridge)
             && bridge.admin_up
             && port.admin_up
         {
@@ -89,13 +89,6 @@ impl Ops for Rtnl {
         enslave_interface_to_bridge(&self.handle, port.index, br_index, port_name, bridge_name)
             .await?;
 
-        for device in devices
-            .iter()
-            .filter(|device| device.master == Some(br_index) && device.index != port.index)
-        {
-            link::handle::detach(&self.handle, device.index).await?;
-        }
-
         if created {
             link::handle::set_address(&self.handle, br_index, mac).await?;
         }
@@ -106,11 +99,8 @@ impl Ops for Rtnl {
     }
 }
 
-fn is_attached(port: &Device, bridge: &Device, devices: &[Device]) -> bool {
+fn is_attached(port: &Device, bridge: &Device) -> bool {
     port.master == Some(bridge.index)
-        && !devices
-            .iter()
-            .any(|device| device.master == Some(bridge.index) && device.index != port.index)
 }
 
 const fn carrier_state(carrier: bool) -> State {
@@ -216,32 +206,16 @@ mod tests {
     }
 
     #[test]
-    fn is_attached_when_port_is_the_only_member() {
+    fn is_attached_when_port_is_enslaved() {
         // ARRANGE
         let port = device(2, "eth0", Some(1));
         let bridge = device(1, "br0", None);
-        let devices = vec![bridge.clone(), port.clone()];
 
         // ACT
-        let attached = is_attached(&port, &bridge, &devices);
+        let attached = is_attached(&port, &bridge);
 
         // ASSERT
         assert!(attached);
-    }
-
-    #[test]
-    fn is_attached_rejects_extra_member() {
-        // ARRANGE
-        let port = device(2, "eth0", Some(1));
-        let bridge = device(1, "br0", None);
-        let stray = device(3, "eth1", Some(1));
-        let devices = vec![bridge.clone(), port.clone(), stray];
-
-        // ACT
-        let attached = is_attached(&port, &bridge, &devices);
-
-        // ASSERT
-        assert!(!attached);
     }
 
     #[test]
@@ -249,10 +223,9 @@ mod tests {
         // ARRANGE
         let port = device(2, "eth0", Some(4));
         let bridge = device(1, "br0", None);
-        let devices = vec![bridge.clone(), port.clone(), device(3, "br1", None)];
 
         // ACT
-        let attached = is_attached(&port, &bridge, &devices);
+        let attached = is_attached(&port, &bridge);
 
         // ASSERT
         assert!(!attached);
@@ -263,10 +236,9 @@ mod tests {
         // ARRANGE
         let port = device(2, "eth0", None);
         let bridge = device(1, "br0", None);
-        let devices = vec![bridge.clone(), port.clone()];
 
         // ACT
-        let attached = is_attached(&port, &bridge, &devices);
+        let attached = is_attached(&port, &bridge);
 
         // ASSERT
         assert!(!attached);

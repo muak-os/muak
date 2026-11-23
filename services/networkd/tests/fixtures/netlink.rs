@@ -415,7 +415,6 @@ impl bridge::Ops for MockNetlinkOps {
         if let Some(link) = state.links.get_mut(bridge_name) {
             link.is_bridge = true;
         }
-        clear_bridge_ports(&mut state.links, bridge_index, port_name);
 
         if let Some(link) = state.links.get_mut(port_name) {
             link.master_index = Some(bridge_index);
@@ -472,22 +471,6 @@ fn device_carrier(links: &HashMap<String, MockLink>, link: &MockLink) -> bool {
         .any(|port| port.master_index == Some(link.index) && port.up)
 }
 
-/// Detaches every port except `port_name` from the given bridge.
-fn clear_bridge_ports(links: &mut HashMap<String, MockLink>, bridge_index: u32, port_name: &str) {
-    let mut names: Vec<String> = links.keys().cloned().collect();
-    names.sort();
-    for name in names {
-        if name.as_str() != port_name
-            && links
-                .get(&name)
-                .is_some_and(|link| link.master_index == Some(bridge_index))
-            && let Some(link) = links.get_mut(&name)
-        {
-            link.master_index = None;
-        }
-    }
-}
-
 /// Returns the link state for the requested carrier flag.
 const fn link_state_kind(up: bool) -> State {
     if up { State::Up } else { State::Down }
@@ -514,7 +497,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ensure_bridge_detaches_previously_enslaved_port() {
+    async fn ensure_bridge_keeps_foreign_members() {
         // ARRANGE
         let mock = MockNetlinkOps::new();
         let _eth0 = mock.add_link("eth0", [0xAA; 6], true);
@@ -535,8 +518,8 @@ mod tests {
         );
         assert_eq!(
             mock.master_index("eth1"),
-            None,
-            "other port should be detached"
+            Some(br0_index),
+            "foreign port should stay attached"
         );
     }
 }

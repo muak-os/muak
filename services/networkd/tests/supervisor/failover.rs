@@ -621,6 +621,8 @@ async fn primary_failure_rebridges_the_backup_port() {
 
     let br_index = link_index(&mock, "br0").expect("the bridge must exist");
     let static_ipv4 = (core::net::Ipv4Addr::new(10, 0, 0, 2), 24);
+    mock.add_link("tap-0", [0xDD; 6], true);
+    mock.enslave("tap-0", "br0");
     assert_eq!(
         master_index(&mock, "eth0"),
         Some(br_index),
@@ -660,6 +662,11 @@ async fn primary_failure_rebridges_the_backup_port() {
     assert!(
         ipv4_addrs(&mock, br_index).contains(&static_ipv4),
         "the bridge must keep the same IPv4 after being re-pointed"
+    );
+    assert_eq!(
+        master_index(&mock, "tap-0"),
+        Some(br_index),
+        "a foreign bridge port must stay attached across failover"
     );
 }
 

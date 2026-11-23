@@ -2,6 +2,7 @@
 
 pub(super) mod addresses;
 pub(super) mod bridge;
+pub(super) mod enslave;
 
 use alloc::borrow::Cow;
 
@@ -50,6 +51,21 @@ pub(super) fn resolve_owner<N: Ops>(supervisor: &NetworkSupervisor<N>, name: &Na
     }
 
     name.clone()
+}
+
+/// Returns the port configured for `owner` when it is a configured bridge.
+pub(super) fn configured_bridge_port<N: Ops>(
+    supervisor: &NetworkSupervisor<N>,
+    owner: &Name,
+) -> Option<Name> {
+    let iface_cfg = supervisor
+        .config
+        .interfaces
+        .iter()
+        .find(|cfg| cfg.kind == InterfaceKind::Bridge && cfg.name == owner.as_str())?;
+    let bridge_cfg = iface_cfg.bridge.as_ref()?;
+
+    bridge_port(supervisor, bridge_cfg).ok()
 }
 
 /// Returns the runtime handle for `name`, or an error when it is absent.
