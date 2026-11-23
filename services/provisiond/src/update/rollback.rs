@@ -3,12 +3,14 @@
 use std::fs;
 use std::path::Path;
 
+use ::disk::role::Role;
 use anyhow::{Context as _, Result};
 use rustix::fs::sync;
 use rustix::system::{RebootCommand, reboot};
 
 use super::{UPDATE_DIR, secureboot, snapshot};
-use crate::medium;
+use crate::disk::roles;
+use crate::{efi, medium};
 
 /// Restores the committed config and reboots into the old kernel.
 ///
@@ -17,6 +19,10 @@ use crate::medium;
 /// Returns an error when the config cannot be restored or the reboot fails.
 pub(crate) fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Result<()> {
     kmsg::info!("Rolling back update {update_id}: {reason}");
+
+    // The boot image is the only state that a crash or power loss during the rest of the
+    // rollback cannot recover, so it is restored before anything that can fail.
+    restore_previous_image();
 
     let previous = fs::read_to_string(snapshot_path).ok();
     let secureboot_enabled = previous
@@ -35,8 +41,8 @@ pub(crate) fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Resu
         kmsg::warn!("Rollback of {update_id} untracked. Snapshot kept for next-boot retry");
     }
 
-    if secureboot_enabled {
-        secureboot::re_enroll_if_missing()?;
+    if secureboot_enabled && let Err(error) = secureboot::re_enroll_if_missing() {
+        kmsg::warn!("Failed to re-enroll Secure Boot keys during rollback: {error:#}");
     }
 
     sync();
@@ -45,4 +51,25 @@ pub(crate) fn apply(update_id: &str, snapshot_path: &Path, reason: &str) -> Resu
     reboot(RebootCommand::Restart).context("Failed to reboot for rollback")?;
 
     Err(anyhow::anyhow!("Reboot for rollback returned unexpectedly"))
+}
+
+fn restore_previous_image() {
+    let Some(efi_device) = roles::device(Role::Esp) else {
+        kmsg::warn!("Cannot restore the previous UKI: EFI partition not found");
+        return;
+    };
+
+    kmsg::info!("Restoring the previous UKI on the EFI partition {efi_device}");
+    // A failed commit can leave the ESP mounted, so drop any stacked mount first.
+    efi::unmount();
+    let restored = efi::mount(&efi_device).and_then(|()| {
+        efi::restore_previous(
+            Path::new(efi::MOUNT_POINT),
+            esp::arch::Arch::current().boot_path(),
+        )
+    });
+    if let Err(error) = restored {
+        kmsg::warn!("Failed to restore the previous UKI: {error:#}");
+    }
+    efi::unmount();
 }

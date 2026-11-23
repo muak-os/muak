@@ -64,6 +64,47 @@ pub(super) fn write_bytes(esp_root: &Path, relative_path: &str, data: &[u8]) -> 
     Ok(())
 }
 
+pub(super) fn restore_previous(esp_root: &Path, relative_path: &str) -> Result<()> {
+    validate_relative(relative_path)?;
+    let dest = esp_root.join(relative_path);
+    let old = suffixed(&dest, OLD_SUFFIX);
+    if !old.exists() {
+        return Ok(());
+    }
+
+    fs::rename(&old, &dest).with_context(|| {
+        format!(
+            "Failed to restore {} from {}",
+            dest.display(),
+            old.display()
+        )
+    })?;
+    remove_if_exists(&suffixed(&dest, NEW_SUFFIX))?;
+    kmsg::warn!("Restored previous EFI boot file {}", dest.display());
+    if let Some(parent) = dest.parent() {
+        sync_dir(parent);
+    }
+
+    Ok(())
+}
+
+pub(super) fn discard_previous(esp_root: &Path, relative_path: &str) -> Result<()> {
+    validate_relative(relative_path)?;
+    let dest = esp_root.join(relative_path);
+    let old = suffixed(&dest, OLD_SUFFIX);
+    if !old.exists() {
+        return Ok(());
+    }
+
+    remove_if_exists(&old)?;
+    kmsg::info!("Discarded EFI boot backup {}", old.display());
+    if let Some(parent) = dest.parent() {
+        sync_dir(parent);
+    }
+
+    Ok(())
+}
+
 fn stream(dest: &Path, size: u64, reader: &mut dyn Read, label: &str) -> Result<()> {
     let mut writer =
         fs::File::create(dest).with_context(|| format!("Failed to create {}", dest.display()))?;
@@ -408,6 +449,157 @@ mod tests {
 
         // ACT
         let result = write_bytes(dir.path(), "../escape", b"data");
+
+        // ASSERT
+        assert!(result.is_err(), "traversal must be rejected");
+    }
+
+    #[test]
+    fn restore_previous_puts_the_old_image_back() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let dest = dir.path().join(REL);
+        prepare(&dest);
+        fs::write(&dest, b"new").expect("new boot file must be written");
+        let old = suffixed(&dest, OLD_SUFFIX);
+        fs::write(&old, b"old").expect("backup must be written");
+
+        // ACT
+        restore_previous(dir.path(), REL).expect("restore must succeed");
+
+        // ASSERT
+        assert_eq!(
+            fs::read(&dest).expect("live file must exist"),
+            b"old",
+            "the previous image must become the boot image"
+        );
+        assert!(!old.exists(), "the backup must be consumed");
+    }
+
+    #[test]
+    fn restore_previous_is_a_no_op_without_a_backup() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let dest = dir.path().join(REL);
+        prepare(&dest);
+        fs::write(&dest, b"current").expect("boot file must be written");
+
+        // ACT
+        let result = restore_previous(dir.path(), REL);
+
+        // ASSERT
+        result.expect("a missing backup must not fail");
+        assert_eq!(
+            fs::read(&dest).expect("live file must exist"),
+            b"current",
+            "the live file must stay untouched"
+        );
+    }
+
+    #[test]
+    fn restore_previous_restores_when_only_the_backup_exists() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let dest = dir.path().join(REL);
+        prepare(&dest);
+        let old = suffixed(&dest, OLD_SUFFIX);
+        fs::write(&old, b"old").expect("backup must be written");
+
+        // ACT
+        restore_previous(dir.path(), REL).expect("restore must succeed");
+
+        // ASSERT
+        assert_eq!(
+            fs::read(&dest).expect("live file must exist"),
+            b"old",
+            "a failed activate that left only the backup must be recovered"
+        );
+        assert!(!old.exists(), "the backup must be consumed");
+    }
+
+    #[test]
+    fn restore_previous_removes_a_leftover_temp_file() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let dest = dir.path().join(REL);
+        prepare(&dest);
+        fs::write(&dest, b"new").expect("new boot file must be written");
+        fs::write(suffixed(&dest, OLD_SUFFIX), b"old").expect("backup must be written");
+        let new = suffixed(&dest, NEW_SUFFIX);
+        fs::write(&new, b"duplicate").expect("leftover temp must be written");
+
+        // ACT
+        restore_previous(dir.path(), REL).expect("restore must succeed");
+
+        // ASSERT
+        assert!(!new.exists(), "the leftover temp duplicate must be removed");
+        assert_eq!(
+            fs::read(&dest).expect("live file must exist"),
+            b"old",
+            "the previous image must become the boot image"
+        );
+    }
+
+    #[test]
+    fn restore_previous_rejects_parent_traversal() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+
+        // ACT
+        let result = restore_previous(dir.path(), "../escape");
+
+        // ASSERT
+        assert!(result.is_err(), "traversal must be rejected");
+    }
+
+    #[test]
+    fn discard_previous_removes_the_backup() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let dest = dir.path().join(REL);
+        prepare(&dest);
+        fs::write(&dest, b"new").expect("new boot file must be written");
+        let old = suffixed(&dest, OLD_SUFFIX);
+        fs::write(&old, b"old").expect("backup must be written");
+
+        // ACT
+        discard_previous(dir.path(), REL).expect("discard must succeed");
+
+        // ASSERT
+        assert!(!old.exists(), "the backup must be removed");
+        assert_eq!(
+            fs::read(&dest).expect("live file must exist"),
+            b"new",
+            "the live file must stay untouched"
+        );
+    }
+
+    #[test]
+    fn discard_previous_is_a_no_op_without_a_backup() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let dest = dir.path().join(REL);
+        prepare(&dest);
+        fs::write(&dest, b"current").expect("boot file must be written");
+
+        // ACT
+        let result = discard_previous(dir.path(), REL);
+
+        // ASSERT
+        result.expect("a missing backup must not fail");
+        assert!(
+            !suffixed(&dest, OLD_SUFFIX).exists(),
+            "no backup must be created"
+        );
+    }
+
+    #[test]
+    fn discard_previous_rejects_parent_traversal() {
+        // ARRANGE
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+
+        // ACT
+        let result = discard_previous(dir.path(), "../escape");
 
         // ASSERT
         assert!(result.is_err(), "traversal must be rejected");

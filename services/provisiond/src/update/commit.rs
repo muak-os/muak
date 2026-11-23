@@ -89,6 +89,10 @@ pub(super) async fn apply() -> Result<()> {
         kmsg::info!("Writing the LUKS key to the EFI partition");
         efi::write_bytes(Path::new(efi::MOUNT_POINT), "luks", key)?;
     }
+    efi::discard_previous(
+        Path::new(efi::MOUNT_POINT),
+        esp::arch::Arch::current().boot_path(),
+    )?;
     efi::unmount();
 
     kmsg::info!("Update committed to the boot partition");

@@ -48,6 +48,16 @@ pub(crate) fn write_file(
     atomic::write_file(esp_root, relative_path, size, reader)
 }
 
+/// Restores the previous file at `relative_path` from its backup on the ESP.
+pub(crate) fn restore_previous(esp_root: &Path, relative_path: &str) -> Result<()> {
+    atomic::restore_previous(esp_root, relative_path)
+}
+
+/// Removes the backup of `relative_path` now that the commit is complete.
+pub(crate) fn discard_previous(esp_root: &Path, relative_path: &str) -> Result<()> {
+    atomic::discard_previous(esp_root, relative_path)
+}
+
 /// Extracts a streaming tar archive onto the ESP.
 pub(crate) fn extract_tar(esp_root: &Path, reader: &mut dyn Read) -> Result<()> {
     let mut archive = tar::Archive::new(reader);
