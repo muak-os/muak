@@ -1,4 +1,4 @@
-//! LUKS key protection: TPM2 sealing, token management, and fallback to ESP file.
+//! LUKS key protection: TPM2 sealing, token management, and the ESP key file.
 
 use std::path::Path;
 
@@ -23,11 +23,11 @@ pub(crate) enum SealResult {
 pub(crate) enum LuksKey {
     /// Key unsealed from a LUKS2 TPM2 token.
     Tpm(Passphrase),
-    /// Plaintext key read from the ESP key file.
+    /// Plaintext key read from the ESP key file, only produced when no TPM2 is available.
     Esp(Passphrase),
 }
 
-/// Seals a LUKS key to TPM2 or signals writing it to the ESP as a fallback.
+/// Seals a LUKS key to TPM2 or signals writing it to the ESP when the TPM is unavailable.
 pub(crate) fn seal_luks_key(key: &[u8], sections: &[MeasuredSection]) -> Result<SealResult> {
     if tpm2::device::is_available(None) {
         let token = seal_to_token(key, sections).context("Failed to seal LUKS key to TPM2")?;
@@ -42,35 +42,23 @@ pub(crate) fn expected_policy(sections: &[MeasuredSection]) -> [u8; 32] {
     tpm2::pcr::policy_digest(&sorted_sections(sections))
 }
 
-/// Resolves the LUKS key for an update, preferring a TPM2 token and falling back
-/// to the ESP key file.
+/// Resolves the LUKS key for an update: a TPM2 token when a TPM2 is available,
+/// the ESP key file otherwise.
 ///
 /// # Errors
 ///
 /// Returns an error when the TPM2 is available but the STATE partition is
-/// missing, or when the tokens cannot be read. A TPM2 unseal failure falls back
-/// to the ESP key, and it is an error when neither the tokens nor the ESP key
-/// file yield a key while the TPM2 is available.
-pub(crate) fn resolve_luks_key(
-    state_device: Option<&str>,
-    efi_device: &str,
-) -> Result<Option<LuksKey>> {
+/// missing, or when the tokens cannot be read or unsealed.
+pub(crate) fn resolve_luks_key(state_device: Option<&str>, efi_device: &str) -> Result<LuksKey> {
     if !tpm2::device::is_available(None) {
-        return Ok(read_esp_key(efi_device).map(LuksKey::Esp));
+        return read_esp_key(efi_device)
+            .map(LuksKey::Esp)
+            .context("Failed to read the ESP LUKS key");
     }
 
     let state_device = state_device.context("STATE partition not found")?;
 
-    match unseal_luks_key(state_device) {
-        Ok(key) => Ok(Some(LuksKey::Tpm(key))),
-        Err(error) => match read_esp_key(efi_device) {
-            Some(key) => {
-                kmsg::warn!("LUKS key read from the ESP, TPM2 unseal abandoned: {error:#}");
-                Ok(Some(LuksKey::Esp(key)))
-            }
-            None => Err(error),
-        },
-    }
+    Ok(LuksKey::Tpm(unseal_luks_key(state_device)?))
 }
 
 /// Adds a LUKS2 TPM2 token to each of the given device paths, keeping every
@@ -154,30 +142,30 @@ fn sorted_sections(sections: &[MeasuredSection]) -> Vec<(&str, &[u8; 32])> {
     sorted
 }
 
-fn read_esp_key(efi_device: &str) -> Option<Passphrase> {
-    if let Err(e) = efi::mount(efi_device) {
-        eprintln!("Failed to mount EFI partition {efi_device} for the LUKS key: {e}");
-        return None;
+fn read_esp_key(efi_device: &str) -> Result<Passphrase> {
+    if let Err(error) = efi::mount(efi_device) {
+        eprintln!("Failed to mount EFI partition {efi_device} for the LUKS key: {error:#}");
+        return Err(error);
     }
 
     let path = Path::new(efi::MOUNT_POINT).join("luks");
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            eprintln!("Failed to read the LUKS key from {}: {e}", path.display());
-            efi::unmount();
-            return None;
-        }
-    };
+    let result = std::fs::read(&path)
+        .map_err(|error| {
+            eprintln!(
+                "Failed to read the LUKS key from {}: {error}",
+                path.display()
+            );
+            error.into()
+        })
+        .and_then(|bytes| {
+            luks2::key::from_raw(bytes).map_err(|error| {
+                eprintln!("Rejected LUKS key from the ESP: {error:#}");
+                error.into()
+            })
+        });
     efi::unmount();
 
-    match luks2::key::from_raw(bytes) {
-        Ok(key) => Some(key),
-        Err(error) => {
-            eprintln!("Rejected LUKS key from the ESP: {error}");
-            None
-        }
-    }
+    result
 }
 
 #[cfg(test)]

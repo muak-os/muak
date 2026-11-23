@@ -38,20 +38,20 @@ pub(super) async fn apply() -> Result<()> {
         measure::from_file(&staged).context("Failed to read UKI sections from the staged image")?;
 
     let luks_key = match secrets::resolve_luks_key(state_device.as_deref(), &efi_device)? {
-        Some(secrets::LuksKey::Tpm(key)) => {
+        secrets::LuksKey::Tpm(key) => {
             kmsg::info!("LUKS key unsealed from a TPM2 token, resealing it");
             reseal_luks_key(
-                key,
+                &key,
                 state_device.as_deref(),
                 ephemeral_device.as_deref(),
                 &sections,
-            )?
+            )?;
+            None
         }
-        Some(secrets::LuksKey::Esp(key)) => {
+        secrets::LuksKey::Esp(key) => {
             kmsg::info!("LUKS key read from the ESP key file, not resealing");
             Some(key)
         }
-        None => None,
     };
 
     kmsg::info!("Reading the staged system config");
@@ -138,17 +138,16 @@ fn warn_on_version_mismatch() {
 }
 
 fn reseal_luks_key(
-    key: Passphrase,
+    key: &Passphrase,
     state_device: Option<&str>,
     ephemeral_device: Option<&str>,
     sections: &[MeasuredSection],
-) -> Result<Option<Passphrase>> {
+) -> Result<()> {
     if !tpm2::device::is_available(None) {
-        kmsg::warn!("TPM2 unavailable, keeping the LUKS key on the ESP");
-        return Ok(Some(key));
+        bail!("TPM2 disappeared during the reseal");
     }
 
-    let secrets::SealResult::Sealed(token) = secrets::seal_luks_key(&key, sections)? else {
+    let secrets::SealResult::Sealed(token) = secrets::seal_luks_key(key, sections)? else {
         bail!("TPM2 sealing unexpectedly returned an ESP key")
     };
     if ephemeral_device.is_none() {
@@ -165,5 +164,5 @@ fn reseal_luks_key(
     secrets::add_token_to_devices(&token, &devices)?;
     kmsg::info!("LUKS key re-sealed to TPM2 with new PCR#11 values");
 
-    Ok(None)
+    Ok(())
 }
