@@ -2,12 +2,12 @@
 //!
 //! A runtime provides the asynchronous capabilities the network orchestration
 //! layer needs: link control, address and route management, link events,
-//! packet and `ICMPv6` sockets, a clock, and entropy. Ports report
+//! packet, `UDP`, and `ICMPv6` sockets, a clock, and entropy. Ports report
 //! [`std::io::Error`] at their boundary and never expose Linux file
 //! descriptors or raw readiness registration, so orchestration code stays
 //! portable and testable.
 //!
-//! The [`mock`] module provides a deterministic in-memory implementation for
+//! The `mock` module provides a deterministic in-memory implementation for
 //! tests behind the `mock` feature.
 
 #![warn(missing_docs)]
@@ -213,6 +213,55 @@ pub trait Packet {
     ) -> impl Future<Output = std::io::Result<usize>> + Send;
 }
 
+/// Datagram (`UDP`) socket capability.
+///
+/// Every socket kind shares [`ip_method::SocketSpec`], so `bind` and `peer` are
+/// not `UDP`-specific. Implementations should retain those endpoints for the
+/// lifetime of the socket opened by [`open`](Udp::open). Unlike the raw
+/// [`Packet`] and [`Icmpv6`] ports, a `UDP` socket is addressed by its
+/// endpoints rather than by a frame destination.
+pub trait Udp {
+    /// Closes an open socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket is already closed.
+    fn close(&self, id: SocketId) -> impl Future<Output = std::io::Result<()>> + Send;
+
+    /// Opens a `UDP` socket described by the specification.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket cannot be opened.
+    fn open(
+        &self,
+        spec: &ip_method::SocketSpec,
+    ) -> impl Future<Output = std::io::Result<SocketId>> + Send;
+
+    /// Receives a datagram payload from an open socket into the buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket is closed or the receive fails.
+    /// [`std::io::ErrorKind::WouldBlock`] means no datagram is ready yet.
+    fn recv(
+        &self,
+        id: SocketId,
+        buf: &mut [u8],
+    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+
+    /// Sends a datagram payload on an open socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket is closed or the send fails.
+    fn send(
+        &self,
+        id: SocketId,
+        payload: &[u8],
+    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+}
+
 /// Raw `ICMPv6` socket capability.
 pub trait Icmpv6 {
     /// Closes an open socket.
@@ -290,4 +339,6 @@ pub trait Runtime {
     type Packet: Packet;
     /// Default route management port.
     type Route: Route;
+    /// Datagram socket port.
+    type Udp: Udp;
 }

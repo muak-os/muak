@@ -9,15 +9,17 @@
 mod address;
 mod clock;
 mod event;
+mod handle;
 mod link;
 mod route;
 mod socket;
 #[cfg(test)]
 mod tests;
+mod udp;
 
 use alloc::collections::VecDeque;
 use std::io::{Error, ErrorKind, Result};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 use std::time::{Instant, SystemTime};
 
 /// Deterministic in-memory runtime.
@@ -26,6 +28,11 @@ pub struct Mock {
 }
 
 // Runtime state shared by every port implementation.
+//
+// Raw packet and ICMPv6 sockets share `sockets`; UDP datagrams live in `udp`.
+// Both tables hand out ids from the single `next_socket` counter, so a
+// `SocketId` is globally unique and a handle opened by one port is never valid
+// on another. The tables stay split so each kind can carry its own payload.
 struct State {
     now: Instant,
     wall: SystemTime,
@@ -38,6 +45,7 @@ struct State {
     default_routes: Vec<(netmodel::Name, core::net::IpAddr)>,
     events: VecDeque<netmodel::LinkEvent>,
     sockets: Vec<Socket>,
+    udp: Vec<udp::Datagram>,
 }
 
 // One open socket and its queued traffic.
@@ -51,143 +59,6 @@ struct Socket {
 struct Frame {
     bytes: Vec<u8>,
     peer: Option<core::net::Ipv6Addr>,
-}
-
-impl Mock {
-    /// Creates a runtime whose clocks start at `now` and `wall`.
-    #[must_use = "the runtime owns the mock state under test"]
-    pub const fn new(now: Instant, wall: SystemTime) -> Self {
-        Self {
-            state: Mutex::new(State {
-                now,
-                wall,
-                entropy: 0,
-                next_link_index: 1,
-                next_socket: 0,
-                links: Vec::new(),
-                bridges: Vec::new(),
-                addresses: Vec::new(),
-                default_routes: Vec::new(),
-                events: VecDeque::new(),
-                sockets: Vec::new(),
-            }),
-        }
-    }
-
-    /// Sets the monotonic clock.
-    pub fn set_now(&self, now: Instant) {
-        self.write(|state| state.now = now);
-    }
-
-    /// Sets the wall clock.
-    pub fn set_wall(&self, wall: SystemTime) {
-        self.write(|state| state.wall = wall);
-    }
-
-    /// Adds a link or replaces the link with the same name.
-    pub fn set_link(&self, link: netmodel::Link) {
-        self.write(
-            |state| match state.links.iter_mut().find(|known| known.name == link.name) {
-                Some(known) => *known = link,
-                None => state.links.push(link),
-            },
-        );
-    }
-
-    /// Returns the spanning tree setting recorded for a bridge, if known.
-    #[must_use = "callers must inspect the recorded bridge setting"]
-    pub fn bridge_stp(&self, name: &netmodel::Name) -> Option<bool> {
-        self.read(|state| {
-            state
-                .bridges
-                .iter()
-                .find(|entry| &entry.0 == name)
-                .map(|entry| entry.1)
-        })
-    }
-
-    /// Appends a link event to the queue read by [`crate::Events`].
-    pub fn push_event(&self, event: netmodel::LinkEvent) {
-        self.write(|state| state.events.push_back(event));
-    }
-
-    /// Queues a frame for a socket opened through [`crate::Packet`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ErrorKind::NotFound`] when the socket is closed.
-    pub fn push_inbound(&self, id: crate::SocketId, bytes: &[u8]) -> Result<()> {
-        self.push_frame(
-            id,
-            Frame {
-                bytes: bytes.to_vec(),
-                peer: None,
-            },
-        )
-    }
-
-    /// Queues an `ICMPv6` frame with its source for a socket opened through [`crate::Icmpv6`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ErrorKind::NotFound`] when the socket is closed.
-    pub fn push_inbound_from(
-        &self,
-        id: crate::SocketId,
-        bytes: &[u8],
-        source: core::net::Ipv6Addr,
-    ) -> Result<()> {
-        self.push_frame(
-            id,
-            Frame {
-                bytes: bytes.to_vec(),
-                peer: Some(source),
-            },
-        )
-    }
-
-    /// Returns the frames sent on a socket, in send order.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ErrorKind::NotFound`] when the socket is closed.
-    pub fn sent(&self, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
-        self.read(|state| sent_frames(state, id))
-    }
-
-    /// Returns the frames sent on a socket with their peer address, in send order.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ErrorKind::NotFound`] when the socket is closed.
-    pub fn sent_with_peer(
-        &self,
-        id: crate::SocketId,
-    ) -> Result<Vec<(Vec<u8>, Option<core::net::Ipv6Addr>)>> {
-        self.read(|state| sent_frames_with_peer(state, id))
-    }
-
-    /// Returns the default routes currently installed.
-    #[must_use = "callers must inspect the installed routes"]
-    pub fn default_routes(&self) -> Vec<(netmodel::Name, core::net::IpAddr)> {
-        self.read(|state| state.default_routes.clone())
-    }
-
-    fn push_frame(&self, id: crate::SocketId, frame: Frame) -> Result<()> {
-        self.write(|state| queue_inbound(state, id, frame))
-    }
-
-    fn read<T>(&self, project: impl FnOnce(&State) -> T) -> T {
-        project(&self.lock())
-    }
-
-    fn write<T>(&self, project: impl FnOnce(&mut State) -> T) -> T {
-        project(&mut self.lock())
-    }
-
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 }
 
 impl State {
@@ -204,6 +75,20 @@ impl State {
             .find(|socket| socket.id == id.get())
             .ok_or_else(not_found)
     }
+
+    fn udp(&self, id: crate::SocketId) -> Result<&udp::Datagram> {
+        self.udp
+            .iter()
+            .find(|datagram| datagram.id == id.get())
+            .ok_or_else(not_found)
+    }
+
+    fn udp_mut(&mut self, id: crate::SocketId) -> Result<&mut udp::Datagram> {
+        self.udp
+            .iter_mut()
+            .find(|datagram| datagram.id == id.get())
+            .ok_or_else(not_found)
+    }
 }
 
 impl crate::Runtime for Mock {
@@ -215,6 +100,7 @@ impl crate::Runtime for Mock {
     type Link = Self;
     type Packet = Self;
     type Route = Self;
+    type Udp = Self;
 }
 
 fn sent_frames(state: &State, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
@@ -251,10 +137,35 @@ fn queue_inbound(state: &mut State, id: crate::SocketId, frame: Frame) -> Result
         .map(|socket| socket.received.push_back(frame))
 }
 
+fn retain_socket<T>(
+    table: &mut Vec<T>,
+    id: crate::SocketId,
+    id_of: impl Fn(&T) -> u32,
+) -> Result<()> {
+    let before = table.len();
+    table.retain(|entry| id_of(entry) != id.get());
+    if table.len() == before {
+        return Err(not_found());
+    }
+    Ok(())
+}
+
+fn copy_into(bytes: &[u8], buf: &mut [u8]) -> usize {
+    let len = bytes.len().min(buf.len());
+    if let (Some(source), Some(target)) = (bytes.get(..len), buf.get_mut(..len)) {
+        target.copy_from_slice(source);
+    }
+    len
+}
+
 fn not_found() -> Error {
     Error::from(ErrorKind::NotFound)
 }
 
 fn would_block() -> Error {
     Error::from(ErrorKind::WouldBlock)
+}
+
+fn invalid_input() -> Error {
+    Error::from(ErrorKind::InvalidInput)
 }

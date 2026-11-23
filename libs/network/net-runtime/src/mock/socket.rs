@@ -12,9 +12,9 @@ impl crate::Packet for Mock {
 
     fn open(
         &self,
-        _spec: &ip_method::SocketSpec,
+        spec: &ip_method::SocketSpec,
     ) -> impl Future<Output = Result<crate::SocketId>> + Send {
-        std::future::ready(Ok(self.write(open)))
+        std::future::ready(self.write(|state| open(state, spec, ip_method::SocketKind::RawL2)))
     }
 
     fn recv(
@@ -41,9 +41,9 @@ impl crate::Icmpv6 for Mock {
 
     fn open(
         &self,
-        _spec: &ip_method::SocketSpec,
+        spec: &ip_method::SocketSpec,
     ) -> impl Future<Output = Result<crate::SocketId>> + Send {
-        std::future::ready(Ok(self.write(open)))
+        std::future::ready(self.write(|state| open(state, spec, ip_method::SocketKind::RawIcmpv6)))
     }
 
     fn recv(
@@ -53,7 +53,7 @@ impl crate::Icmpv6 for Mock {
     ) -> impl Future<Output = Result<(usize, Option<core::net::Ipv6Addr>)>> + Send {
         std::future::ready(self.write(|state| {
             let frame = take(state, id)?;
-            Ok((copy(&frame.bytes, buf), frame.peer))
+            Ok((super::copy_into(&frame.bytes, buf), frame.peer))
         }))
     }
 
@@ -67,7 +67,14 @@ impl crate::Icmpv6 for Mock {
     }
 }
 
-fn open(state: &mut State) -> crate::SocketId {
+fn open(
+    state: &mut State,
+    spec: &ip_method::SocketSpec,
+    expected: ip_method::SocketKind,
+) -> Result<crate::SocketId> {
+    if spec.kind != expected {
+        return Err(super::invalid_input());
+    }
     let id = state.next_socket;
     state.next_socket = state.next_socket.wrapping_add(1);
     state.sockets.push(Socket {
@@ -75,16 +82,11 @@ fn open(state: &mut State) -> crate::SocketId {
         sent: Vec::new(),
         received: VecDeque::new(),
     });
-    crate::SocketId::new(id)
+    Ok(crate::SocketId::new(id))
 }
 
 fn close(state: &mut State, id: crate::SocketId) -> Result<()> {
-    let before = state.sockets.len();
-    state.sockets.retain(|socket| socket.id != id.get());
-    if state.sockets.len() == before {
-        return Err(super::not_found());
-    }
-    Ok(())
+    super::retain_socket(&mut state.sockets, id, |socket| socket.id)
 }
 
 fn send(
@@ -103,7 +105,7 @@ fn send(
 
 fn receive(state: &mut State, id: crate::SocketId, buf: &mut [u8]) -> Result<usize> {
     let frame = take(state, id)?;
-    Ok(copy(&frame.bytes, buf))
+    Ok(super::copy_into(&frame.bytes, buf))
 }
 
 fn take(state: &mut State, id: crate::SocketId) -> Result<Frame> {
@@ -112,12 +114,4 @@ fn take(state: &mut State, id: crate::SocketId) -> Result<Frame> {
         .received
         .pop_front()
         .ok_or_else(super::would_block)
-}
-
-fn copy(bytes: &[u8], buf: &mut [u8]) -> usize {
-    let len = bytes.len().min(buf.len());
-    if let (Some(source), Some(target)) = (bytes.get(..len), buf.get_mut(..len)) {
-        target.copy_from_slice(source);
-    }
-    len
 }

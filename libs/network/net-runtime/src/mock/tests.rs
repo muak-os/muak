@@ -1,13 +1,13 @@
 //! Behaviour tests for the deterministic mock runtime.
 
 use core::future::Future;
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant, SystemTime};
 
 use super::Mock;
-use crate::{Address, Clock, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime};
+use crate::{Address, Clock, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, Udp};
 
 // Helpers live under `src` rather than `tests/` because the mock is cfg gated
 // and must be reachable from the crate's own tests.
@@ -143,6 +143,98 @@ fn icmpv6_socket_reports_source() {
     assert_eq!(from, Some(source));
     assert_eq!(&buf[..received], b"pong");
     assert_eq!(with_peer, vec![(b"ping".to_vec(), Some(source))]);
+}
+
+#[test]
+fn udp_socket_round_trips_payloads_and_preserves_endpoints() {
+    // ARRANGE
+    let mock = runtime();
+    let mut spec = spec(ip_method::SocketKind::Udp);
+    let bind = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 68));
+    let peer = SocketAddr::from((Ipv4Addr::BROADCAST, 67));
+    spec.bind = Some(bind);
+    spec.peer = Some(peer);
+    let mut buf = [0_u8; 8];
+
+    // ACT
+    let id = block_on(Udp::open(&mock, &spec)).expect("open socket");
+    let sent = block_on(Udp::send(&mock, id, b"offer")).expect("send payload");
+    mock.push_inbound_udp(id, b"ack").expect("queue payload");
+    let received = block_on(Udp::recv(&mock, id, &mut buf)).expect("receive payload");
+    let endpoints = mock.udp_endpoints(id).expect("endpoints");
+    let payloads = mock.udp_sent(id).expect("sent payloads");
+    let empty = block_on(Udp::recv(&mock, id, &mut buf));
+    block_on(Udp::close(&mock, id)).expect("close socket");
+    let after_close = block_on(Udp::recv(&mock, id, &mut buf));
+
+    // ASSERT
+    assert_eq!(sent, 5);
+    assert_eq!(received, 3);
+    assert_eq!(&buf[..received], b"ack");
+    assert_eq!(endpoints, (Some(bind), Some(peer)));
+    assert_eq!(payloads, vec![b"offer".to_vec()]);
+    assert_eq!(
+        empty.expect_err("empty socket").kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        after_close.expect_err("closed socket").kind(),
+        std::io::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn udp_send_after_close_is_not_found() {
+    // ARRANGE
+    let mock = runtime();
+    let spec = spec(ip_method::SocketKind::Udp);
+
+    // ACT
+    let id = block_on(Udp::open(&mock, &spec)).expect("open socket");
+    block_on(Udp::close(&mock, id)).expect("close socket");
+    let sent = block_on(Udp::send(&mock, id, b"nope"));
+
+    // ASSERT
+    assert_eq!(
+        sent.expect_err("closed socket").kind(),
+        std::io::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn udp_open_without_endpoints_reports_none() {
+    // ARRANGE
+    let mock = runtime();
+    let spec = spec(ip_method::SocketKind::Udp);
+
+    // ACT
+    let id = block_on(Udp::open(&mock, &spec)).expect("open socket");
+    let endpoints = mock.udp_endpoints(id).expect("endpoints");
+
+    // ASSERT
+    assert_eq!(endpoints, (None, None));
+}
+
+#[test]
+fn socket_open_rejects_wrong_kind() {
+    // ARRANGE
+    let mock = runtime();
+    let udp = spec(ip_method::SocketKind::Udp);
+    let raw = spec(ip_method::SocketKind::RawL2);
+    let icmp = spec(ip_method::SocketKind::RawIcmpv6);
+
+    // ACT
+    let packet = block_on(Packet::open(&mock, &udp));
+    let icmpv6 = block_on(Icmpv6::open(&mock, &raw));
+    let datagram = block_on(Udp::open(&mock, &icmp));
+
+    // ASSERT
+    for result in [packet, icmpv6, datagram] {
+        assert_eq!(
+            result.expect_err("wrong kind").kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+    }
 }
 
 #[test]
