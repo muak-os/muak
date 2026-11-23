@@ -14,16 +14,11 @@ workspace = true
 
 [features]
 default = ["ipv4", "ipv6"]
-ipv4 = ["dep:dhcp"]
-ipv6 = ["dep:slaac"]
+ipv4 = []
+ipv6 = []
 
 [dependencies]
-# Error handling
-thiserror = { workspace = true }
-
 # Internal
-dhcp = { workspace = true, optional = true }
 ip-method = { workspace = true }
 ip-static = { workspace = true }
 netmodel = { workspace = true }
-slaac = { workspace = true, optional = true }
