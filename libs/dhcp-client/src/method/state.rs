@@ -8,7 +8,7 @@ use addrconf::{Event, Failure, State, Step};
 
 use super::timer::Deadlines;
 use super::{Dhcp, Operations, Phase, intent};
-use crate::Failure;
+use crate::error::DhcpError;
 use crate::lease::Lease;
 
 impl<O: Operations> Dhcp<O> {
@@ -116,7 +116,7 @@ impl<O: Operations> Dhcp<O> {
         self.queue.push_back(Event::State(State::Bound));
     }
 
-    pub(super) fn degrade(&mut self, error: &Failure) {
+    pub(super) fn degrade(&mut self, error: &DhcpError) {
         self.phase = Phase::Degraded;
         self.deadlines.disarm();
         self.queue

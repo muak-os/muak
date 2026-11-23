@@ -6,8 +6,9 @@ use core::net::Ipv4Addr;
 use dhcp_proto::DHCP_CLIENT_PORT;
 
 use crate::datagram::Datagram;
+use crate::error::{DhcpError, Result};
 use crate::lease::Lease;
-use crate::{Failure, MAX_FRAME_LEN, MAX_MESSAGE_LEN, Scratch, method};
+use crate::{MAX_FRAME_LEN, MAX_MESSAGE_LEN, Scratch, exchange, method};
 
 /// Creates the sockets an exchange needs.
 pub trait Transport: Send + Sync {
@@ -57,11 +58,11 @@ impl Exchange<Kernel> {
     /// # Errors
     ///
     /// Returns an error when the raw socket cannot be opened on `interface`.
-    pub async fn open(interface: &str) -> crate::Result<Self> {
+    pub async fn open(interface: &str) -> Result<Self> {
         let transport = Kernel;
         // Probe once so missing interfaces and permissions fail setup instead of acquisition;
         // each exchange opens the socket it needs.
-        transport.raw(interface).await.map_err(Failure::Io)?;
+        transport.raw(interface).await.map_err(DhcpError::Io)?;
 
         Ok(Self::new(transport))
     }
@@ -76,12 +77,12 @@ impl<T: Transport> Exchange<T> {
 }
 
 impl<T: Transport> method::Operations for Exchange<T> {
-    async fn acquire(&self, interface: &str, mac: [u8; 6]) -> crate::Result<Lease> {
-        let socket = self.transport.raw(interface).await.map_err(Failure::Io)?;
+    async fn acquire(&self, interface: &str, mac: [u8; 6]) -> Result<Lease> {
+        let socket = self.transport.raw(interface).await.map_err(DhcpError::Io)?;
         let mut msg = [0_u8; MAX_MESSAGE_LEN];
         let mut frame = [0_u8; MAX_FRAME_LEN];
 
-        crate::exchange::acquire(&socket, mac, Scratch::new(&mut msg, &mut frame)).await
+        exchange::acquire(&socket, mac, Scratch::new(&mut msg, &mut frame)).await
     }
 
     async fn rebind(
@@ -90,12 +91,12 @@ impl<T: Transport> method::Operations for Exchange<T> {
         mac: [u8; 6],
         server: Ipv4Addr,
         assigned: Ipv4Addr,
-    ) -> crate::Result<Lease> {
-        let socket = self.transport.raw(interface).await.map_err(Failure::Io)?;
+    ) -> Result<Lease> {
+        let socket = self.transport.raw(interface).await.map_err(DhcpError::Io)?;
         let mut msg = [0_u8; MAX_MESSAGE_LEN];
         let mut frame = [0_u8; MAX_FRAME_LEN];
 
-        crate::exchange::rebind(
+        exchange::rebind(
             &socket,
             mac,
             server,
@@ -111,16 +112,16 @@ impl<T: Transport> method::Operations for Exchange<T> {
         mac: [u8; 6],
         server: Ipv4Addr,
         assigned: Ipv4Addr,
-    ) -> crate::Result<Lease> {
+    ) -> Result<Lease> {
         let socket = self
             .transport
             .unicast(interface, assigned)
             .await
-            .map_err(Failure::Io)?;
+            .map_err(DhcpError::Io)?;
         let mut msg = [0_u8; MAX_MESSAGE_LEN];
         let mut frame = [0_u8; MAX_FRAME_LEN];
 
-        crate::exchange::renew(
+        exchange::renew(
             &socket,
             mac,
             server,
@@ -140,8 +141,8 @@ mod tests {
     use ip::v4::Addr;
 
     use super::{Exchange, Transport};
-    use crate::Failure;
     use crate::datagram::{Datagram, Received};
+    use crate::error::{DhcpError, Result};
     use crate::method::Operations as _;
 
     const INTERFACE: &str = "eth0";
@@ -164,10 +165,10 @@ mod tests {
         fn recv<'a>(
             &'a self,
             _frame: &'a mut [u8],
-        ) -> impl Future<Output = crate::Result<Option<Received<'a>>>> + Send + 'a {
+        ) -> impl Future<Output = Result<Option<Received<'a>>>> + Send + 'a {
             self.used.lock().expect("use log").push(self.kind);
 
-            std::future::ready(Err(Failure::Timeout))
+            std::future::ready(Err(DhcpError::Timeout))
         }
 
         fn send<'a>(
@@ -176,7 +177,7 @@ mod tests {
             _src: Addr,
             _dst: Addr,
             _frame: &'a mut [u8],
-        ) -> impl Future<Output = crate::Result<()>> + Send + 'a {
+        ) -> impl Future<Output = Result<()>> + Send + 'a {
             std::future::ready(Ok(()))
         }
     }
@@ -240,7 +241,7 @@ mod tests {
         let result = exchange(&used).acquire(INTERFACE, MAC).await;
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::Timeout)));
+        assert!(matches!(result, Err(DhcpError::Timeout)));
         assert_eq!(*used.lock().expect("use log"), [Kind::Raw]);
     }
 
@@ -255,7 +256,7 @@ mod tests {
             .await;
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::Timeout)));
+        assert!(matches!(result, Err(DhcpError::Timeout)));
         assert_eq!(*used.lock().expect("use log"), [Kind::Unicast]);
     }
 
@@ -270,7 +271,7 @@ mod tests {
             .await;
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::Timeout)));
+        assert!(matches!(result, Err(DhcpError::Timeout)));
         assert_eq!(*used.lock().expect("use log"), [Kind::Raw]);
     }
 
@@ -283,6 +284,6 @@ mod tests {
         let result = exchange.acquire(INTERFACE, MAC).await;
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::Io(_))));
+        assert!(matches!(result, Err(DhcpError::Io(_))));
     }
 }

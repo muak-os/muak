@@ -84,7 +84,7 @@ mod tests {
     use addrconf::{Command, Event, Intent, Method as _, State};
 
     use super::{Dhcp, Operations, Phase, View};
-    use crate::Failure;
+    use crate::error::{DhcpError, Result};
     use crate::lease::Lease;
 
     const MAC: [u8; 6] = [0xAA; 6];
@@ -93,7 +93,7 @@ mod tests {
     const ADDRESS_A: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
     const ADDRESS_B: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 3);
 
-    type Results = Mutex<VecDeque<crate::Result<Lease>>>;
+    type Results = Mutex<VecDeque<Result<Lease>>>;
 
     #[derive(Default)]
     struct Mock {
@@ -109,7 +109,7 @@ mod tests {
             &self,
             _interface: &str,
             _mac: [u8; 6],
-        ) -> impl Future<Output = crate::Result<Lease>> + Send {
+        ) -> impl Future<Output = Result<Lease>> + Send {
             core::future::ready(
                 self.acquire
                     .lock()
@@ -125,7 +125,7 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = crate::Result<Lease>> + Send {
+        ) -> impl Future<Output = Result<Lease>> + Send {
             core::future::ready(
                 self.renew
                     .lock()
@@ -141,7 +141,7 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = crate::Result<Lease>> + Send {
+        ) -> impl Future<Output = Result<Lease>> + Send {
             core::future::ready(
                 self.rebind
                     .lock()
@@ -157,7 +157,7 @@ mod tests {
             &self,
             _interface: &str,
             _mac: [u8; 6],
-        ) -> impl Future<Output = crate::Result<Lease>> + Send {
+        ) -> impl Future<Output = Result<Lease>> + Send {
             core::future::pending()
         }
 
@@ -167,7 +167,7 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = crate::Result<Lease>> + Send {
+        ) -> impl Future<Output = Result<Lease>> + Send {
             core::future::pending()
         }
 
@@ -177,15 +177,15 @@ mod tests {
             _mac: [u8; 6],
             _server: Ipv4Addr,
             _assigned: Ipv4Addr,
-        ) -> impl Future<Output = crate::Result<Lease>> + Send {
+        ) -> impl Future<Output = Result<Lease>> + Send {
             core::future::pending()
         }
     }
 
     fn mock(
-        acquire: Vec<crate::Result<Lease>>,
-        renew: Vec<crate::Result<Lease>>,
-        rebind: Vec<crate::Result<Lease>>,
+        acquire: Vec<Result<Lease>>,
+        renew: Vec<Result<Lease>>,
+        rebind: Vec<Result<Lease>>,
     ) -> Mock {
         Mock {
             acquire: Mutex::new(acquire.into()),
@@ -363,7 +363,7 @@ mod tests {
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A))],
-                vec![Err(Failure::Timeout)],
+                vec![Err(DhcpError::Timeout)],
                 vec![Ok(lease(ADDRESS_B))],
             ),
             "eth0",
@@ -409,7 +409,7 @@ mod tests {
             mock(
                 vec![Ok(lease(ADDRESS_A))],
                 Vec::new(),
-                vec![Err(Failure::Timeout)],
+                vec![Err(DhcpError::Timeout)],
             ),
             "eth0",
             MAC,
@@ -498,7 +498,7 @@ mod tests {
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A)), Ok(lease(ADDRESS_B))],
-                vec![Err(Failure::Nak)],
+                vec![Err(DhcpError::Nak)],
                 Vec::new(),
             ),
             "eth0",
@@ -629,7 +629,7 @@ mod tests {
         let now = Instant::now();
         let mut method = Dhcp::new(
             mock(
-                vec![Err(Failure::Timeout), Ok(lease(ADDRESS_A))],
+                vec![Err(DhcpError::Timeout), Ok(lease(ADDRESS_A))],
                 Vec::new(),
                 Vec::new(),
             ),
@@ -658,9 +658,9 @@ mod tests {
         let mut method = Dhcp::new(
             mock(
                 vec![
-                    Err(Failure::Timeout),
-                    Err(Failure::Timeout),
-                    Err(Failure::Timeout),
+                    Err(DhcpError::Timeout),
+                    Err(DhcpError::Timeout),
+                    Err(DhcpError::Timeout),
                 ],
                 Vec::new(),
                 Vec::new(),

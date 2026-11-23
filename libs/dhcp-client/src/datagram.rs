@@ -8,7 +8,7 @@ use ip::v4::{Addr, udp};
 use packet::v4::{ETH_BROADCAST, Socket};
 use tokio::net::UdpSocket;
 
-use crate::Result;
+use crate::error::Result;
 
 /// A datagram transport carrying one `DHCPv4` exchange.
 pub trait Datagram: Send + Sync {

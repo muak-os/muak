@@ -16,16 +16,13 @@ use std::time::Instant;
 use addrconf::Event;
 
 use self::timer::Deadlines;
+use crate::error::Result;
 use crate::lease::Lease;
 
 /// `DHCPv4` exchange operations used by [`Dhcp`].
 pub trait Operations: Send + Sync {
     /// Runs a full `DORA` exchange and returns the granted lease.
-    fn acquire(
-        &self,
-        interface: &str,
-        mac: [u8; 6],
-    ) -> impl Future<Output = crate::Result<Lease>> + Send;
+    fn acquire(&self, interface: &str, mac: [u8; 6]) -> impl Future<Output = Result<Lease>> + Send;
 
     /// Rebinds the lease by broadcasting to any server that answers.
     fn rebind(
@@ -34,7 +31,7 @@ pub trait Operations: Send + Sync {
         mac: [u8; 6],
         server: Ipv4Addr,
         assigned: Ipv4Addr,
-    ) -> impl Future<Output = crate::Result<Lease>> + Send;
+    ) -> impl Future<Output = Result<Lease>> + Send;
 
     /// Renews the lease directly with the granting server.
     fn renew(
@@ -43,7 +40,7 @@ pub trait Operations: Send + Sync {
         mac: [u8; 6],
         server: Ipv4Addr,
         assigned: Ipv4Addr,
-    ) -> impl Future<Output = crate::Result<Lease>> + Send;
+    ) -> impl Future<Output = Result<Lease>> + Send;
 }
 
 /// Lifecycle phase of the `DHCPv4` method.
