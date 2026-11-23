@@ -16,6 +16,8 @@ network_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/libs/network
 failed=0
 
 sans_io_crates=(netmodel ip-method ip-static dhcp slaac iface net-supervisor net-runtime net-loop)
+# Wave 1 codecs join the same layer: no async runtime, platform, or legacy pull-in.
+sans_io_crates+=(ip ethernet mac ndp dhcp-proto)
 sans_io_forbidden=(
     # Async runtime and platform APIs.
     tokio rustix libc rtnetlink
