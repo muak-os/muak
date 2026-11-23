@@ -9,7 +9,7 @@ use super::{Dhcp, Operations, Phase, retry};
 use crate::Failure as DhcpFailure;
 use crate::lease::Lease;
 
-pub(super) async fn acquire<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
+pub(super) async fn acquire<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> Step {
     if let Some(at) = method.retry_at {
         if now < at {
             return Step::Wait;
@@ -18,7 +18,10 @@ pub(super) async fn acquire<E: Operations>(method: &mut Dhcp<E>, now: Instant) -
     }
 
     method.attempts = method.attempts.saturating_add(1);
-    let result = method.exchange.acquire(&method.interface, method.mac).await;
+    let result = method
+        .operations
+        .acquire(&method.interface, method.mac)
+        .await;
 
     match retry::classify(method.attempts, result) {
         retry::Outcome::Acquired(lease) => {
@@ -42,7 +45,7 @@ pub(super) async fn acquire<E: Operations>(method: &mut Dhcp<E>, now: Instant) -
     }
 }
 
-pub(super) async fn renew<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
+pub(super) async fn renew<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> Step {
     if method.deadlines.expired(now) {
         method.expire();
         return Step::Advance;
@@ -54,7 +57,7 @@ pub(super) async fn renew<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> 
     };
 
     match method
-        .exchange
+        .operations
         .renew(&method.interface, method.mac, server, assigned)
         .await
     {
@@ -78,7 +81,7 @@ pub(super) async fn renew<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> 
     }
 }
 
-pub(super) async fn rebind<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
+pub(super) async fn rebind<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> Step {
     if method.deadlines.expired(now) {
         method.expire();
         return Step::Advance;
@@ -90,7 +93,7 @@ pub(super) async fn rebind<E: Operations>(method: &mut Dhcp<E>, now: Instant) ->
     };
 
     match method
-        .exchange
+        .operations
         .rebind(&method.interface, method.mac, server, assigned)
         .await
     {

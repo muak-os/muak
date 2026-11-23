@@ -75,8 +75,8 @@ pub struct View {
 }
 
 /// `DHCPv4` address method driven by lease timers.
-pub struct Dhcp<E: Operations> {
-    exchange: E,
+pub struct Dhcp<O: Operations> {
+    operations: O,
     interface: String,
     mac: [u8; 6],
     phase: Phase,

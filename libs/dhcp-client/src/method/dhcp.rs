@@ -7,7 +7,7 @@ use addrconf::{Command, Event, Method, Step};
 use super::timer::Deadlines;
 use super::{Dhcp, Operations, Phase, View, operations};
 
-impl<E: Operations> Method for Dhcp<E> {
+impl<O: Operations> Method for Dhcp<O> {
     type View = View;
 
     async fn next_event(&mut self, now: Instant) -> Event {
@@ -50,7 +50,7 @@ impl<E: Operations> Method for Dhcp<E> {
     }
 }
 
-async fn run<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Event {
+async fn run<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> Event {
     loop {
         if let Some(event) = method.queue.pop_front() {
             return event;
@@ -61,7 +61,7 @@ async fn run<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Event {
     }
 }
 
-async fn step<E: Operations>(method: &mut Dhcp<E>, now: Instant) -> Step {
+async fn step<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> Step {
     match method.phase {
         Phase::Acquiring => operations::acquire(method, now).await,
         Phase::Bound => method.wait_bound(now),

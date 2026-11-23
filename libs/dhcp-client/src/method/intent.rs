@@ -6,7 +6,7 @@ use addrconf::{AddressConfig, Event, Intent};
 
 use super::{Dhcp, Operations};
 
-pub(super) fn configure<E: Operations>(method: &mut Dhcp<E>) {
+pub(super) fn configure<O: Operations>(method: &mut Dhcp<O>) {
     let Some(lease) = method.lease.as_ref() else {
         return;
     };
@@ -26,7 +26,7 @@ pub(super) fn configure<E: Operations>(method: &mut Dhcp<E>) {
     }
 }
 
-pub(super) fn deconfigure<E: Operations>(method: &mut Dhcp<E>) {
+pub(super) fn deconfigure<O: Operations>(method: &mut Dhcp<O>) {
     let Some(lease) = method.lease.as_ref() else {
         return;
     };

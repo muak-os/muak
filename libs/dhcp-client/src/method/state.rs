@@ -11,12 +11,12 @@ use super::{Dhcp, Operations, Phase, intent};
 use crate::Failure as DhcpFailure;
 use crate::lease::Lease;
 
-impl<E: Operations> Dhcp<E> {
-    /// Creates a DHCP method that runs exchanges through `exchange`.
+impl<O: Operations> Dhcp<O> {
+    /// Creates a DHCP method that runs exchanges through `operations`.
     #[must_use = "the method owns the provisioning state"]
-    pub fn new(exchange: E, interface: &str, mac: [u8; 6]) -> Self {
+    pub fn new(operations: O, interface: &str, mac: [u8; 6]) -> Self {
         Self {
-            exchange,
+            operations,
             interface: String::from(interface),
             mac,
             phase: Phase::Idle,
