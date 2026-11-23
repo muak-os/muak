@@ -146,6 +146,10 @@ pub enum Input<'a> {
         slot: SocketSlot,
         /// Raw frame bytes.
         bytes: &'a [u8],
+        /// Source address of the received frame, when the transport reports
+        /// one. Raw L2 and UDP sockets may report `None`; a raw `ICMPv6`
+        /// socket reports the IPv6 source address.
+        source: Option<IpAddr>,
     },
     /// Socket finished opening.
     SocketOpened {
