@@ -2,9 +2,14 @@
 
 #![warn(missing_docs)]
 
+extern crate alloc;
+
 mod fixed;
 
+use alloc::collections::VecDeque;
 use core::net::IpAddr;
+
+use ip_method::Event;
 
 /// Address family adapter for [`Static`].
 pub trait Family {
@@ -42,4 +47,6 @@ pub struct View<A> {
 /// Static address method generic over the address family.
 pub struct Static<F: Family> {
     config: Config<F::Address>,
+    started: bool,
+    queue: VecDeque<Event>,
 }

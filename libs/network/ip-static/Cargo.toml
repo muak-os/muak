@@ -15,4 +15,3 @@ workspace = true
 [dependencies]
 # Internal
 ip-method = { workspace = true }
-netmodel = { workspace = true }
