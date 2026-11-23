@@ -1,19 +1,6 @@
-//! DHCP transaction ID generation and extraction.
+//! DHCP transaction ID extraction.
 
 use super::field;
-use crate::{Failure, Result};
-
-/// Generates a cryptographically random 32-bit DHCP transaction ID.
-///
-/// # Errors
-///
-/// Returns [`Failure::Xid`] when the system random number generator fails.
-pub fn generate() -> Result<u32> {
-    let mut buf = [0_u8; 4];
-    getrandom::fill(&mut buf).map_err(|_error| Failure::Xid)?;
-
-    Ok(u32::from_be_bytes(buf))
-}
 
 /// Extracts the transaction ID from a raw DHCP message, reading `0` for missing bytes.
 #[must_use = "the transaction ID is the result of parsing"]
@@ -34,22 +21,6 @@ mod tests {
     const MAX_MESSAGE_LEN: usize = 1500;
 
     #[test]
-    fn generate_produces_value() {
-        // ACT / ASSERT
-        let _xid = generate().expect("should generate xid");
-    }
-
-    #[test]
-    fn generate_produces_different_values() {
-        // ACT
-        let first = generate().expect("xid a");
-        let second = generate().expect("xid b");
-
-        // ASSERT
-        assert_ne!(first, second);
-    }
-
-    #[test]
     fn extract_reads_xid() {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
@@ -60,5 +31,17 @@ mod tests {
 
         // ASSERT
         assert_eq!(result, 0xCAFE_BABE);
+    }
+
+    #[test]
+    fn extract_reads_zero_for_short_buffer() {
+        // ARRANGE
+        let buf = [0xFF_u8; field::XID];
+
+        // ACT
+        let result = extract(&buf);
+
+        // ASSERT
+        assert_eq!(result, 0);
     }
 }

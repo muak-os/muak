@@ -1,6 +1,6 @@
 [package]
 name = "dhcp-proto"
-description = "DHCPv4 message codec"
+description = "RFC 2131/2132 DHCPv4 message codec"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,9 +10,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-# Cryptography
-getrandom = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
 

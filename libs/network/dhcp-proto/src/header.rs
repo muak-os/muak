@@ -11,38 +11,22 @@ const HLEN_ETHERNET: u8 = 6;
 /// Size of the fixed header plus the magic cookie.
 pub const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
 
-/// Writes the fixed header and magic cookie with the broadcast flag set.
+/// Writes the fixed header and magic cookie with an explicit `ciaddr` and `flags`.
+///
+/// `ciaddr` carries the address a RENEWING or REBINDING client already holds; it stays zero for
+/// DISCOVER, SELECTING and all server messages.
 ///
 /// # Errors
 ///
 /// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
 /// [`LEN`].
-pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
-    write(buf, xid, mac, FLAG_BROADCAST)
-}
-
-/// Writes the fixed header and magic cookie with the broadcast flag cleared.
-///
-/// # Errors
-///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
-/// [`LEN`].
-pub fn build_unicast(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
-    write(buf, xid, mac, 0)
-}
-
-/// Extracts `yiaddr` from a raw DHCP message, reading `0` for missing bytes.
-#[must_use = "the address is the result of parsing"]
-pub fn yiaddr(buf: &[u8]) -> Ipv4Addr {
-    Ipv4Addr::from([
-        byte_at(buf, field::YIADDR),
-        byte_at(buf, field::YIADDR.saturating_add(1)),
-        byte_at(buf, field::YIADDR.saturating_add(2)),
-        byte_at(buf, field::YIADDR.saturating_add(3)),
-    ])
-}
-
-fn write(buf: &mut [u8], xid: u32, mac: [u8; 6], flags: u16) -> Result<&mut [u8]> {
+pub fn build_with(
+    buf: &mut [u8],
+    xid: u32,
+    mac: [u8; 6],
+    ciaddr: Ipv4Addr,
+    flags: u16,
+) -> Result<&mut [u8]> {
     let Some(out) = buf.get_mut(..LEN) else {
         return Err(Failure::MessageTooLong {
             required: LEN,
@@ -55,11 +39,43 @@ fn write(buf: &mut [u8], xid: u32, mac: [u8; 6], flags: u16) -> Result<&mut [u8]
     set_byte(out, field::HLEN, HLEN_ETHERNET);
     set_byte(out, field::HOPS, 0);
     set_bytes(out, field::XID, &xid.to_be_bytes());
+    set_bytes(out, field::CIADDR, &ciaddr.octets());
     set_bytes(out, field::FLAGS, &flags.to_be_bytes());
     set_bytes(out, field::CHADDR, &mac);
     set_bytes(out, field::HEADER_LEN, &MAGIC_COOKIE);
 
     Ok(out)
+}
+
+/// Writes the fixed header and magic cookie with `ciaddr` zero and the broadcast flag set.
+///
+/// # Errors
+///
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
+/// [`LEN`].
+pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
+    build_with(buf, xid, mac, Ipv4Addr::UNSPECIFIED, FLAG_BROADCAST)
+}
+
+/// Writes the fixed header and magic cookie with `ciaddr` zero and the broadcast flag cleared.
+///
+/// # Errors
+///
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
+/// [`LEN`].
+pub fn build_unicast(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
+    build_with(buf, xid, mac, Ipv4Addr::UNSPECIFIED, 0)
+}
+
+/// Extracts `yiaddr` from a raw DHCP message, reading `0` for missing bytes.
+#[must_use = "the address is the result of parsing"]
+pub fn yiaddr(buf: &[u8]) -> Ipv4Addr {
+    Ipv4Addr::from([
+        byte_at(buf, field::YIADDR),
+        byte_at(buf, field::YIADDR.saturating_add(1)),
+        byte_at(buf, field::YIADDR.saturating_add(2)),
+        byte_at(buf, field::YIADDR.saturating_add(3)),
+    ])
 }
 
 fn set_byte(buf: &mut [u8], index: usize, value: u8) {
@@ -120,6 +136,38 @@ mod tests {
         assert_eq!(
             header.get(field::HEADER_LEN..field::HEADER_LEN + 4),
             Some(&MAGIC_COOKIE[..])
+        );
+    }
+
+    #[test]
+    fn build_with_writes_ciaddr() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+        let assigned = Ipv4Addr::new(10, 0, 0, 50);
+
+        // ACT
+        let header = build_with(&mut buf, 1, MAC, assigned, 0).expect("header fits");
+
+        // ASSERT
+        assert_eq!(
+            header.get(field::CIADDR..field::CIADDR + 4),
+            Some(&assigned.octets()[..])
+        );
+    }
+
+    #[test]
+    fn build_with_writes_given_flags() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+
+        // ACT
+        let header = build_with(&mut buf, 1, MAC, Ipv4Addr::UNSPECIFIED, FLAG_BROADCAST)
+            .expect("header fits");
+
+        // ASSERT
+        assert_eq!(
+            header.get(field::FLAGS..field::FLAGS + 2),
+            Some(&FLAG_BROADCAST.to_be_bytes()[..])
         );
     }
 

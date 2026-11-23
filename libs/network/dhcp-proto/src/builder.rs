@@ -3,7 +3,7 @@
 use core::net::Ipv4Addr;
 
 use super::{header, message_type, option};
-use crate::{Failure, Result};
+use crate::{FLAG_BROADCAST, Failure, Result};
 
 // Fixed length of a one byte DHCP option.
 const MESSAGE_TYPE_LEN: usize = 3;
@@ -17,21 +17,25 @@ const PARAM_REQUEST_COUNT: u8 = 4;
 const PARAM_REQUEST_LIST_LEN: usize = 6;
 const END_LEN: usize = 1;
 
-/// `DHCPv4` REQUEST state, selecting the broadcast flag and server identifier option.
+/// `DHCPv4` REQUEST state, selecting how the client identifies its address.
 #[derive(Clone, Copy)]
 pub enum Mode {
-    /// SELECTING: broadcast flag set, server identifier included.
+    /// SELECTING: option 50 and the server identifier, `ciaddr` zero, broadcast flag set.
     Selecting {
         /// Server that offered the lease.
         server: Ipv4Addr,
     },
-    /// RENEWING: broadcast flag cleared.
-    Unicast,
-    /// REBINDING: broadcast flag set, no server identifier.
-    Broadcast,
+    /// RENEWING: `ciaddr` holds the assigned address, no option 50, no server identifier,
+    /// broadcast flag cleared.
+    Renew,
+    /// REBINDING: `ciaddr` holds the assigned address, no option 50, no server identifier,
+    /// broadcast flag set.
+    Rebind,
 }
 
-/// Writes a DHCP DISCOVER message into `buf`.
+/// Writes a DHCP DISCOVER message with the caller supplied transaction ID into `buf`.
+///
+/// The transaction ID is an input: the codec owns no entropy source.
 ///
 /// # Errors
 ///
@@ -62,7 +66,10 @@ pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     Ok(out)
 }
 
-/// Writes a DHCP REQUEST message into `buf`.
+/// Writes a DHCP REQUEST message with the caller supplied transaction ID into `buf`.
+///
+/// The transaction ID is an input: the codec owns no entropy source. The [`Mode`] decides whether
+/// the assigned address travels in option 50 (SELECTING) or in `ciaddr` (RENEWING, REBINDING).
 ///
 /// # Errors
 ///
@@ -77,11 +84,12 @@ pub fn request(
 ) -> Result<&mut [u8]> {
     let mut required = header::LEN
         .saturating_add(MESSAGE_TYPE_LEN)
-        .saturating_add(REQUESTED_IP_LEN)
         .saturating_add(PARAM_REQUEST_LIST_LEN)
         .saturating_add(END_LEN);
     if matches!(mode, Mode::Selecting { .. }) {
-        required = required.saturating_add(SERVER_ID_LEN);
+        required = required
+            .saturating_add(REQUESTED_IP_LEN)
+            .saturating_add(SERVER_ID_LEN);
     }
     let Some(out) = buf.get_mut(..required) else {
         return Err(Failure::MessageTooLong {
@@ -91,23 +99,24 @@ pub fn request(
     };
 
     match mode {
-        Mode::Selecting { .. } | Mode::Broadcast => header::build(out, xid, mac)?,
-        Mode::Unicast => header::build_unicast(out, xid, mac)?,
+        Mode::Selecting { .. } => header::build(out, xid, mac)?,
+        Mode::Renew => header::build_with(out, xid, mac, assigned, 0)?,
+        Mode::Rebind => header::build_with(out, xid, mac, assigned, FLAG_BROADCAST)?,
     };
 
-    let [first, second, third, fourth] = assigned.octets();
     let mut cursor = header::LEN;
     cursor = put(
         out,
         cursor,
         &[option::MESSAGE_TYPE, 1, message_type::REQUEST],
     )?;
-    cursor = put(
-        out,
-        cursor,
-        &[option::REQUESTED_IP, 4, first, second, third, fourth],
-    )?;
     if let Mode::Selecting { server } = mode {
+        let [first, second, third, fourth] = assigned.octets();
+        cursor = put(
+            out,
+            cursor,
+            &[option::REQUESTED_IP, 4, first, second, third, fourth],
+        )?;
         let [s1, s2, s3, s4] = server.octets();
         cursor = put(out, cursor, &[option::SERVER_ID, 4, s1, s2, s3, s4])?;
     }
@@ -167,6 +176,17 @@ mod tests {
         ])
     }
 
+    fn ciaddr(message: &[u8]) -> Ipv4Addr {
+        let mut octets = [0_u8; 4];
+        octets.copy_from_slice(
+            message
+                .get(field::CIADDR..field::CIADDR + 4)
+                .expect("message carries a ciaddr field"),
+        );
+
+        Ipv4Addr::from(octets)
+    }
+
     #[test]
     fn append_param_request_list_content() {
         // ARRANGE
@@ -202,6 +222,55 @@ mod tests {
     }
 
     #[test]
+    fn discover_writes_given_xid() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+
+        // ACT
+        let message = discover(&mut buf, 0x0BAD_F00D, MAC).expect("message fits");
+
+        // ASSERT
+        assert_eq!(
+            message.get(field::XID..field::XID + 4),
+            Some(&0x0BAD_F00D_u32.to_be_bytes()[..])
+        );
+    }
+
+    #[test]
+    fn discover_honours_distinct_xids() {
+        // ARRANGE
+        let mut first_buf = [0_u8; MAX_MESSAGE_LEN];
+        let mut second_buf = [0_u8; MAX_MESSAGE_LEN];
+
+        // ACT
+        let first = discover(&mut first_buf, 1, MAC).expect("message fits");
+        let second = discover(&mut second_buf, 2, MAC).expect("message fits");
+
+        // ASSERT
+        assert_ne!(
+            first.get(field::XID..field::XID + 4),
+            second.get(field::XID..field::XID + 4)
+        );
+    }
+
+    #[test]
+    fn request_writes_given_xid() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+        let assigned = Ipv4Addr::new(10, 0, 0, 50);
+
+        // ACT
+        let message =
+            request(&mut buf, 0xDEAD_BEEF, MAC, assigned, Mode::Renew).expect("message fits");
+
+        // ASSERT
+        assert_eq!(
+            message.get(field::XID..field::XID + 4),
+            Some(&0xDEAD_BEEF_u32.to_be_bytes()[..])
+        );
+    }
+
+    #[test]
     fn discover_sets_broadcast_flag() {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
@@ -210,46 +279,71 @@ mod tests {
         let message = discover(&mut buf, 1, MAC).expect("message fits");
 
         // ASSERT
-        assert_eq!(flags(message), crate::FLAG_BROADCAST);
+        assert_eq!(flags(message), FLAG_BROADCAST);
     }
 
     #[test]
-    fn request_unicast_clears_broadcast_flag() {
+    fn request_renew_clears_broadcast_flag() {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
         let assigned = Ipv4Addr::new(10, 0, 0, 50);
 
         // ACT
-        let message =
-            request(&mut buf, 0x1234, MAC, assigned, Mode::Unicast).expect("message fits");
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Renew).expect("message fits");
 
         // ASSERT
         assert_eq!(flags(message), 0);
     }
 
     #[test]
-    fn request_broadcast_sets_flag() {
+    fn request_rebind_sets_broadcast_flag() {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
         let assigned = Ipv4Addr::new(10, 0, 0, 50);
 
         // ACT
-        let message =
-            request(&mut buf, 0x1234, MAC, assigned, Mode::Broadcast).expect("message fits");
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Rebind).expect("message fits");
 
         // ASSERT
-        assert_eq!(flags(message), crate::FLAG_BROADCAST);
+        assert_eq!(flags(message), FLAG_BROADCAST);
     }
 
     #[test]
-    fn request_writes_requested_ip() {
+    fn request_renew_writes_ciaddr() {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
         let assigned = Ipv4Addr::new(10, 0, 0, 50);
 
         // ACT
-        let message =
-            request(&mut buf, 0x1234, MAC, assigned, Mode::Broadcast).expect("message fits");
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Renew).expect("message fits");
+
+        // ASSERT
+        assert_eq!(ciaddr(message), assigned);
+    }
+
+    #[test]
+    fn request_rebind_writes_ciaddr() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+        let assigned = Ipv4Addr::new(10, 0, 0, 50);
+
+        // ACT
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Rebind).expect("message fits");
+
+        // ASSERT
+        assert_eq!(ciaddr(message), assigned);
+    }
+
+    #[test]
+    fn request_selecting_writes_requested_ip() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+        let assigned = Ipv4Addr::new(10, 0, 0, 50);
+        let server = Ipv4Addr::new(192, 168, 1, 1);
+
+        // ACT
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Selecting { server })
+            .expect("message fits");
 
         // ASSERT
         let start = header::LEN + MESSAGE_TYPE_LEN;
@@ -257,6 +351,21 @@ mod tests {
             message.get(start..start + REQUESTED_IP_LEN),
             Some([option::REQUESTED_IP, 4, 10, 0, 0, 50].as_slice())
         );
+    }
+
+    #[test]
+    fn request_selecting_leaves_ciaddr_empty() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+        let assigned = Ipv4Addr::new(10, 0, 0, 50);
+        let server = Ipv4Addr::new(192, 168, 1, 1);
+
+        // ACT
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Selecting { server })
+            .expect("message fits");
+
+        // ASSERT
+        assert_eq!(ciaddr(message), Ipv4Addr::UNSPECIFIED);
     }
 
     #[test]
@@ -291,23 +400,38 @@ mod tests {
             .expect("message fits");
 
         // ASSERT
-        assert_eq!(flags(message), crate::FLAG_BROADCAST);
+        assert_eq!(flags(message), FLAG_BROADCAST);
     }
 
     #[test]
-    fn request_broadcast_omits_server_id() {
+    fn request_renew_omits_requested_ip_and_server_id() {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
         let assigned = Ipv4Addr::new(10, 0, 0, 50);
-        let message =
-            request(&mut buf, 0x1234, MAC, assigned, Mode::Broadcast).expect("message fits");
 
         // ACT
-        let after_ip = header::LEN + MESSAGE_TYPE_LEN + REQUESTED_IP_LEN;
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Renew).expect("message fits");
 
         // ASSERT
-        assert_eq!(message.len(), 256);
-        assert_eq!(message.get(after_ip), Some(&option::PARAM_REQUEST_LIST));
+        let after_type = header::LEN + MESSAGE_TYPE_LEN;
+        assert_eq!(message.len(), 250);
+        assert_eq!(message.get(after_type), Some(&option::PARAM_REQUEST_LIST));
+        assert!(!message.contains(&option::SERVER_ID));
+    }
+
+    #[test]
+    fn request_rebind_omits_requested_ip_and_server_id() {
+        // ARRANGE
+        let mut buf = [0_u8; MAX_MESSAGE_LEN];
+        let assigned = Ipv4Addr::new(10, 0, 0, 50);
+
+        // ACT
+        let message = request(&mut buf, 0x1234, MAC, assigned, Mode::Rebind).expect("message fits");
+
+        // ASSERT
+        let after_type = header::LEN + MESSAGE_TYPE_LEN;
+        assert_eq!(message.len(), 250);
+        assert_eq!(message.get(after_type), Some(&option::PARAM_REQUEST_LIST));
         assert!(!message.contains(&option::SERVER_ID));
     }
 
@@ -337,12 +461,12 @@ mod tests {
         // ARRANGE
         let mut buf = [0_u8; MAX_MESSAGE_LEN];
         let assigned = Ipv4Addr::new(10, 0, 0, 50);
-        let required = request(&mut buf, 1, MAC, assigned, Mode::Broadcast)
+        let required = request(&mut buf, 1, MAC, assigned, Mode::Renew)
             .expect("message fits")
             .len();
 
         // ACT
-        let result = request(&mut buf[..required - 1], 1, MAC, assigned, Mode::Broadcast);
+        let result = request(&mut buf[..required - 1], 1, MAC, assigned, Mode::Renew);
 
         // ASSERT
         let Err(Failure::MessageTooLong {

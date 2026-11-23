@@ -1,4 +1,4 @@
-//! `DHCPv4` message codec (RFC 2131).
+//! RFC 2131/2132 `DHCPv4` message codec.
 
 #![warn(missing_docs)]
 
@@ -31,9 +31,6 @@ pub const DHCP_SERVER_PORT: u16 = 67;
 /// `DHCPv4` codec failures.
 #[derive(Debug, Error)]
 pub enum Failure {
-    /// Failed to generate a random transaction ID.
-    #[error("failed to generate a random DHCP transaction ID")]
-    Xid,
     /// DHCP message does not fit the caller supplied buffer.
     #[error("DHCP message needs {required} bytes, buffer holds {capacity}")]
     MessageTooLong {
