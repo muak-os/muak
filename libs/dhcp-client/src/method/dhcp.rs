@@ -84,7 +84,7 @@ mod tests {
     use addrconf::{Command, Event, Intent, Method as _, State};
 
     use super::{Dhcp, Operations, Phase, View};
-    use crate::Failure as DhcpFailure;
+    use crate::Failure;
     use crate::lease::Lease;
 
     const MAC: [u8; 6] = [0xAA; 6];
@@ -363,7 +363,7 @@ mod tests {
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A))],
-                vec![Err(DhcpFailure::Timeout)],
+                vec![Err(Failure::Timeout)],
                 vec![Ok(lease(ADDRESS_B))],
             ),
             "eth0",
@@ -409,7 +409,7 @@ mod tests {
             mock(
                 vec![Ok(lease(ADDRESS_A))],
                 Vec::new(),
-                vec![Err(DhcpFailure::Timeout)],
+                vec![Err(Failure::Timeout)],
             ),
             "eth0",
             MAC,
@@ -498,7 +498,7 @@ mod tests {
         let mut method = Dhcp::new(
             mock(
                 vec![Ok(lease(ADDRESS_A)), Ok(lease(ADDRESS_B))],
-                vec![Err(DhcpFailure::Nak)],
+                vec![Err(Failure::Nak)],
                 Vec::new(),
             ),
             "eth0",
@@ -629,7 +629,7 @@ mod tests {
         let now = Instant::now();
         let mut method = Dhcp::new(
             mock(
-                vec![Err(DhcpFailure::Timeout), Ok(lease(ADDRESS_A))],
+                vec![Err(Failure::Timeout), Ok(lease(ADDRESS_A))],
                 Vec::new(),
                 Vec::new(),
             ),
@@ -658,9 +658,9 @@ mod tests {
         let mut method = Dhcp::new(
             mock(
                 vec![
-                    Err(DhcpFailure::Timeout),
-                    Err(DhcpFailure::Timeout),
-                    Err(DhcpFailure::Timeout),
+                    Err(Failure::Timeout),
+                    Err(Failure::Timeout),
+                    Err(Failure::Timeout),
                 ],
                 Vec::new(),
                 Vec::new(),

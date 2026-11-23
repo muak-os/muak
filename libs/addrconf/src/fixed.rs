@@ -129,6 +129,7 @@ where
             return None;
         }
         let &(address, prefix_len) = self.config.addresses.first()?;
+
         Some(StaticView {
             address,
             prefix_len,

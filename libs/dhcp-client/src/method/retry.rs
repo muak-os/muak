@@ -2,8 +2,8 @@
 
 use core::time::Duration;
 
-use crate::Failure as DhcpFailure;
 use crate::lease::Lease;
+use crate::{Failure, Result};
 
 pub(super) const MAX_ATTEMPTS: u32 = 3;
 
@@ -17,10 +17,10 @@ pub(super) enum Outcome {
     // The attempt failed and may be retried after the delay.
     Retry(Duration),
     // The attempt failed for the last time.
-    Failed(DhcpFailure),
+    Failed(Failure),
 }
 
-pub(super) fn classify(attempt: u32, result: crate::Result<Lease>) -> Outcome {
+pub(super) fn classify(attempt: u32, result: Result<Lease>) -> Outcome {
     match result {
         Ok(lease) => Outcome::Acquired(lease),
         Err(error) if attempt >= MAX_ATTEMPTS => Outcome::Failed(error),
@@ -41,7 +41,7 @@ mod tests {
     use core::time::Duration;
 
     use super::{MAX_ATTEMPTS, Outcome, backoff, classify};
-    use crate::Failure as DhcpFailure;
+    use crate::Failure;
 
     #[test]
     fn backoff_doubles_from_the_base_and_saturates() {
@@ -61,19 +61,19 @@ mod tests {
     #[test]
     fn last_attempt_fails_instead_of_retrying() {
         // ARRANGE
-        let result = Err(DhcpFailure::Timeout);
+        let result = Err(Failure::Timeout);
 
         // ACT
         let outcome = classify(MAX_ATTEMPTS, result);
 
         // ASSERT
-        assert!(matches!(outcome, Outcome::Failed(DhcpFailure::Timeout)));
+        assert!(matches!(outcome, Outcome::Failed(Failure::Timeout)));
     }
 
     #[test]
     fn earlier_attempt_retries() {
         // ARRANGE
-        let result = Err(DhcpFailure::Nak);
+        let result = Err(Failure::Nak);
 
         // ACT
         let outcome = classify(1, result);

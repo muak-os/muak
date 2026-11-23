@@ -6,7 +6,7 @@ use std::time::Instant;
 use addrconf::{Event, Step};
 
 use super::{Dhcp, Operations, Phase, retry};
-use crate::Failure as DhcpFailure;
+use crate::Failure;
 use crate::lease::Lease;
 
 pub(super) async fn acquire<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> Step {
@@ -65,7 +65,7 @@ pub(super) async fn renew<O: Operations>(method: &mut Dhcp<O>, now: Instant) -> 
             method.bind(lease);
             Step::Advance
         }
-        Err(DhcpFailure::Nak) => {
+        Err(Failure::Nak) => {
             method.begin_acquire();
             Step::Advance
         }
@@ -101,7 +101,7 @@ pub(super) async fn rebind<O: Operations>(method: &mut Dhcp<O>, now: Instant) ->
             method.bind(lease);
             Step::Advance
         }
-        Err(DhcpFailure::Nak) => {
+        Err(Failure::Nak) => {
             method.begin_acquire();
             Step::Advance
         }

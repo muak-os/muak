@@ -10,8 +10,6 @@ use tokio::sync::mpsc;
 use crate::interface::Notice;
 
 /// Address family an interface controller can drive.
-///
-/// A family is a build-time selector, so it carries no data of its own.
 pub trait Family: 'static {
     /// Whether this build enables the family.
     const ENABLED: bool;
