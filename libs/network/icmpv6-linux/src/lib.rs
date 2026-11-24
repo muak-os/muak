@@ -1,8 +1,4 @@
-//! Raw `ICMPv6` socket adapter for Linux.
-//!
-//! Opening a socket performs every kernel side setup step and returns the owned file descriptor.
-//! Sending and receiving borrow that descriptor and keep no state, so the adapter is a byte pipe
-//! that never holds the descriptor across a wait.
+//! Raw `ICMPv6` socket adapter that owns the descriptor and keeps no state between sends and receives.
 
 #![warn(missing_docs)]
 
@@ -20,9 +16,6 @@ const FILTER_WORDS: usize = 8;
 const ALLOW_ALL: u32 = 0;
 const IF_NAME_MAX: usize = 16;
 
-/// Kernel `struct icmp6_filter` from `<netinet/icmp6.h>`.
-///
-/// A clear bit means "deliver this `ICMPv6` type to the socket".
 #[repr(C)]
 struct Filter {
     data: [u32; FILTER_WORDS],
@@ -88,8 +81,6 @@ pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<(usize, Option<Ipv
         .map_err(io::Error::from)
 }
 
-// `bind_device` and `copy_device_name` are duplicated in the `packet-v4-linux` adapter. Sharing
-// them needs a support crate that is outside this lane, so the duplication is follow-up tech debt.
 fn bind_device(fd: BorrowedFd<'_>, device: &str) -> io::Result<()> {
     let mut name = [0_u8; IF_NAME_MAX];
     let length = copy_device_name(&mut name, device)?;

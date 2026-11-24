@@ -28,6 +28,7 @@ fn ensure(state: &mut State, link: &netmodel::Name, gateway: core::net::IpAddr) 
     if !state.default_routes.contains(&entry) {
         state.default_routes.push(entry);
     }
+
     Ok(())
 }
 
@@ -36,5 +37,6 @@ fn remove(state: &mut State, link: &netmodel::Name, gateway: core::net::IpAddr) 
     state
         .default_routes
         .retain(|entry| !(&entry.0 == link && entry.1 == gateway));
+
     Ok(())
 }

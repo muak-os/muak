@@ -9,6 +9,7 @@ use crate::control;
 impl net_runtime::Link for super::Tokio {
     async fn detach(&self, port: &Name) -> io::Result<()> {
         let index = control::resolve(&self.link, port).await?;
+
         control::execute(&self.link, netlink_linux::detach(index)).await
     }
 
@@ -39,17 +40,20 @@ impl net_runtime::Link for super::Tokio {
 
     async fn set_down(&self, name: &Name) -> io::Result<()> {
         let index = control::resolve(&self.link, name).await?;
+
         control::execute(&self.link, netlink_linux::set_link_down(index)).await
     }
 
     async fn set_master(&self, port: &Name, master: &Name) -> io::Result<()> {
         let port = control::resolve(&self.link, port).await?;
         let master = control::resolve(&self.link, master).await?;
+
         control::execute(&self.link, netlink_linux::set_master(port, master)).await
     }
 
     async fn set_up(&self, name: &Name) -> io::Result<()> {
         let index = control::resolve(&self.link, name).await?;
+
         control::execute(&self.link, netlink_linux::set_link_up(index)).await
     }
 }

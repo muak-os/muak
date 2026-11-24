@@ -6,7 +6,6 @@ use std::io::Result;
 
 use super::{Mock, State};
 
-// One open UDP socket, its endpoints, and queued traffic.
 pub(super) struct Datagram {
     pub(super) id: u32,
     pub(super) bind: Option<SocketAddr>,
@@ -57,6 +56,7 @@ fn open(state: &mut State, spec: &ip_method::SocketSpec) -> Result<crate::Socket
         sent: Vec::new(),
         received: VecDeque::new(),
     });
+
     Ok(crate::SocketId::new(id))
 }
 
@@ -67,6 +67,7 @@ fn close(state: &mut State, id: crate::SocketId) -> Result<()> {
 fn send(state: &mut State, id: crate::SocketId, payload: &[u8]) -> Result<usize> {
     let datagram = state.udp_mut(id)?;
     datagram.sent.push(payload.to_vec());
+
     Ok(payload.len())
 }
 
@@ -76,5 +77,6 @@ fn receive(state: &mut State, id: crate::SocketId, buf: &mut [u8]) -> Result<usi
         .received
         .pop_front()
         .ok_or_else(super::would_block)?;
+
     Ok(super::copy_into(&payload, buf))
 }

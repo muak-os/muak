@@ -16,6 +16,7 @@ pub(crate) fn request(payload: RouteNetlinkMessage, flags: u16) -> Message {
     let mut message = Message::from(payload);
     message.header.flags = flags;
     message.finalize();
+
     message
 }
 
@@ -46,6 +47,7 @@ pub(crate) fn link(index: u32) -> LinkMessage {
         index,
         ..LinkHeader::default()
     };
+
     message
 }
 

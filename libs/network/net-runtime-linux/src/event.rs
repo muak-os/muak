@@ -50,6 +50,7 @@ impl net_runtime::Events for super::Tokio {
 async fn drain(state: &Mutex<State>) -> io::Result<LinkEvent> {
     let mut state = state.lock().await;
     seed(&mut state).await?;
+
     loop {
         if let Some(event) = step(&mut state).await? {
             return Ok(event);
@@ -79,7 +80,6 @@ async fn step(state: &mut State) -> io::Result<Option<LinkEvent>> {
     }
 }
 
-// Reports the closed event once, then fails every later call with `BrokenPipe`.
 fn closed(state: &mut State) -> io::Result<Option<LinkEvent>> {
     if state.closed {
         return Err(io::Error::new(
@@ -89,6 +89,7 @@ fn closed(state: &mut State) -> io::Result<Option<LinkEvent>> {
     }
 
     state.closed = true;
+
     Ok(Some(LinkEvent::Error(LinkFailure::Closed)))
 }
 
@@ -141,6 +142,7 @@ mod tests {
     fn nack(code: i32) -> ErrorMessage {
         let bytes = code.to_le_bytes();
         let buffer = ErrorBuffer::new_checked(&bytes).expect("error buffer");
+
         ErrorMessage::parse(&buffer).expect("parsed error message")
     }
 

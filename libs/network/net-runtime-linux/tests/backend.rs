@@ -24,6 +24,7 @@ mod backend {
 
     fn free_loopback_address() -> std::net::SocketAddr {
         let probe = std::net::UdpSocket::bind("127.0.0.1:0").expect("probe socket");
+
         probe.local_addr().expect("probe address")
     }
 

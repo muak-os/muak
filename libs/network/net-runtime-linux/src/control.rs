@@ -21,8 +21,6 @@ pub(crate) const fn link_membership() -> u32 {
     1 << (RTNLGRP_LINK - 1)
 }
 
-// Opens a route netlink connection, subscribes to link notifications, and
-// spawns its background task.
 pub(crate) fn connect() -> io::Result<(Handle, Messages)> {
     let (mut connection, handle, messages) = netlink_proto::new_connection_with_socket::<
         RouteNetlinkMessage,
@@ -34,7 +32,6 @@ pub(crate) fn connect() -> io::Result<(Handle, Messages)> {
     Ok((handle, messages))
 }
 
-// Sends a request and waits for its completion, mapping a kernel NACK to an error.
 pub(crate) async fn execute(handle: &Handle, message: Message) -> io::Result<()> {
     let mut responses = handle.request(message, kernel()).map_err(request_error)?;
     while let Some(message) = responses.next().await {
@@ -44,7 +41,6 @@ pub(crate) async fn execute(handle: &Handle, message: Message) -> io::Result<()>
     Ok(())
 }
 
-// Sends a dump request and collects every reply payload.
 pub(crate) async fn collect(
     handle: &Handle,
     message: Message,
@@ -64,7 +60,6 @@ pub(crate) async fn collect(
     Ok(replies)
 }
 
-// Dumps every link known to the kernel.
 pub(crate) async fn links(handle: &Handle) -> io::Result<Vec<netmodel::Link>> {
     let replies = collect(handle, netlink_linux::get_links()).await?;
 
@@ -74,7 +69,6 @@ pub(crate) async fn links(handle: &Handle) -> io::Result<Vec<netmodel::Link>> {
         .collect())
 }
 
-// Resolves an interface name to its kernel index.
 pub(crate) async fn resolve(handle: &Handle, name: &netmodel::Name) -> io::Result<u32> {
     links(handle)
         .await?
@@ -144,6 +138,7 @@ mod tests {
     fn nack(code: i32) -> ErrorMessage {
         let bytes = code.to_le_bytes();
         let buffer = ErrorBuffer::new_checked(&bytes).expect("error buffer");
+
         ErrorMessage::parse(&buffer).expect("parsed error message")
     }
 

@@ -9,8 +9,6 @@ use std::time::{Duration, Instant, SystemTime};
 use super::Mock;
 use crate::{Address, Clock as _, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, Udp};
 
-// Helpers live under `src` rather than `tests/` because the mock is cfg gated
-// and must be reachable from the crate's own tests.
 fn runtime() -> Mock {
     Mock::new(Instant::now(), SystemTime::UNIX_EPOCH)
 }
@@ -40,6 +38,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let waker = Waker::noop();
     let mut context = Context::from_waker(waker);
+
     match Future::poll(future.as_mut(), &mut context) {
         Poll::Ready(value) => value,
         Poll::Pending => panic!("mock future must be ready"),

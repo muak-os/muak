@@ -57,6 +57,7 @@ fn detach(state: &mut State, port: &netmodel::Name) -> Result<()> {
         .find(|link| &link.name == port)
         .ok_or_else(super::not_found)?;
     link.master = None;
+
     Ok(())
 }
 
@@ -96,6 +97,7 @@ fn set_state(
         .find(|link| &link.name == name)
         .ok_or_else(super::not_found)?;
     link.state = new_state;
+
     Ok(())
 }
 
@@ -112,5 +114,6 @@ fn set_master(state: &mut State, port: &netmodel::Name, master: &netmodel::Name)
         .find(|link| &link.name == port)
         .ok_or_else(super::not_found)?;
     link.master = Some(index);
+
     Ok(())
 }

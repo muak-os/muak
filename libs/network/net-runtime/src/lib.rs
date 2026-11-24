@@ -1,14 +1,4 @@
-//! Platform-agnostic network runtime ports.
-//!
-//! A runtime provides the asynchronous capabilities the network orchestration
-//! layer needs: link control, address and route management, link events,
-//! packet, `UDP`, and `ICMPv6` sockets, a clock, and entropy. Ports report
-//! [`std::io::Error`] at their boundary and never expose Linux file
-//! descriptors or raw readiness registration, so orchestration code stays
-//! portable and testable.
-//!
-//! The `mock` module provides a deterministic in-memory implementation for
-//! tests behind the `mock` feature.
+//! Platform-agnostic network runtime ports plus a deterministic in-memory mock behind the `mock` feature.
 
 #![warn(missing_docs)]
 

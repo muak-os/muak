@@ -35,6 +35,7 @@ fn add(state: &mut State, link: &netmodel::Name, address: netmodel::Address) -> 
     if !state.addresses.contains(&entry) {
         state.addresses.push(entry);
     }
+
     Ok(())
 }
 
@@ -52,5 +53,6 @@ fn remove(state: &mut State, link: &netmodel::Name, address: netmodel::Address) 
     state
         .addresses
         .retain(|entry| !(&entry.0 == link && entry.1 == address));
+
     Ok(())
 }

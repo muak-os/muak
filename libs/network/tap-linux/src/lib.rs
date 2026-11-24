@@ -1,8 +1,4 @@
-//! TUN/TAP device adapter for Linux.
-//!
-//! Creating a device performs the `/dev/net/tun` setup and returns the owned queue file
-//! descriptor. Deleting a device attaches to it and clears the persistence flag. The adapter owns
-//! no bridge policy: bringing the device up and enslaving it belongs to the caller.
+//! TUN/TAP device adapter that owns the queue descriptor and leaves bridge policy to the caller.
 
 #![warn(missing_docs)]
 
@@ -25,7 +21,6 @@ const TUNSETPERSIST: Opcode = opcode::write::<libc::c_int>(b'T', 203);
 const PERSIST: libc::c_int = 1;
 const NON_PERSIST: libc::c_int = 0;
 
-/// Kernel `struct ifreq` from `<net/if.h>`.
 #[repr(C)]
 struct IfReq {
     ifr_name: [u8; IF_NAME_MAX],
@@ -65,11 +60,11 @@ pub fn create(name: &str) -> io::Result<OwnedFd> {
 /// the returned [`io::Error`].
 pub fn delete(name: &str) -> io::Result<()> {
     let fd = attach(name)?;
+
     set_persist(fd.as_fd(), NON_PERSIST)
 }
 
 fn attach(name: &str) -> io::Result<OwnedFd> {
-    // Build the request before touching the device so an invalid name fails without side effects.
     let ifr = IfReq {
         ifr_name: build_ifreq_name(name)?,
         ifr_flags: IFF_TAP | IFF_NO_PI | IFF_VNET_HDR,
@@ -97,6 +92,7 @@ fn set_persist(fd: BorrowedFd<'_>, persist: libc::c_int) -> io::Result<()> {
         // SAFETY: `Setter::new` packages the persistence flag for `TUNSETPERSIST`.
         Setter::<TUNSETPERSIST, libc::c_int>::new(persist)
     };
+
     unsafe {
         // SAFETY: The opcode and argument layout match the `TUNSETPERSIST` ioctl contract.
         ioctl(fd, set_persist)

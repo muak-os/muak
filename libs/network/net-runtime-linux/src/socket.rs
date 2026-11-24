@@ -1,9 +1,5 @@
 //! Socket identifier table shared by the data plane ports.
 
-// A pending `recv` holds the table read guard while it awaits readiness. The
-// driver must drop the receive future before closing that socket, otherwise
-// `close` waits for the read guard to be released.
-
 use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -28,6 +24,7 @@ impl<T> Table<T> {
     pub(crate) async fn insert(&self, socket: T) -> SocketId {
         let id = SocketId::new(self.next.fetch_add(1, Ordering::Relaxed));
         self.entries.write().await.insert(id, socket);
+
         id
     }
 

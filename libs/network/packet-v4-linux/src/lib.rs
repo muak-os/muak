@@ -1,8 +1,4 @@
-//! `AF_PACKET`/`SOCK_DGRAM` IPv4 socket adapter for Linux.
-//!
-//! Opening a socket performs every kernel side setup step and returns the owned file descriptor.
-//! Sending and receiving borrow that descriptor and keep no state, so the adapter is a byte pipe
-//! that never holds the descriptor across a wait.
+//! `AF_PACKET`/`SOCK_DGRAM` IPv4 socket adapter that owns the descriptor and keeps no state between sends and receives.
 
 #![warn(missing_docs)]
 
@@ -19,7 +15,6 @@ const ETH_PROTOCOL_IP: u16 = 0x0800_u16.to_be();
 const SOCK_ADDR_LL_LEN: SocketAddrLen = 20;
 const IF_NAME_MAX: usize = 16;
 
-/// Stable kernel UAPI `struct sockaddr_ll` from `<linux/if_packet.h>`.
 #[repr(C)]
 struct SockAddrLl {
     family: u16,
@@ -89,6 +84,7 @@ pub fn open(link: &Name) -> io::Result<OwnedFd> {
 /// [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
 pub fn send(fd: BorrowedFd<'_>, frame: &[u8], dst: [u8; ETH_ALEN]) -> io::Result<usize> {
     let index = bound_if_index(fd)?;
+
     net::sendto(
         fd,
         frame,
@@ -110,8 +106,6 @@ pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<usize> {
         .map_err(io::Error::from)
 }
 
-// `bind_device` and `copy_device_name` are duplicated in the `icmpv6-linux` adapter. Sharing them
-// needs a support crate that is outside this lane, so the duplication is follow-up tech debt.
 fn bind_device(fd: BorrowedFd<'_>, device: &str) -> io::Result<()> {
     let mut name = [0_u8; IF_NAME_MAX];
     let length = copy_device_name(&mut name, device)?;
@@ -157,8 +151,6 @@ fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> io::Result<
     Ok(length)
 }
 
-// The adapter keeps no state between calls, so the interface index that `open` bound is recovered
-// from the socket address instead of being cached next to the descriptor.
 fn bound_if_index(fd: BorrowedFd<'_>) -> io::Result<i32> {
     let addr = net::getsockname(fd).map_err(io::Error::from)?;
     if addr.address_family() != net::AddressFamily::PACKET || addr.addr_len() < SOCK_ADDR_LL_LEN {

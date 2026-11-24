@@ -10,6 +10,7 @@ use crate::control;
 impl net_runtime::Address for super::Tokio {
     async fn add(&self, link: &Name, address: Address) -> io::Result<()> {
         let index = control::resolve(&self.address, link).await?;
+
         control::tolerate(
             control::execute(
                 &self.address,
@@ -32,6 +33,7 @@ impl net_runtime::Address for super::Tokio {
 
     async fn remove(&self, link: &Name, address: Address) -> io::Result<()> {
         let index = control::resolve(&self.address, link).await?;
+
         control::tolerate(
             control::execute(
                 &self.address,

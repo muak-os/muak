@@ -17,6 +17,7 @@ fn link(index: u32, name: &str, flags: LinkFlags, change_mask: LinkFlags) -> Lin
     message
         .attributes
         .push(LinkAttribute::IfName(name.to_owned()));
+
     message
 }
 
@@ -30,6 +31,7 @@ fn address(index: u32, address: IpAddr, prefix_len: u8) -> AddressMessage {
         AddressFamily::Inet6
     };
     message.attributes.push(AddressAttribute::Address(address));
+
     message
 }
 

@@ -82,6 +82,7 @@ fn open(
         sent: Vec::new(),
         received: VecDeque::new(),
     });
+
     Ok(crate::SocketId::new(id))
 }
 
@@ -100,11 +101,13 @@ fn send(
         bytes: bytes.to_vec(),
         peer,
     });
+
     Ok(bytes.len())
 }
 
 fn receive(state: &mut State, id: crate::SocketId, buf: &mut [u8]) -> Result<usize> {
     let frame = take(state, id)?;
+
     Ok(super::copy_into(&frame.bytes, buf))
 }
 

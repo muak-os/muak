@@ -159,6 +159,7 @@ const fn address_attribute(attribute: &AddressAttribute) -> Option<IpAddr> {
     let AddressAttribute::Address(ref address) = *attribute else {
         return None;
     };
+
     Some(*address)
 }
 
@@ -166,6 +167,7 @@ const fn route_address(attribute: &RouteAttribute) -> Option<IpAddr> {
     let RouteAttribute::Destination(ref address) = *attribute else {
         return None;
     };
+
     route_addr(address)
 }
 
@@ -173,6 +175,7 @@ const fn route_gateway(attribute: &RouteAttribute) -> Option<IpAddr> {
     let RouteAttribute::Gateway(ref address) = *attribute else {
         return None;
     };
+
     route_addr(address)
 }
 
@@ -183,6 +186,7 @@ const fn route_addr(address: &RouteAddress) -> Option<IpAddr> {
     if let RouteAddress::Inet6(ref address) = *address {
         return Some(IpAddr::V6(*address));
     }
+
     None
 }
 
@@ -193,5 +197,6 @@ const fn unspecified(family: AddressFamily) -> Option<IpAddr> {
     if matches!(family, AddressFamily::Inet6) {
         return Some(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
     }
+
     None
 }

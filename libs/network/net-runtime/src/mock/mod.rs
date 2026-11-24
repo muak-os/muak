@@ -1,10 +1,4 @@
-//! Deterministic in-memory runtime for tests.
-//!
-//! Every piece of state lives in a single mutex so tests can drive time,
-//! entropy, links, sockets, and events without touching the operating system.
-//! Port operations finish immediately: each returned future is already ready
-//! and never yields. The module is compiled under `cfg(test)` as well as the
-//! `mock` feature, so the crate's own tests run without a feature flag.
+//! Deterministic in-memory runtime whose single mutex lets tests drive time, entropy, links, sockets, and events without the operating system.
 
 mod address;
 mod clock;
@@ -27,12 +21,6 @@ pub struct Mock {
     state: Mutex<State>,
 }
 
-// Runtime state shared by every port implementation.
-//
-// Raw packet and ICMPv6 sockets share `sockets`; UDP datagrams live in `udp`.
-// Both tables hand out ids from the single `next_socket` counter, so a
-// `SocketId` is globally unique and a handle opened by one port is never valid
-// on another. The tables stay split so each kind can carry its own payload.
 struct State {
     now: Instant,
     wall: SystemTime,
@@ -48,14 +36,12 @@ struct State {
     udp: Vec<udp::Datagram>,
 }
 
-// One open socket and its queued traffic.
 struct Socket {
     id: u32,
     sent: Vec<Frame>,
     received: VecDeque<Frame>,
 }
 
-// A stored frame with the peer address it was sent to or received from.
 struct Frame {
     bytes: Vec<u8>,
     peer: Option<core::net::Ipv6Addr>,
@@ -141,6 +127,7 @@ impl crate::Runtime for Mock {
 
 fn sent_frames(state: &State, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
     let socket = state.socket(id)?;
+
     Ok(socket
         .sent
         .iter()
@@ -153,6 +140,7 @@ fn sent_frames_with_peer(
     id: crate::SocketId,
 ) -> Result<Vec<(Vec<u8>, Option<core::net::Ipv6Addr>)>> {
     let socket = state.socket(id)?;
+
     Ok(socket
         .sent
         .iter()
@@ -164,6 +152,7 @@ fn require_link(state: &State, name: &netmodel::Name) -> Result<()> {
     if state.links.iter().any(|link| &link.name == name) {
         return Ok(());
     }
+
     Err(not_found())
 }
 
@@ -183,6 +172,7 @@ fn retain_socket<T>(
     if table.len() == before {
         return Err(not_found());
     }
+
     Ok(())
 }
 
@@ -191,6 +181,7 @@ fn copy_into(bytes: &[u8], buf: &mut [u8]) -> usize {
     if let (Some(source), Some(target)) = (bytes.get(..len), buf.get_mut(..len)) {
         target.copy_from_slice(source);
     }
+
     len
 }
 

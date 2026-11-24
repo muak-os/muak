@@ -1,11 +1,4 @@
-//! Linux rtnetlink message builders and typed parsers.
-//!
-//! This crate only constructs and parses `netlink-packet-route` messages. It
-//! never opens sockets, so name-to-index resolution belongs to the Linux
-//! runtime backend.
-//!
-//! Sequence and port numbers are owned by the caller or backend and remain zero
-//! in every built message. The Linux runtime fills them before sending.
+//! Linux rtnetlink message builders and typed parsers that never open sockets and leave sequence and port numbers to the caller.
 
 #![warn(missing_docs)]
 
