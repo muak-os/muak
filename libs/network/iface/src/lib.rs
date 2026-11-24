@@ -2,8 +2,16 @@
 
 #![warn(missing_docs)]
 
+extern crate alloc;
+
+mod adapter;
+mod controller;
+mod method;
+
+use alloc::collections::VecDeque;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::time::{Instant, SystemTime};
 
 /// Address family the controller drives for one interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +136,11 @@ pub enum Effect<'a> {
         /// Slot of the socket to close.
         slot: ip_method::SocketSlot,
     },
+    /// Request fresh entropy for the family method.
+    RequestEntropy {
+        /// Family the entropy is requested for.
+        family: Family,
+    },
     /// Publish the interface snapshot.
     Publish,
 }
@@ -146,6 +159,9 @@ pub enum Step<'a> {
 pub enum V4View {
     /// Static address configuration.
     Static(ip_static::View<Ipv4Addr>),
+    /// `DHCPv4` lease and lifecycle phase.
+    #[cfg(feature = "ipv4")]
+    Dhcp(dhcp::View),
 }
 
 /// IPv6 method view exposed to the supervisor.
@@ -153,6 +169,9 @@ pub enum V4View {
 pub enum V6View {
     /// Static address configuration.
     Static(ip_static::View<Ipv6Addr>),
+    /// Stateless autoconfiguration addresses, routers, and DNS.
+    #[cfg(feature = "ipv6")]
+    Slaac(slaac::View),
 }
 
 /// Point-in-time state of an interface and its address methods.
@@ -168,228 +187,17 @@ pub struct Snapshot {
     pub v6: Option<V6View>,
     /// IPv6 provisioning phase.
     pub v6_state: ip_method::State,
+    /// Warnings and failures reported by the family methods.
+    pub notices: Vec<String>,
 }
 
 /// Family-neutral controller for one interface.
-#[derive(Debug)]
 pub struct Controller {
-    link: ip_method::LinkInfo,
-    snapshot: Snapshot,
-}
-
-impl Controller {
-    /// Creates a controller for the given link with an idle snapshot.
-    #[must_use = "the controller owns the interface state"]
-    pub const fn new(link: ip_method::LinkInfo) -> Self {
-        let snapshot = Snapshot {
-            link: link.state,
-            v4: None,
-            v4_state: ip_method::State::Stopped,
-            v6: None,
-            v6_state: ip_method::State::Stopped,
-        };
-
-        Self { link, snapshot }
-    }
-
-    /// Performs at most one step and returns the next effect.
-    pub fn step(&mut self, _now: Instant, _wall: SystemTime, _input: Input<'_>) -> Step<'_> {
-        Step::Wait
-    }
-
-    /// Earliest instant at which the controller must be stepped again.
-    #[must_use = "the caller needs the deadline to schedule the wake"]
-    pub const fn next_wake(&self, _now: Instant) -> Option<Instant> {
-        None
-    }
-
-    /// Returns the controller's current snapshot.
-    #[must_use = "callers need the snapshot to report interface state"]
-    pub const fn snapshot(&self) -> &Snapshot {
-        &self.snapshot
-    }
-
-    /// Returns the link the controller runs on.
-    #[must_use = "callers need the link to address interface effects"]
-    pub const fn link(&self) -> &ip_method::LinkInfo {
-        &self.link
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::time::{Instant, SystemTime};
-
-    use netmodel::{LinkState, Mac, Name};
-
-    use crate::{Command, Controller, Effect, Family, Input, Snapshot, Step, V4View};
-
-    fn link() -> ip_method::LinkInfo {
-        ip_method::LinkInfo {
-            name: Name::new("eth0").expect("valid name"),
-            index: 2,
-            mac: Mac::default(),
-            state: LinkState::Up,
-        }
-    }
-
-    #[test]
-    fn new_snapshots_the_link_state() {
-        // ARRANGE
-        let link = link();
-
-        // ACT
-        let controller = Controller::new(link);
-
-        // ASSERT
-        let snapshot = controller.snapshot();
-        assert_eq!(snapshot.link, LinkState::Up);
-        assert!(snapshot.v4.is_none());
-        assert!(snapshot.v6.is_none());
-        assert_eq!(snapshot.v4_state, ip_method::State::Stopped);
-        assert_eq!(snapshot.v6_state, ip_method::State::Stopped);
-    }
-
-    #[test]
-    fn link_returns_the_controller_link() {
-        // ARRANGE
-        let controller = Controller::new(link());
-
-        // ACT
-        let stored = controller.link();
-
-        // ASSERT
-        assert_eq!(stored.name, "eth0");
-        assert_eq!(stored.index, 2);
-        assert_eq!(stored.state, LinkState::Up);
-    }
-
-    #[test]
-    fn step_waits_and_has_no_wake() {
-        // ARRANGE
-        let mut controller = Controller::new(link());
-        let now = Instant::now();
-
-        // ACT
-        let waits = matches!(
-            controller.step(now, SystemTime::UNIX_EPOCH, Input::Poll),
-            Step::Wait
-        );
-
-        // ASSERT
-        assert!(waits);
-        assert!(controller.next_wake(now).is_none());
-    }
-
-    #[test]
-    fn commands_can_be_constructed() {
-        // ARRANGE
-        let v4 = netmodel::Ipv4Config {
-            addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
-            ..netmodel::Ipv4Config::default()
-        };
-        let v6 = netmodel::Ipv6Config {
-            addresses: vec![(Ipv6Addr::LOCALHOST, 128)],
-            ..netmodel::Ipv6Config::default()
-        };
-
-        // ACT
-        let configure = Command::Configure {
-            v4: Some(v4),
-            v6: Some(v6),
-        };
-        let Command::Configure { v4, v6 } = configure else {
-            panic!("configure variant expected");
-        };
-
-        // ASSERT
-        assert!(v4.is_some_and(|config| config.addresses.len() == 1));
-        assert!(v6.is_some_and(|config| config.addresses.len() == 1));
-    }
-
-    #[test]
-    fn unit_commands_can_be_constructed() {
-        // ARRANGE
-        let commands = [
-            Command::Reconcile,
-            Command::LinkUp,
-            Command::LinkDown,
-            Command::Shutdown,
-        ];
-
-        // ACT
-        let each = commands
-            .iter()
-            .map(|command| !matches!(command, Command::Configure { .. }));
-
-        // ASSERT
-        assert!(each.into_iter().all(core::convert::identity));
-    }
-
-    #[test]
-    fn method_input_and_effects_carry_the_family() {
-        // ARRANGE
-        let frame = [0_u8; 4];
-
-        // ACT
-        let input = Input::Method {
-            family: Family::V6,
-            input: ip_method::Input::Poll,
-        };
-        let effect = Effect::Send {
-            family: Family::V6,
-            slot: ip_method::SocketSlot::Primary,
-            frame: &frame,
-            dst: None,
-        };
-
-        // ASSERT
-        assert!(matches!(
-            input,
-            Input::Method {
-                family: Family::V6,
-                ..
-            }
-        ));
-        assert!(matches!(
-            effect,
-            Effect::Send {
-                family: Family::V6,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn views_expose_static_configuration() {
-        // ARRANGE
-        let view = ip_static::View {
-            address: Ipv4Addr::new(10, 0, 0, 2),
-            prefix_len: 24,
-            gateway: Some(Ipv4Addr::new(10, 0, 0, 1)),
-            dns: vec![Ipv4Addr::new(10, 0, 0, 53)],
-        };
-
-        // ACT
-        let view = V4View::Static(view);
-        let snapshot = Snapshot {
-            link: LinkState::Up,
-            v4: Some(view),
-            v4_state: ip_method::State::Bound,
-            v6: None,
-            v6_state: ip_method::State::Stopped,
-        };
-
-        // ASSERT
-        let Some(V4View::Static(config)) = snapshot.v4 else {
-            panic!("static view expected");
-        };
-        assert_eq!(config.address, Ipv4Addr::new(10, 0, 0, 2));
-        assert_eq!(config.prefix_len, 24);
-        assert_eq!(
-            config.gateway.map(IpAddr::V4),
-            Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))
-        );
-    }
+    pub(crate) link: ip_method::LinkInfo,
+    pub(crate) snapshot: Snapshot,
+    pub(crate) v4: Option<method::V4Slot>,
+    pub(crate) v6: Option<method::V6Slot>,
+    pub(crate) pending: VecDeque<(Family, ip_method::Input<'static>)>,
+    pub(crate) deferred: Option<method::Replacement>,
+    pub(crate) shutdown: bool,
 }

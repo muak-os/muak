@@ -52,6 +52,16 @@ fn spec(kind: ip_method::SocketKind) -> ip_method::SocketSpec {
     }
 }
 
+async fn apply_interface(
+    mock: &Mock,
+    interface: &netmodel::Name,
+    sockets: &mut SocketTable,
+    effect: iface::Effect<'_>,
+) -> std::io::Result<()> {
+    let mut pending = VecDeque::new();
+    crate::interface_effects::apply(mock, interface, sockets, &mut pending, effect).await
+}
+
 fn runtime() -> Mock {
     let mock = Mock::new(Instant::now(), SystemTime::UNIX_EPOCH);
     mock.set_link(netmodel::Link {
@@ -77,13 +87,7 @@ fn open_send_close_dispatch_on_the_socket_kind() {
     };
 
     // ACT
-    block_on(crate::interface_effects::apply(
-        &mock,
-        &interface,
-        &mut sockets,
-        open,
-    ))
-    .expect("open socket");
+    block_on(apply_interface(&mock, &interface, &mut sockets, open)).expect("open socket");
     let id = sockets
         .find(
             &interface,
@@ -91,7 +95,7 @@ fn open_send_close_dispatch_on_the_socket_kind() {
             ip_method::SocketSlot::Primary,
         )
         .expect("socket is tracked");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -104,7 +108,7 @@ fn open_send_close_dispatch_on_the_socket_kind() {
     ))
     .expect("send frame");
     let sent = mock.sent(id).expect("sent frames");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -131,7 +135,7 @@ fn send_without_a_tracked_socket_fails() {
     let mut sockets = SocketTable::new();
 
     // ACT
-    let error = block_on(crate::interface_effects::apply(
+    let error = block_on(apply_interface(
         &mock,
         &name("eth0"),
         &mut sockets,
@@ -158,7 +162,7 @@ fn icmpv6_send_uses_the_destination_from_the_effect() {
     let dst = core::net::SocketAddr::V6(core::net::SocketAddrV6::new(address, 0, 0, 0));
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -175,7 +179,7 @@ fn icmpv6_send_uses_the_destination_from_the_effect() {
             ip_method::SocketSlot::Primary,
         )
         .expect("socket is tracked");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -199,7 +203,7 @@ fn icmpv6_send_without_a_destination_is_invalid() {
     let mock = runtime();
     let interface = name("eth0");
     let mut sockets = SocketTable::new();
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -211,7 +215,7 @@ fn icmpv6_send_without_a_destination_is_invalid() {
     .expect("open socket");
 
     // ACT
-    let error = block_on(crate::interface_effects::apply(
+    let error = block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -507,7 +511,7 @@ fn address_add_and_remove_carry_the_prefix_length() {
     let address = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 2));
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -519,7 +523,7 @@ fn address_add_and_remove_carry_the_prefix_length() {
     ))
     .expect("add address");
     let added = block_on(net_runtime::Address::list(&mock, &interface)).expect("list addresses");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -551,7 +555,7 @@ fn set_link_up_and_down_reach_the_runtime() {
     let mut sockets = SocketTable::new();
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -561,7 +565,7 @@ fn set_link_up_and_down_reach_the_runtime() {
     let down = block_on(net_runtime::Link::link(&mock, &interface))
         .expect("query link")
         .expect("known link");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -586,7 +590,7 @@ fn ensure_and_remove_route_reach_the_runtime() {
     let gateway = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 1));
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -597,7 +601,7 @@ fn ensure_and_remove_route_reach_the_runtime() {
     ))
     .expect("ensure route");
     let installed = mock.default_routes();
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -623,7 +627,7 @@ fn publish_effects_are_no_ops() {
     let mut pending = VecDeque::new();
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -650,7 +654,7 @@ fn open_rejects_a_spec_for_another_interface() {
     let mut sockets = SocketTable::new();
 
     // ACT
-    let error = block_on(crate::interface_effects::apply(
+    let error = block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -674,7 +678,7 @@ fn reopened_slot_closes_the_stale_socket() {
     let mut sockets = SocketTable::new();
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -691,7 +695,7 @@ fn reopened_slot_closes_the_stale_socket() {
             ip_method::SocketSlot::Primary,
         )
         .expect("first socket is tracked");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -733,7 +737,7 @@ fn send_rejects_a_destination_on_non_icmpv6_sockets() {
     ));
 
     // ACT
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -743,7 +747,7 @@ fn send_rejects_a_destination_on_non_icmpv6_sockets() {
         },
     ))
     .expect("open packet socket");
-    let packet_error = block_on(crate::interface_effects::apply(
+    let packet_error = block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -755,7 +759,7 @@ fn send_rejects_a_destination_on_non_icmpv6_sockets() {
         },
     ))
     .expect_err("packet sockets take no destination");
-    block_on(crate::interface_effects::apply(
+    block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -765,7 +769,7 @@ fn send_rejects_a_destination_on_non_icmpv6_sockets() {
         },
     ))
     .expect("open udp socket");
-    let udp_error = block_on(crate::interface_effects::apply(
+    let udp_error = block_on(apply_interface(
         &mock,
         &interface,
         &mut sockets,
@@ -827,6 +831,61 @@ fn configure_pending_input_reaches_the_interface() {
         name: name("eth0"),
         v4: None,
         v6: None,
+    });
+
+    // ACT
+    let progress = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("step");
+
+    // ASSERT
+    assert_eq!(progress, Progress::Worked);
+    assert!(driver.pending.is_empty());
+}
+
+#[test]
+fn request_entropy_fills_and_queues_a_pending_input() {
+    // ARRANGE
+    let mock = runtime();
+    let interface = name("eth0");
+    let mut sockets = SocketTable::new();
+    let mut pending = VecDeque::new();
+
+    // ACT
+    block_on(crate::interface_effects::apply(
+        &mock,
+        &interface,
+        &mut sockets,
+        &mut pending,
+        iface::Effect::RequestEntropy {
+            family: iface::Family::V4,
+        },
+    ))
+    .expect("request entropy");
+
+    // ASSERT
+    let Some(Pending::Entropy {
+        name: queued,
+        family,
+        value,
+    }) = pending.pop_front()
+    else {
+        panic!("entropy input expected");
+    };
+    assert_eq!(queued, interface);
+    assert_eq!(family, iface::Family::V4);
+    assert_eq!(value, u32::from_le_bytes([0, 1, 2, 3]));
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn driver_consumes_a_pending_entropy_input() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.add_interface(link("eth0", 2));
+    driver.pending.push_back(Pending::Entropy {
+        name: name("eth0"),
+        family: iface::Family::V4,
+        value: 0x0102_0304,
     });
 
     // ACT

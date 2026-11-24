@@ -1,9 +1,13 @@
 //! Execution of interface effects against the runtime ports.
 
+use alloc::collections::VecDeque;
 use std::io;
 
-use net_runtime::{Address as _, Icmpv6 as _, Link as _, Packet as _, Route as _, Udp as _};
+use net_runtime::{
+    Address as _, Entropy as _, Icmpv6 as _, Link as _, Packet as _, Route as _, Udp as _,
+};
 
+use crate::pending::Pending;
 use crate::{SocketOwner, SocketTable};
 
 /// Executes one interface effect with the owning interface name in scope.
@@ -11,6 +15,7 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
     runtime: &R,
     interface: &netmodel::Name,
     sockets: &mut SocketTable,
+    pending: &mut VecDeque<Pending>,
     effect: iface::Effect<'_>,
 ) -> io::Result<()> {
     match effect {
@@ -65,6 +70,19 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         } => send(runtime, interface, sockets, family, slot, frame, dst).await,
         iface::Effect::CloseSocket { family, slot } => {
             close(runtime, interface, sockets, family, slot).await
+        }
+        iface::Effect::RequestEntropy { family } => {
+            let mut bytes = [0_u8; 4];
+            runtime.entropy().fill(&mut bytes);
+            // The value is an opaque DHCP transaction ID; the byte order the
+            // method sees only has to be consistent with what it sends back.
+            pending.push_back(Pending::Entropy {
+                name: interface.clone(),
+                family,
+                value: u32::from_le_bytes(bytes),
+            });
+
+            Ok(())
         }
         iface::Effect::Publish => Ok(()),
     }

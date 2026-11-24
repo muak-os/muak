@@ -24,4 +24,13 @@ pub(crate) enum Pending {
         /// Interface to shut down.
         name: netmodel::Name,
     },
+    /// Entropy the runtime produced for one interface method.
+    Entropy {
+        /// Interface that requested the entropy.
+        name: netmodel::Name,
+        /// Address family that requested the entropy.
+        family: iface::Family,
+        /// Random value the runtime filled.
+        value: u32,
+    },
 }

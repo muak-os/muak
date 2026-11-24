@@ -379,6 +379,7 @@ mod tests {
             v4_state: ip_method::State::Stopped,
             v6: None,
             v6_state: ip_method::State::Stopped,
+            notices: Vec::new(),
         };
         let v4_dns = [Ipv4Addr::new(9, 9, 9, 9)];
         let v6_dns = [Ipv6Addr::LOCALHOST];

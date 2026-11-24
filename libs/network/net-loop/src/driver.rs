@@ -85,7 +85,14 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
                 iface::Step::Effect(effect) => effect,
                 iface::Step::Wait => continue,
             };
-            interface_effects::apply(&self.runtime, name, &mut self.sockets, effect).await?;
+            interface_effects::apply(
+                &self.runtime,
+                name,
+                &mut self.sockets,
+                &mut self.pending,
+                effect,
+            )
+            .await?;
             return Ok(Progress::Worked);
         }
 
@@ -109,6 +116,17 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
             Pending::ShutdownInterface { name } => {
                 self.command(now, wall, &name, iface::Command::Shutdown)
                     .await?;
+            }
+            Pending::Entropy {
+                name,
+                family,
+                value,
+            } => {
+                let input = iface::Input::Method {
+                    family,
+                    input: ip_method::Input::Entropy(value),
+                };
+                self.input(now, wall, &name, input).await?;
             }
         }
 
@@ -135,6 +153,17 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         name: &netmodel::Name,
         command: iface::Command,
     ) -> io::Result<()> {
+        self.input(now, wall, name, iface::Input::Command(command))
+            .await
+    }
+
+    async fn input(
+        &mut self,
+        now: Instant,
+        wall: SystemTime,
+        name: &netmodel::Name,
+        input: iface::Input<'_>,
+    ) -> io::Result<()> {
         let Some(controller) = self
             .interfaces
             .iter_mut()
@@ -142,14 +171,21 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                "no interface controller for the command",
+                "no interface controller for the input",
             ));
         };
 
-        let effect = match controller.step(now, wall, iface::Input::Command(command)) {
+        let effect = match controller.step(now, wall, input) {
             iface::Step::Effect(effect) => effect,
             iface::Step::Wait => return Ok(()),
         };
-        interface_effects::apply(&self.runtime, name, &mut self.sockets, effect).await
+        interface_effects::apply(
+            &self.runtime,
+            name,
+            &mut self.sockets,
+            &mut self.pending,
+            effect,
+        )
+        .await
     }
 }

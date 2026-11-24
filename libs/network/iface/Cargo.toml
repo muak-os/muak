@@ -14,11 +14,19 @@ workspace = true
 
 [features]
 default = ["ipv4", "ipv6"]
-ipv4 = []
-ipv6 = []
+ipv4 = ["dep:dhcp"]
+ipv6 = ["dep:slaac"]
 
 [dependencies]
 # Internal
+dhcp = { workspace = true, optional = true }
 ip-method = { workspace = true }
 ip-static = { workspace = true }
 netmodel = { workspace = true }
+slaac = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Tests build real frames instead of hand-written payloads.
+dhcp-proto = { workspace = true }
+ip = { workspace = true, features = ["v4"] }
+ndp = { workspace = true }
