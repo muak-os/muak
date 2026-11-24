@@ -514,11 +514,9 @@ name = "dhcp"
 version = "0.0.0"
 dependencies = [
  "dhcp-proto",
- "ethernet",
  "ip",
  "ip-method",
  "netmodel",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1047,9 +1045,14 @@ dependencies = [
 name = "iface"
 version = "0.0.0"
 dependencies = [
+ "dhcp",
+ "dhcp-proto",
+ "ip",
  "ip-method",
  "ip-static",
+ "ndp",
  "netmodel",
+ "slaac",
 ]
 
 [[package]]
@@ -1479,15 +1482,19 @@ dependencies = [
 name = "net-runtime-linux"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
  "futures-util",
+ "getrandom 0.4.3",
  "icmpv6-linux",
+ "ip-method",
  "net-runtime",
  "netlink-linux",
+ "netlink-packet-core",
+ "netlink-packet-route",
  "netlink-proto",
  "netlink-sys",
  "netmodel",
  "packet-v4-linux",
- "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -2429,9 +2436,9 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 name = "slaac"
 version = "0.0.0"
 dependencies = [
- "addrconf",
- "ip",
- "thiserror 2.0.21",
+ "ip-method",
+ "ndp",
+ "netmodel",
 ]
 
 [[package]]
