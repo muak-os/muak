@@ -28,6 +28,8 @@ tokio = [
     "dep:packet-v4-linux",
     "dep:icmpv6-linux",
     "dep:getrandom",
+    "dep:net-runtime",
+    "dep:netmodel",
 ]
 
 [dependencies]
@@ -47,6 +49,6 @@ netlink-sys = { workspace = true, optional = true }
 icmpv6-linux = { workspace = true, optional = true }
 ip-method = { workspace = true, optional = true }
 netlink-linux = { workspace = true, optional = true }
-net-runtime = { workspace = true }
-netmodel = { workspace = true }
+net-runtime = { workspace = true, optional = true }
+netmodel = { workspace = true, optional = true }
 packet-v4-linux = { workspace = true, optional = true }
