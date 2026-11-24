@@ -1,8 +1,9 @@
 //! Network daemon for Muak to manage network interfaces, DHCP & DNS.
 
 use granola::runtime::notify::Health;
-use granola::runtime::signal::shutdown;
-use networkd::supervisor;
+use net_runtime_linux::Tokio;
+use networkd::config::convert;
+use networkd::service::Service;
 
 #[granola::service("networkd")]
 #[tokio::main]
@@ -11,14 +12,19 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     notifier.status("Initializing network subsystem", Health::Healthy)?;
 
-    let handle = supervisor::start().await?;
+    let mut service = Service::new(Tokio::new()?, convert(config::system::network()?));
+
+    service.start().await?;
 
     notifier.status("Setting up network", Health::Healthy)?;
-    handle.initialize_with_retry().await?;
+
+    if !service.wait_ready().await? {
+        return Ok(());
+    }
 
     notifier.ready()?;
 
-    shutdown().await;
+    service.run().await?;
 
     Ok(())
 }
