@@ -19,6 +19,7 @@ impl Link {
         if name == "lo" || name.starts_with("wlan") || name.starts_with("wlp") {
             return false;
         }
+
         name.starts_with("eth")
             || name.starts_with("enp")
             || name.starts_with("ens")

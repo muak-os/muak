@@ -99,7 +99,6 @@ fn byte_at(data: &[u8], index: usize) -> u8 {
 mod tests {
     use super::*;
 
-    // Buffer large enough for any message the builders produce.
     const MAX_MESSAGE_LEN: usize = 1500;
     const MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 

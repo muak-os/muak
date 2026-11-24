@@ -123,7 +123,6 @@ pub enum Failure {
     TooSmall(usize),
 }
 
-// Reads a link-layer address at `offset` from an already length-checked header.
 fn mac(head: &[u8], offset: usize) -> [u8; ALEN] {
     let mut value = [0_u8; ALEN];
     if let Some(bytes) = head.get(offset..offset.saturating_add(ALEN)) {
@@ -133,7 +132,6 @@ fn mac(head: &[u8], offset: usize) -> [u8; ALEN] {
     value
 }
 
-// Reads a big-endian 16 bit word at `offset` from an already length-checked header.
 fn word(head: &[u8], offset: usize) -> u16 {
     let mut value = [0_u8; 2];
     if let Some(bytes) = head.get(offset..offset.saturating_add(2)) {
@@ -143,7 +141,6 @@ fn word(head: &[u8], offset: usize) -> u16 {
     u16::from_be_bytes(value)
 }
 
-// Writes `bytes` at `offset` into an already length-checked header.
 fn put(head: &mut [u8], offset: usize, bytes: &[u8]) {
     if let Some(slot) = head.get_mut(offset..offset.saturating_add(bytes.len())) {
         slot.copy_from_slice(bytes);

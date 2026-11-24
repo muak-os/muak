@@ -43,6 +43,7 @@ impl fmt::Display for Mac {
             write!(f, "{separator}{byte:02x}")?;
             separator = ":";
         }
+
         Ok(())
     }
 }

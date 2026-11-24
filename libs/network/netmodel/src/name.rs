@@ -22,6 +22,7 @@ impl Name {
         if name.is_empty() || name.len() > Self::MAX_LEN || name.contains('\0') {
             return Err(InvalidName(name));
         }
+
         Ok(Self(name))
     }
 

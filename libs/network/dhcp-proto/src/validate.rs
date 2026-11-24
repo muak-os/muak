@@ -43,7 +43,6 @@ mod tests {
     use super::*;
     use crate::{header, option};
 
-    // Buffer large enough for any message the builders produce.
     const MAX_MESSAGE_LEN: usize = 1500;
     const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 

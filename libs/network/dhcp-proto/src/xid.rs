@@ -17,7 +17,6 @@ mod tests {
     use super::*;
     use crate::header;
 
-    // Buffer large enough for any message the builders produce.
     const MAX_MESSAGE_LEN: usize = 1500;
 
     #[test]

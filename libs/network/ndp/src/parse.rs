@@ -139,18 +139,21 @@ mod tests {
         message.extend(router_lifetime.to_be_bytes());
         message.extend(4000_u32.to_be_bytes());
         message.extend(1000_u32.to_be_bytes());
+
         message
     }
 
     fn ns_base(target: Ipv6Addr) -> Vec<u8> {
         let mut message = vec![NEIGHBOR_SOLICITATION, 0, 0, 0, 0, 0, 0, 0];
         message.extend(target.octets());
+
         message
     }
 
     fn na_base(flags: u8, target: Ipv6Addr) -> Vec<u8> {
         let mut message = vec![NEIGHBOR_ADVERTISEMENT, 0, 0, 0, flags, 0, 0, 0];
         message.extend(target.octets());
+
         message
     }
 

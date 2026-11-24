@@ -57,6 +57,7 @@ impl Selector {
 
     fn score_naming(name: &Name) -> u32 {
         let interface_name = name.as_str();
+
         if interface_name.starts_with("eno") {
             500
         } else if interface_name.starts_with("ens") {

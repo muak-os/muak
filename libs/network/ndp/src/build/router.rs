@@ -161,6 +161,7 @@ fn write_prefix_information(
     cursor = field::put(message, cursor, &prefix.valid_lifetime.to_be_bytes())?;
     cursor = field::put(message, cursor, &prefix.preferred_lifetime.to_be_bytes())?;
     cursor = field::put(message, cursor, &[0_u8; 4])?;
+
     field::put(message, cursor, &prefix.prefix.octets())
 }
 

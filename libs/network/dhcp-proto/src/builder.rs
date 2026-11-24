@@ -5,15 +5,10 @@ use core::net::Ipv4Addr;
 use super::{header, message_type, option};
 use crate::{FLAG_BROADCAST, Failure, Result};
 
-// Fixed length of a one byte DHCP option.
 const MESSAGE_TYPE_LEN: usize = 3;
-// Fixed length of the requested IP address option.
 const REQUESTED_IP_LEN: usize = 6;
-// Fixed length of the server identifier option.
 const SERVER_ID_LEN: usize = 6;
-// Number of option codes in the parameter request list.
 const PARAM_REQUEST_COUNT: u8 = 4;
-// Fixed length of the parameter request list option.
 const PARAM_REQUEST_LIST_LEN: usize = 6;
 const END_LEN: usize = 1;
 
@@ -165,7 +160,6 @@ mod tests {
     use super::*;
     use crate::field;
 
-    // Buffer large enough for any message the builders produce.
     const MAX_MESSAGE_LEN: usize = 1500;
     const MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 
