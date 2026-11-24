@@ -581,6 +581,7 @@ fn reset_if_running(
 
 fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> anyhow::Result<PathBuf> {
     let path = vm_data_dir.join(convention_name);
+
     if path.exists() {
         Ok(path)
     } else {

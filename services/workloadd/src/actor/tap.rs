@@ -18,8 +18,6 @@ pub(super) async fn setup(
 
     let queue = tap_linux::create(tap.as_str()).context("failed to create TAP device")?;
     let configured = configure(runtime, &tap, &bridge).await;
-    // The hypervisor attaches its own queue, so the setup queue is released before hand over,
-    // and before the failed device is deleted.
     drop(queue);
 
     if let Err(error) = configured {
@@ -30,11 +28,6 @@ pub(super) async fn setup(
     Ok(())
 }
 
-/// Removes the TAP device, retrying while the running hypervisor keeps its queue attached.
-///
-/// `tap_linux::delete` attaches to the device itself, so it fails with
-/// [`ErrorKind::ResourceBusy`] until the VM process releases its queue. The bounded retry covers
-/// the gap between signalling the hypervisor and the child exiting.
 pub(super) async fn remove(tap_name: &str) {
     for attempt in 1..=DELETE_ATTEMPTS {
         match tap_linux::delete(tap_name) {
@@ -80,7 +73,7 @@ mod tests {
 
     #[test]
     fn names_rejects_empty_tap_name() {
-        // ARRANGE / ACT
+        // ACT
         let result = names("", "br0");
 
         // ASSERT
@@ -101,7 +94,7 @@ mod tests {
 
     #[test]
     fn names_accepts_valid_pair() {
-        // ARRANGE / ACT
+        // ACT
         let (tap, bridge) = names("tap-12345678", "br0").expect("valid names");
 
         // ASSERT

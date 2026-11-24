@@ -87,6 +87,7 @@ impl Driver {
                 .ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
             signal,
         )?;
+
         Ok(())
     }
 }

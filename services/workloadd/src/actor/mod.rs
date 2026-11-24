@@ -19,12 +19,14 @@ impl VmActorHandle {
     pub(crate) async fn create(&self, config: VmConfig) -> Result<String> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Create { config, reply }).await?;
+
         rx.await?
     }
 
     pub(crate) async fn start(&self, vm_id: String) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Start { vm_id, reply }).await?;
+
         rx.await?
     }
 
@@ -37,24 +39,28 @@ impl VmActorHandle {
                 reply,
             })
             .await?;
+
         rx.await?
     }
 
     pub(crate) async fn delete(&self, vm_id: String) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Delete { vm_id, reply }).await?;
+
         rx.await?
     }
 
     pub(crate) async fn get(&self, vm_id: String) -> Result<VmInfo> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Get { vm_id, reply }).await?;
+
         rx.await?
     }
 
     pub(crate) async fn list(&self) -> Result<Vec<VmInfo>> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::List { reply }).await?;
+
         rx.await?
     }
 
@@ -73,6 +79,7 @@ impl VmActorHandle {
                 reply,
             })
             .await?;
+
         rx.await?
     }
 
@@ -85,6 +92,7 @@ impl VmActorHandle {
                 reply,
             })
             .await?;
+
         rx.await?
     }
 }

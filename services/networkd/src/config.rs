@@ -61,7 +61,6 @@ fn bridge_config(config: &network::BridgeConfig) -> net_supervisor::BridgeConfig
     }
 }
 
-// Builds the IPv4 configuration only when DHCP or static addresses are declared.
 #[cfg(feature = "ipv4")]
 fn ipv4_config(
     config: &network::Config,
@@ -92,7 +91,6 @@ fn ipv4_config(
     })
 }
 
-// Builds the IPv6 configuration for static addresses or enabled autoconf.
 #[cfg(feature = "ipv6")]
 fn ipv6_config(
     config: &network::Config,

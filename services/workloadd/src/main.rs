@@ -55,7 +55,6 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-/// Entry point for the VM daemon.
 #[granola::service("workloadd")]
 #[tokio::main]
 async fn main(notifier: NotifyClient) -> Result<()> {
@@ -124,7 +123,6 @@ async fn main(notifier: NotifyClient) -> Result<()> {
     Ok(())
 }
 
-/// Sets this process as a child sub reaper to reap orphaned VM processes.
 fn set_child_subreaper() -> Result<()> {
     rustix::process::set_child_subreaper(None)
         .map_err(|e| anyhow::anyhow!("Failed to set child subreaper: {e}"))?;
@@ -133,7 +131,6 @@ fn set_child_subreaper() -> Result<()> {
     Ok(())
 }
 
-/// Reaps zombie child processes.
 fn reap_children() {
     loop {
         match wait(WaitOptions::NOHANG) {

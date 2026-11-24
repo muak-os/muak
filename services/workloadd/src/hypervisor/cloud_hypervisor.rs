@@ -16,7 +16,6 @@ impl Driver {
     }
 
     pub(crate) fn start(&self, config: &VmStartConfig) -> Result<VmProcess> {
-        // Check all required files exist before spawning
         if !std::path::Path::new(&self.binary_path).exists() {
             anyhow::bail!("cloud-hypervisor binary not found at {}", self.binary_path);
         }
@@ -103,6 +102,7 @@ impl Driver {
                 .ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
             signal,
         )?;
+
         Ok(())
     }
 }

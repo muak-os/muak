@@ -50,8 +50,6 @@ impl Service {
     /// Returns the error a runtime port reported while stepping or waiting.
     pub async fn wait_ready(&mut self) -> io::Result<bool> {
         self.settle().await?;
-        // The condition keeps waiting only while the network is not usable and
-        // no shutdown was requested; ready is re-checked at the end.
         while !ready(self.driver.status().state) && self.wait().await? {
             self.settle().await?;
         }
@@ -73,7 +71,6 @@ impl Service {
         Ok(())
     }
 
-    // Feeds the driver the clock it cannot read itself, logs notices and flushes the resolver.
     async fn settle(&mut self) -> io::Result<()> {
         let now = Instant::now();
         let wall = SystemTime::now();
@@ -98,7 +95,6 @@ impl Service {
         Ok(())
     }
 
-    // Waits for a link event, the next deadline, or a shutdown request.
     async fn wait(&mut self) -> io::Result<bool> {
         let deadline = self.driver.next_wake(Instant::now());
         if let Some(deadline) = deadline {
@@ -126,7 +122,6 @@ impl Service {
     }
 }
 
-// Reports the notices of one interface that were not logged yet.
 fn log(name: &netmodel::Name, logged: &mut Logged, notices: &[String]) {
     logged.unseen(name, notices, |notice| kmsg::warn!("{name}: {notice}"));
 }
