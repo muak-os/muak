@@ -29,6 +29,7 @@ impl Method for Slaac {
     fn step(&mut self, now: Instant, _wall: SystemTime, input: Input<'_>) -> Step<'_> {
         step::apply(self, now, input);
         step::tick(self, now);
+
         step::pump(self, now)
     }
 

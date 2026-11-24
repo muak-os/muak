@@ -47,7 +47,6 @@ impl Dhcp {
     }
 }
 
-// Applies a controller command.
 pub(super) fn command(method: &mut Dhcp, command: Command) {
     match command {
         Command::Start => lifecycle::start(method),
@@ -58,11 +57,11 @@ pub(super) fn command(method: &mut Dhcp, command: Command) {
     }
 }
 
-// Applies a link snapshot, mapping carrier changes onto link transitions.
 pub(super) fn on_link(method: &mut Dhcp, link: ip_method::LinkInfo) {
     let was_up = method.link.state.has_carrier();
     method.link = link;
     let is_up = method.link.state.has_carrier();
+
     match (was_up, is_up) {
         (true, false) => lifecycle::link_down(method),
         (false, true) => lifecycle::link_up(method),
@@ -70,12 +69,10 @@ pub(super) fn on_link(method: &mut Dhcp, link: ip_method::LinkInfo) {
     }
 }
 
-// Handles every deadline at or before `now`, one transition at a time.
 pub(super) fn advance(method: &mut Dhcp, now: Instant) {
     while retry(method, now) || reply(method, now) || lease(method, now) {}
 }
 
-// Routes an exchange failure to the exchange path that reported it.
 pub(super) fn failure(method: &mut Dhcp, now: Instant, kind: Transmit, fault: Fault) {
     match kind {
         Transmit::Discover | Transmit::Select { .. } => acquire::failed(method, now, fault),
@@ -84,7 +81,6 @@ pub(super) fn failure(method: &mut Dhcp, now: Instant, kind: Transmit, fault: Fa
     }
 }
 
-// Stores a granted lease and queues applying it, tearing down a replaced one first.
 pub(super) fn bind(method: &mut Dhcp, now: Instant, kind: Transmit, lease: Lease) {
     method.bound_at = Some(now);
     method.deadlines.arm(now, &lease);
@@ -104,14 +100,12 @@ pub(super) fn bind(method: &mut Dhcp, now: Instant, kind: Transmit, lease: Lease
     method.queue.push_back(Action::Event(state));
 }
 
-// Returns true when the new lease describes a different address, prefix or gateway.
 fn replaced(previous: &Lease, next: &Lease) -> bool {
     previous.assigned_ip != next.assigned_ip
         || previous.prefix_len != next.prefix_len
         || previous.gateway != next.gateway
 }
 
-// Reports a fatal failure and keeps the method degraded.
 pub(super) fn degrade(method: &mut Dhcp, fault: Fault) {
     method.phase = Phase::Degraded;
     method.deadlines.disarm();
@@ -124,7 +118,6 @@ pub(super) fn degrade(method: &mut Dhcp, fault: Fault) {
         .push_back(Action::Event(Event::Failed(failure)));
 }
 
-// Retries acquisition when its backoff deadline elapsed.
 fn retry(method: &mut Dhcp, now: Instant) -> bool {
     let Some(at) = method.retry_at else {
         return false;
@@ -138,7 +131,6 @@ fn retry(method: &mut Dhcp, now: Instant) -> bool {
     true
 }
 
-// Times the exchange out when its reply deadline elapsed.
 fn reply(method: &mut Dhcp, now: Instant) -> bool {
     let Exchange::Reply { kind, deadline } = method.exchange else {
         return false;
@@ -152,7 +144,6 @@ fn reply(method: &mut Dhcp, now: Instant) -> bool {
     true
 }
 
-// Handles one due lease deadline, if any.
 fn lease(method: &mut Dhcp, now: Instant) -> bool {
     if method.phase == Phase::Degraded {
         return expired_while_down(method, now);
@@ -177,7 +168,6 @@ fn lease(method: &mut Dhcp, now: Instant) -> bool {
     false
 }
 
-// Drops a lease that expired while the link was down, staying degraded.
 fn expired_while_down(method: &mut Dhcp, now: Instant) -> bool {
     arm(method, now);
     if !method.deadlines.expired(now) {
@@ -191,7 +181,6 @@ fn expired_while_down(method: &mut Dhcp, now: Instant) -> bool {
     true
 }
 
-// Arms the lease deadlines at the bind instant when they are not armed yet.
 fn arm(method: &mut Dhcp, now: Instant) {
     if method.deadlines.next().is_none()
         && let Some(lease) = method.lease.as_ref()

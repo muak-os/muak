@@ -76,6 +76,7 @@ pub(crate) fn pump(method: &mut Slaac, now: Instant) -> Step<'_> {
     let Some(action) = method.queue.pop_front() else {
         return Step::Wait;
     };
+
     match action {
         Action::Open => Step::Effect(Effect::OpenSocket(spec(method))),
         Action::Close => Step::Effect(Effect::CloseSocket {

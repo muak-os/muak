@@ -2,21 +2,16 @@
 
 use core::time::Duration;
 
-// Acquisition attempts before the method degrades.
 pub(super) const MAX_ATTEMPTS: u32 = 3;
 
 const RETRY_BASE: Duration = Duration::from_secs(2);
 const RETRY_MAX: Duration = Duration::from_mins(2);
 
-// What the method should do after one acquisition attempt.
 pub(super) enum Outcome {
-    // The attempt failed and may be retried after the delay.
     Retry(Duration),
-    // The attempt failed for the last time.
     Failed,
 }
 
-// Classifies one failed acquisition attempt.
 pub(super) fn classify(attempt: u32) -> Outcome {
     if attempt >= MAX_ATTEMPTS {
         return Outcome::Failed;
@@ -25,7 +20,6 @@ pub(super) fn classify(attempt: u32) -> Outcome {
     Outcome::Retry(backoff(attempt))
 }
 
-// Doubles the retry delay from the base and saturates at the maximum.
 fn backoff(attempt: u32) -> Duration {
     let factor = 1_u32
         .checked_shl(attempt.saturating_sub(1))

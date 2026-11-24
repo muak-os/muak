@@ -12,21 +12,14 @@ use crate::fault::Fault;
 use crate::state::degrade;
 use crate::{Dhcp, RESPONSE_TIMEOUT};
 
-// One effect the method still owes the runtime.
 pub(super) enum Action {
-    // Open the socket in this slot.
     Open(SocketSlot),
-    // Send this message on its slot.
     Send(Transmit),
-    // Close the socket in this slot.
     Close(SocketSlot),
-    // Request entropy for a transaction ID.
     Entropy,
-    // Emit this event to the controller.
     Event(Event),
 }
 
-// Returns the earliest effect still queued as one step.
 pub(super) fn emit(method: &mut Dhcp, now: Instant) -> Step<'_> {
     match method.queue.pop_front() {
         Some(Action::Event(event)) => Step::Effect(Effect::Emit(event)),
@@ -38,17 +31,16 @@ pub(super) fn emit(method: &mut Dhcp, now: Instant) -> Step<'_> {
     }
 }
 
-// Renders the open effect for `slot`, or gives the exchange up when it has no lease.
 fn open(method: &mut Dhcp, slot: SocketSlot) -> Step<'_> {
     if let Some(spec) = spec(method, slot) {
         return Step::Effect(Effect::OpenSocket(spec));
     }
     store(method, slot, SocketState::Closed);
     method.exchange = Exchange::Idle;
+
     Step::Wait
 }
 
-// Describes the socket the runtime must open for `slot`.
 fn spec(method: &Dhcp, slot: SocketSlot) -> Option<SocketSpec> {
     let link = method.link.name.clone();
     if slot == SocketSlot::Primary {
@@ -71,7 +63,6 @@ fn spec(method: &Dhcp, slot: SocketSlot) -> Option<SocketSpec> {
     })
 }
 
-// Serializes `kind` into the method buffers and renders its send effect.
 fn send(method: &mut Dhcp, now: Instant, kind: Transmit) -> Step<'_> {
     let mac = method.link.mac.into_array();
     let xid = method.xid;
@@ -135,5 +126,6 @@ fn send(method: &mut Dhcp, now: Instant, kind: Transmit) -> Step<'_> {
         });
     }
     degrade(method, Fault::Encoding);
+
     Step::Wait
 }

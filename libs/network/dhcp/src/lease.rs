@@ -8,9 +8,7 @@ use dhcp_proto::ParsedOptions;
 
 use crate::Lease;
 
-// Lease duration used when the server omits the option.
 const DEFAULT_LEASE_SECS: u32 = 3600;
-// Prefix length used when the server omits the subnet mask.
 const DEFAULT_PREFIX_LEN: u8 = 24;
 
 impl Lease {
@@ -22,7 +20,6 @@ impl Lease {
             .unwrap_or(self.obtained_at)
     }
 
-    // Builds a lease from a validated ACK response.
     pub(super) fn from_ack(
         obtained_at: SystemTime,
         assigned_ip: Ipv4Addr,

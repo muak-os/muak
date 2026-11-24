@@ -29,25 +29,15 @@ pub(crate) const XID: u32 = 0x0BAD_F00D;
 /// Wall clock the method runs at.
 pub(crate) const WALL: SystemTime = SystemTime::UNIX_EPOCH;
 
-// Lease time the server advertises, in seconds.
 const LEASE_SECS: u32 = 100;
-// Offset of `yiaddr` in the fixed DHCP header (RFC 2131 section 2).
 const YIADDR: usize = 16;
-// Option code carrying the DHCP message type (RFC 2132 section 9.6).
 const OPTION_MESSAGE_TYPE: u8 = 53;
-// Option code carrying the server identifier (RFC 2132 section 9.7).
 const OPTION_SERVER_ID: u8 = 54;
-// Option code carrying the subnet mask (RFC 2132 section 3.3).
 const OPTION_SUBNET_MASK: u8 = 1;
-// Option code carrying the router (RFC 2132 section 3.5).
 const OPTION_ROUTER: u8 = 3;
-// Option code carrying DNS servers (RFC 2132 section 3.8).
 const OPTION_DNS: u8 = 6;
-// Option code carrying the lease time (RFC 2132 section 9.2).
 const OPTION_LEASE_TIME: u8 = 51;
-// End of options marker (RFC 2132 section 3.2).
 const OPTION_END: u8 = 255;
-// `DHCPNAK` message type (RFC 2132 section 9.6).
 const NAK: u8 = 6;
 
 /// One effect the method produced while the runtime answered it.
@@ -293,7 +283,6 @@ pub(crate) fn warned(trace: &[Trace]) -> bool {
         .any(|effect| matches!(effect, &Trace::Event(Event::Warning(_))))
 }
 
-// Builds a server message with the default options for its type.
 fn message(xid: u32, kind: u8, assigned: Ipv4Addr, options: &[u8]) -> Vec<u8> {
     let mut buffer = [0_u8; 1500];
     let header = header::build_with(&mut buffer, xid, MAC, Ipv4Addr::UNSPECIFIED, 0).unwrap();
@@ -308,7 +297,6 @@ fn message(xid: u32, kind: u8, assigned: Ipv4Addr, options: &[u8]) -> Vec<u8> {
     message
 }
 
-// Writes the options a server answers with.
 fn default_options(kind: u8) -> Vec<u8> {
     let [s1, s2, s3, s4] = SERVER.octets();
     let mut options = vec![OPTION_MESSAGE_TYPE, 1, kind];
@@ -323,7 +311,6 @@ fn default_options(kind: u8) -> Vec<u8> {
     options
 }
 
-// Frames a DHCP payload as an IPv4 and UDP frame from the server.
 fn raw(payload: &[u8]) -> Vec<u8> {
     let mut buffer = [0_u8; 1536];
     let src = Addr {

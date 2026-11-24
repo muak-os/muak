@@ -7,7 +7,6 @@ use ip_method::{AddressConfig, Event, Intent};
 use crate::Dhcp;
 use crate::effects::Action;
 
-// Queues the intents that apply the held lease.
 pub(super) fn configure(method: &mut Dhcp) {
     let Some(lease) = method.lease.as_ref() else {
         return;
@@ -25,7 +24,6 @@ pub(super) fn configure(method: &mut Dhcp) {
     }
 }
 
-// Queues the intents that remove the held lease.
 pub(super) fn deconfigure(method: &mut Dhcp) {
     let Some(lease) = method.lease.as_ref() else {
         return;

@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use crate::Lease;
 
-// Absolute times at which a held lease must be renewed, rebound and expired.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Deadlines {
     renew: Option<Instant>,
@@ -13,7 +12,6 @@ pub(super) struct Deadlines {
 }
 
 impl Deadlines {
-    // Creates a deadline set with nothing armed.
     pub(super) const fn new() -> Self {
         Self {
             renew: None,
@@ -22,41 +20,34 @@ impl Deadlines {
         }
     }
 
-    // Arms every deadline from the lease lifetimes.
     pub(super) fn arm(&mut self, now: Instant, lease: &Lease) {
         self.renew = now.checked_add(lease.renewal_time);
         self.rebind = now.checked_add(lease.rebind_time);
         self.expire = now.checked_add(lease.lease_time);
     }
 
-    // Clears every deadline.
     pub(super) const fn disarm(&mut self) {
         self.renew = None;
         self.rebind = None;
         self.expire = None;
     }
 
-    // Returns true when the lease has expired.
     pub(super) fn expired(&self, now: Instant) -> bool {
         self.expire.is_some_and(|deadline| now >= deadline)
     }
 
-    // Returns true when the lease must be rebound.
     pub(super) fn rebind_due(&self, now: Instant) -> bool {
         self.rebind.is_some_and(|deadline| now >= deadline)
     }
 
-    // Returns true when the lease must be renewed.
     pub(super) fn renew_due(&self, now: Instant) -> bool {
         self.renew.is_some_and(|deadline| now >= deadline)
     }
 
-    // Returns the earliest armed deadline.
     pub(super) fn next(&self) -> Option<Instant> {
         self.renew.or(self.rebind).or(self.expire)
     }
 
-    // Returns what the earliest deadline would be when armed at `now`.
     pub(super) fn preview(now: Instant, lease: &Lease) -> Option<Instant> {
         let mut deadlines = Self::new();
         deadlines.arm(now, lease);
@@ -64,12 +55,10 @@ impl Deadlines {
         deadlines.next()
     }
 
-    // Skips the renewal deadline so the next step waits for rebinding.
     pub(super) const fn skip_renew(&mut self) {
         self.renew = self.rebind;
     }
 
-    // Skips renewal and rebinding so the next step waits for expiry.
     pub(super) const fn wait_expiry(&mut self) {
         self.renew = self.expire;
         self.rebind = self.expire;

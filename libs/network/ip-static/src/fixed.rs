@@ -76,12 +76,6 @@ impl<F: Family> Static<F> {
 impl<F: Family> Method for Static<F> {
     type View = View<F::Address>;
 
-    // Link transitions arrive as `Command::LinkUp` and `Command::LinkDown`, so
-    // `Input::Link` is intentionally ignored.
-    //
-    // A command received while events are queued appends after the pending
-    // events, so the driver must drain to `Step::Wait` before sending the next
-    // command.
     fn step(&mut self, _now: Instant, _wall: SystemTime, input: Input<'_>) -> Step<'_> {
         if let Input::Command(command) = input {
             self.apply(command);

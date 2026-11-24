@@ -20,11 +20,8 @@ mod tests {
         sent, states, warned, xid_of,
     };
 
-    // `DHCPDISCOVER` message type (RFC 2132 section 9.6).
     const DISCOVER: u8 = 1;
-    // `DHCPREQUEST` message type (RFC 2132 section 9.6).
     const REQUEST: u8 = 3;
-    // Offset of `ciaddr` in the fixed DHCP header (RFC 2131 section 2).
     const CIADDR: usize = 12;
 
     fn at(now: Instant, secs: u64) -> Instant {

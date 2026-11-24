@@ -2,25 +2,17 @@
 
 use core::fmt;
 
-// Failure a `DHCPv4` exchange or its socket reported.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Fault {
-    // The server refused the request, so the client must start over.
     Nak,
-    // No response arrived before the exchange deadline.
     Timeout,
-    // The offer carried no server identifier option.
     MissingServerId,
-    // The response carried no usable address.
     MissingAddress,
-    // The message does not fit the method buffers.
     Encoding,
-    // The socket backing the exchange failed.
     Socket,
 }
 
 impl Fault {
-    // Returns true when the failure was a NAK.
     pub(super) const fn is_nak(self) -> bool {
         matches!(self, Self::Nak)
     }

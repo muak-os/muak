@@ -6,14 +6,12 @@ use crate::effects::Action;
 use crate::exchange::Exchange;
 use crate::{Dhcp, Phase, acquire, exchange, intent};
 
-// Starts acquisition from an idle, stopped or degraded method.
 pub(super) fn start(method: &mut Dhcp) {
     if matches!(method.phase, Phase::Idle | Phase::Stopped | Phase::Degraded) {
         acquire::begin(method);
     }
 }
 
-// Removes the lease and stops the method.
 pub(super) fn stop(method: &mut Dhcp) {
     intent::deconfigure(method);
     method.lease = None;
@@ -28,7 +26,6 @@ pub(super) fn stop(method: &mut Dhcp) {
     method.queue.push_back(Action::Event(state));
 }
 
-// Reapplies the held lease or restarts discovery, unless the method is stopped.
 pub(super) fn reconcile(method: &mut Dhcp) {
     if matches!(method.phase, Phase::Stopped) {
         return;
@@ -40,7 +37,6 @@ pub(super) fn reconcile(method: &mut Dhcp) {
     }
 }
 
-// Reapplies the held lease when the link comes back.
 pub(super) fn link_up(method: &mut Dhcp) {
     if !matches!(method.phase, Phase::Degraded) {
         return;
@@ -52,7 +48,6 @@ pub(super) fn link_up(method: &mut Dhcp) {
     }
 }
 
-// Keeps the lease but stops every exchange while the link is down.
 pub(super) fn link_down(method: &mut Dhcp) {
     if matches!(method.phase, Phase::Idle | Phase::Stopped) {
         return;
@@ -67,7 +62,6 @@ pub(super) fn link_down(method: &mut Dhcp) {
     method.queue.push_back(Action::Event(state));
 }
 
-// Emits the lease intents and marks the method bound.
 fn reapply(method: &mut Dhcp) {
     if method.lease.is_none() {
         return;

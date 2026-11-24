@@ -25,6 +25,7 @@ impl Method for Dhcp {
         state::advance(self, now);
         consume(self, now, wall, input);
         state::advance(self, now);
+
         effects::emit(self, now)
     }
 
@@ -36,7 +37,6 @@ impl Method for Dhcp {
     }
 }
 
-// Returns the renewal deadline of a bound lease, previewing it when unarmed.
 fn bound_wake(method: &Dhcp, now: Instant) -> Option<Instant> {
     if let Some(lease) = method.lease.as_ref() {
         let anchor = method.bound_at.unwrap_or(now);
@@ -49,7 +49,6 @@ fn bound_wake(method: &Dhcp, now: Instant) -> Option<Instant> {
     method.deadlines.next()
 }
 
-// Applies one input to the method.
 fn consume(method: &mut Dhcp, now: Instant, wall: SystemTime, input: Input<'_>) {
     match input {
         Input::Poll | Input::Timer | Input::SendCompleted { .. } => {}

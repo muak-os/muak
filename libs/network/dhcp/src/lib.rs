@@ -27,11 +27,8 @@ use effects::Action;
 use exchange::{Exchange, SocketState};
 use timer::Deadlines;
 
-// Capacity of the internal DHCP message buffer.
 const MAX_MESSAGE_LEN: usize = 1500;
-// Capacity of the internal IPv4 and UDP frame buffer.
 const MAX_FRAME_LEN: usize = 1536;
-// Time a server has to answer one exchange message.
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A successfully acquired `DHCPv4` lease with timing and server metadata.
@@ -91,7 +88,6 @@ pub struct Dhcp {
     config: netmodel::Ipv4Config,
     phase: Phase,
     lease: Option<Lease>,
-    // Instant the held lease was bound at, anchoring its deadlines.
     bound_at: Option<Instant>,
     deadlines: Deadlines,
     retry_at: Option<Instant>,

@@ -11,7 +11,6 @@ use crate::exchange::{Exchange, Transmit};
 use crate::fault::Fault;
 use crate::{Dhcp, Phase, exchange, intent, retry};
 
-// Starts discovery and clears exchange state.
 pub(super) fn begin(method: &mut Dhcp) {
     method.phase = Phase::Acquiring;
     method.deadlines.disarm();
@@ -23,7 +22,6 @@ pub(super) fn begin(method: &mut Dhcp) {
     exchange::begin(method, Transmit::Discover);
 }
 
-// Drops the lease and starts discovery again.
 pub(super) fn expire(method: &mut Dhcp) {
     intent::deconfigure(method);
     method.lease = None;
@@ -31,7 +29,6 @@ pub(super) fn expire(method: &mut Dhcp) {
     begin(method);
 }
 
-// Starts renewing with the granting server.
 pub(super) fn start_renew(method: &mut Dhcp) {
     let Some((server, assigned)) = endpoints(method) else {
         begin(method);
@@ -42,7 +39,6 @@ pub(super) fn start_renew(method: &mut Dhcp) {
     exchange::begin(method, Transmit::Renew { server, assigned });
 }
 
-// Starts rebinding by broadcast.
 pub(super) fn start_rebind(method: &mut Dhcp) {
     let Some((server, assigned)) = endpoints(method) else {
         begin(method);
@@ -53,10 +49,10 @@ pub(super) fn start_rebind(method: &mut Dhcp) {
     exchange::begin(method, Transmit::Rebind { server, assigned });
 }
 
-// Retries or degrades after a failed acquisition attempt.
 pub(super) fn failed(method: &mut Dhcp, now: Instant, fault: Fault) {
     method.attempts = method.attempts.saturating_add(1);
     method.exchange = Exchange::Idle;
+
     match retry::classify(method.attempts) {
         retry::Outcome::Retry(delay) => {
             method.retry_at = now.checked_add(delay);
@@ -75,7 +71,6 @@ pub(super) fn failed(method: &mut Dhcp, now: Instant, fault: Fault) {
     }
 }
 
-// Drops the refused lease and falls back to rebinding after a failed renewal.
 pub(super) fn renew_failed(method: &mut Dhcp, fault: Fault) {
     method.exchange = Exchange::Idle;
     exchange::release(method, SocketSlot::Secondary);
@@ -91,7 +86,6 @@ pub(super) fn renew_failed(method: &mut Dhcp, fault: Fault) {
     method.phase = Phase::Bound;
 }
 
-// Drops the refused lease and waits for expiry after a failed rebinding.
 pub(super) fn rebind_failed(method: &mut Dhcp, fault: Fault) {
     method.exchange = Exchange::Idle;
     exchange::release(method, SocketSlot::Primary);
@@ -107,7 +101,6 @@ pub(super) fn rebind_failed(method: &mut Dhcp, fault: Fault) {
     method.phase = Phase::Bound;
 }
 
-// Returns the server and assigned address of the held lease.
 fn endpoints(method: &Dhcp) -> Option<(Ipv4Addr, Ipv4Addr)> {
     method
         .lease
