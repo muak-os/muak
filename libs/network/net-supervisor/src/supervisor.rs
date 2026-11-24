@@ -113,6 +113,7 @@ impl Supervisor {
             .as_ref()
             .and_then(|owner| self.snapshots.get(owner))
             .map(|snapshot| snapshot.link);
+
         (
             self.state.state,
             self.state.primary.clone(),

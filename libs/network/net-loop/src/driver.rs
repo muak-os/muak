@@ -91,6 +91,7 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
                 (deadline, None) | (None, deadline) => deadline,
             };
         }
+
         next
     }
 

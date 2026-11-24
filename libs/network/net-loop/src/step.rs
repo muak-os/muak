@@ -8,7 +8,6 @@ use net_runtime::Events as _;
 use crate::pending::Pending;
 use crate::{Loop, Progress, feedback, interface_effects, supervisor_effects};
 
-// Feeds the supervisor its initialization command once.
 pub(crate) async fn start<R: net_runtime::Runtime>(driver: &mut Loop<R>, now: Instant) -> Progress {
     if driver.started {
         return Progress::Idle;
@@ -20,7 +19,6 @@ pub(crate) async fn start<R: net_runtime::Runtime>(driver: &mut Loop<R>, now: In
     progress
 }
 
-// Steps the driver once.
 pub(crate) async fn run<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -46,7 +44,6 @@ pub(crate) async fn run<R: net_runtime::Runtime>(
     Ok(Progress::Idle)
 }
 
-// Waits for the next link event and queues it.
 pub(crate) async fn wait_event<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
 ) -> io::Result<Progress> {
@@ -56,7 +53,6 @@ pub(crate) async fn wait_event<R: net_runtime::Runtime>(
     Ok(Progress::Worked)
 }
 
-// Feeds the supervisor one input and executes its effect.
 pub(crate) async fn drive<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -69,11 +65,6 @@ pub(crate) async fn drive<R: net_runtime::Runtime>(
     Progress::Idle
 }
 
-// Steps one interface controller and executes the effect it produced.
-//
-// Returns false when the controller had nothing to do. A published snapshot is
-// cloned into a pending input instead of being dispatched, because the
-// supervisor has to read it on a later step.
 pub(crate) async fn advance<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     index: usize,
@@ -149,7 +140,6 @@ async fn poll_supervisor<R: net_runtime::Runtime>(
     true
 }
 
-// Steps the controllers in insertion order until one produces an effect.
 async fn poll_interfaces<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,

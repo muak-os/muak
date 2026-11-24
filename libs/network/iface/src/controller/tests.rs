@@ -1,3 +1,5 @@
+//! Controller tests over the sans-io method steps.
+
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use core::net::SocketAddr;
 #[cfg(feature = "ipv6")]
@@ -197,7 +199,6 @@ fn convert(effect: Effect<'_>) -> Observed {
     }
 }
 
-// Configures the controller and drains every effect that needs no external input.
 fn configure(
     controller: &mut Controller,
     now: Instant,
@@ -213,6 +214,7 @@ fn configure(
         effects.push(effect);
     }
     effects.extend(drain(controller, now));
+
     effects
 }
 

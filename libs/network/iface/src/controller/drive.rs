@@ -7,33 +7,23 @@ use ip_method::{Effect as MethodEffect, Method, Step as MethodStep};
 use super::{command, event};
 use crate::{Controller, Effect, Family, Input, Step};
 
-/// Transport work one method step asked the runtime to do.
 enum Transport<'a> {
-    // Open the described socket.
     Open(ip_method::SocketSpec),
-    // Send the borrowed frame on the slot.
     Send {
         slot: ip_method::SocketSlot,
         frame: &'a [u8],
         dst: Option<core::net::SocketAddr>,
     },
-    // Close the socket in the slot.
     Close(ip_method::SocketSlot),
 }
 
-/// One method step classified into what the controller has to do with it.
 enum Reaction<'a> {
-    // The method has nothing to report.
     Wait,
-    // The method asked for entropy.
     Entropy,
-    // The method asked the runtime for a transport effect.
     Transport(Transport<'a>),
-    // The method emitted a lifecycle event.
     Event(ip_method::Event),
 }
 
-// Dispatches one external input and returns the next effect.
 pub(super) fn dispatch<'a>(
     controller: &'a mut Controller,
     now: Instant,
@@ -41,7 +31,6 @@ pub(super) fn dispatch<'a>(
     input: Input<'_>,
 ) -> Step<'a> {
     match input {
-        // Timer deadlines are carried by `now`; draining polls both methods.
         Input::Poll | Input::Timer => drain(controller, now, wall),
         Input::Method { family, input } => advance(controller, now, wall, family, input),
         Input::Command(command) => {
@@ -58,7 +47,6 @@ pub(super) fn dispatch<'a>(
     }
 }
 
-// Returns the earliest wake deadline across pending work and both methods.
 pub(super) fn wake(controller: &Controller, now: Instant) -> Option<Instant> {
     if !controller.pending.is_empty() || controller.deferred.is_some() {
         return Some(now);
@@ -80,7 +68,6 @@ pub(super) fn wake(controller: &Controller, now: Instant) -> Option<Instant> {
     }
 }
 
-// Steps both methods until one produces an effect or both are waiting.
 fn drain(controller: &mut Controller, now: Instant, wall: SystemTime) -> Step<'_> {
     if let Some(effect) = pending_effect(controller, now, wall) {
         return effect;
@@ -109,7 +96,6 @@ fn drain(controller: &mut Controller, now: Instant, wall: SystemTime) -> Step<'_
     Step::Wait
 }
 
-// Applies queued deliveries until one of them produces an effect.
 fn pending_effect(controller: &mut Controller, now: Instant, wall: SystemTime) -> Option<Step<'_>> {
     let (family, input) = controller.pending.pop_front()?;
     let step = advance(controller, now, wall, family, input);
@@ -120,7 +106,6 @@ fn pending_effect(controller: &mut Controller, now: Instant, wall: SystemTime) -
     }
 }
 
-// Steps the method of one family and translates its reaction.
 fn advance<'a>(
     controller: &'a mut Controller,
     now: Instant,
@@ -147,7 +132,6 @@ fn advance<'a>(
     }
 }
 
-// Classifies one method step.
 fn react<'a, M: Method>(
     method: &'a mut M,
     now: Instant,
@@ -170,7 +154,6 @@ fn react<'a, M: Method>(
     }
 }
 
-// Translates a method transport effect into a family-tagged interface effect.
 fn translate(family: Family, transport: Transport<'_>) -> Effect<'_> {
     match transport {
         Transport::Open(spec) => Effect::OpenSocket { family, spec },

@@ -1,8 +1,4 @@
 //! End-to-end driver tests over the mock runtime.
-//!
-//! These tests drive the public loop across discovery, provisioning, bridge
-//! setup, snapshots, link events, resolver writes, and effect failures, and
-//! inspect the mock state the loop executes against.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -21,7 +17,6 @@ const PREFIX: u8 = 24;
 const DNS: Ipv4Addr = Ipv4Addr::new(9, 9, 9, 9);
 const SETTLE: usize = 64;
 
-// Runtime whose link inventory fails so the driver has to report the effect.
 struct Failing {
     mock: Mock,
 }
@@ -115,7 +110,6 @@ impl net_runtime::Link for Failing {
     }
 }
 
-// Runtime whose single-link lookup fails so a link event cannot be applied.
 struct BrokenLink {
     mock: Mock,
 }
@@ -362,7 +356,6 @@ fn supervisor_effect_failure_is_fed_back_without_aborting() {
 
     // ACT
     let started = block_on(driver.start(now));
-    // `settle` panics on an error, so it also proves the failure is not fatal.
     block_on(settle(&mut driver, now, SystemTime::UNIX_EPOCH));
 
     // ASSERT

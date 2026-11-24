@@ -74,8 +74,6 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         iface::Effect::RequestEntropy { family } => {
             let mut bytes = [0_u8; 4];
             runtime.entropy().fill(&mut bytes);
-            // The value is an opaque DHCP transaction ID; the byte order the
-            // method sees only has to be consistent with what it sends back.
             pending.push_back(Pending::Entropy {
                 name: interface.clone(),
                 family,
@@ -102,8 +100,6 @@ async fn open<R: net_runtime::Runtime>(
         ));
     }
 
-    // Reopening a slot replaces the socket the runtime already handed out, so
-    // the stale handle is released before the new one is tracked.
     let stale = sockets
         .find(interface, family, spec.slot)
         .and_then(|id| sockets.get(id).map(|owner| (id, owner.kind)));
@@ -200,8 +196,8 @@ async fn release<R: net_runtime::Runtime>(
     id: net_runtime::SocketId,
     kind: ip_method::SocketKind,
 ) -> io::Result<()> {
-    // Drop the entry first so a failed close cannot leave a stale handle.
     sockets.remove(id);
+
     match kind {
         ip_method::SocketKind::RawL2 => runtime.packet().close(id).await,
         ip_method::SocketKind::Udp => runtime.udp().close(id).await,

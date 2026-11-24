@@ -6,17 +6,13 @@ use ip_method::{Event, Intent, Method, State};
 
 use crate::{Controller, Effect, Family};
 
-// Maximum number of notices the snapshot keeps before dropping the oldest.
 pub(super) const MAX_NOTICES: usize = 8;
 
-// Applies a method lifecycle event to the snapshot.
 pub(super) fn handle(controller: &mut Controller, family: Family, event: Event) -> Effect<'static> {
     match event {
         Event::Intent(intent) => {
             let effect = intent_effect(controller, intent);
 
-            // Deconfigure and expiry intents change the view, so refresh it
-            // before the snapshot is published.
             refresh(controller, family);
 
             effect
@@ -42,7 +38,6 @@ pub(super) fn handle(controller: &mut Controller, family: Family, event: Event) 
     }
 }
 
-// Adds one notice, dropping the oldest when the cap is reached.
 fn push_notice(controller: &mut Controller, message: String) {
     if controller.snapshot.notices.len() >= MAX_NOTICES {
         controller.snapshot.notices.drain(..1);
@@ -50,9 +45,9 @@ fn push_notice(controller: &mut Controller, message: String) {
     controller.snapshot.notices.push(message);
 }
 
-// Turns an intent into the address or route effect the runtime applies.
 fn intent_effect(controller: &Controller, intent: Intent) -> Effect<'static> {
     let link = controller.link.name.clone();
+
     match intent {
         Intent::Configure(address) => Effect::AddAddress {
             link,
@@ -69,7 +64,6 @@ fn intent_effect(controller: &Controller, intent: Intent) -> Effect<'static> {
     }
 }
 
-// Stores the provisioning phase of the family method.
 const fn set_state(controller: &mut Controller, family: Family, state: State) {
     match family {
         Family::V4 => controller.snapshot.v4_state = state,
@@ -77,7 +71,6 @@ const fn set_state(controller: &mut Controller, family: Family, state: State) {
     }
 }
 
-// Refreshes the family view the method currently reports.
 fn refresh(controller: &mut Controller, family: Family) {
     match family {
         Family::V4 => {

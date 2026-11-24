@@ -8,7 +8,6 @@ use net_runtime::Link as _;
 use crate::pending::Pending;
 use crate::{Loop, driver, feedback};
 
-// Applies a link event to the controllers, then queues it for the supervisor.
 pub(crate) async fn link_event<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -30,7 +29,6 @@ pub(crate) async fn link_event<R: net_runtime::Runtime>(
     applied
 }
 
-// Applies a link transition to a known controller and ignores unknown links.
 pub(crate) async fn interface_link<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -41,10 +39,10 @@ pub(crate) async fn interface_link<R: net_runtime::Runtime>(
     if !driver.names.contains(name) {
         return Ok(());
     }
+
     feedback::interface_input(driver, now, wall, name, iface::Input::Link(info)).await
 }
 
-// Applies the transition to the port, then forwards its carrier to the owner.
 async fn apply_carrier<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -68,7 +66,6 @@ async fn apply_carrier<R: net_runtime::Runtime>(
     Ok(())
 }
 
-// Looks up the full link for an event that changes its state.
 async fn event_link<R: net_runtime::Runtime>(
     driver: &Loop<R>,
     event: &netmodel::LinkEvent,
@@ -81,7 +78,6 @@ async fn event_link<R: net_runtime::Runtime>(
     Ok(link.as_ref().map(driver::link_info))
 }
 
-// Returns the link an event changes, or none when it carries no state.
 const fn event_name(event: &netmodel::LinkEvent) -> Option<&netmodel::Name> {
     match *event {
         netmodel::LinkEvent::Up { ref name, .. }

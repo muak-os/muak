@@ -1,11 +1,4 @@
 //! Runtime-agnostic driver loop for network finite state machines.
-//!
-//! The loop owns the global [`net_supervisor::Supervisor`], one
-//! [`iface::Controller`] per known interface, and the logical socket table.
-//! Services call [`Loop::start`] once, then step the loop or wait for a link
-//! event. Each [`Loop::step`] feeds the FSMs one input at a time and executes
-//! the effect they answer with against the [`net_runtime::Runtime`] ports, so
-//! the same orchestration runs on any backend that implements the ports.
 
 #![warn(missing_docs)]
 
@@ -78,6 +71,7 @@ impl SocketTable {
     /// Removes a socket and returns the owner it had.
     pub fn remove(&mut self, id: net_runtime::SocketId) -> Option<SocketOwner> {
         let index = self.entries.iter().position(|entry| entry.id == id)?;
+
         Some(self.entries.remove(index).owner)
     }
 
@@ -140,17 +134,10 @@ pub struct Loop<R: net_runtime::Runtime> {
     runtime: R,
     supervisor: net_supervisor::Supervisor,
     interfaces: Vec<iface::Controller>,
-    // Interface names stay beside the controllers so a step can borrow the
-    // name while the matching controller is stepped mutably. Both lists are
-    // only ever appended to together in `driver::ensure`.
     names: Vec<netmodel::Name>,
-    // Ports enslaved to a bridge, so a carrier change on a port reaches the
-    // controller that owns layer 3. Entries are added on enslavement and
-    // removed when the port or the bridge disappears.
     owners: Vec<(netmodel::Name, netmodel::Name)>,
     sockets: SocketTable,
     resolver: Nameservers,
-    // Set by `start` so a repeated start cannot restart discovery.
     started: bool,
     pending: VecDeque<Pending>,
 }

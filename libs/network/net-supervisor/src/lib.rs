@@ -1,9 +1,4 @@
 //! Global network supervisor finite state machine.
-//!
-//! The supervisor is a sans-io finite state machine: callers feed it one
-//! [`Input`] at a time and execute the single [`Effect`] it answers with. It
-//! owns no clock, no sockets, and no allocation-heavy dispatch budget, so the
-//! same policy runs on any runtime.
 
 #![warn(missing_docs)]
 

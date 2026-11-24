@@ -8,7 +8,6 @@ use net_runtime::Link as _;
 use crate::pending::Pending;
 use crate::{Loop, driver, events, step};
 
-// Feeds one pending input to the FSM that consumes it.
 pub(crate) async fn feed<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     pending: Pending,
@@ -98,8 +97,6 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
     Ok(())
 }
 
-// Adds a controller for every link discovery reported and refreshes the ones
-// that already existed so a re-added link gets its new index and state.
 async fn discover<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -118,13 +115,13 @@ async fn discover<R: net_runtime::Runtime>(
             .err());
     }
     step::drive(driver, now, net_supervisor::Input::Links(links)).await;
+
     match first_error {
         Some(error) => Err(error),
         None => Ok(()),
     }
 }
 
-// Records the bridge that owns a port and makes the bridge reflect its carrier.
 async fn enslave<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -153,7 +150,6 @@ async fn enslave<R: net_runtime::Runtime>(
     Ok(())
 }
 
-// Shuts an interface down, tolerating a link the driver never saw.
 async fn shutdown<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
@@ -177,7 +173,6 @@ async fn command<R: net_runtime::Runtime>(
     interface_input(driver, now, wall, name, iface::Input::Command(command)).await
 }
 
-// Feeds one input to a known controller and rejects unknown links.
 pub(crate) async fn interface_input<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,

@@ -18,6 +18,7 @@ pub(crate) fn owner(supervisor: &Supervisor) -> Option<&Name> {
     }
 
     let owner = supervisor.owners.get(primary).unwrap_or(primary);
+
     if supervisor.known.contains(owner) {
         Some(owner)
     } else {

@@ -8,7 +8,6 @@ use ip_method::{Command as MethodCommand, Input as MethodInput, State};
 use crate::method::{Replacement, V4Slot, V6Slot};
 use crate::{Command, Controller, Effect, Family};
 
-// Applies a supervisor command to the controller and its methods.
 pub(super) fn apply(controller: &mut Controller, command: Command) {
     match command {
         Command::Configure { v4, v6 } => configure(controller, v4, v6),
@@ -22,7 +21,6 @@ pub(super) fn apply(controller: &mut Controller, command: Command) {
     }
 }
 
-// Installs the deferred replacement once the outgoing methods stopped.
 pub(super) fn install(controller: &mut Controller) -> Effect<'static> {
     if let Some(replacement) = controller.deferred.take() {
         controller.v4 = replacement.v4;
@@ -49,7 +47,6 @@ pub(super) fn install(controller: &mut Controller) -> Effect<'static> {
     Effect::Publish
 }
 
-// Updates the link and forwards the transition to the family methods.
 pub(super) fn link(controller: &mut Controller, info: &ip_method::LinkInfo) {
     let changed = info.state != controller.link.state;
     controller.snapshot.link = info.state;
@@ -67,7 +64,6 @@ pub(super) fn link(controller: &mut Controller, info: &ip_method::LinkInfo) {
     }
 }
 
-// Builds the replacement methods and stops the outgoing ones.
 fn configure(
     controller: &mut Controller,
     v4: Option<netmodel::Ipv4Config>,
@@ -88,17 +84,14 @@ fn configure(
         notices,
     });
 
-    // Stop the outgoing methods; the swap happens once both return `Wait`.
     broadcast(controller, MethodCommand::Stop);
 }
 
-// Explains configurations whose enabling feature is not compiled in.
 #[cfg(any(not(feature = "ipv4"), not(feature = "ipv6")))]
 fn replacement_notices(
     v4: Option<&netmodel::Ipv4Config>,
     v6: Option<&netmodel::Ipv6Config>,
 ) -> Vec<String> {
-    // One family has no notice branch in single-feature builds.
     let _ = v4;
     let _ = v6;
 
@@ -117,10 +110,10 @@ fn replacement_notices(
     }) {
         notices.push(notice);
     }
+
     notices
 }
 
-// With both features compiled in no configuration can be unsupported.
 #[cfg(all(feature = "ipv4", feature = "ipv6"))]
 const fn replacement_notices(
     _v4: Option<&netmodel::Ipv4Config>,
@@ -129,7 +122,6 @@ const fn replacement_notices(
     Vec::new()
 }
 
-// Queues the same method command for every running family method.
 fn broadcast(controller: &mut Controller, command: MethodCommand) {
     if controller.v4.is_some() {
         controller
@@ -143,7 +135,6 @@ fn broadcast(controller: &mut Controller, command: MethodCommand) {
     }
 }
 
-// Builds the link input the family method expects for a transition.
 fn link_input(
     controller: &Controller,
     family: Family,
@@ -168,7 +159,6 @@ fn link_input(
     }
 }
 
-// Builds the input a dynamic method takes on a link transition.
 fn transition_input(
     dynamic: bool,
     info: &ip_method::LinkInfo,

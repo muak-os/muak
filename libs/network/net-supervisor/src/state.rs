@@ -52,7 +52,6 @@ impl Snapshot {
     }
 }
 
-/// Returns true when `from -> to` is one of the validated transitions.
 const fn valid(from: State, to: State) -> bool {
     matches!(
         (from, to),

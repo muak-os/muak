@@ -29,8 +29,6 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             pending.push_back(Pending::Carriers(carriers));
         }
         net_supervisor::Effect::ConfigureInterface { name, v4, v6 } => {
-            // The supervisor no longer emits a link-up effect; the runtime
-            // raises the link before the controller applies its methods.
             runtime.link().set_up(&name).await?;
             pending.push_back(Pending::ConfigureInterface {
                 name,
@@ -70,8 +68,6 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         net_supervisor::Effect::ShutdownInterface { name } => {
             pending.push_back(Pending::ShutdownInterface { name });
         }
-        // Publication belongs to the service that owns the status channel and
-        // reads it through `Loop::status`.
         net_supervisor::Effect::Publish => {}
         net_supervisor::Effect::WriteResolver { v4, v6 } => resolver.store(v4, v6),
     }

@@ -157,6 +157,7 @@ pub(crate) fn resolve_owner(supervisor: &Supervisor, name: &Name) -> Name {
 /// Resolves the port a bridge should attach to, expanding the `auto` alias.
 pub(crate) fn bridge_port(supervisor: &Supervisor, index: usize) -> Option<Name> {
     let primary = supervisor.state.primary.as_ref()?;
+
     bridge_port_for(supervisor, index, primary)
 }
 
@@ -183,7 +184,6 @@ fn provision_addresses(supervisor: &mut Supervisor, index: usize) {
     queue_configure(supervisor, index, owner);
 }
 
-// Only the first configured port is honoured; additional ports are ignored.
 fn bridge_port_for(supervisor: &Supervisor, index: usize, primary: &Name) -> Option<Name> {
     let port = supervisor
         .config
@@ -192,6 +192,7 @@ fn bridge_port_for(supervisor: &Supervisor, index: usize, primary: &Name) -> Opt
         .bridge
         .as_ref()
         .and_then(|bridge| bridge.port.first());
+
     match port.map(String::as_str) {
         Some("auto") | None => Some(primary.clone()),
         Some(port) => Name::new(port).ok(),

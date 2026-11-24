@@ -4,10 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::Supervisor;
 
-/// First retry delay.
 const BASE: Duration = Duration::from_secs(1);
-
-/// Maximum retry delay.
 const MAX: Duration = Duration::from_secs(10);
 
 /// Records one failed attempt and schedules the next discovery.
@@ -30,5 +27,6 @@ pub(crate) const fn clear(supervisor: &mut Supervisor) {
 
 fn delay(number: u32) -> Duration {
     let multiplier = 1_u32 << number.saturating_sub(1).min(5);
+
     BASE.checked_mul(multiplier).unwrap_or(MAX).min(MAX)
 }

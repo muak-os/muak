@@ -11,7 +11,6 @@ use crate::{
     State, Step, Supervisor,
 };
 
-/// Owned summary of an effect so a test can inspect it after the borrow ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Seen {
     Discover,
@@ -170,6 +169,7 @@ fn boot(interfaces: Vec<InterfaceConfig>, links: &[Link], carriers: &[(u32, bool
     run(&mut supervisor, now, Input::Command(Command::Initialize));
     run(&mut supervisor, now, Input::Links(links));
     run(&mut supervisor, now, Input::Carriers(carriers));
+
     supervisor
 }
 

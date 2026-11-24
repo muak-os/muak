@@ -135,7 +135,6 @@ fn is_owner_failed(supervisor: &Supervisor) -> bool {
         .is_some_and(view::is_failed)
 }
 
-/// Re-points every bridge whose port is `port` at the new primary.
 fn rebridge(supervisor: &mut Supervisor, port: &Name) -> bool {
     let bridges: Vec<usize> = supervisor
         .config
@@ -161,7 +160,6 @@ fn repoint_bridge(supervisor: &mut Supervisor, index: usize, port: &Name) -> boo
     provision::queue_bridge(supervisor, index)
 }
 
-/// Starts DHCP on a promoted Ethernet backup that a bridge does not own.
 fn configure_promoted(supervisor: &mut Supervisor, name: &Name) {
     let Some(index) = promoted_config(supervisor, name) else {
         return;

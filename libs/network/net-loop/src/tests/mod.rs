@@ -16,6 +16,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let waker = Waker::noop();
     let mut context = Context::from_waker(waker);
+
     match Future::poll(future.as_mut(), &mut context) {
         Poll::Ready(value) => value,
         Poll::Pending => panic!("mock future must be ready"),
@@ -61,6 +62,7 @@ async fn apply_interface(
     effect: iface::Effect<'_>,
 ) -> std::io::Result<()> {
     let mut pending = VecDeque::new();
+
     crate::interface_effects::apply(mock, interface, sockets, &mut pending, effect).await
 }
 
@@ -70,6 +72,7 @@ fn apply_supervisor(
     effect: net_supervisor::Effect<'_>,
 ) -> std::io::Result<()> {
     let mut resolver = crate::resolver::Nameservers::default();
+
     block_on(crate::supervisor_effects::apply(
         mock,
         pending,
@@ -88,6 +91,7 @@ fn runtime() -> Mock {
         is_virtual: false,
         master: None,
     });
+
     mock
 }
 
@@ -387,7 +391,6 @@ fn step_consumes_one_pending_input_and_works() {
 
     // ACT
     let first = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("first step");
-    // The shutdown makes the controller publish its final snapshot.
     let second = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("second step");
     let third = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("third step");
 
