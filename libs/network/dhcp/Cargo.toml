@@ -1,6 +1,6 @@
 [package]
 name = "dhcp"
-description = "DHCPv4 client finite state machine"
+description = "RFC 2131 DHCPv4 client finite state machine"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,12 +13,8 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
-# Error handling
-thiserror = { workspace = true }
-
 # Internal
 dhcp-proto = { workspace = true }
-ethernet = { workspace = true }
 ip = { workspace = true, features = ["v4"] }
 ip-method = { workspace = true }
 netmodel = { workspace = true }

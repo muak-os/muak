@@ -1,0 +1,81 @@
+//! Start, stop and link transitions of the `DHCPv4` method.
+
+use ip_method::{Event, State};
+
+use crate::effects::Action;
+use crate::exchange::Exchange;
+use crate::{Dhcp, Phase, acquire, exchange, intent};
+
+// Starts acquisition from an idle, stopped or degraded method.
+pub(super) fn start(method: &mut Dhcp) {
+    if matches!(method.phase, Phase::Idle | Phase::Stopped | Phase::Degraded) {
+        acquire::begin(method);
+    }
+}
+
+// Removes the lease and stops the method.
+pub(super) fn stop(method: &mut Dhcp) {
+    intent::deconfigure(method);
+    method.lease = None;
+    method.bound_at = None;
+    method.phase = Phase::Stopped;
+    method.deadlines.disarm();
+    method.retry_at = None;
+    method.attempts = 0;
+    method.exchange = Exchange::Idle;
+    exchange::release_all(method);
+    let state = Event::State(State::Stopped);
+    method.queue.push_back(Action::Event(state));
+}
+
+// Reapplies the held lease or restarts discovery, unless the method is stopped.
+pub(super) fn reconcile(method: &mut Dhcp) {
+    if matches!(method.phase, Phase::Stopped) {
+        return;
+    }
+    if method.lease.is_some() {
+        reapply(method);
+    } else {
+        acquire::begin(method);
+    }
+}
+
+// Reapplies the held lease when the link comes back.
+pub(super) fn link_up(method: &mut Dhcp) {
+    if !matches!(method.phase, Phase::Degraded) {
+        return;
+    }
+    if method.lease.is_some() {
+        reapply(method);
+    } else {
+        acquire::begin(method);
+    }
+}
+
+// Keeps the lease but stops every exchange while the link is down.
+pub(super) fn link_down(method: &mut Dhcp) {
+    if matches!(method.phase, Phase::Idle | Phase::Stopped) {
+        return;
+    }
+    method.phase = Phase::Degraded;
+    method.deadlines.disarm();
+    method.retry_at = None;
+    method.attempts = 0;
+    method.exchange = Exchange::Idle;
+    exchange::release_all(method);
+    let state = Event::State(State::Degraded);
+    method.queue.push_back(Action::Event(state));
+}
+
+// Emits the lease intents and marks the method bound.
+fn reapply(method: &mut Dhcp) {
+    if method.lease.is_none() {
+        return;
+    }
+    method.deadlines.disarm();
+    method.phase = Phase::Bound;
+    method.exchange = Exchange::Idle;
+    intent::configure(method);
+    let state = Event::State(State::Bound);
+    method.queue.push_back(Action::Event(state));
+}
