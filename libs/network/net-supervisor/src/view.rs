@@ -28,6 +28,6 @@ pub(crate) const fn has_method_view(snapshot: &iface::Snapshot) -> bool {
 
 /// Returns true when the interface lost its carrier or a method gave up.
 pub(crate) fn is_failed(snapshot: &iface::Snapshot) -> bool {
-    snapshot.link == netmodel::LinkState::Down
+    snapshot.link != netmodel::LinkState::Up
         || (is_degraded(snapshot) && !has_method_view(snapshot))
 }

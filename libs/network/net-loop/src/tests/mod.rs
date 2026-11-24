@@ -1,5 +1,7 @@
 //! Effect dispatch tests that need the crate-private helpers.
 
+mod driver;
+
 use alloc::collections::VecDeque;
 use core::future::Future;
 use core::pin::pin;
@@ -60,6 +62,20 @@ async fn apply_interface(
 ) -> std::io::Result<()> {
     let mut pending = VecDeque::new();
     crate::interface_effects::apply(mock, interface, sockets, &mut pending, effect).await
+}
+
+fn apply_supervisor(
+    mock: &Mock,
+    pending: &mut VecDeque<Pending>,
+    effect: net_supervisor::Effect<'_>,
+) -> std::io::Result<()> {
+    let mut resolver = crate::resolver::Nameservers::default();
+    block_on(crate::supervisor_effects::apply(
+        mock,
+        pending,
+        &mut resolver,
+        effect,
+    ))
 }
 
 fn runtime() -> Mock {
@@ -239,12 +255,8 @@ fn discover_queues_the_link_inventory() {
     let mut pending = VecDeque::new();
 
     // ACT
-    block_on(crate::supervisor_effects::apply(
-        &mock,
-        &mut pending,
-        net_supervisor::Effect::Discover,
-    ))
-    .expect("discover links");
+    apply_supervisor(&mock, &mut pending, net_supervisor::Effect::Discover)
+        .expect("discover links");
 
     // ASSERT
     let Some(Pending::Links(links)) = pending.pop_front() else {
@@ -279,11 +291,11 @@ fn probe_carriers_queues_the_state_per_link() {
     ];
 
     // ACT
-    block_on(crate::supervisor_effects::apply(
+    apply_supervisor(
         &mock,
         &mut pending,
         net_supervisor::Effect::ProbeCarriers { links: &links },
-    ))
+    )
     .expect("probe carriers");
 
     // ASSERT
@@ -304,18 +316,28 @@ fn ensure_bridge_reaches_the_runtime() {
     };
 
     // ACT
-    block_on(crate::supervisor_effects::apply(
+    apply_supervisor(
         &mock,
         &mut pending,
         net_supervisor::Effect::EnsureBridge {
             name: name("br0"),
             config: &config,
         },
-    ))
+    )
     .expect("ensure bridge");
 
     // ASSERT
     assert_eq!(mock.bridge_stp(&name("br0")), Some(true));
+    let Some(Pending::BridgeReady {
+        name: bridge,
+        state,
+        ..
+    }) = pending.pop_front()
+    else {
+        panic!("bridge ready feedback expected");
+    };
+    assert_eq!(bridge, name("br0"));
+    assert_eq!(state, netmodel::LinkState::Up);
     assert!(pending.is_empty());
 }
 
@@ -327,7 +349,7 @@ fn configure_interface_is_cloned_for_the_next_step() {
     let v4 = netmodel::Ipv4Config::default();
 
     // ACT
-    block_on(crate::supervisor_effects::apply(
+    apply_supervisor(
         &mock,
         &mut pending,
         net_supervisor::Effect::ConfigureInterface {
@@ -335,7 +357,7 @@ fn configure_interface_is_cloned_for_the_next_step() {
             v4: Some(&v4),
             v6: None,
         },
-    ))
+    )
     .expect("configure interface");
 
     // ASSERT
@@ -356,6 +378,7 @@ fn configure_interface_is_cloned_for_the_next_step() {
 fn step_consumes_one_pending_input_and_works() {
     // ARRANGE
     let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
     driver.add_interface(link("eth0", 2));
     driver
         .pending
@@ -364,11 +387,14 @@ fn step_consumes_one_pending_input_and_works() {
 
     // ACT
     let first = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("first step");
+    // The shutdown makes the controller publish its final snapshot.
     let second = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("second step");
+    let third = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("third step");
 
     // ASSERT
     assert_eq!(first, Progress::Worked);
-    assert_eq!(second, Progress::Idle);
+    assert_eq!(second, Progress::Worked);
+    assert_eq!(third, Progress::Idle);
     assert!(driver.pending.is_empty());
 }
 
@@ -634,12 +660,8 @@ fn publish_effects_are_no_ops() {
         iface::Effect::Publish,
     ))
     .expect("publish an interface");
-    block_on(crate::supervisor_effects::apply(
-        &mock,
-        &mut pending,
-        net_supervisor::Effect::Publish,
-    ))
-    .expect("publish the supervisor status");
+    apply_supervisor(&mock, &mut pending, net_supervisor::Effect::Publish)
+        .expect("publish the supervisor status");
 
     // ASSERT
     assert!(sockets.is_empty());
@@ -792,6 +814,7 @@ fn pending_input_forces_a_wake_at_now() {
     // ARRANGE
     let now = Instant::now();
     let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
     let idle = driver.next_wake(now);
 
     // ACT
@@ -806,13 +829,50 @@ fn pending_input_forces_a_wake_at_now() {
 }
 
 #[test]
-fn unknown_interface_command_reports_not_found() {
+fn unstarted_loop_reports_no_wake_even_with_pending_work() {
     // ARRANGE
     let now = Instant::now();
     let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
     driver
         .pending
         .push_back(Pending::ShutdownInterface { name: name("eth0") });
+
+    // ACT
+    let wake = driver.next_wake(now);
+
+    // ASSERT
+    assert!(wake.is_none());
+}
+
+#[test]
+fn shutdown_of_an_unknown_interface_is_tolerated() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
+    driver
+        .pending
+        .push_back(Pending::ShutdownInterface { name: name("eth0") });
+
+    // ACT
+    let progress = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("step");
+
+    // ASSERT
+    assert_eq!(progress, Progress::Worked);
+    assert!(driver.pending.is_empty());
+}
+
+#[test]
+fn configure_of_an_unknown_interface_reports_not_found() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
+    driver.pending.push_back(Pending::ConfigureInterface {
+        name: name("eth0"),
+        v4: None,
+        v6: None,
+    });
 
     // ACT
     let error = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect_err("no controller");
@@ -826,6 +886,7 @@ fn configure_pending_input_reaches_the_interface() {
     // ARRANGE
     let now = Instant::now();
     let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
     driver.add_interface(link("eth0", 2));
     driver.pending.push_back(Pending::ConfigureInterface {
         name: name("eth0"),
@@ -838,7 +899,13 @@ fn configure_pending_input_reaches_the_interface() {
 
     // ASSERT
     assert_eq!(progress, Progress::Worked);
-    assert!(driver.pending.is_empty());
+    let Some(Pending::Snapshot {
+        name: published, ..
+    }) = driver.pending.pop_front()
+    else {
+        panic!("published snapshot expected");
+    };
+    assert_eq!(published, name("eth0"));
 }
 
 #[test]
@@ -881,6 +948,7 @@ fn driver_consumes_a_pending_entropy_input() {
     // ARRANGE
     let now = Instant::now();
     let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
     driver.add_interface(link("eth0", 2));
     driver.pending.push_back(Pending::Entropy {
         name: name("eth0"),
@@ -903,11 +971,11 @@ fn reconcile_interface_effect_queues_a_pending_input() {
     let mut pending = VecDeque::new();
 
     // ACT
-    block_on(crate::supervisor_effects::apply(
+    apply_supervisor(
         &mock,
         &mut pending,
         net_supervisor::Effect::ReconcileInterface { name: name("eth0") },
-    ))
+    )
     .expect("reconcile interface");
 
     // ASSERT
@@ -915,10 +983,7 @@ fn reconcile_interface_effect_queues_a_pending_input() {
         panic!("reconcile command expected");
     };
     assert_eq!(queued, name("eth0"));
-    let link = block_on(net_runtime::Link::link(&mock, &name("eth0")))
-        .expect("query link")
-        .expect("known link");
-    assert_eq!(link.state, netmodel::LinkState::Up);
+    assert!(pending.is_empty());
 }
 
 #[test]
@@ -926,6 +991,7 @@ fn reconcile_pending_input_reaches_the_interface() {
     // ARRANGE
     let now = Instant::now();
     let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.started = true;
     driver.add_interface(link("eth0", 2));
     driver
         .pending

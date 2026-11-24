@@ -53,7 +53,7 @@ pub(crate) fn configure_master(supervisor: &mut Supervisor, master: &Name) {
             continue;
         };
         if &resolve_owner(supervisor, &name) == master {
-            queue_configure(supervisor, index, master.clone());
+            queue_reapply(supervisor, index, master.clone());
         }
     }
 }

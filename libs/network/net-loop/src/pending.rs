@@ -10,6 +10,36 @@ pub(crate) enum Pending {
     Links(Vec<netmodel::Link>),
     /// Carrier state per link index.
     Carriers(Vec<(u32, bool)>),
+    /// Snapshot an interface controller published.
+    Snapshot {
+        /// Interface the snapshot belongs to.
+        name: netmodel::Name,
+        /// Snapshot the controller published.
+        snapshot: iface::Snapshot,
+    },
+    /// Bridge the runtime created or updated.
+    BridgeReady {
+        /// Bridge name.
+        name: netmodel::Name,
+        /// Kernel interface index.
+        index: u32,
+        /// Hardware address.
+        mac: netmodel::Mac,
+        /// Current link state.
+        state: netmodel::LinkState,
+    },
+    /// Port the runtime attached to a bridge.
+    Enslaved {
+        /// Port that joined the bridge.
+        port: netmodel::Name,
+        /// Bridge the port joined.
+        master: netmodel::Name,
+    },
+    /// Port the runtime detached from its bridge.
+    Detached {
+        /// Port that left the bridge.
+        port: netmodel::Name,
+    },
     /// Per-family configuration the supervisor asked an interface to apply.
     ConfigureInterface {
         /// Interface to configure.
@@ -28,6 +58,24 @@ pub(crate) enum Pending {
     ShutdownInterface {
         /// Interface to shut down.
         name: netmodel::Name,
+    },
+    /// Link lifecycle event the runtime reported.
+    LinkEvent(netmodel::LinkEvent),
+    /// Link lifecycle event the supervisor consumes after the controllers.
+    SupervisorLinkEvent(netmodel::LinkEvent),
+    /// Link transition an interface controller has to apply.
+    InterfaceLink {
+        /// Interface to update.
+        name: netmodel::Name,
+        /// Link state the runtime reported.
+        info: ip_method::LinkInfo,
+    },
+    /// Supervisor effect the runtime could not execute.
+    EffectFailed {
+        /// Effect that failed.
+        kind: net_supervisor::EffectKind,
+        /// Error the runtime reported.
+        error: std::io::Error,
     },
     /// Entropy the runtime produced for one interface method.
     Entropy {

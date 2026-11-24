@@ -366,6 +366,51 @@ fn ethernet_addresses_go_to_the_bridge_owner() {
 }
 
 #[test]
+fn active_bridge_owner_reconciles_on_enslavement() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &[(2, true)]);
+    let now = Instant::now();
+    let first = run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::Up),
+        },
+    );
+
+    // ACT
+    let second = run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+
+    // ASSERT
+    assert!(first.contains(&Seen::Configure {
+        name: name("br0"),
+        v4: true,
+        v6: false,
+    }));
+    assert!(second.contains(&Seen::Reconcile(name("br0"))));
+    assert!(!second.iter().any(
+        |effect| matches!(effect, Seen::Configure { name: target, .. } if target == &name("br0"))
+    ));
+}
+
+#[test]
 fn primary_loss_promotes_a_configured_backup() {
     // ARRANGE
     let links = [
@@ -467,6 +512,55 @@ fn enslaved_owner_failure_rebridges_to_the_backup() {
         Input::InterfaceSnapshot {
             name: name("br0"),
             snapshot: &failed(),
+        },
+    );
+
+    // ASSERT
+    assert_eq!(supervisor.status().primary, Some(name("eth1")));
+    assert!(seen.contains(&Seen::Enslave {
+        port: name("eth1"),
+        master: name("br0"),
+    }));
+    assert!(seen.contains(&Seen::Detach(name("eth0"))));
+}
+
+#[test]
+fn owner_no_carrier_fails_over_to_the_backup() {
+    // ARRANGE
+    let links = [
+        link("eth0", 2, LinkState::Up),
+        link("eth1", 3, LinkState::Up),
+    ];
+    let mut supervisor = boot(
+        vec![bridge(), ethernet("auto", true)],
+        &links,
+        &[(2, true), (3, true)],
+    );
+    let now = Instant::now();
+    run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::Up),
+        },
+    );
+
+    // ACT
+    let seen = run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::NoCarrier),
         },
     );
 

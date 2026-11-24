@@ -1,14 +1,20 @@
-//! Driver construction, stepping, and wake deadline.
+//! Driver construction, accessors, and explicit start.
 
 use alloc::collections::VecDeque;
+use core::net::{Ipv4Addr, Ipv6Addr};
 use std::io;
 use std::time::{Instant, SystemTime};
 
-use crate::pending::Pending;
-use crate::{Progress, interface_effects, supervisor_effects};
+use net_runtime::Link as _;
+
+use crate::resolver::Nameservers;
+use crate::{Progress, step};
 
 impl<R: net_runtime::Runtime> crate::Loop<R> {
     /// Creates a driver loop for the runtime and supervisor configuration.
+    ///
+    /// The loop does not start the supervisor: callers run [`Loop::start`]
+    /// before stepping so callers that only step keep working.
     #[must_use = "the loop owns the FSMs and must be stepped"]
     pub fn new(runtime: R, config: net_supervisor::Config) -> Self {
         Self {
@@ -16,15 +22,25 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
             supervisor: net_supervisor::Supervisor::new(config),
             interfaces: Vec::new(),
             names: Vec::new(),
+            owners: Vec::new(),
             sockets: crate::SocketTable::new(),
+            resolver: Nameservers::default(),
+            started: false,
             pending: VecDeque::new(),
         }
     }
 
-    /// Adds an interface controller for the given link.
+    /// Feeds the supervisor its initialization command and executes the effect.
+    ///
+    /// Services call this once before entering the step loop. Calling it again
+    /// is a no-op, so a reconnecting service cannot restart discovery.
+    pub async fn start(&mut self, now: Instant) -> Progress {
+        step::start(self, now).await
+    }
+
+    /// Adds an interface controller for the given link when it is unknown.
     pub fn add_interface(&mut self, link: ip_method::LinkInfo) {
-        self.names.push(link.name.clone());
-        self.interfaces.push(iface::Controller::new(link));
+        ensure(self, link);
     }
 
     /// Returns the interface controllers in insertion order.
@@ -39,157 +55,151 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         &self.sockets
     }
 
+    /// Returns the supervisor status the last step reached.
+    #[must_use = "callers need the status to report network readiness"]
+    pub fn status(&self) -> net_supervisor::Status {
+        self.supervisor.status()
+    }
+
+    /// Returns the nameservers of the last resolver write the supervisor asked for.
+    #[must_use = "callers need the nameservers to write the resolver configuration"]
+    pub fn resolver(&self) -> (&[Ipv4Addr], &[Ipv6Addr]) {
+        (self.resolver.v4(), self.resolver.v6())
+    }
+
     /// Earliest instant at which the driver must step again.
     ///
-    /// Queued pending inputs are ready immediately, so they force a wake at
-    /// `now` instead of waiting for the next FSM deadline.
+    /// Returns `None` until [`Loop::start`] has run, because an unstarted loop
+    /// has no work a caller could make progress on. Once started, queued
+    /// pending inputs are ready immediately, so they force a wake at `now`
+    /// instead of waiting for the next FSM deadline. A source without a
+    /// deadline does not cancel the deadlines of the other sources.
     #[must_use = "the caller needs the deadline to schedule the wake"]
     pub fn next_wake(&self, now: Instant) -> Option<Instant> {
+        if !self.started {
+            return None;
+        }
+
         if !self.pending.is_empty() {
             return Some(now);
         }
 
         let mut next = self.supervisor.next_wake(now);
         for controller in &self.interfaces {
-            next = next.min(controller.next_wake(now));
+            next = match (next, controller.next_wake(now)) {
+                (Some(supervisor), Some(controller)) => Some(supervisor.min(controller)),
+                (deadline, None) | (None, deadline) => deadline,
+            };
         }
         next
     }
 
     /// Feeds at most one input to the FSMs and executes the resulting effect.
     ///
-    /// Pending inputs win over polling, the supervisor wins over interfaces,
-    /// and interfaces are polled in insertion order. One step never consumes
-    /// more than one input nor executes more than one effect.
+    /// Pending inputs win over the supervisor timer, the supervisor timer wins
+    /// over interface polling, and interfaces are polled in insertion order.
+    /// One step never consumes more than one queued input nor executes more
+    /// than one effect. Before [`Loop::start`] has run, a step is a no-op and
+    /// returns [`Progress::Idle`].
     ///
     /// # Errors
     ///
-    /// Returns the error a runtime port reported while executing an effect.
+    /// Returns the error a runtime port reported while executing an interface
+    /// effect or feeding a pending input back. Supervisor effect failures are
+    /// fed back to the supervisor instead of being returned.
     pub async fn step(&mut self, now: Instant, wall: SystemTime) -> io::Result<Progress> {
-        if let Some(pending) = self.pending.pop_front() {
-            self.feed(pending, now, wall).await?;
-            return Ok(Progress::Worked);
-        }
-
-        // Executing an effect counts as work even when dispatch is a no-op,
-        // such as `Publish` or `WriteResolver`, because the FSM advanced.
-        if self
-            .poll_supervisor(now, net_supervisor::Input::Poll)
-            .await?
-        {
-            return Ok(Progress::Worked);
-        }
-
-        for (name, controller) in self.names.iter().zip(&mut self.interfaces) {
-            let effect = match controller.step(now, wall, iface::Input::Poll) {
-                iface::Step::Effect(effect) => effect,
-                iface::Step::Wait => continue,
-            };
-            interface_effects::apply(
-                &self.runtime,
-                name,
-                &mut self.sockets,
-                &mut self.pending,
-                effect,
-            )
-            .await?;
-            return Ok(Progress::Worked);
-        }
-
-        Ok(Progress::Idle)
+        step::run(self, now, wall).await
     }
 
-    async fn feed(&mut self, pending: Pending, now: Instant, wall: SystemTime) -> io::Result<()> {
-        match pending {
-            Pending::Links(links) => {
-                self.poll_supervisor(now, net_supervisor::Input::Links(&links))
-                    .await?;
-            }
-            Pending::Carriers(carriers) => {
-                self.poll_supervisor(now, net_supervisor::Input::Carriers(&carriers))
-                    .await?;
-            }
-            Pending::ConfigureInterface { name, v4, v6 } => {
-                self.command(now, wall, &name, iface::Command::Configure { v4, v6 })
-                    .await?;
-            }
-            Pending::ReconcileInterface { name } => {
-                self.command(now, wall, &name, iface::Command::Reconcile)
-                    .await?;
-            }
-            Pending::ShutdownInterface { name } => {
-                self.command(now, wall, &name, iface::Command::Shutdown)
-                    .await?;
-            }
-            Pending::Entropy {
-                name,
-                family,
-                value,
-            } => {
-                let input = iface::Input::Method {
-                    family,
-                    input: ip_method::Input::Entropy(value),
-                };
-                self.input(now, wall, &name, input).await?;
-            }
-        }
+    /// Waits for the next link event and queues its handling.
+    ///
+    /// Link events are consumed only here, never polled by [`Loop::step`].
+    /// Services select this against their timer so the loop never blocks
+    /// inside [`Loop::step`]. The event is handled on the following steps.
+    /// Only call this after [`Loop::start`]; an unstarted loop would queue an
+    /// event that [`Loop::next_wake`] never schedules a step for.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error the link event port reported.
+    pub async fn wait_event(&mut self) -> io::Result<Progress> {
+        step::wait_event(self).await
+    }
+}
 
-        Ok(())
+/// Ensures exactly one controller exists per interface name.
+pub(crate) fn ensure<R: net_runtime::Runtime>(
+    driver: &mut crate::Loop<R>,
+    link: ip_method::LinkInfo,
+) -> bool {
+    if driver.names.contains(&link.name) {
+        return false;
     }
 
-    async fn poll_supervisor(
-        &mut self,
-        now: Instant,
-        input: net_supervisor::Input<'_>,
-    ) -> io::Result<bool> {
-        let net_supervisor::Step::Effect(effect) = self.supervisor.step(now, input) else {
-            return Ok(false);
-        };
-        supervisor_effects::apply(&self.runtime, &mut self.pending, effect).await?;
+    driver.names.push(link.name.clone());
+    driver.interfaces.push(iface::Controller::new(link));
 
-        Ok(true)
+    true
+}
+
+/// Records that a port was enslaved to a bridge.
+pub(crate) fn enslave<R: net_runtime::Runtime>(
+    driver: &mut crate::Loop<R>,
+    port: netmodel::Name,
+    master: netmodel::Name,
+) {
+    if let Some(entry) = driver.owners.iter_mut().find(|entry| entry.0 == port) {
+        entry.1 = master;
+        return;
     }
 
-    async fn command(
-        &mut self,
-        now: Instant,
-        wall: SystemTime,
-        name: &netmodel::Name,
-        command: iface::Command,
-    ) -> io::Result<()> {
-        self.input(now, wall, name, iface::Input::Command(command))
-            .await
-    }
+    driver.owners.push((port, master));
+}
 
-    async fn input(
-        &mut self,
-        now: Instant,
-        wall: SystemTime,
-        name: &netmodel::Name,
-        input: iface::Input<'_>,
-    ) -> io::Result<()> {
-        let Some(controller) = self
-            .interfaces
-            .iter_mut()
-            .find(|controller| &controller.link().name == name)
-        else {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "no interface controller for the input",
-            ));
-        };
+/// Forgets every port that is, or belongs to, the deleted link.
+pub(crate) fn detach<R: net_runtime::Runtime>(driver: &mut crate::Loop<R>, name: &netmodel::Name) {
+    driver
+        .owners
+        .retain(|entry| &entry.0 != name && &entry.1 != name);
+}
 
-        let effect = match controller.step(now, wall, input) {
-            iface::Step::Effect(effect) => effect,
-            iface::Step::Wait => return Ok(()),
-        };
-        interface_effects::apply(
-            &self.runtime,
-            name,
-            &mut self.sockets,
-            &mut self.pending,
-            effect,
-        )
-        .await
+/// Returns the bridge that owns the given port.
+pub(crate) fn owner_of<R: net_runtime::Runtime>(
+    driver: &crate::Loop<R>,
+    port: &netmodel::Name,
+) -> Option<netmodel::Name> {
+    driver
+        .owners
+        .iter()
+        .find(|entry| &entry.0 == port)
+        .map(|entry| entry.1.clone())
+}
+
+/// Builds the owner link view carrying the carrier state of one of its ports.
+pub(crate) async fn owner_link<R: net_runtime::Runtime>(
+    driver: &crate::Loop<R>,
+    owner: &netmodel::Name,
+    state: netmodel::LinkState,
+) -> io::Result<Option<ip_method::LinkInfo>> {
+    let Some(link) = driver.runtime.link().link(owner).await? else {
+        return Ok(None);
+    };
+    let info = ip_method::LinkInfo {
+        name: owner.clone(),
+        index: link.index,
+        mac: link.mac,
+        state,
+    };
+
+    Ok(Some(info))
+}
+
+/// Converts a discovered link into the controller view of that link.
+pub(crate) fn link_info(link: &netmodel::Link) -> ip_method::LinkInfo {
+    ip_method::LinkInfo {
+        name: link.name.clone(),
+        index: link.index,
+        mac: link.mac,
+        state: link.state,
     }
 }

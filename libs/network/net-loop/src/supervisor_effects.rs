@@ -6,12 +6,14 @@ use std::io;
 use net_runtime::Link as _;
 
 use crate::pending::Pending;
+use crate::resolver::Nameservers;
 
 /// Executes one supervisor effect and queues the results the supervisor
 /// must consume later.
 pub(crate) async fn apply<R: net_runtime::Runtime>(
     runtime: &R,
     pending: &mut VecDeque<Pending>,
+    resolver: &mut Nameservers,
     effect: net_supervisor::Effect<'_>,
 ) -> io::Result<()> {
     match effect {
@@ -42,25 +44,37 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         }
         net_supervisor::Effect::EnsureBridge { name, config } => {
             runtime.link().ensure_bridge(&name, config.stp).await?;
+            runtime.link().set_up(&name).await?;
+            let Some(link) = runtime.link().link(&name).await? else {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "bridge link is missing after creation",
+                ));
+            };
+            pending.push_back(Pending::BridgeReady {
+                name,
+                index: link.index,
+                mac: link.mac,
+                state: link.state,
+            });
         }
         net_supervisor::Effect::Enslave { port, master } => {
+            runtime.link().set_up(&port).await?;
             runtime.link().set_master(&port, &master).await?;
+            pending.push_back(Pending::Enslaved { port, master });
         }
         net_supervisor::Effect::Detach { port } => {
             runtime.link().detach(&port).await?;
+            pending.push_back(Pending::Detached { port });
         }
         net_supervisor::Effect::ShutdownInterface { name } => {
             pending.push_back(Pending::ShutdownInterface { name });
         }
-        // Publication belongs to the service that owns the status channel, and
-        // the resolver file belongs to the service that owns name resolution.
-        net_supervisor::Effect::Publish | net_supervisor::Effect::WriteResolver { .. } => {}
+        // Publication belongs to the service that owns the status channel and
+        // reads it through `Loop::status`.
+        net_supervisor::Effect::Publish => {}
+        net_supervisor::Effect::WriteResolver { v4, v6 } => resolver.store(v4, v6),
     }
 
-    // TODO(Wave 3 step 2): the driver does not feed the supervisor's feedback
-    // inputs yet. `Enslaved`, `Detached`, `BridgeReady`, `InterfaceSnapshot`,
-    // `LinkEvent`, and `EffectFailed` need the event port, snapshot
-    // publication, and effect error reporting that this skeleton lacks, so the
-    // supervisor currently only ever sees poll, links, and carriers.
     Ok(())
 }

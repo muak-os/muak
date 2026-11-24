@@ -257,6 +257,29 @@ pub enum EffectKind {
     WriteResolver,
 }
 
+impl Effect<'_> {
+    /// Returns the kind of work this effect asks the runtime to perform.
+    ///
+    /// The driver reports a failed effect back as [`Input::EffectFailed`], and
+    /// that input carries the kind instead of the borrowed effect, so the kind
+    /// has to be readable while the effect is still alive.
+    #[must_use = "the driver needs the kind to report an effect failure"]
+    pub const fn kind(&self) -> EffectKind {
+        match *self {
+            Self::Discover => EffectKind::Discover,
+            Self::ProbeCarriers { .. } => EffectKind::ProbeCarriers,
+            Self::ConfigureInterface { .. } => EffectKind::ConfigureInterface,
+            Self::ReconcileInterface { .. } => EffectKind::ReconcileInterface,
+            Self::EnsureBridge { .. } => EffectKind::EnsureBridge,
+            Self::Enslave { .. } => EffectKind::Enslave,
+            Self::Detach { .. } => EffectKind::Detach,
+            Self::ShutdownInterface { .. } => EffectKind::ShutdownInterface,
+            Self::Publish => EffectKind::Publish,
+            Self::WriteResolver { .. } => EffectKind::WriteResolver,
+        }
+    }
+}
+
 /// Outcome of one supervisor step.
 #[derive(Debug)]
 pub enum Step<'a> {

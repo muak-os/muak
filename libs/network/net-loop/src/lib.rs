@@ -2,17 +2,22 @@
 //!
 //! The loop owns the global [`net_supervisor::Supervisor`], one
 //! [`iface::Controller`] per known interface, and the logical socket table.
-//! Each [`Loop::step`] feeds the FSMs one input at a time and executes the
-//! effect they answer with against the [`net_runtime::Runtime`] ports, so the
-//! same orchestration runs on any backend that implements the ports.
+//! Services call [`Loop::start`] once, then step the loop or wait for a link
+//! event. Each [`Loop::step`] feeds the FSMs one input at a time and executes
+//! the effect they answer with against the [`net_runtime::Runtime`] ports, so
+//! the same orchestration runs on any backend that implements the ports.
 
 #![warn(missing_docs)]
 
 extern crate alloc;
 
 mod driver;
+mod events;
+mod feedback;
 mod interface_effects;
 mod pending;
+mod resolver;
+mod step;
 mod supervisor_effects;
 
 #[cfg(test)]
@@ -21,6 +26,7 @@ mod tests;
 use alloc::collections::VecDeque;
 
 use pending::Pending;
+use resolver::Nameservers;
 
 /// Interface and method slot a socket belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,8 +142,15 @@ pub struct Loop<R: net_runtime::Runtime> {
     interfaces: Vec<iface::Controller>,
     // Interface names stay beside the controllers so a step can borrow the
     // name while the matching controller is stepped mutably. Both lists are
-    // only ever appended to together in `add_interface`.
+    // only ever appended to together in `driver::ensure`.
     names: Vec<netmodel::Name>,
+    // Ports enslaved to a bridge, so a carrier change on a port reaches the
+    // controller that owns layer 3. Entries are added on enslavement and
+    // removed when the port or the bridge disappears.
+    owners: Vec<(netmodel::Name, netmodel::Name)>,
     sockets: SocketTable,
+    resolver: Nameservers,
+    // Set by `start` so a repeated start cannot restart discovery.
+    started: bool,
     pending: VecDeque<Pending>,
 }
