@@ -1502,9 +1502,12 @@ dependencies = [
 name = "net-supervisor"
 version = "0.0.0"
 dependencies = [
+ "dhcp",
  "iface",
  "ip-method",
+ "ip-static",
  "netmodel",
+ "slaac",
 ]
 
 [[package]]
