@@ -1,9 +1,10 @@
 mod commands;
 mod state;
+mod tap;
 
 use anyhow::Result;
 use commands::VmCommand;
-use netlink::Rtnl;
+use net_runtime_linux::Tokio;
 use state::VmActor;
 use tokio::sync::{mpsc, oneshot};
 
@@ -89,7 +90,7 @@ impl VmActorHandle {
 }
 
 pub(crate) async fn start_vm_actor(
-    rtnl: Rtnl,
+    runtime: Tokio,
     bridge_name: String,
     kvm_available: bool,
     auto_restart: bool,
@@ -97,7 +98,7 @@ pub(crate) async fn start_vm_actor(
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
     tokio::spawn(async move {
-        let mut actor = VmActor::new(rtnl, bridge_name, kvm_available, auto_restart);
+        let mut actor = VmActor::new(runtime, bridge_name, kvm_available, auto_restart);
         actor.run(cmd_rx).await;
     });
 

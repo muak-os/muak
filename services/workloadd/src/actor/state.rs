@@ -6,12 +6,11 @@ use anyhow::bail;
 use btrfs::quota::{DiskUsage, get_usage, set};
 use btrfs::subvolume::{create, delete, list};
 use mac::{format as format_mac, generate as generate_mac};
-use netlink::Rtnl;
-use tap::{remove as net_remove_tap, setup_on_bridge};
+use net_runtime_linux::Tokio;
 use tokio::fs::{read_to_string, write};
 use tokio::sync::mpsc;
 
-use super::VmCommand;
+use super::{VmCommand, tap};
 use crate::disk;
 use crate::disk::image::{create_raw, get_path};
 use crate::hypervisor::{self, DiskConfig, VmStartConfig};
@@ -31,7 +30,7 @@ struct TapDevice {
 }
 
 pub(super) struct VmActor {
-    rtnl: Rtnl,
+    runtime: Tokio,
     bridge_name: String,
     vms: HashMap<String, VmEntry>,
     pending_restarts: Vec<String>,
@@ -154,7 +153,7 @@ impl From<DiskUsage> for ProtoDiskUsage {
 
 impl VmActor {
     pub(super) fn new(
-        rtnl: Rtnl,
+        runtime: Tokio,
         bridge_name: String,
         kvm_available: bool,
         auto_restart: bool,
@@ -163,7 +162,7 @@ impl VmActor {
         Self::cleanup_orphaned_disks(&vms);
 
         Self {
-            rtnl,
+            runtime,
             bridge_name,
             vms,
             pending_restarts,
@@ -230,7 +229,7 @@ impl VmActor {
                 let _reply = reply.send(self.handle_stop(&vm_id, force).await);
             }
             VmCommand::Delete { vm_id, reply } => {
-                let _reply = reply.send(self.handle_delete(&vm_id));
+                let _reply = reply.send(self.handle_delete(&vm_id).await);
             }
             VmCommand::Get { vm_id, reply } => {
                 let _reply = reply.send(self.handle_get(&vm_id));
@@ -333,7 +332,11 @@ impl VmActor {
             "tap-{}",
             vm_id.get(..8.min(vm_id.len())).unwrap_or_default()
         );
-        setup_on_bridge(&self.rtnl, &tap_name, &self.bridge_name).await?;
+        if let Err(error) = tap::setup(&self.runtime, &tap_name, &self.bridge_name).await {
+            entry.state = VmState::Created;
+            return Err(error);
+        }
+
         let mac = generate_mac(vm_id);
         let tap = TapDevice {
             name: tap_name,
@@ -397,10 +400,7 @@ impl VmActor {
             }
             Err(e) => {
                 eprintln!("Failed to start VM {}: {}", entry.config.name, e);
-                let stale = entry.tap_device.take().map(|dev| dev.name);
-                entry.state = VmState::Created;
-                save_vm(vm_id, &entry.to_persisted())?;
-                cleanup_tap_on_err(&self.rtnl, stale).await;
+                reset_after_failed_start(entry, vm_id).await?;
                 Err(e)
             }
         }
@@ -431,7 +431,7 @@ impl VmActor {
             entry.state = VmState::Stopped;
             entry.pid = None;
             save_vm(vm_id, &entry.to_persisted())?;
-            remove_tap(&self.rtnl, &tap_name).await;
+            tap::remove(&tap_name).await;
             return Ok(());
         }
 
@@ -443,17 +443,14 @@ impl VmActor {
         Ok(())
     }
 
-    fn handle_delete(&mut self, vm_id: &str) -> anyhow::Result<()> {
-        let entry = self
-            .vms
-            .get(vm_id)
-            .ok_or_else(|| anyhow::anyhow!("VM not found: {vm_id}"))?;
-
-        if entry.state == VmState::Running {
-            anyhow::bail!("Cannot delete running VM");
-        }
+    async fn handle_delete(&mut self, vm_id: &str) -> anyhow::Result<()> {
+        let tap_name = self.removable_tap(vm_id)?;
 
         println!("Deleting VM {vm_id}");
+
+        if let Some(name) = tap_name {
+            tap::remove(&name).await;
+        }
 
         if let Err(e) = delete(vm_id, disk::WORKLOAD_DIR) {
             eprintln!("Failed to delete disk subvolume: {e}");
@@ -466,6 +463,19 @@ impl VmActor {
         self.vms.remove(vm_id);
 
         Ok(())
+    }
+
+    fn removable_tap(&self, vm_id: &str) -> anyhow::Result<Option<String>> {
+        let entry = self
+            .vms
+            .get(vm_id)
+            .ok_or_else(|| anyhow::anyhow!("VM not found: {vm_id}"))?;
+
+        if entry.state == VmState::Running {
+            anyhow::bail!("Cannot delete running VM");
+        }
+
+        Ok(entry.tap_device.as_ref().map(|dev| dev.name.clone()))
     }
 
     fn handle_get(&self, vm_id: &str) -> anyhow::Result<VmInfo> {
@@ -534,6 +544,18 @@ impl VmActor {
     }
 }
 
+async fn reset_after_failed_start(entry: &mut VmEntry, vm_id: &str) -> anyhow::Result<()> {
+    let stale = entry.tap_device.take().map(|dev| dev.name);
+    entry.state = VmState::Created;
+    save_vm(vm_id, &entry.to_persisted())?;
+
+    if let Some(name) = stale {
+        tap::remove(&name).await;
+    }
+
+    Ok(())
+}
+
 fn reset_if_running(
     entry: &mut VmEntry,
     was_running: bool,
@@ -563,18 +585,6 @@ fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> anyhow::Resu
         Ok(path)
     } else {
         anyhow::bail!("{} not found: {}", convention_name, path.display())
-    }
-}
-
-async fn remove_tap(rtnl: &Rtnl, tap_name: &str) {
-    if let Err(e) = net_remove_tap(rtnl, tap_name).await {
-        eprintln!("Failed to delete TAP device {tap_name}: {e}");
-    }
-}
-
-async fn cleanup_tap_on_err(rtnl: &Rtnl, tap_name: Option<String>) {
-    if let Some(name) = tap_name {
-        remove_tap(rtnl, &name).await;
     }
 }
 

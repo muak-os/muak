@@ -76,7 +76,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     create_dir_all(persistence::VMS_DIR).await?;
 
-    let rtnl = netlink::Rtnl::connect()?;
+    let runtime = net_runtime_linux::Tokio::new()?;
 
     let bridge_name = config::system::network()
         .context("Failed to load network configuration")?
@@ -90,7 +90,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .context("Failed to load VM configuration")?
         .auto_restart;
 
-    let vm_handle = start_vm_actor(rtnl, bridge_name, kvm_available, auto_restart).await;
+    let vm_handle = start_vm_actor(runtime, bridge_name, kvm_available, auto_restart).await;
 
     let stream = UnixListenerStream::new(socket()?);
 
