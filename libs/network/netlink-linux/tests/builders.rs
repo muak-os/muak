@@ -5,8 +5,8 @@ mod common;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use netlink_linux::{
-    Message, add_address, add_route, create_bridge, detach, get_link, get_links, remove_address,
-    remove_route, set_link_down, set_link_up, set_master,
+    Message, add_address, add_route, create_bridge, detach, get_addresses, get_link, get_links,
+    remove_address, remove_route, set_link_down, set_link_up, set_master,
 };
 use netlink_packet_core::{
     NLM_F_ACK, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REQUEST, NetlinkPayload,
@@ -24,6 +24,7 @@ const RTM_GETLINK: u16 = 18;
 const RTM_SETLINK: u16 = 19;
 const RTM_NEWADDR: u16 = 20;
 const RTM_DELADDR: u16 = 21;
+const RTM_GETADDR: u16 = 22;
 const RTM_NEWROUTE: u16 = 24;
 const RTM_DELROUTE: u16 = 25;
 
@@ -187,6 +188,19 @@ mod tests {
                 ]),
             ]
         );
+    }
+
+    #[test]
+    fn get_addresses_requests_a_dump() {
+        // ARRANGE
+        let dump = NLM_F_REQUEST | NLM_F_DUMP;
+
+        // ACT
+        let message = get_addresses();
+
+        // ASSERT
+        assert_eq!(message.header.message_type, RTM_GETADDR);
+        assert_eq!(message.header.flags, dump);
     }
 
     #[test]

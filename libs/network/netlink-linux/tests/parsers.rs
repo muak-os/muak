@@ -2,7 +2,7 @@
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use netlink_linux::{parse_address, parse_event, parse_link, parse_route};
+use netlink_linux::{parse_address, parse_address_index, parse_event, parse_link, parse_route};
 use netlink_packet_route::address::{AddressAttribute, AddressMessage};
 use netlink_packet_route::link::{InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage};
 use netlink_packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
@@ -122,6 +122,63 @@ mod tests {
                 prefix_len: 24,
             })
         );
+    }
+
+    #[test]
+    fn parse_address_index_reads_index_and_address() {
+        // ARRANGE
+        let message =
+            RouteNetlinkMessage::GetAddress(address(5, IpAddr::V6(Ipv6Addr::LOCALHOST), 128));
+        let expected = (
+            5,
+            Address {
+                address: IpAddr::V6(Ipv6Addr::LOCALHOST),
+                prefix_len: 128,
+            },
+        );
+
+        // ACT
+        let parsed = parse_address_index(&message);
+
+        // ASSERT
+        assert_eq!(parsed, Some(expected));
+    }
+
+    #[test]
+    fn parse_address_index_reads_new_address_replies() {
+        // ARRANGE
+        let message = RouteNetlinkMessage::NewAddress(address(
+            9,
+            IpAddr::V4(Ipv4Addr::new(198, 51, 100, 2)),
+            24,
+        ));
+
+        // ACT
+        let parsed = parse_address_index(&message);
+
+        // ASSERT
+        assert_eq!(
+            parsed,
+            Some((
+                9,
+                Address {
+                    address: IpAddr::V4(Ipv4Addr::new(198, 51, 100, 2)),
+                    prefix_len: 24,
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_address_index_rejects_non_address_messages() {
+        // ARRANGE
+        let message = RouteNetlinkMessage::NewLink(LinkMessage::default());
+
+        // ACT
+        let parsed = parse_address_index(&message);
+
+        // ASSERT
+        assert_eq!(parsed, None);
     }
 
     #[test]

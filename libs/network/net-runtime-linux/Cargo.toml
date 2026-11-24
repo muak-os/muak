@@ -13,31 +13,39 @@ categories.workspace = true
 workspace = true
 
 [features]
-default = []
+default = ["tokio"]
 tokio = [
     "dep:tokio",
     "dep:netlink-sys",
     "netlink-sys/tokio_socket",
     "dep:netlink-proto",
+    "dep:futures-channel",
     "dep:futures-util",
+    "dep:netlink-packet-core",
+    "dep:netlink-packet-route",
     "dep:netlink-linux",
+    "dep:ip-method",
     "dep:packet-v4-linux",
     "dep:icmpv6-linux",
+    "dep:getrandom",
 ]
-[dependencies]
-# Error handling
-thiserror = { workspace = true }
 
+[dependencies]
 # Asynchronous
+futures-channel = { version = "0.3", default-features = false, features = ["std"], optional = true }
 futures-util = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["net", "time", "sync"], optional = true }
+tokio = { workspace = true, features = ["net", "time", "sync", "rt"], optional = true }
 
 # Networking
+getrandom = { workspace = true, optional = true }
+netlink-packet-core = { workspace = true, optional = true }
+netlink-packet-route = { workspace = true, optional = true }
 netlink-proto = { workspace = true, optional = true }
 netlink-sys = { workspace = true, optional = true }
 
 # Internal
 icmpv6-linux = { workspace = true, optional = true }
+ip-method = { workspace = true, optional = true }
 netlink-linux = { workspace = true, optional = true }
 net-runtime = { workspace = true }
 netmodel = { workspace = true }

@@ -107,6 +107,15 @@ pub fn create_bridge(name: &Name, stp: bool) -> Message {
     )
 }
 
+/// Builds a dump request for every address.
+#[must_use = "the request must be sent or stored"]
+pub fn get_addresses() -> Message {
+    message::request(
+        RouteNetlinkMessage::GetAddress(AddressMessage::default()),
+        NLM_F_REQUEST | NLM_F_DUMP,
+    )
+}
+
 /// Builds a request that adds an address to the link at `index`.
 #[must_use = "the request must be sent or stored"]
 pub fn add_address(index: u32, address: IpAddr, prefix_len: u8) -> Message {
@@ -190,6 +199,18 @@ pub fn parse_link(message: &RouteNetlinkMessage) -> Option<Link> {
 #[must_use = "the parsed address must be stored or forwarded"]
 pub fn parse_address(message: &RouteNetlinkMessage) -> Option<Address> {
     parse::address(message)
+}
+
+/// Parses the link index and assigned address from an address reply message.
+#[must_use = "the parsed index and address must be stored or forwarded"]
+pub fn parse_address_index(message: &RouteNetlinkMessage) -> Option<(u32, Address)> {
+    let (RouteNetlinkMessage::NewAddress(ref reply) | RouteNetlinkMessage::GetAddress(ref reply)) =
+        *message
+    else {
+        return None;
+    };
+
+    Some((reply.header.index, parse::address(message)?))
 }
 
 /// Parses a route from a route reply message.
