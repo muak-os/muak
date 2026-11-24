@@ -3,13 +3,6 @@
 version = 4
 
 [[package]]
-name = "addrconf"
-version = "0.0.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -105,7 +98,7 @@ dependencies = [
  "pki",
  "rustls",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "tokio-rustls",
  "x509-cert",
@@ -252,7 +245,7 @@ dependencies = [
  "parttable",
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -262,7 +255,7 @@ dependencies = [
  "blockdev",
  "crc32c",
  "rustix",
- "thiserror 2.0.21",
+ "thiserror",
  "uuid",
 ]
 
@@ -289,12 +282,6 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
-
-[[package]]
-name = "cfg_aliases"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "cipher"
@@ -379,7 +366,7 @@ dependencies = [
  "semver",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
 ]
 
@@ -520,22 +507,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dhcp-client"
-version = "0.0.0"
-dependencies = [
- "addrconf",
- "dhcp-proto",
- "ip",
- "packet",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "dhcp-proto"
 version = "0.0.0"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -558,7 +533,7 @@ dependencies = [
  "parttable",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
  "uuid",
 ]
@@ -627,7 +602,7 @@ version = "0.0.0"
 dependencies = [
  "crc32c",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "zstd",
 ]
 
@@ -646,14 +621,14 @@ name = "esp"
 version = "0.0.0"
 dependencies = [
  "fatfs",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
 name = "ethernet"
 version = "0.0.0"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -666,7 +641,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "fatfs"
 version = "0.0.0"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -701,7 +676,7 @@ version = "0.0.0"
 dependencies = [
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uefi",
 ]
 
@@ -1078,7 +1053,7 @@ dependencies = [
 name = "ip"
 version = "0.0.0"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1086,7 +1061,7 @@ name = "ip-method"
 version = "0.0.0"
 dependencies = [
  "netmodel",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1137,7 +1112,7 @@ dependencies = [
  "semver",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
 ]
 
@@ -1147,7 +1122,7 @@ version = "0.0.0"
 dependencies = [
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "zstd",
 ]
 
@@ -1156,7 +1131,7 @@ name = "kmsg"
 version = "0.0.0"
 dependencies = [
  "rustix",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1179,7 +1154,7 @@ dependencies = [
  "signature",
  "tar",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "tui",
 ]
@@ -1195,19 +1170,6 @@ name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
-
-[[package]]
-name = "linkctl"
-version = "0.0.0"
-dependencies = [
- "addrconf",
- "dhcp-client",
- "netdev",
- "netlink",
- "packet",
- "slaac",
- "tokio",
-]
 
 [[package]]
 name = "linux-raw-sys"
@@ -1303,7 +1265,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uuid",
  "zeroize",
 ]
@@ -1398,7 +1360,7 @@ version = "0.0.0"
 dependencies = [
  "esp",
  "parttable",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1448,7 +1410,7 @@ dependencies = [
  "clap",
  "erofs",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1456,7 +1418,7 @@ name = "ndp"
 version = "0.0.0"
 dependencies = [
  "ip",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1511,41 +1473,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "netdev"
-version = "0.0.0"
-dependencies = [
- "netlink",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "netlink"
-version = "0.0.0"
-dependencies = [
- "rtnetlink",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
 name = "netlink-linux"
 version = "0.0.0"
 dependencies = [
  "netlink-packet-core",
  "netlink-packet-route",
  "netmodel",
-]
-
-[[package]]
-name = "netlink-monitor"
-version = "0.0.0"
-dependencies = [
- "netlink",
- "rtnetlink",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -1581,7 +1514,7 @@ dependencies = [
  "log",
  "netlink-packet-core",
  "netlink-sys",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1602,7 +1535,7 @@ name = "netmodel"
 version = "0.0.0"
 dependencies = [
  "mac",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1619,18 +1552,6 @@ dependencies = [
  "netmodel",
  "tempfile",
  "tokio",
-]
-
-[[package]]
-name = "nix"
-version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
-dependencies = [
- "bitflags",
- "cfg-if",
- "cfg_aliases",
- "libc",
 ]
 
 [[package]]
@@ -1659,7 +1580,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1675,7 +1596,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "webpki-roots",
 ]
@@ -1706,16 +1627,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "packet"
-version = "0.0.0"
-dependencies = [
- "libc",
- "rustix",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "packet-v4-linux"
 version = "0.0.0"
 dependencies = [
@@ -1732,7 +1643,7 @@ dependencies = [
  "parttable",
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1741,7 +1652,7 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "esp",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1871,7 +1782,7 @@ dependencies = [
  "sha2",
  "signature",
  "spki",
- "thiserror 2.0.21",
+ "thiserror",
  "x509-cert",
  "zeroize",
 ]
@@ -2007,7 +1918,7 @@ dependencies = [
  "prost-reflect",
  "prost-types",
  "protox-parse",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2019,7 +1930,7 @@ dependencies = [
  "logos 0.15.1",
  "miette",
  "prost-types",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2102,7 +2013,7 @@ dependencies = [
  "anyhow",
  "clap",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "zstd",
 ]
 
@@ -2187,24 +2098,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rtnetlink"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc19f84f710fa2f337617f9bc0400260a94224bde7bae28fd8879f3771ca5784"
-dependencies = [
- "futures-channel",
- "futures-util",
- "log",
- "netlink-packet-core",
- "netlink-packet-route",
- "netlink-proto",
- "netlink-sys",
- "nix",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2268,7 +2161,7 @@ dependencies = [
  "libc",
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2286,7 +2179,7 @@ dependencies = [
  "signature",
  "spki",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uefi",
  "uki",
  "x509-cert",
@@ -2515,15 +2408,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 
 [[package]]
-name = "tap"
-version = "0.0.0"
-dependencies = [
- "netlink",
- "rustix",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "tap-linux"
 version = "0.0.0"
 dependencies = [
@@ -2557,31 +2441,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.21",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -2836,7 +2700,7 @@ version = "0.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "sha2",
- "thiserror 2.0.21",
+ "thiserror",
  "zeroize",
 ]
 
@@ -2951,7 +2815,7 @@ dependencies = [
  "object",
  "sha2",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -3132,7 +2996,7 @@ dependencies = [
  "sha2",
  "tar",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
  "tui",
  "uki",
@@ -3210,7 +3074,7 @@ dependencies = [
  "object",
  "sha2",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uki",
 ]
 

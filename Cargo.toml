@@ -23,11 +23,9 @@ members = [
     "toolchain/sbolt",
     "toolchain/yuki",
 
-    "libs/addrconf",
     "libs/blockdev",
     "libs/btrfs",
     "libs/config",
-    "libs/dhcp-client",
     "libs/disk",
     "libs/esp",
     "libs/partdev",
@@ -42,15 +40,9 @@ members = [
     "libs/fatfs",
     "libs/firmware",
     "libs/granola-macros",
-    "libs/netdev",
-    "libs/netlink",
-    "libs/netlink-monitor",
-    "libs/linkctl",
     "libs/oci",
     "libs/oci-client",
-    "libs/packet",
     "libs/sandbox",
-    "libs/tap",
     "libs/uki",
 
     "libs/network/dhcp",
@@ -98,11 +90,9 @@ sbolt = { path = "toolchain/sbolt", default-features = false }
 yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
-addrconf = { path = "libs/addrconf" }
 blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
-dhcp-client = { path = "libs/dhcp-client" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }
@@ -112,19 +102,13 @@ granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
-netdev = { path = "libs/netdev" }
-netlink = { path = "libs/netlink" }
-netlink-monitor = { path = "libs/netlink-monitor" }
-linkctl = { path = "libs/linkctl", default-features = false }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
-packet = { path = "libs/packet", default-features = false }
 partdev = { path = "libs/partdev", default-features = false }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
-tap = { path = "libs/tap" }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 uki = { path = "libs/uki" }
@@ -220,7 +204,6 @@ netlink-packet-core = "0.8"
 netlink-packet-route = "0.30"
 netlink-proto = { version = "0.12", default-features = false }
 netlink-sys = { version = "0.8", default-features = false }
-rtnetlink = { version = "0.21", default-features = false, features = ["tokio_socket"] }
 
 ## System/platform APIs
 libc = { version = "0.2", default-features = false, features = ["std"] }

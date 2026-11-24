@@ -24,14 +24,9 @@ source imports only, so it runs offline.
 Dependencies point down the table, except that every crate may depend on the domain layer. The
 domain, methods, control, driver, and ports crates never depend on tokio, netlink, rustix, or
 libc, so they compile and test on any target. They also never depend on the verbs crate or the
-Linux adapters, and they never reach the pre-Wave 0.2 crates (`netlink`, `netlink-monitor`,
-`netdev`, `linkctl`, `dhcp-client`, `packet`, `tap`), which pull tokio or netlink internally.
-
-### Wave 0.2 status
-
-`net-loop` and `net-runtime-linux` are skeletons in Wave 0.2. The Linux backend implementation
-and the real driver loop land in later waves; until then the layer rules apply to the skeleton
-manifests and sources.
+Linux adapters. The pre-Wave 0.2 crates (`netlink`, `netlink-monitor`, `netdev`, `linkctl`,
+`dhcp-client`, `packet`, `tap`) are retired and removed from the workspace; their names stay
+banned so the layering rules keep guarding against a pull-in of tokio or netlink.
 
 ## `netlink-linux` is verbs, not a socket adapter
 

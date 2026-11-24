@@ -13,7 +13,7 @@ use crate::{Progress, step};
 impl<R: net_runtime::Runtime> crate::Loop<R> {
     /// Creates a driver loop for the runtime and supervisor configuration.
     ///
-    /// The loop does not start the supervisor: callers run [`Loop::start`]
+    /// The loop does not start the supervisor: callers run [`crate::Loop::start`]
     /// before stepping so callers that only step keep working.
     #[must_use = "the loop owns the FSMs and must be stepped"]
     pub fn new(runtime: R, config: net_supervisor::Config) -> Self {
@@ -69,8 +69,8 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
 
     /// Earliest instant at which the driver must step again.
     ///
-    /// Returns `None` until [`Loop::start`] has run, because an unstarted loop
-    /// has no work a caller could make progress on. Once started, queued
+    /// Returns `None` until [`crate::Loop::start`] has run, because an unstarted
+    /// loop has no work a caller could make progress on. Once started, queued
     /// pending inputs are ready immediately, so they force a wake at `now`
     /// instead of waiting for the next FSM deadline. A source without a
     /// deadline does not cancel the deadlines of the other sources.
@@ -99,8 +99,8 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
     /// Pending inputs win over the supervisor timer, the supervisor timer wins
     /// over interface polling, and interfaces are polled in insertion order.
     /// One step never consumes more than one queued input nor executes more
-    /// than one effect. Before [`Loop::start`] has run, a step is a no-op and
-    /// returns [`Progress::Idle`].
+    /// than one effect. Before [`crate::Loop::start`] has run, a step is a no-op
+    /// and returns [`Progress::Idle`].
     ///
     /// # Errors
     ///
@@ -113,11 +113,11 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
 
     /// Waits for the next link event and queues its handling.
     ///
-    /// Link events are consumed only here, never polled by [`Loop::step`].
+    /// Link events are consumed only here, never polled by [`crate::Loop::step`].
     /// Services select this against their timer so the loop never blocks
-    /// inside [`Loop::step`]. The event is handled on the following steps.
-    /// Only call this after [`Loop::start`]; an unstarted loop would queue an
-    /// event that [`Loop::next_wake`] never schedules a step for.
+    /// inside [`crate::Loop::step`]. The event is handled on the following steps.
+    /// Only call this after [`crate::Loop::start`]; an unstarted loop would queue
+    /// an event that [`crate::Loop::next_wake`] never schedules a step for.
     ///
     /// # Errors
     ///

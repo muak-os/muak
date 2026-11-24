@@ -24,7 +24,7 @@ sans_io_forbidden=(
     # rtnetlink protocol stack.
     netlink netlink-monitor netlink-proto netlink-sys
     netlink-packet-core netlink-packet-route
-    # Legacy workspace crates that pull tokio or netlink internally.
+    # Retired crate names stay banned so a legacy pull-in cannot return.
     netdev linkctl dhcp-client packet tap
 )
 
@@ -190,7 +190,7 @@ check_sans_io() {
 
 check_netlink_verbs() {
     forbid_crates 'netlink verbs' netlink-linux \
-        netlink-proto netlink-sys tokio rustix libc rtnetlink
+        netlink-proto netlink-sys tokio rustix libc
 }
 
 check_sync_adapters() {
