@@ -1,9 +1,35 @@
 //! Global network supervisor finite state machine.
+//!
+//! The supervisor is a sans-io finite state machine: callers feed it one
+//! [`Input`] at a time and execute the single [`Effect`] it answers with. It
+//! owns no clock, no sockets, and no allocation-heavy dispatch budget, so the
+//! same policy runs on any runtime.
 
 #![warn(missing_docs)]
 
+extern crate alloc;
+
+mod actions;
+mod discovery;
+mod dispatch;
+mod dns;
+mod failover;
+mod feedback;
+mod link_events;
+mod owner;
+mod provision;
+mod reconcile;
+mod retry;
+mod state;
+mod supervisor;
+mod view;
+
+#[cfg(test)]
+mod tests;
+
+use alloc::collections::VecDeque;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::time::Instant;
+use std::collections::{HashMap, HashSet};
 
 /// Readiness of the whole network subsystem.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -166,6 +192,11 @@ pub enum Effect<'a> {
         /// IPv6 configuration to apply.
         v6: Option<&'a netmodel::Ipv6Config>,
     },
+    /// Ask an active interface to reconcile its methods.
+    ReconcileInterface {
+        /// Interface to reconcile.
+        name: netmodel::Name,
+    },
     /// Ensure the bridge exists with the given configuration.
     EnsureBridge {
         /// Bridge to create or update.
@@ -210,6 +241,8 @@ pub enum EffectKind {
     ProbeCarriers,
     /// Interface configuration.
     ConfigureInterface,
+    /// Interface reconciliation.
+    ReconcileInterface,
     /// Bridge creation or update.
     EnsureBridge,
     /// Port enslavement.
@@ -236,209 +269,23 @@ pub enum Step<'a> {
 /// Supervisor driving the global network state machine.
 #[derive(Debug)]
 pub struct Supervisor {
-    config: Config,
-    status: Status,
-}
-
-impl Supervisor {
-    /// Creates a supervisor for the given configuration with an idle status.
-    #[must_use = "the supervisor owns the network state"]
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            status: Status::default(),
-        }
-    }
-
-    /// Performs at most one step and returns the next effect.
-    pub fn step(&mut self, _now: Instant, _input: Input<'_>) -> Step<'_> {
-        Step::Wait
-    }
-
-    /// Earliest instant at which the supervisor must be stepped again.
-    #[must_use = "the caller needs the deadline to schedule the wake"]
-    pub const fn next_wake(&self, _now: Instant) -> Option<Instant> {
-        None
-    }
-
-    /// Returns the supervisor's current status.
-    #[must_use = "callers need the status to report network readiness"]
-    pub fn status(&self) -> Status {
-        self.status.clone()
-    }
-
-    /// Returns the configuration the supervisor runs on.
-    #[must_use = "callers need the configuration to reconcile interfaces"]
-    pub const fn config(&self) -> &Config {
-        &self.config
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::io;
-    use std::time::Instant;
-
-    use netmodel::{LinkState, Mac, Name};
-
-    use crate::{
-        BridgeConfig, Command, Config, Effect, EffectKind, Input, InterfaceConfig, InterfaceKind,
-        State, Status, Step, Supervisor,
-    };
-
-    #[test]
-    fn default_config_and_status() {
-        // ARRANGE
-        let config = Config::default();
-        let status = Status::default();
-
-        // ACT
-        let initial = Supervisor::new(Config::default()).status();
-
-        // ASSERT
-        assert!(!config.ipv6);
-        assert_eq!(config.dns, Vec::<IpAddr>::new());
-        assert_eq!(config.interfaces, Vec::<InterfaceConfig>::new());
-        assert_eq!(status.state, State::Uninitialized);
-        assert!(status.primary.is_none());
-        assert!(status.owner.is_none());
-        assert!(status.owner_link.is_none());
-        assert_eq!(status.backups, Vec::<Name>::new());
-        assert_eq!(status.processed_events, 0);
-        assert_eq!(status, initial);
-    }
-
-    #[test]
-    fn new_starts_uninitialized_and_step_waits() {
-        // ARRANGE
-        let config = Config {
-            ipv6: true,
-            dns: vec![IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))],
-            interfaces: vec![InterfaceConfig {
-                name: "br0".to_owned(),
-                kind: InterfaceKind::Bridge,
-                ipv4: None,
-                ipv6: None,
-                bridge: Some(BridgeConfig {
-                    port: vec!["eth0".to_owned()],
-                    stp: false,
-                }),
-            }],
-        };
-        let mut supervisor = Supervisor::new(config);
-        let now = Instant::now();
-
-        // ACT
-        let status = supervisor.status();
-        let waits = matches!(supervisor.step(now, Input::Poll), Step::Wait);
-
-        // ASSERT
-        assert_eq!(status.state, State::Uninitialized);
-        assert!(waits);
-        assert!(supervisor.next_wake(now).is_none());
-        assert_eq!(supervisor.status().state, State::Uninitialized);
-    }
-
-    #[test]
-    fn config_returns_the_stored_config() {
-        // ARRANGE
-        let config = Config {
-            ipv6: true,
-            dns: vec![IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))],
-            interfaces: Vec::new(),
-        };
-        let supervisor = Supervisor::new(config);
-
-        // ACT
-        let stored = supervisor.config();
-
-        // ASSERT
-        assert!(stored.ipv6);
-        assert_eq!(stored.dns, vec![IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))]);
-        assert_eq!(stored.interfaces, Vec::<InterfaceConfig>::new());
-    }
-
-    #[test]
-    fn inputs_and_effects_can_be_constructed() {
-        // ARRANGE
-        let name = Name::new("eth0").expect("valid name");
-        let master = Name::new("br0").expect("valid name");
-        let links = vec![netmodel::Link {
-            name: name.clone(),
-            index: 2,
-            mac: Mac::default(),
-            state: LinkState::Up,
-            is_virtual: false,
-            master: None,
-        }];
-        let config = BridgeConfig::default();
-        let snapshot = iface::Snapshot {
-            link: LinkState::Up,
-            v4: None,
-            v4_state: ip_method::State::Stopped,
-            v6: None,
-            v6_state: ip_method::State::Stopped,
-            notices: Vec::new(),
-        };
-        let v4_dns = [Ipv4Addr::new(9, 9, 9, 9)];
-        let v6_dns = [Ipv6Addr::LOCALHOST];
-
-        // ACT
-        let inputs = [
-            Input::Command(Command::Initialize),
-            Input::Links(&links),
-            Input::Carriers(&[(2, true)]),
-            Input::BridgeReady {
-                name: master.clone(),
-                index: 3,
-                mac: Mac::default(),
-                state: LinkState::Up,
-            },
-            Input::InterfaceSnapshot {
-                name: name.clone(),
-                snapshot: &snapshot,
-            },
-            Input::Enslaved {
-                port: name.clone(),
-                master: master.clone(),
-            },
-            Input::Detached { port: name.clone() },
-            Input::EffectFailed {
-                kind: EffectKind::EnsureBridge,
-                error: io::Error::other("boom"),
-            },
-            Input::Timer,
-        ];
-        let effects = [
-            Effect::Discover,
-            Effect::ProbeCarriers { links: &links },
-            Effect::ConfigureInterface {
-                name: name.clone(),
-                v4: None,
-                v6: None,
-            },
-            Effect::EnsureBridge {
-                name: master.clone(),
-                config: &config,
-            },
-            Effect::Enslave {
-                port: name.clone(),
-                master,
-            },
-            Effect::Detach { port: name.clone() },
-            Effect::ShutdownInterface { name },
-            Effect::WriteResolver {
-                v4: &v4_dns,
-                v6: &v6_dns,
-            },
-            Effect::Publish,
-        ];
-
-        // ASSERT
-        assert_eq!(inputs.len(), 9);
-        assert_eq!(effects.len(), 9);
-        assert!(matches!(inputs.first(), Some(Input::Command(_))));
-        assert!(matches!(effects.first(), Some(Effect::Discover)));
-    }
+    pub(crate) config: Config,
+    pub(crate) state: state::Snapshot,
+    pub(crate) links: Vec<netmodel::Link>,
+    pub(crate) known: HashSet<netmodel::Name>,
+    pub(crate) physical: HashSet<netmodel::Name>,
+    pub(crate) snapshots: HashMap<netmodel::Name, iface::Snapshot>,
+    pub(crate) owners: HashMap<netmodel::Name, netmodel::Name>,
+    pub(crate) enslaved: HashMap<netmodel::Name, netmodel::Name>,
+    pub(crate) queue: VecDeque<actions::Action>,
+    pub(crate) resolver_v4: Vec<Ipv4Addr>,
+    pub(crate) resolver_v6: Vec<Ipv6Addr>,
+    pub(crate) empty_bridge: BridgeConfig,
+    #[cfg(any(feature = "ipv4", feature = "ipv6"))]
+    pub(crate) empty_interface: InterfaceConfig,
+    pub(crate) processed_events: u64,
+    pub(crate) reconcile_at: Option<std::time::Instant>,
+    pub(crate) retry_at: Option<std::time::Instant>,
+    pub(crate) retry_attempts: u32,
+    pub(crate) published: supervisor::StatusKey,
 }

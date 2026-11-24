@@ -27,11 +27,18 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             pending.push_back(Pending::Carriers(carriers));
         }
         net_supervisor::Effect::ConfigureInterface { name, v4, v6 } => {
+            // The supervisor no longer emits a link-up effect; the runtime
+            // raises the link before the controller applies its methods.
+            runtime.link().set_up(&name).await?;
             pending.push_back(Pending::ConfigureInterface {
                 name,
                 v4: v4.cloned(),
                 v6: v6.cloned(),
             });
+        }
+        net_supervisor::Effect::ReconcileInterface { name } => {
+            runtime.link().set_up(&name).await?;
+            pending.push_back(Pending::ReconcileInterface { name });
         }
         net_supervisor::Effect::EnsureBridge { name, config } => {
             runtime.link().ensure_bridge(&name, config.stp).await?;
@@ -50,8 +57,8 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         net_supervisor::Effect::Publish | net_supervisor::Effect::WriteResolver { .. } => {}
     }
 
-    // TODO(Wave 3): the driver does not feed the supervisor's feedback inputs
-    // yet. `Enslaved`, `Detached`, `BridgeReady`, `InterfaceSnapshot`,
+    // TODO(Wave 3 step 2): the driver does not feed the supervisor's feedback
+    // inputs yet. `Enslaved`, `Detached`, `BridgeReady`, `InterfaceSnapshot`,
     // `LinkEvent`, and `EffectFailed` need the event port, snapshot
     // publication, and effect error reporting that this skeleton lacks, so the
     // supervisor currently only ever sees poll, links, and carriers.

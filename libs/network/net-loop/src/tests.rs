@@ -895,3 +895,46 @@ fn driver_consumes_a_pending_entropy_input() {
     assert_eq!(progress, Progress::Worked);
     assert!(driver.pending.is_empty());
 }
+
+#[test]
+fn reconcile_interface_effect_queues_a_pending_input() {
+    // ARRANGE
+    let mock = runtime();
+    let mut pending = VecDeque::new();
+
+    // ACT
+    block_on(crate::supervisor_effects::apply(
+        &mock,
+        &mut pending,
+        net_supervisor::Effect::ReconcileInterface { name: name("eth0") },
+    ))
+    .expect("reconcile interface");
+
+    // ASSERT
+    let Some(Pending::ReconcileInterface { name: queued }) = pending.pop_front() else {
+        panic!("reconcile command expected");
+    };
+    assert_eq!(queued, name("eth0"));
+    let link = block_on(net_runtime::Link::link(&mock, &name("eth0")))
+        .expect("query link")
+        .expect("known link");
+    assert_eq!(link.state, netmodel::LinkState::Up);
+}
+
+#[test]
+fn reconcile_pending_input_reaches_the_interface() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    driver.add_interface(link("eth0", 2));
+    driver
+        .pending
+        .push_back(Pending::ReconcileInterface { name: name("eth0") });
+
+    // ACT
+    let progress = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("step");
+
+    // ASSERT
+    assert_eq!(progress, Progress::Worked);
+    assert!(driver.pending.is_empty());
+}

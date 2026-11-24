@@ -113,6 +113,10 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
                 self.command(now, wall, &name, iface::Command::Configure { v4, v6 })
                     .await?;
             }
+            Pending::ReconcileInterface { name } => {
+                self.command(now, wall, &name, iface::Command::Reconcile)
+                    .await?;
+            }
             Pending::ShutdownInterface { name } => {
                 self.command(now, wall, &name, iface::Command::Shutdown)
                     .await?;

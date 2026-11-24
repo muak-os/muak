@@ -19,6 +19,11 @@ pub(crate) enum Pending {
         /// IPv6 configuration to apply.
         v6: Option<netmodel::Ipv6Config>,
     },
+    /// Reconcile request for one active interface.
+    ReconcileInterface {
+        /// Interface to reconcile.
+        name: netmodel::Name,
+    },
     /// Shutdown request for one interface.
     ShutdownInterface {
         /// Interface to shut down.

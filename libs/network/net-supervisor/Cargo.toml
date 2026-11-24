@@ -20,8 +20,11 @@ ipv6 = ["iface/ipv6"]
 [dependencies]
 # Internal
 iface = { workspace = true, default-features = false }
+ip-method = { workspace = true }
 netmodel = { workspace = true }
 
 [dev-dependencies]
-# Tests build `iface::Snapshot` values, whose states are `ip_method::State`.
-ip-method = { workspace = true }
+# Tests build real `iface::Snapshot` values with static, DHCP, and SLAAC views.
+dhcp = { workspace = true }
+ip-static = { workspace = true }
+slaac = { workspace = true }
