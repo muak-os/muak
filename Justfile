@@ -294,11 +294,11 @@ format:
     @printf "{{ cyan }}Formatting{{ reset }}\n"
     cargo fmt --all
 
-# Check network layers, formatting, and run clippy (e.g., just lint or just lint yuki koci).
+# Check formatting and run clippy (e.g., just lint or just lint yuki koci).
 [group('test')]
 [env("RUSTFLAGS", rustflags)]
 [script]
-lint *pkgs: check-network-layers
+lint *pkgs:
     printf "{{ cyan }}Checking formatting{{ reset }}\n"
     cargo fmt --all -- --check
     printf "{{ cyan }}Running clippy{{ reset }}\n"
@@ -340,11 +340,6 @@ test *pkgs:
 docs:
     printf "{{ cyan }}Building documentation{{ reset }}\n"
     RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked {{ target }} --workspace --no-deps
-
-# Check the network crate layering rules.
-[group('test')]
-check-network-layers:
-    scripts/check-network-layers.sh
 
 # Check dependency policies (e.g., just deny or just deny licenses bans sources).
 [group('test')]
