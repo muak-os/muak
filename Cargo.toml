@@ -58,6 +58,7 @@ members = [
     "libs/network/netlink-linux",
     "libs/network/net-loop",
     "libs/network/netmodel",
+    "libs/network/net-observe",
     "libs/network/net-runtime",
     "libs/network/net-runtime-linux",
     "libs/network/net-supervisor",
@@ -127,6 +128,7 @@ ndp = { path = "libs/network/ndp" }
 netlink-linux = { path = "libs/network/netlink-linux" }
 net-loop = { path = "libs/network/net-loop" }
 netmodel = { path = "libs/network/netmodel" }
+net-observe = { path = "libs/network/net-observe" }
 net-runtime = { path = "libs/network/net-runtime", default-features = false }
 net-runtime-linux = { path = "libs/network/net-runtime-linux", default-features = false }
 net-supervisor = { path = "libs/network/net-supervisor", default-features = false }

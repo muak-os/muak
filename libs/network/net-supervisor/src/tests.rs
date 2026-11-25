@@ -148,10 +148,36 @@ fn describe(effect: Effect<'_>) -> Seen {
 }
 
 fn consume(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) -> Option<Seen> {
-    match supervisor.step(now, input) {
+    let mut journal = net_observe::Journal::new();
+    match supervisor.step(now, input, &mut journal) {
         Step::Effect(effect) => Some(describe(effect)),
         Step::Wait => None,
     }
+}
+
+fn transitions(
+    observations: &[net_observe::Observation],
+) -> Vec<(net_observe::SupervisorState, net_observe::SupervisorState)> {
+    observations
+        .iter()
+        .filter_map(|observation| {
+            let net_observe::Event::StateChanged { from, to } = observation.event else {
+                return None;
+            };
+            Some((from, to))
+        })
+        .collect()
+}
+
+fn observed(
+    supervisor: &mut Supervisor,
+    now: Instant,
+    input: Input<'_>,
+) -> Vec<net_observe::Observation> {
+    let mut journal = net_observe::Journal::new();
+    drop(supervisor.step(now, input, &mut journal));
+
+    journal.drain().collect()
 }
 
 fn run(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) -> Vec<Seen> {
@@ -1460,4 +1486,277 @@ fn failed_discovery_retries_with_backoff_and_success_clears_it() {
         supervisor.next_wake(now + Duration::from_secs(1)),
         now.checked_add(Duration::from_secs(30))
     );
+}
+
+#[test]
+fn initialize_records_the_state_change() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(Config::default());
+    let now = Instant::now();
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::Command(Command::Initialize));
+
+    // ASSERT
+    assert!(observations.contains(&net_observe::Observation {
+        level: net_observe::Level::Info,
+        event: net_observe::Event::StateChanged {
+            from: net_observe::SupervisorState::Uninitialized,
+            to: net_observe::SupervisorState::Initializing,
+        },
+    }));
+}
+
+#[test]
+fn discovery_records_the_link_inventory_once() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    let links = [link("eth0", 2, LinkState::Up)];
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+
+    // ACT
+    let first = observed(&mut supervisor, now, Input::Links(&links));
+    let second = observed(&mut supervisor, now, Input::Carriers(&links));
+    let again = observed(&mut supervisor, now, Input::Links(&links));
+
+    // ASSERT
+    let discovered: Vec<&net_observe::Observation> = first
+        .iter()
+        .filter(|observation| {
+            matches!(
+                observation.event,
+                net_observe::Event::LinksDiscovered { .. }
+            )
+        })
+        .collect();
+    assert_eq!(discovered.len(), 1);
+    assert_eq!(
+        discovered[0].event,
+        net_observe::Event::LinksDiscovered {
+            links: vec![net_observe::LinkSnapshot::from(&links[0])],
+        }
+    );
+    assert!(!second.iter().any(|observation| matches!(
+        observation.event,
+        net_observe::Event::LinksDiscovered { .. }
+    )));
+    assert!(!again.iter().any(|observation| matches!(
+        observation.event,
+        net_observe::Event::LinksDiscovered { .. }
+    )));
+}
+
+#[test]
+fn carrier_probe_records_the_primary_change() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    let links = [link("eth0", 2, LinkState::Up)];
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::Carriers(&links));
+
+    // ASSERT
+    assert!(observations.contains(&net_observe::Observation {
+        level: net_observe::Level::Info,
+        event: net_observe::Event::PrimaryChanged {
+            primary: Some(name("eth0")),
+            backups: Vec::new(),
+        },
+    }));
+}
+
+#[test]
+fn carrier_probe_records_both_transitions_in_order() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    let links = [link("eth0", 2, LinkState::Up)];
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::Carriers(&links));
+
+    // ASSERT
+    assert_eq!(
+        transitions(&observations),
+        vec![
+            (
+                net_observe::SupervisorState::Initializing,
+                net_observe::SupervisorState::Operational,
+            ),
+            (
+                net_observe::SupervisorState::Operational,
+                net_observe::SupervisorState::Ready,
+            ),
+        ]
+    );
+}
+
+#[test]
+fn shutdown_from_ready_records_the_reset() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::Command(Command::Shutdown));
+
+    // ASSERT
+    assert!(observations.contains(&net_observe::Observation {
+        level: net_observe::Level::Info,
+        event: net_observe::Event::StateChanged {
+            from: net_observe::SupervisorState::Ready,
+            to: net_observe::SupervisorState::Uninitialized,
+        },
+    }));
+}
+
+#[test]
+fn failover_flap_records_degraded_and_recovery() {
+    // ARRANGE
+    let links = [
+        link("eth0", 2, LinkState::Up),
+        link("eth1", 3, LinkState::Up),
+    ];
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+
+    // ACT
+    let observations = observed(
+        &mut supervisor,
+        now,
+        Input::LinkEvent(netmodel::LinkEvent::Down {
+            name: name("eth0"),
+            index: 2,
+        }),
+    );
+
+    // ASSERT
+    assert_eq!(
+        transitions(&observations),
+        vec![
+            (
+                net_observe::SupervisorState::Ready,
+                net_observe::SupervisorState::Degraded,
+            ),
+            (
+                net_observe::SupervisorState::Degraded,
+                net_observe::SupervisorState::Operational,
+            ),
+        ]
+    );
+}
+
+#[test]
+fn reinitialize_from_ready_records_ready_to_initializing() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+    assert_eq!(supervisor.status().state, State::Ready);
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::Command(Command::Initialize));
+
+    // ASSERT
+    assert_eq!(
+        transitions(&observations),
+        vec![(
+            net_observe::SupervisorState::Ready,
+            net_observe::SupervisorState::Initializing,
+        )]
+    );
+}
+
+#[test]
+fn link_event_is_recorded_before_it_is_applied() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    let links = [link("eth0", 2, LinkState::Up)];
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+    run(&mut supervisor, now, Input::Carriers(&links));
+    let event = netmodel::LinkEvent::Down {
+        name: name("eth0"),
+        index: 2,
+    };
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::LinkEvent(event.clone()));
+
+    // ASSERT
+    assert!(observations.contains(&net_observe::Observation {
+        level: net_observe::Level::Info,
+        event: net_observe::Event::LinkEvent { event },
+    }));
+    let recorded = observations
+        .iter()
+        .position(|observation| matches!(observation.event, net_observe::Event::LinkEvent { .. }))
+        .expect("the link event should be recorded");
+    let applied = observations
+        .iter()
+        .position(|observation| {
+            matches!(observation.event, net_observe::Event::StateChanged { .. })
+        })
+        .expect("the link event should change the supervisor state");
+    assert!(
+        recorded < applied,
+        "link event at {recorded} should precede its state change at {applied}"
+    );
+}
+
+#[test]
+fn effects_target_the_interface_or_port_they_own() {
+    // ARRANGE
+    let bridge = BridgeConfig::default();
+    let cases = [
+        (Effect::Discover, None),
+        (Effect::ProbeCarriers, None),
+        (Effect::Publish, None),
+        (Effect::SetLinkUp { name: name("eth0") }, Some(name("eth0"))),
+        (
+            Effect::ConfigureInterface {
+                name: name("eth0"),
+                v4: None,
+                v6: None,
+            },
+            Some(name("eth0")),
+        ),
+        (
+            Effect::ReconcileInterface { name: name("eth0") },
+            Some(name("eth0")),
+        ),
+        (
+            Effect::EnsureBridge {
+                name: name("br0"),
+                config: &bridge,
+            },
+            Some(name("br0")),
+        ),
+        (
+            Effect::Enslave {
+                port: name("eth0"),
+                master: name("br0"),
+            },
+            Some(name("eth0")),
+        ),
+        (Effect::Detach { port: name("eth0") }, Some(name("eth0"))),
+        (
+            Effect::ShutdownInterface { name: name("eth0") },
+            Some(name("eth0")),
+        ),
+        (Effect::WriteResolver { v4: &[], v6: &[] }, None),
+    ];
+
+    // ACT / ASSERT
+    for (effect, expected) in cases {
+        assert_eq!(effect.target(), expected.as_ref());
+    }
 }

@@ -9,14 +9,25 @@ use crate::{
 };
 
 /// Routes one input into the matching policy handler.
-pub(crate) fn handle(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) {
+pub(crate) fn handle(
+    supervisor: &mut Supervisor,
+    now: Instant,
+    input: Input<'_>,
+    journal: &mut net_observe::Journal,
+) {
     match input {
         Input::Poll => {}
         Input::Command(command) => on_command(supervisor, now, command),
-        Input::Links(links) => discovery::on_links(supervisor, now, links),
+        Input::Links(links) => discovery::on_links(supervisor, now, links, journal),
         Input::Carriers(carriers) => discovery::on_carriers(supervisor, now, carriers),
         Input::LinkEvent(event) => {
             supervisor.processed_events = supervisor.processed_events.saturating_add(1);
+            journal.record(
+                net_observe::Level::Info,
+                net_observe::Event::LinkEvent {
+                    event: event.clone(),
+                },
+            );
             link_events::apply(supervisor, event);
         }
         Input::InterfaceSnapshot { name, snapshot } => {
@@ -27,9 +38,34 @@ pub(crate) fn handle(supervisor: &mut Supervisor, now: Instant, input: Input<'_>
             index,
             mac,
             state,
-        } => feedback::on_bridge_ready(supervisor, &name, index, mac, state),
-        Input::Enslaved { port, master } => feedback::on_enslaved(supervisor, &port, &master),
-        Input::Detached { port } => feedback::on_detached(supervisor, &port),
+        } => {
+            journal.record(
+                net_observe::Level::Info,
+                net_observe::Event::BridgeReady {
+                    name: name.clone(),
+                    index,
+                    state,
+                },
+            );
+            feedback::on_bridge_ready(supervisor, &name, index, mac, state);
+        }
+        Input::Enslaved { port, master } => {
+            journal.record(
+                net_observe::Level::Info,
+                net_observe::Event::Enslaved {
+                    port: port.clone(),
+                    master: master.clone(),
+                },
+            );
+            feedback::on_enslaved(supervisor, &port, &master);
+        }
+        Input::Detached { port } => {
+            journal.record(
+                net_observe::Level::Info,
+                net_observe::Event::Detached { port: port.clone() },
+            );
+            feedback::on_detached(supervisor, &port);
+        }
         Input::EffectFailed { kind, .. } => on_effect_failed(supervisor, now, kind),
         Input::Timer => on_timer(supervisor, now),
     }
@@ -44,9 +80,15 @@ fn on_command(supervisor: &mut Supervisor, now: Instant, command: Command) {
 }
 
 fn initialize(supervisor: &mut Supervisor, now: Instant) {
+    let previous = supervisor.state.state;
     shutdown(supervisor);
+    supervisor.state.transitions.clear();
     supervisor.reconcile_at = now.checked_add(RECONCILE_INTERVAL);
     supervisor.state.transition(State::Initializing);
+    // Report the state the caller was in, not the intermediate reset the shutdown caused.
+    if let Some(transition) = supervisor.state.transitions.last_mut() {
+        *transition = (previous, State::Initializing);
+    }
     supervisor.queue.push_back(Action::Discover);
 }
 
@@ -58,7 +100,7 @@ fn shutdown(supervisor: &mut Supervisor) {
             .queue
             .push_back(Action::ShutdownInterface { name });
     }
-    supervisor.state = crate::state::Snapshot::default();
+    supervisor.state.reset();
     supervisor.links.clear();
     supervisor.physical.clear();
     supervisor.snapshots.clear();

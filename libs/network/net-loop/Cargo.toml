@@ -22,6 +22,7 @@ ipv6 = ["iface/ipv6", "net-supervisor/ipv6"]
 iface = { workspace = true, default-features = false }
 ip-method = { workspace = true }
 netmodel = { workspace = true }
+net-observe = { workspace = true }
 net-runtime = { workspace = true }
 net-supervisor = { workspace = true, default-features = false }
 

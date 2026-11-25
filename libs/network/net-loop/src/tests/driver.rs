@@ -394,6 +394,59 @@ fn start_discovers_provisions_and_configures() {
 }
 
 #[test]
+fn boot_journals_discovery_state_and_effects() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![ethernet()]));
+
+    // ACT
+    block_on(boot(&mut driver, now, wall));
+    let observations: Vec<net_observe::Observation> = driver.drain_observations().collect();
+
+    // ASSERT
+    assert!(observations.iter().any(|observation| matches!(
+        observation.event,
+        net_observe::Event::LinksDiscovered { .. }
+    )));
+    let transitions: Vec<(net_observe::SupervisorState, net_observe::SupervisorState)> =
+        observations
+            .iter()
+            .filter_map(|observation| {
+                let net_observe::Event::StateChanged { from, to } = observation.event else {
+                    return None;
+                };
+                Some((from, to))
+            })
+            .collect();
+    assert_eq!(
+        transitions,
+        vec![
+            (
+                net_observe::SupervisorState::Uninitialized,
+                net_observe::SupervisorState::Initializing,
+            ),
+            (
+                net_observe::SupervisorState::Initializing,
+                net_observe::SupervisorState::Operational,
+            ),
+            (
+                net_observe::SupervisorState::Operational,
+                net_observe::SupervisorState::Ready,
+            ),
+        ]
+    );
+    assert!(observations.iter().any(|observation| matches!(
+        &observation.event,
+        net_observe::Event::EffectStarted {
+            kind: net_observe::EffectKind::Discover,
+            ..
+        }
+    )));
+    assert!(driver.drain_observations().next().is_none());
+}
+
+#[test]
 fn down_link_is_activated_before_the_carrier_probe() {
     // ARRANGE
     let now = Instant::now();
@@ -475,10 +528,23 @@ fn supervisor_effect_failure_is_fed_back_without_aborting() {
     // ACT
     let started = block_on(driver.start(now));
     block_on(settle(&mut driver, now, SystemTime::UNIX_EPOCH));
+    let failures: Vec<net_observe::Observation> = driver
+        .drain_observations()
+        .filter(|observation| matches!(observation.event, net_observe::Event::EffectFailed { .. }))
+        .collect();
 
     // ASSERT
     assert_eq!(started, Progress::Worked);
     assert_eq!(driver.status().state, net_supervisor::State::Degraded);
+    assert_eq!(failures.len(), 1, "the failure must be recorded once");
+    assert_eq!(failures[0].level, net_observe::Level::Warn);
+    assert!(matches!(
+        failures[0].event,
+        net_observe::Event::EffectFailed {
+            kind: net_observe::EffectKind::Discover,
+            ..
+        }
+    ));
 }
 
 #[test]

@@ -20,6 +20,7 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         Self {
             runtime,
             supervisor: net_supervisor::Supervisor::new(config),
+            journal: net_observe::journal::Journal::new(),
             interfaces: Vec::new(),
             names: Vec::new(),
             owners: Vec::new(),
@@ -67,13 +68,13 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         (self.resolver.v4(), self.resolver.v6())
     }
 
+    /// Drains the observations the loop recorded since the last drain.
+    #[must_use = "unconsumed observations accumulate in the journal"]
+    pub fn drain_observations(&mut self) -> impl Iterator<Item = net_observe::Observation> + '_ {
+        self.journal.drain()
+    }
+
     /// Earliest instant at which the driver must step again.
-    ///
-    /// Returns `None` until [`crate::Loop::start`] has run, because an unstarted
-    /// loop has no work a caller could make progress on. Once started, queued
-    /// pending inputs are ready immediately, so they force a wake at `now`
-    /// instead of waiting for the next FSM deadline. A source without a
-    /// deadline does not cancel the deadlines of the other sources.
     #[must_use = "the caller needs the deadline to schedule the wake"]
     pub fn next_wake(&self, now: Instant) -> Option<Instant> {
         if !self.started {
@@ -97,12 +98,6 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
 
     /// Feeds at most one input to the FSMs and executes the resulting effect.
     ///
-    /// Pending inputs win over the supervisor timer, the supervisor timer wins
-    /// over interface polling, and interfaces are polled in insertion order.
-    /// One step never consumes more than one queued input nor executes more
-    /// than one effect. Before [`crate::Loop::start`] has run, a step is a no-op
-    /// and returns [`Progress::Idle`].
-    ///
     /// # Errors
     ///
     /// Returns the error a runtime port reported while executing an interface
@@ -113,12 +108,6 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
     }
 
     /// Waits for the next link event and queues its handling.
-    ///
-    /// Link events are consumed only here, never polled by [`crate::Loop::step`].
-    /// Services select this against their timer so the loop never blocks
-    /// inside [`crate::Loop::step`]. The event is handled on the following steps.
-    /// Only call this after [`crate::Loop::start`]; an unstarted loop would queue
-    /// an event that [`crate::Loop::next_wake`] never schedules a step for.
     ///
     /// # Errors
     ///

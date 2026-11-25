@@ -39,7 +39,7 @@ pub(crate) fn handle_primary_failure(supervisor: &mut Supervisor, name: &Name) {
 }
 
 /// Keeps the network operational when the primary reports carrier again.
-pub(crate) const fn handle_primary_recovery(supervisor: &mut Supervisor, _name: &Name) {
+pub(crate) fn handle_primary_recovery(supervisor: &mut Supervisor, _name: &Name) {
     supervisor.state.ensure_operational();
 }
 

@@ -9,6 +9,7 @@ use net_loop::{Loop, Progress};
 use net_runtime::Runtime;
 
 use crate::dns::Resolver;
+use crate::logging;
 use crate::notices::Logged;
 
 /// Status text a ready network reports to the supervisor.
@@ -116,7 +117,7 @@ impl<R: Runtime> Service<R> {
     async fn settle(&mut self) -> io::Result<()> {
         let now = Instant::now();
         let wall = SystemTime::now();
-        while self.driver.step(now, wall).await? == Progress::Worked {}
+        while self.drain_step(now, wall).await? == Progress::Worked {}
 
         for controller in self.driver.interfaces() {
             log(
@@ -135,6 +136,19 @@ impl<R: Runtime> Service<R> {
         }
 
         Ok(())
+    }
+
+    async fn drain_step(&mut self, now: Instant, wall: SystemTime) -> io::Result<Progress> {
+        let stepped = self.driver.step(now, wall).await;
+        self.flush_observations();
+
+        stepped
+    }
+
+    fn flush_observations(&mut self) {
+        for observation in self.driver.drain_observations() {
+            logging::emit(observation);
+        }
     }
 
     fn report(&mut self, notifier: &Notifier) -> io::Result<()> {

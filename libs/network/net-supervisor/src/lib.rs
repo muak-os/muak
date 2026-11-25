@@ -11,6 +11,7 @@ mod dns;
 mod failover;
 mod feedback;
 mod link_events;
+mod observe;
 mod owner;
 mod provision;
 mod reconcile;
@@ -257,6 +258,22 @@ pub enum EffectKind {
 }
 
 impl Effect<'_> {
+    /// Returns the interface or port this effect targets, if any.
+    #[must_use = "observability needs the target to report the effect"]
+    pub const fn target(&self) -> Option<&netmodel::Name> {
+        match *self {
+            Self::SetLinkUp { ref name }
+            | Self::ConfigureInterface { ref name, .. }
+            | Self::ReconcileInterface { ref name }
+            | Self::EnsureBridge { ref name, .. }
+            | Self::ShutdownInterface { ref name } => Some(name),
+            Self::Enslave { ref port, .. } | Self::Detach { ref port } => Some(port),
+            Self::Discover | Self::ProbeCarriers | Self::Publish | Self::WriteResolver { .. } => {
+                None
+            }
+        }
+    }
+
     /// Returns the kind of work this effect asks the runtime to perform.
     ///
     /// The driver reports a failed effect back as [`Input::EffectFailed`], and

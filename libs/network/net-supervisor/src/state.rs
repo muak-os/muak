@@ -15,6 +15,11 @@ pub(crate) struct Snapshot {
     pub(crate) l3_owner: Option<Name>,
     /// Uplink candidates in failover preference order.
     pub(crate) backups: Vec<Name>,
+    /// State transitions recorded since the last drain, in order.
+    ///
+    /// The queue keeps intermediate transitions visible even when one step
+    /// changes the state more than once.
+    pub(crate) transitions: Vec<(State, State)>,
 }
 
 impl Snapshot {
@@ -24,8 +29,9 @@ impl Snapshot {
     }
 
     /// Advances to `to` when the transition is valid, leaving state untouched otherwise.
-    pub(crate) const fn transition(&mut self, to: State) -> bool {
+    pub(crate) fn transition(&mut self, to: State) -> bool {
         if valid(self.state, to) {
+            self.transitions.push((self.state, to));
             self.state = to;
             return true;
         }
@@ -34,7 +40,7 @@ impl Snapshot {
     }
 
     /// Advances to `Operational` unless the network is already operational or ready.
-    pub(crate) const fn ensure_operational(&mut self) -> bool {
+    pub(crate) fn ensure_operational(&mut self) -> bool {
         if self.is_operational() {
             return true;
         }
@@ -43,12 +49,27 @@ impl Snapshot {
     }
 
     /// Advances to `Degraded` unless the network is already degraded.
-    pub(crate) const fn ensure_degraded(&mut self) -> bool {
+    pub(crate) fn ensure_degraded(&mut self) -> bool {
         if matches!(self.state, State::Degraded) {
             return true;
         }
 
         self.transition(State::Degraded)
+    }
+
+    /// Resets every field to its default, recording a return to `Uninitialized`.
+    ///
+    /// The transition queue is preserved so outstanding transitions can still
+    /// be drained after the reset.
+    pub(crate) fn reset(&mut self) {
+        let mut transitions = core::mem::take(&mut self.transitions);
+        if self.state != State::Uninitialized {
+            transitions.push((self.state, State::Uninitialized));
+        }
+        *self = Self {
+            transitions,
+            ..Self::default()
+        };
     }
 }
 

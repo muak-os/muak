@@ -30,6 +30,7 @@ net-runtime = { workspace = true, default-features = false }
 net-runtime-linux = { workspace = true, default-features = false, features = ["tokio"] }
 net-supervisor = { workspace = true, default-features = false }
 netmodel = { workspace = true }
+net-observe = { workspace = true }
 
 [lints]
 workspace = true

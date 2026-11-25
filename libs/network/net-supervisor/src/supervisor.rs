@@ -6,7 +6,9 @@ use std::time::Instant;
 
 use crate::actions::Action;
 use crate::state::Snapshot;
-use crate::{Command, Config, Effect, Input, State, Status, Step, Supervisor, dispatch, owner};
+use crate::{
+    Command, Config, Effect, Input, State, Status, Step, Supervisor, dispatch, observe, owner,
+};
 
 /// Fields that trigger a status publication when any of them changes.
 pub(crate) type StatusKey = (
@@ -50,12 +52,28 @@ impl Supervisor {
         }
     }
 
-    /// Performs at most one step and returns the next effect.
-    pub fn step(&mut self, now: Instant, input: Input<'_>) -> Step<'_> {
+    /// Performs at most one step, records what changed, and returns the next effect.
+    pub fn step(
+        &mut self,
+        now: Instant,
+        input: Input<'_>,
+        journal: &mut net_observe::Journal,
+    ) -> Step<'_> {
+        let before = self.status_key();
         let publish = !matches!(&input, Input::Command(Command::Shutdown));
-        dispatch::handle(self, now, input);
+        dispatch::handle(self, now, input, journal);
+        for (from, to) in core::mem::take(&mut self.state.transitions) {
+            journal.record(
+                net_observe::Level::Info,
+                net_observe::Event::StateChanged {
+                    from: from.into(),
+                    to: to.into(),
+                },
+            );
+        }
 
         let key = self.status_key();
+        observe::record(journal, &before, &key);
         if publish && key != self.published {
             self.published = key;
             self.queue.push_back(Action::Publish);

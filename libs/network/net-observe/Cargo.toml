@@ -1,0 +1,17 @@
+[package]
+name = "net-observe"
+description = "Sans-io observation journal for network state machines"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal
+netmodel = { workspace = true }

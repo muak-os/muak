@@ -22,6 +22,7 @@ ipv6 = ["iface/ipv6"]
 iface = { workspace = true, default-features = false }
 ip-method = { workspace = true }
 netmodel = { workspace = true }
+net-observe = { workspace = true }
 
 [dev-dependencies]
 # Tests build real `iface::Snapshot` values with static, DHCP, and SLAAC views.

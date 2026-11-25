@@ -9,7 +9,12 @@ use crate::actions::Action;
 use crate::{State, Supervisor, dns, provision, retry};
 
 /// Applies a full link inventory and re-elects the primary.
-pub(crate) fn on_links(supervisor: &mut Supervisor, now: Instant, links: &[Link]) {
+pub(crate) fn on_links(
+    supervisor: &mut Supervisor,
+    now: Instant,
+    links: &[Link],
+    journal: &mut net_observe::Journal,
+) {
     if supervisor.state.state == State::Uninitialized {
         return;
     }
@@ -27,10 +32,23 @@ pub(crate) fn on_links(supervisor: &mut Supervisor, now: Instant, links: &[Link]
         return;
     }
 
+    let discovered = supervisor.links.is_empty() && !physical.is_empty();
     supervisor.links.clone_from(&physical);
     supervisor.physical = physical.iter().map(|link| link.name.clone()).collect();
     for link in &physical {
         supervisor.known.insert(link.name.clone());
+    }
+
+    if discovered {
+        journal.record(
+            net_observe::Level::Info,
+            net_observe::Event::LinksDiscovered {
+                links: physical
+                    .iter()
+                    .map(net_observe::LinkSnapshot::from)
+                    .collect(),
+            },
+        );
     }
 
     if supervisor.state.state == State::Degraded {
