@@ -525,7 +525,7 @@ fn ethernet_addresses_go_to_the_bridge_owner() {
 }
 
 #[test]
-fn active_bridge_owner_reconciles_on_enslavement() {
+fn active_bridge_owner_reconciles_when_configured() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
     let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
@@ -849,6 +849,129 @@ fn timer_reconciles_only_when_due() {
         ports: vec!["auto".to_owned()],
     }));
     assert!(due_effects.contains(&Seen::Reconcile(name("br0"))));
+}
+
+#[test]
+fn timer_reconciles_a_detached_bridge() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+    let due = now + Duration::from_secs(30);
+    run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::Up),
+        },
+    );
+    run(&mut supervisor, now, Input::Detached { port: name("eth0") });
+
+    // ACT
+    let before_due = run(&mut supervisor, now, Input::Timer);
+    let due_effects = run(&mut supervisor, due, Input::Timer);
+
+    // ASSERT
+    assert!(
+        before_due.is_empty(),
+        "timer before the deadline must be ignored"
+    );
+    assert!(due_effects.contains(&Seen::Enslave {
+        port: name("eth0"),
+        master: name("br0"),
+    }));
+    assert_eq!(
+        supervisor.next_wake(due),
+        due.checked_add(Duration::from_secs(30))
+    );
+}
+
+#[test]
+fn reconcile_heals_without_requeueing_a_satisfied_bridge() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+    run(
+        &mut supervisor,
+        now,
+        Input::BridgeReady {
+            name: name("br0"),
+            index: 5,
+            mac: Mac::default(),
+            state: LinkState::Up,
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::Up),
+        },
+    );
+
+    // ACT
+    let seen = run(&mut supervisor, now, Input::Command(Command::Reconcile));
+
+    // ASSERT
+    assert!(
+        !seen
+            .iter()
+            .any(|effect| matches!(effect, Seen::Bridge { .. } | Seen::Enslave { .. }))
+    );
+    assert!(seen.contains(&Seen::Reconcile(name("br0"))));
+}
+
+#[test]
+fn reconcile_enslaves_again_after_detach() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+    run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::Up),
+        },
+    );
+    run(&mut supervisor, now, Input::Detached { port: name("eth0") });
+
+    // ACT
+    let seen = run(&mut supervisor, now, Input::Command(Command::Reconcile));
+
+    // ASSERT
+    assert!(seen.contains(&Seen::Enslave {
+        port: name("eth0"),
+        master: name("br0"),
+    }));
 }
 
 #[test]

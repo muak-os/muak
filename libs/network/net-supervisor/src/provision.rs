@@ -73,14 +73,22 @@ pub(crate) fn queue_bridge(supervisor: &mut Supervisor, index: usize) -> bool {
         return false;
     };
 
-    supervisor.queue.push_back(Action::EnsureBridge {
-        index,
-        name: bridge.clone(),
-    });
-    supervisor.queue.push_back(Action::Enslave {
-        port: port.clone(),
-        master: bridge.clone(),
-    });
+    let bridge_up = supervisor
+        .links
+        .iter()
+        .any(|link| link.name == bridge && link.is_admin_up());
+    if !supervisor.known.contains(&bridge) || !bridge_up {
+        supervisor.queue.push_back(Action::EnsureBridge {
+            index,
+            name: bridge.clone(),
+        });
+    }
+    if supervisor.enslaved.get(&port) != Some(&bridge) {
+        supervisor.queue.push_back(Action::Enslave {
+            port: port.clone(),
+            master: bridge.clone(),
+        });
+    }
     release_stale(supervisor, &bridge, &port);
 
     true
