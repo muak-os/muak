@@ -3,6 +3,7 @@
 mod command;
 mod drive;
 mod event;
+mod observe;
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -37,8 +38,14 @@ impl Controller {
     }
 
     /// Performs at most one step and returns the next effect.
-    pub fn step(&mut self, now: Instant, wall: SystemTime, input: Input<'_>) -> Step<'_> {
-        drive::dispatch(self, now, wall, input)
+    pub fn step(
+        &mut self,
+        journal: &mut net_observe::journal::Journal,
+        now: Instant,
+        wall: SystemTime,
+        input: Input<'_>,
+    ) -> Step<'_> {
+        drive::dispatch(self, journal, now, wall, input)
     }
 
     /// Earliest instant at which the controller must be stepped again.

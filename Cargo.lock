@@ -1026,6 +1026,7 @@ dependencies = [
  "ip-method",
  "ip-static",
  "ndp",
+ "net-observe",
  "netmodel",
  "slaac",
 ]

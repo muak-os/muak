@@ -13,7 +13,7 @@ pub(crate) fn handle(
     supervisor: &mut Supervisor,
     now: Instant,
     input: Input<'_>,
-    journal: &mut net_observe::Journal,
+    journal: &mut net_observe::journal::Journal,
 ) {
     match input {
         Input::Poll => {}
@@ -85,7 +85,6 @@ fn initialize(supervisor: &mut Supervisor, now: Instant) {
     supervisor.state.transitions.clear();
     supervisor.reconcile_at = now.checked_add(RECONCILE_INTERVAL);
     supervisor.state.transition(State::Initializing);
-    // Report the state the caller was in, not the intermediate reset the shutdown caused.
     if let Some(transition) = supervisor.state.transitions.last_mut() {
         *transition = (previous, State::Initializing);
     }

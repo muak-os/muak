@@ -23,7 +23,7 @@ const MAX_RTR_SOLICITATIONS: u32 = 3;
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
 
 /// Addresses, routers, and DNS servers derived from router advertisements.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     /// Address and prefix length pairs the method configured.
     pub addresses: Vec<(Ipv6Addr, u8)>,

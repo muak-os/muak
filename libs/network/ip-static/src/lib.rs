@@ -32,7 +32,7 @@ pub struct Config<A> {
 }
 
 /// Static configuration a family exposes as its view.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View<A> {
     /// Primary address.
     pub address: A,

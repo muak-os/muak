@@ -78,7 +78,7 @@ pub(crate) async fn advance<R: net_runtime::Runtime>(
     let Some(controller) = driver.interfaces.get_mut(index) else {
         return Ok(false);
     };
-    let effect = match controller.step(now, wall, input) {
+    let effect = match controller.step(&mut driver.journal, now, wall, input) {
         iface::Step::Effect(effect) => effect,
         iface::Step::Wait => return Ok(false),
     };
@@ -106,6 +106,7 @@ pub(crate) async fn advance<R: net_runtime::Runtime>(
                 name,
                 &mut driver.sockets,
                 &mut driver.pending,
+                &mut driver.journal,
                 effect,
             )
             .await?;

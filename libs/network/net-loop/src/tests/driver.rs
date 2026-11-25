@@ -447,6 +447,32 @@ fn boot_journals_discovery_state_and_effects() {
 }
 
 #[test]
+fn boot_journals_binding_and_address_assignment() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![ethernet()]));
+
+    // ACT
+    block_on(boot(&mut driver, now, wall));
+    let observations: Vec<net_observe::Observation> = driver.drain_observations().collect();
+
+    // ASSERT
+    assert!(observations.iter().any(|observation| matches!(
+        observation.event,
+        net_observe::Event::InterfaceState {
+            family: net_observe::interface::Family::V4,
+            state: net_observe::interface::MethodState::Bound,
+            ..
+        }
+    )));
+    assert!(observations.iter().any(|observation| matches!(
+        observation.event,
+        net_observe::Event::AddressAssigned { .. }
+    )));
+}
+
+#[test]
 fn down_link_is_activated_before_the_carrier_probe() {
     // ARRANGE
     let now = Instant::now();
@@ -559,7 +585,9 @@ fn discovery_refresh_failure_still_feeds_the_supervisor() {
         mac: netmodel::Mac::default(),
         state: netmodel::LinkState::Down,
     });
+    let mut journal = net_observe::journal::Journal::new();
     drop(driver.interfaces[0].step(
+        &mut journal,
         now,
         wall,
         iface::Input::Command(iface::Command::Configure {
@@ -569,7 +597,7 @@ fn discovery_refresh_failure_still_feeds_the_supervisor() {
     ));
     loop {
         if matches!(
-            driver.interfaces[0].step(now, wall, iface::Input::Poll),
+            driver.interfaces[0].step(&mut journal, now, wall, iface::Input::Poll),
             iface::Step::Wait
         ) {
             break;
@@ -1012,7 +1040,9 @@ fn next_wake_keeps_a_controller_deadline_when_the_supervisor_has_none() {
         mac: netmodel::Mac::default(),
         state: netmodel::LinkState::Up,
     });
+    let mut journal = net_observe::journal::Journal::new();
     driver.interfaces[0].step(
+        &mut journal,
         now,
         wall,
         iface::Input::Command(iface::Command::Configure {

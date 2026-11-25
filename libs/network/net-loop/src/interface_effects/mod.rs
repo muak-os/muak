@@ -1,11 +1,12 @@
 //! Execution of interface effects against the runtime ports.
 
+mod address;
+
 use alloc::collections::VecDeque;
 use std::io;
 
-use net_runtime::{
-    Address as _, Entropy as _, Icmpv6 as _, Link as _, Packet as _, Route as _, Udp as _,
-};
+use net_observe::journal::Journal;
+use net_runtime::{Entropy as _, Icmpv6 as _, Link as _, Packet as _, Udp as _};
 
 use crate::pending::Pending;
 use crate::{SocketOwner, SocketTable};
@@ -16,6 +17,7 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
     interface: &netmodel::Name,
     sockets: &mut SocketTable,
     pending: &mut VecDeque<Pending>,
+    journal: &mut Journal,
     effect: iface::Effect<'_>,
 ) -> io::Result<()> {
     match effect {
@@ -25,39 +27,17 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             link,
             address,
             prefix_len,
-        } => {
-            runtime
-                .address()
-                .add(
-                    &link,
-                    netmodel::Address {
-                        address,
-                        prefix_len,
-                    },
-                )
-                .await
-        }
+        } => address::add(runtime, journal, link, address, prefix_len).await,
         iface::Effect::RemoveAddress {
             link,
             address,
             prefix_len,
-        } => {
-            runtime
-                .address()
-                .remove(
-                    &link,
-                    netmodel::Address {
-                        address,
-                        prefix_len,
-                    },
-                )
-                .await
-        }
+        } => address::remove(runtime, journal, link, address, prefix_len).await,
         iface::Effect::EnsureRoute { link, gateway } => {
-            runtime.route().ensure_default(&link, gateway).await
+            address::ensure_route(runtime, journal, link, gateway).await
         }
         iface::Effect::RemoveRoute { link, gateway } => {
-            runtime.route().remove_default(&link, gateway).await
+            address::remove_route(runtime, journal, link, gateway).await
         }
         iface::Effect::OpenSocket { family, spec } => {
             open(runtime, interface, sockets, family, spec).await

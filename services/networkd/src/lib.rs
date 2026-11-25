@@ -8,5 +8,4 @@
 pub mod config;
 pub mod dns;
 mod logging;
-mod notices;
 pub mod service;

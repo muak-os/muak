@@ -1,14 +1,15 @@
 //! Sans-io observation journal for network state machines.
-//!
-//! The journal records structured observations and leaves rendering to the
-//! caller, so the state machines stay free of logging, sockets, and runtimes.
 
 #![warn(missing_docs)]
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
+pub mod interface;
+pub mod journal;
+
+use alloc::vec::Vec;
 use core::fmt;
+use core::net::IpAddr;
 
 use netmodel::{AdminState, CarrierState, Link, LinkEvent, LinkState, Name};
 
@@ -80,9 +81,7 @@ pub enum EffectKind {
 }
 
 impl EffectKind {
-    /// Returns the level the effect is reported at.
-    ///
-    /// High frequency effects report at `Debug`, everything else at `Info`.
+    /// Returns Debug for high-frequency effects and Info otherwise.
     #[must_use = "observability needs the level to report the effect"]
     pub const fn level(self) -> Level {
         match self {
@@ -219,6 +218,70 @@ pub enum Event {
         /// Error the runtime reported.
         error: String,
     },
+    /// One address family of an interface changed provisioning state.
+    InterfaceState {
+        /// Interface the method runs on.
+        name: Name,
+        /// Address family of the method.
+        family: interface::Family,
+        /// New provisioning state.
+        state: interface::MethodState,
+    },
+    /// An interface method reported a warning or failure.
+    Notice {
+        /// Interface that reported the notice.
+        name: Name,
+        /// Address family of the reporting method, when known.
+        family: Option<interface::Family>,
+        /// Notice text.
+        text: String,
+    },
+    /// An address was assigned to an interface.
+    AddressAssigned {
+        /// Interface the address was assigned to.
+        name: Name,
+        /// Assigned address.
+        address: IpAddr,
+        /// Prefix length in bits.
+        prefix_len: u8,
+    },
+    /// An address was removed from an interface.
+    AddressRemoved {
+        /// Interface the address was removed from.
+        name: Name,
+        /// Removed address.
+        address: IpAddr,
+        /// Prefix length in bits.
+        prefix_len: u8,
+    },
+    /// A default route was ensured on an interface.
+    RouteEnsured {
+        /// Interface the route goes through.
+        name: Name,
+        /// Gateway of the default route.
+        gateway: IpAddr,
+    },
+    /// A default route was removed from an interface.
+    RouteRemoved {
+        /// Interface the route was removed from.
+        name: Name,
+        /// Gateway of the default route.
+        gateway: IpAddr,
+    },
+    /// A `DHCPv4` method reported its lease.
+    DhcpLease {
+        /// Interface that owns the lease.
+        name: Name,
+        /// Lease details and lifecycle phase.
+        lease: interface::DhcpLease,
+    },
+    /// A SLAAC method reported its learned configuration.
+    SlaacUpdate {
+        /// Interface that reported the update.
+        name: Name,
+        /// Addresses, routers, and DNS servers the method learned.
+        update: interface::SlaacUpdate,
+    },
 }
 
 /// One journaled event and the level it should be reported at.
@@ -230,110 +293,12 @@ pub struct Observation {
     pub event: Event,
 }
 
-/// FIFO journal of observations waiting to be rendered.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Journal {
-    entries: VecDeque<Observation>,
-}
-
-impl Journal {
-    /// Creates an empty journal.
-    #[must_use = "the journal owns the observations"]
-    pub const fn new() -> Self {
-        Self {
-            entries: VecDeque::new(),
-        }
-    }
-
-    /// Appends one observation.
-    pub fn record(&mut self, level: Level, event: Event) {
-        self.entries.push_back(Observation { level, event });
-    }
-
-    /// Iterates over the observations in recording order and removes them.
-    ///
-    /// Observations recorded since the last drain accumulate until consumed.
-    #[must_use = "unconsumed observations accumulate in the journal"]
-    pub fn drain(&mut self) -> impl Iterator<Item = Observation> + '_ {
-        self.entries.drain(..)
-    }
-
-    /// Returns true when no observation is recorded.
-    #[must_use = "callers need to know whether there is anything to render"]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Returns the number of recorded observations.
-    #[must_use = "callers need the backlog size"]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{EffectKind, Event, Journal, Level, LinkSnapshot, SupervisorState};
+    use crate::{EffectKind, Level, LinkSnapshot, SupervisorState};
 
     fn name(value: &str) -> netmodel::Name {
         netmodel::Name::new(value).expect("valid name")
-    }
-
-    #[test]
-    fn new_journal_is_empty() {
-        // ARRANGE
-        let journal = Journal::new();
-
-        // ACT
-        let empty = journal.is_empty();
-        let len = journal.len();
-
-        // ASSERT
-        assert!(empty);
-        assert_eq!(len, 0);
-    }
-
-    #[test]
-    fn record_keeps_order_and_levels() {
-        // ARRANGE
-        let mut journal = Journal::new();
-        let state = Event::StateChanged {
-            from: SupervisorState::Uninitialized,
-            to: SupervisorState::Initializing,
-        };
-        let effect = Event::EffectStarted {
-            kind: EffectKind::Discover,
-            target: None,
-        };
-
-        // ACT
-        journal.record(Level::Info, state.clone());
-        journal.record(Level::Debug, effect.clone());
-        let recorded = journal.drain().collect::<Vec<_>>();
-
-        // ASSERT
-        assert_eq!(journal.len(), 0);
-        assert_eq!(recorded.len(), 2);
-        assert_eq!(recorded[0].level, Level::Info);
-        assert_eq!(recorded[0].event, state);
-        assert_eq!(recorded[1].level, Level::Debug);
-        assert_eq!(recorded[1].event, effect);
-    }
-
-    #[test]
-    fn drain_empties_the_journal() {
-        // ARRANGE
-        let mut journal = Journal::new();
-        journal.record(Level::Info, Event::Detached { port: name("eth0") });
-
-        // ACT
-        let first = journal.drain().count();
-        let second = journal.drain().count();
-
-        // ASSERT
-        assert_eq!(first, 1);
-        assert_eq!(second, 0);
-        assert!(journal.is_empty());
     }
 
     #[test]

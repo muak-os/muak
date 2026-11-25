@@ -57,7 +57,7 @@ impl Supervisor {
         &mut self,
         now: Instant,
         input: Input<'_>,
-        journal: &mut net_observe::Journal,
+        journal: &mut net_observe::journal::Journal,
     ) -> Step<'_> {
         let before = self.status_key();
         let publish = !matches!(&input, Input::Command(Command::Shutdown));

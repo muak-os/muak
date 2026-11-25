@@ -1,6 +1,7 @@
 //! Journal adapters for the supervisor vocabulary.
 
-use net_observe::{Event, Journal, Level};
+use net_observe::journal::Journal;
+use net_observe::{Event, Level};
 
 use crate::supervisor::StatusKey;
 use crate::{EffectKind, State};
@@ -60,7 +61,8 @@ pub(crate) fn record(journal: &mut Journal, before: &StatusKey, after: &StatusKe
 
 #[cfg(test)]
 mod tests {
-    use net_observe::{Journal, SupervisorState};
+    use net_observe::SupervisorState;
+    use net_observe::journal::Journal;
 
     use crate::{EffectKind, State, observe};
 

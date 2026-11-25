@@ -74,8 +74,10 @@ async fn apply_interface(
     effect: iface::Effect<'_>,
 ) -> std::io::Result<()> {
     let mut pending = VecDeque::new();
+    let mut journal = net_observe::journal::Journal::new();
 
-    crate::interface_effects::apply(mock, interface, sockets, &mut pending, effect).await
+    crate::interface_effects::apply(mock, interface, sockets, &mut pending, &mut journal, effect)
+        .await
 }
 
 fn apply_supervisor(
@@ -962,6 +964,7 @@ fn request_entropy_fills_and_queues_a_pending_input() {
     let interface = name("eth0");
     let mut sockets = SocketTable::new();
     let mut pending = VecDeque::new();
+    let mut journal = net_observe::journal::Journal::new();
 
     // ACT
     block_on(crate::interface_effects::apply(
@@ -969,6 +972,7 @@ fn request_entropy_fills_and_queues_a_pending_input() {
         &interface,
         &mut sockets,
         &mut pending,
+        &mut journal,
         iface::Effect::RequestEntropy {
             family: iface::Family::V4,
         },
@@ -1050,4 +1054,201 @@ fn reconcile_pending_input_reaches_the_interface() {
     // ASSERT
     assert_eq!(progress, Progress::Worked);
     assert!(driver.pending.is_empty());
+}
+
+#[test]
+fn successful_remove_address_effect_journals_at_info() {
+    // ARRANGE
+    let mock = runtime();
+    let interface = name("eth0");
+    let mut sockets = SocketTable::new();
+    let mut pending = VecDeque::new();
+    let mut journal = net_observe::journal::Journal::new();
+    let address = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 2));
+
+    // ACT
+    block_on(crate::interface_effects::apply(
+        &mock,
+        &interface,
+        &mut sockets,
+        &mut pending,
+        &mut journal,
+        iface::Effect::RemoveAddress {
+            link: interface.clone(),
+            address,
+            prefix_len: 24,
+        },
+    ))
+    .expect("remove address");
+    let observed: Vec<_> = journal.drain().collect();
+
+    // ASSERT
+    assert_eq!(observed.len(), 1);
+    assert_eq!(observed[0].level, net_observe::Level::Info);
+    assert_eq!(
+        observed[0].event,
+        net_observe::Event::AddressRemoved {
+            name: interface,
+            address,
+            prefix_len: 24,
+        }
+    );
+}
+
+#[test]
+fn successful_route_effects_journal_at_info() {
+    // ARRANGE
+    let mock = runtime();
+    let interface = name("eth0");
+    let mut sockets = SocketTable::new();
+    let mut pending = VecDeque::new();
+    let mut journal = net_observe::journal::Journal::new();
+    let gateway = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 1));
+
+    // ACT
+    block_on(crate::interface_effects::apply(
+        &mock,
+        &interface,
+        &mut sockets,
+        &mut pending,
+        &mut journal,
+        iface::Effect::EnsureRoute {
+            link: interface.clone(),
+            gateway,
+        },
+    ))
+    .expect("ensure route");
+    block_on(crate::interface_effects::apply(
+        &mock,
+        &interface,
+        &mut sockets,
+        &mut pending,
+        &mut journal,
+        iface::Effect::RemoveRoute {
+            link: interface.clone(),
+            gateway,
+        },
+    ))
+    .expect("remove route");
+    let observed: Vec<_> = journal.drain().collect();
+
+    // ASSERT
+    assert_eq!(observed.len(), 2);
+    assert!(
+        observed
+            .iter()
+            .all(|observation| observation.level == net_observe::Level::Info)
+    );
+    assert_eq!(
+        observed[0].event,
+        net_observe::Event::RouteEnsured {
+            name: interface.clone(),
+            gateway,
+        }
+    );
+    assert_eq!(
+        observed[1].event,
+        net_observe::Event::RouteRemoved {
+            name: interface,
+            gateway,
+        }
+    );
+}
+
+#[test]
+fn failed_address_and_route_effects_do_not_journal() {
+    // ARRANGE
+    let mock = runtime();
+    let rejected = name("missing");
+    let mut sockets = SocketTable::new();
+    let mut pending = VecDeque::new();
+    let mut journal = net_observe::journal::Journal::new();
+    let address = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 2));
+    let gateway = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 1));
+    let effects = [
+        iface::Effect::RemoveAddress {
+            link: rejected.clone(),
+            address,
+            prefix_len: 24,
+        },
+        iface::Effect::EnsureRoute {
+            link: rejected.clone(),
+            gateway,
+        },
+        iface::Effect::RemoveRoute {
+            link: rejected.clone(),
+            gateway,
+        },
+    ];
+
+    // ACT
+    for effect in effects {
+        block_on(crate::interface_effects::apply(
+            &mock,
+            &rejected,
+            &mut sockets,
+            &mut pending,
+            &mut journal,
+            effect,
+        ))
+        .expect_err("unknown link fails");
+    }
+
+    // ASSERT
+    assert!(journal.is_empty());
+}
+
+#[test]
+fn successful_address_effect_journals_and_failure_does_not() {
+    // ARRANGE
+    let mock = runtime();
+    let interface = name("eth0");
+    let rejected = name("missing");
+    let mut sockets = SocketTable::new();
+    let mut pending = VecDeque::new();
+    let mut journal = net_observe::journal::Journal::new();
+    let address = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 2));
+
+    // ACT
+    block_on(crate::interface_effects::apply(
+        &mock,
+        &interface,
+        &mut sockets,
+        &mut pending,
+        &mut journal,
+        iface::Effect::AddAddress {
+            link: interface.clone(),
+            address,
+            prefix_len: 24,
+        },
+    ))
+    .expect("add address");
+    let observed: Vec<_> = journal.drain().collect();
+    block_on(crate::interface_effects::apply(
+        &mock,
+        &rejected,
+        &mut sockets,
+        &mut pending,
+        &mut journal,
+        iface::Effect::AddAddress {
+            link: rejected.clone(),
+            address,
+            prefix_len: 24,
+        },
+    ))
+    .expect_err("unknown link fails");
+
+    // ASSERT
+    let failed = journal.is_empty();
+    assert_eq!(observed.len(), 1);
+    assert_eq!(observed[0].level, net_observe::Level::Info);
+    assert_eq!(
+        observed[0].event,
+        net_observe::Event::AddressAssigned {
+            name: interface,
+            address,
+            prefix_len: 24,
+        }
+    );
+    assert!(failed);
 }

@@ -10,7 +10,6 @@ use net_runtime::Runtime;
 
 use crate::dns::Resolver;
 use crate::logging;
-use crate::notices::Logged;
 
 /// Status text a ready network reports to the supervisor.
 pub const READY_STATUS: &str = "Network operational";
@@ -33,7 +32,6 @@ pub enum Readiness {
 pub struct Service<R: Runtime> {
     driver: Loop<R>,
     resolver: Resolver,
-    logged: Logged,
     reported: Option<Health>,
 }
 
@@ -44,27 +42,18 @@ impl<R: Runtime> Service<R> {
         Self {
             driver: Loop::new(runtime, config),
             resolver: Resolver::default(),
-            logged: Logged::default(),
             reported: None,
         }
     }
 
-    /// Starts the supervisor and drains the work it produces immediately.
-    ///
     /// # Errors
-    ///
-    /// Returns the error a runtime port reported while draining the loop.
     pub async fn start(&mut self) -> io::Result<()> {
         self.driver.start(Instant::now()).await;
 
         self.settle().await
     }
 
-    /// Drains the loop until the network reports usable or the timeout elapses.
-    ///
     /// # Errors
-    ///
-    /// Returns the error a runtime port reported while stepping or waiting.
     pub async fn wait_ready(&mut self, timeout: Duration) -> io::Result<Readiness> {
         let deadline = Instant::now().checked_add(timeout);
         self.settle().await?;
@@ -72,12 +61,7 @@ impl<R: Runtime> Service<R> {
         self.await_ready(deadline).await
     }
 
-    /// Steps and waits until a shutdown signal is received.
-    ///
     /// # Errors
-    ///
-    /// Returns the error a runtime port reported while stepping, waiting, or
-    /// notifying the supervisor.
     pub async fn run(&mut self, notifier: &Notifier) -> io::Result<()> {
         self.settle().await?;
         self.report(notifier)?;
@@ -118,14 +102,6 @@ impl<R: Runtime> Service<R> {
         let now = Instant::now();
         let wall = SystemTime::now();
         while self.drain_step(now, wall).await? == Progress::Worked {}
-
-        for controller in self.driver.interfaces() {
-            log(
-                &controller.link().name,
-                &mut self.logged,
-                &controller.snapshot().notices,
-            );
-        }
 
         let (v4, v6) = self.driver.resolver();
         if self.resolver.is_unchanged(v4, v6) {
@@ -194,10 +170,6 @@ impl<R: Runtime> Service<R> {
 
         Ok(true)
     }
-}
-
-fn log(name: &netmodel::Name, logged: &mut Logged, notices: &[String]) {
-    logged.unseen(name, notices, |notice| kmsg::warn!("{name}: {notice}"));
 }
 
 const fn ready(state: net_supervisor::State) -> bool {

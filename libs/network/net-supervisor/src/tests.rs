@@ -148,7 +148,7 @@ fn describe(effect: Effect<'_>) -> Seen {
 }
 
 fn consume(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) -> Option<Seen> {
-    let mut journal = net_observe::Journal::new();
+    let mut journal = net_observe::journal::Journal::new();
     match supervisor.step(now, input, &mut journal) {
         Step::Effect(effect) => Some(describe(effect)),
         Step::Wait => None,
@@ -174,7 +174,7 @@ fn observed(
     now: Instant,
     input: Input<'_>,
 ) -> Vec<net_observe::Observation> {
-    let mut journal = net_observe::Journal::new();
+    let mut journal = net_observe::journal::Journal::new();
     drop(supervisor.step(now, input, &mut journal));
 
     journal.drain().collect()

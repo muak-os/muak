@@ -114,11 +114,7 @@ pub enum Effect<'a> {
         /// Specification of the socket to open.
         spec: ip_method::SocketSpec,
     },
-    /// Send a frame on a socket the family already opened.
-    ///
-    /// `dst` is `None` for raw layer 2 and `UDP` sockets, whose destination
-    /// comes from the frame and the socket peer, and required for raw
-    /// `ICMPv6` sockets.
+    /// Send a frame on a socket the family already opened; destination is required only for `ICMPv6`, not raw L2 or `UDP`.
     Send {
         /// Family the socket belongs to.
         family: Family,
@@ -155,7 +151,7 @@ pub enum Step<'a> {
 }
 
 /// IPv4 method view exposed to the supervisor.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum V4View {
     /// Static address configuration.
     Static(ip_static::View<Ipv4Addr>),
@@ -165,7 +161,7 @@ pub enum V4View {
 }
 
 /// IPv6 method view exposed to the supervisor.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum V6View {
     /// Static address configuration.
     Static(ip_static::View<Ipv6Addr>),
@@ -175,7 +171,7 @@ pub enum V6View {
 }
 
 /// Point-in-time state of an interface and its address methods.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
     /// Administrative and carrier state of the link.
     pub link: netmodel::LinkState,

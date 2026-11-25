@@ -3,6 +3,7 @@
 use std::time::{Instant, SystemTime};
 
 use ip_method::{Effect as MethodEffect, Method, Step as MethodStep};
+use net_observe::journal::Journal;
 
 use super::{command, event};
 use crate::{Controller, Effect, Family, Input, Step};
@@ -26,23 +27,24 @@ enum Reaction<'a> {
 
 pub(super) fn dispatch<'a>(
     controller: &'a mut Controller,
+    journal: &mut Journal,
     now: Instant,
     wall: SystemTime,
     input: Input<'_>,
 ) -> Step<'a> {
     match input {
-        Input::Poll | Input::Timer => drain(controller, now, wall),
-        Input::Method { family, input } => advance(controller, now, wall, family, input),
+        Input::Poll | Input::Timer => drain(controller, journal, now, wall),
+        Input::Method { family, input } => advance(controller, journal, now, wall, family, input),
         Input::Command(command) => {
             command::apply(controller, command);
-            drain(controller, now, wall)
+            drain(controller, journal, now, wall)
         }
         Input::Link(info) => {
             command::link(controller, &info);
             if controller.v4.is_none() && controller.v6.is_none() {
                 return Step::Effect(Effect::Publish);
             }
-            drain(controller, now, wall)
+            drain(controller, journal, now, wall)
         }
     }
 }
@@ -68,21 +70,38 @@ pub(super) fn wake(controller: &Controller, now: Instant) -> Option<Instant> {
     }
 }
 
-fn drain(controller: &mut Controller, now: Instant, wall: SystemTime) -> Step<'_> {
-    if let Some(effect) = pending_effect(controller, now, wall) {
+fn drain<'a>(
+    controller: &'a mut Controller,
+    journal: &mut Journal,
+    now: Instant,
+    wall: SystemTime,
+) -> Step<'a> {
+    if let Some(effect) = pending_effect(controller, journal, now, wall) {
         return effect;
     }
-    if let Step::Effect(effect) = advance(controller, now, wall, Family::V4, ip_method::Input::Poll)
-    {
+    if let Step::Effect(effect) = advance(
+        controller,
+        journal,
+        now,
+        wall,
+        Family::V4,
+        ip_method::Input::Poll,
+    ) {
         return Step::Effect(effect);
     }
-    if let Step::Effect(effect) = advance(controller, now, wall, Family::V6, ip_method::Input::Poll)
-    {
+    if let Step::Effect(effect) = advance(
+        controller,
+        journal,
+        now,
+        wall,
+        Family::V6,
+        ip_method::Input::Poll,
+    ) {
         return Step::Effect(effect);
     }
 
     if controller.deferred.is_some() {
-        return Step::Effect(command::install(controller));
+        return Step::Effect(command::install(controller, journal));
     }
 
     if controller.shutdown {
@@ -96,18 +115,24 @@ fn drain(controller: &mut Controller, now: Instant, wall: SystemTime) -> Step<'_
     Step::Wait
 }
 
-fn pending_effect(controller: &mut Controller, now: Instant, wall: SystemTime) -> Option<Step<'_>> {
+fn pending_effect<'a>(
+    controller: &'a mut Controller,
+    journal: &mut Journal,
+    now: Instant,
+    wall: SystemTime,
+) -> Option<Step<'a>> {
     let (family, input) = controller.pending.pop_front()?;
-    let step = advance(controller, now, wall, family, input);
+    let step = advance(controller, journal, now, wall, family, input);
 
     match step {
-        Step::Wait => pending_effect(controller, now, wall),
+        Step::Wait => pending_effect(controller, journal, now, wall),
         effect @ Step::Effect(_) => Some(effect),
     }
 }
 
 fn advance<'a>(
     controller: &'a mut Controller,
+    journal: &mut Journal,
     now: Instant,
     wall: SystemTime,
     family: Family,
@@ -128,7 +153,7 @@ fn advance<'a>(
         Reaction::Wait => Step::Wait,
         Reaction::Entropy => Step::Effect(Effect::RequestEntropy { family }),
         Reaction::Transport(transport) => Step::Effect(translate(family, transport)),
-        Reaction::Event(event) => Step::Effect(event::handle(controller, family, event)),
+        Reaction::Event(event) => Step::Effect(event::handle(controller, family, event, journal)),
     }
 }
 

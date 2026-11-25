@@ -16,9 +16,6 @@ pub(crate) struct Snapshot {
     /// Uplink candidates in failover preference order.
     pub(crate) backups: Vec<Name>,
     /// State transitions recorded since the last drain, in order.
-    ///
-    /// The queue keeps intermediate transitions visible even when one step
-    /// changes the state more than once.
     pub(crate) transitions: Vec<(State, State)>,
 }
 
@@ -58,9 +55,6 @@ impl Snapshot {
     }
 
     /// Resets every field to its default, recording a return to `Uninitialized`.
-    ///
-    /// The transition queue is preserved so outstanding transitions can still
-    /// be drained after the reset.
     pub(crate) fn reset(&mut self) {
         let mut transitions = core::mem::take(&mut self.transitions);
         if self.state != State::Uninitialized {

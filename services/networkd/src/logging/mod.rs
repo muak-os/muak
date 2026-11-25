@@ -1,10 +1,13 @@
 //! Kernel log rendering of the observations the driver journal records.
 
+mod detail;
+mod emit;
+
 use core::fmt;
 
-use net_observe::{EffectKind, Event, Level, LinkSnapshot, Observation};
+pub(crate) use emit::emit;
+use net_observe::{EffectKind, Event, LinkSnapshot};
 
-// Maximum number of names a discovery line lists before it is truncated.
 const MAX_DISCOVERED: usize = 8;
 
 struct Line<'a>(&'a Event);
@@ -53,27 +56,43 @@ impl fmt::Display for Line<'_> {
                 started(f, kind, target.as_ref())?;
                 write!(f, " failed: {error}")
             }
-        }
-    }
-}
-
-/// Emits one journaled observation to the kernel log at its recorded level.
-pub(crate) fn emit(observation: Observation) {
-    let Observation { level, event } = observation;
-    let line = Line(&event);
-
-    match level {
-        Level::Debug => {
-            kmsg::debug!("{line}");
-        }
-        Level::Info => {
-            kmsg::info!("{line}");
-        }
-        Level::Warn => {
-            kmsg::warn!("{line}");
-        }
-        Level::Error => {
-            kmsg::error!("{line}");
+            Event::InterfaceState {
+                ref name,
+                family,
+                state,
+            } => write!(f, "{name}: {family} state {state}"),
+            Event::Notice {
+                ref name,
+                family,
+                ref text,
+            } => match family {
+                Some(family) => write!(f, "{name}: {family} {text}"),
+                None => write!(f, "{name}: {text}"),
+            },
+            Event::AddressAssigned {
+                ref name,
+                address,
+                prefix_len,
+            } => write!(f, "{name}: assigned {address}/{prefix_len}"),
+            Event::AddressRemoved {
+                ref name,
+                address,
+                prefix_len,
+            } => write!(f, "{name}: removed {address}/{prefix_len}"),
+            Event::RouteEnsured { ref name, gateway } => {
+                write!(f, "{name}: default route via {gateway}")
+            }
+            Event::RouteRemoved { ref name, gateway } => {
+                write!(f, "{name}: default route via {gateway} removed")
+            }
+            Event::DhcpLease {
+                ref name,
+                ref lease,
+            } => detail::dhcp(f, name, lease),
+            Event::SlaacUpdate {
+                ref name,
+                ref update,
+            } => detail::slaac(f, name, update),
         }
     }
 }
@@ -195,7 +214,7 @@ mod tests {
     use core::fmt::Write as _;
     use core::num::NonZeroI32;
 
-    use net_observe::{EffectKind, Event, SupervisorState};
+    use net_observe::{EffectKind, Event, SupervisorState, interface};
 
     use super::Line;
 
@@ -398,6 +417,157 @@ mod tests {
                 error: "no such device".to_owned(),
             }),
             "Configuring br0 failed: no such device"
+        );
+    }
+
+    #[test]
+    fn interface_state_and_notices_name_the_family() {
+        // ACT / ASSERT
+        assert_eq!(
+            render(&Event::InterfaceState {
+                name: name("eth0"),
+                family: interface::Family::V4,
+                state: interface::MethodState::Acquiring,
+            }),
+            "eth0: IPv4 state acquiring"
+        );
+        assert_eq!(
+            render(&Event::Notice {
+                name: name("eth0"),
+                family: None,
+                text: "no carrier".to_owned(),
+            }),
+            "eth0: no carrier"
+        );
+        assert_eq!(
+            render(&Event::Notice {
+                name: name("eth0"),
+                family: Some(interface::Family::V4),
+                text: "lease renew failed".to_owned(),
+            }),
+            "eth0: IPv4 lease renew failed"
+        );
+    }
+
+    #[test]
+    fn address_and_route_lines_name_the_address() {
+        // ARRANGE
+        let address = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 2));
+        let gateway = core::net::IpAddr::V4(core::net::Ipv4Addr::new(10, 0, 0, 1));
+
+        // ACT / ASSERT
+        assert_eq!(
+            render(&Event::AddressAssigned {
+                name: name("eth0"),
+                address,
+                prefix_len: 24,
+            }),
+            "eth0: assigned 10.0.0.2/24"
+        );
+        assert_eq!(
+            render(&Event::AddressRemoved {
+                name: name("eth0"),
+                address,
+                prefix_len: 24,
+            }),
+            "eth0: removed 10.0.0.2/24"
+        );
+        assert_eq!(
+            render(&Event::RouteEnsured {
+                name: name("eth0"),
+                gateway,
+            }),
+            "eth0: default route via 10.0.0.1"
+        );
+        assert_eq!(
+            render(&Event::RouteRemoved {
+                name: name("eth0"),
+                gateway,
+            }),
+            "eth0: default route via 10.0.0.1 removed"
+        );
+    }
+
+    #[test]
+    fn dhcp_lease_reports_every_negotiated_detail() {
+        // ARRANGE
+        let lease = interface::DhcpLease {
+            address: core::net::Ipv4Addr::new(10, 0, 0, 2),
+            prefix_len: 24,
+            server: core::net::Ipv4Addr::new(10, 0, 0, 1),
+            gateway: Some(core::net::Ipv4Addr::new(10, 0, 0, 1)),
+            dns: vec![core::net::Ipv4Addr::new(8, 8, 8, 8)],
+            phase: interface::DhcpPhase::Bound,
+        };
+
+        // ACT
+        let text = render(&Event::DhcpLease {
+            name: name("eth0"),
+            lease,
+        });
+
+        // ASSERT
+        assert_eq!(
+            text,
+            "eth0: IPv4 dhcp 10.0.0.2/24 server 10.0.0.1 gateway 10.0.0.1 dns [8.8.8.8] (bound)"
+        );
+    }
+
+    #[test]
+    fn dhcp_phase_is_appended_and_dns_is_truncated() {
+        // ARRANGE
+        let dns = (0_usize..10)
+            .map(|index| {
+                let octet = u8::try_from(index + 1).expect("small index");
+                core::net::Ipv4Addr::new(9, 9, 9, octet)
+            })
+            .collect();
+        let lease = interface::DhcpLease {
+            address: core::net::Ipv4Addr::new(10, 0, 0, 2),
+            prefix_len: 24,
+            server: core::net::Ipv4Addr::new(10, 0, 0, 1),
+            gateway: None,
+            dns,
+            phase: interface::DhcpPhase::Degraded,
+        };
+
+        // ACT
+        let text = render(&Event::DhcpLease {
+            name: name("eth0"),
+            lease,
+        });
+
+        // ASSERT
+        assert_eq!(
+            text,
+            "eth0: IPv4 dhcp 10.0.0.2/24 server 10.0.0.1 gateway none dns \
+             [9.9.9.1, 9.9.9.2, 9.9.9.3, 9.9.9.4, 9.9.9.5, 9.9.9.6, 9.9.9.7, 9.9.9.8, +2 more] \
+             (degraded)"
+        );
+    }
+
+    #[test]
+    fn slaac_update_lists_addresses_routers_and_dns() {
+        // ARRANGE
+        let update = interface::SlaacUpdate {
+            addresses: vec![(
+                core::net::Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 2),
+                64,
+            )],
+            routers: vec![core::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)],
+            dns: Vec::new(),
+        };
+
+        // ACT
+        let text = render(&Event::SlaacUpdate {
+            name: name("eth0"),
+            update,
+        });
+
+        // ASSERT
+        assert_eq!(
+            text,
+            "eth0: IPv6 slaac [2001:db8::2/64] routers [fe80::1] dns []"
         );
     }
 

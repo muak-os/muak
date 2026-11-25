@@ -25,9 +25,7 @@ use ndp::types::PrefixInformation;
 use ndp::{ALL_ROUTERS, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
 use netmodel::{Ipv4Config, Ipv6Config, LinkState, Mac, Name};
 
-#[cfg(any(feature = "ipv4", feature = "ipv6"))]
-use crate::Family;
-use crate::{Command, Controller, Effect, Input, Step, V4View, V6View};
+use crate::{Command, Controller, Effect, Family, Input, Step, V4View, V6View};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
 const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
@@ -138,7 +136,18 @@ fn slaac_config() -> Ipv6Config {
 }
 
 fn observe(controller: &mut Controller, now: Instant, input: Input<'_>) -> Option<Observed> {
-    match controller.step(now, SystemTime::UNIX_EPOCH, input) {
+    let mut journal = net_observe::journal::Journal::new();
+
+    observe_with(controller, &mut journal, now, input)
+}
+
+fn observe_with(
+    controller: &mut Controller,
+    journal: &mut net_observe::journal::Journal,
+    now: Instant,
+    input: Input<'_>,
+) -> Option<Observed> {
+    match controller.step(journal, now, SystemTime::UNIX_EPOCH, input) {
         Step::Wait => None,
         Step::Effect(effect) => Some(convert(effect)),
     }
@@ -149,8 +158,18 @@ fn poll(controller: &mut Controller, now: Instant) -> Option<Observed> {
 }
 
 fn drain(controller: &mut Controller, now: Instant) -> Vec<Observed> {
+    let mut journal = net_observe::journal::Journal::new();
+
+    drain_with(controller, &mut journal, now)
+}
+
+fn drain_with(
+    controller: &mut Controller,
+    journal: &mut net_observe::journal::Journal,
+    now: Instant,
+) -> Vec<Observed> {
     let mut effects = Vec::new();
-    while let Some(effect) = poll(controller, now) {
+    while let Some(effect) = observe_with(controller, journal, now, Input::Poll) {
         effects.push(effect);
     }
 
@@ -205,15 +224,27 @@ fn configure(
     v4: Option<Ipv4Config>,
     v6: Option<Ipv6Config>,
 ) -> Vec<Observed> {
+    let mut journal = net_observe::journal::Journal::new();
+    configure_with(controller, &mut journal, now, v4, v6)
+}
+
+fn configure_with(
+    controller: &mut Controller,
+    journal: &mut net_observe::journal::Journal,
+    now: Instant,
+    v4: Option<Ipv4Config>,
+    v6: Option<Ipv6Config>,
+) -> Vec<Observed> {
     let mut effects = Vec::new();
-    if let Some(effect) = observe(
+    if let Some(effect) = observe_with(
         controller,
+        journal,
         now,
         Input::Command(Command::Configure { v4, v6 }),
     ) {
         effects.push(effect);
     }
-    effects.extend(drain(controller, now));
+    effects.extend(drain_with(controller, journal, now));
 
     effects
 }
@@ -286,6 +317,24 @@ fn dhcp_frame(kind: u8) -> Vec<u8> {
     udp::wrap(&payload, source, destination, &mut frame)
         .expect("DHCP frame fits")
         .to_vec()
+}
+
+#[cfg(feature = "ipv4")]
+fn dhcp_view(obtained_at: SystemTime, phase: dhcp::Phase) -> V4View {
+    V4View::Dhcp(dhcp::View {
+        lease: dhcp::Lease {
+            obtained_at,
+            lease_time: Duration::from_secs(100),
+            renewal_time: Duration::from_secs(50),
+            rebind_time: Duration::from_secs(80),
+            server_ip: DHCP_SERVER,
+            assigned_ip: DHCP_ASSIGNED,
+            prefix_len: 24,
+            gateway: Some(DHCP_SERVER),
+            dns_servers: vec![Ipv4Addr::new(8, 8, 8, 8)],
+        },
+        phase,
+    })
 }
 
 #[test]
@@ -974,4 +1023,418 @@ fn shutdown_closes_dhcp_sockets_and_stops_the_method() {
     let snapshot = controller.snapshot();
     assert_eq!(snapshot.v4_state, ip_method::State::Stopped);
     assert!(snapshot.v4.is_none());
+}
+
+#[test]
+fn v4_method_state_is_journaled() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Some(v4_config()),
+        None,
+    ));
+    let states: Vec<_> = journal
+        .drain()
+        .filter_map(|observation| {
+            if let net_observe::Event::InterfaceState { family, state, .. } = observation.event {
+                Some((family, state))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // ASSERT
+    assert!(states.contains(&(
+        net_observe::interface::Family::V4,
+        net_observe::interface::MethodState::Bound
+    )));
+}
+
+#[test]
+fn v6_method_state_is_journaled() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        None,
+        Some(v6_config()),
+    ));
+    let states: Vec<_> = journal
+        .drain()
+        .filter_map(|observation| {
+            if let net_observe::Event::InterfaceState { family, state, .. } = observation.event {
+                Some((family, state))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // ASSERT
+    assert!(states.contains(&(
+        net_observe::interface::Family::V6,
+        net_observe::interface::MethodState::Bound
+    )));
+}
+
+#[test]
+fn warnings_and_failures_are_journaled_at_their_levels() {
+    // ARRANGE
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(super::event::handle(
+        &mut controller,
+        Family::V4,
+        ip_method::Event::Warning(String::from("lease renew failed")),
+        &mut journal,
+    ));
+    drop(super::event::handle(
+        &mut controller,
+        Family::V4,
+        ip_method::Event::Failed(ip_method::Failure::Protocol(String::from(
+            "exchange failed",
+        ))),
+        &mut journal,
+    ));
+    let observations: Vec<_> = journal.drain().collect();
+
+    // ASSERT
+    assert_eq!(observations[0].level, net_observe::Level::Warn);
+    assert!(matches!(
+        observations[0].event,
+        net_observe::Event::Notice {
+            family: Some(net_observe::interface::Family::V4),
+            ..
+        }
+    ));
+    assert_eq!(observations[1].level, net_observe::Level::Error);
+    assert!(matches!(
+        observations[1].event,
+        net_observe::Event::Notice {
+            family: Some(net_observe::interface::Family::V4),
+            ref text,
+            ..
+        } if text == "method protocol failed: exchange failed"
+    ));
+}
+
+#[cfg(feature = "ipv4")]
+#[test]
+fn degraded_dhcp_lease_is_journaled_at_warn() {
+    // ARRANGE
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+    controller.snapshot.v4 = Some(dhcp_view(SystemTime::UNIX_EPOCH, dhcp::Phase::Degraded));
+
+    // ACT
+    super::observe::record_v4(&controller, &mut journal);
+    let observations: Vec<_> = journal.drain().collect();
+
+    // ASSERT
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].level, net_observe::Level::Warn);
+    assert!(matches!(
+        observations[0].event,
+        net_observe::Event::DhcpLease {
+            ref lease,
+            ..
+        } if lease.phase == net_observe::interface::DhcpPhase::Degraded
+    ));
+}
+
+#[test]
+fn repeated_bound_state_is_journaled_once() {
+    // ARRANGE
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(super::event::handle(
+        &mut controller,
+        Family::V4,
+        ip_method::Event::State(ip_method::State::Bound),
+        &mut journal,
+    ));
+    drop(super::event::handle(
+        &mut controller,
+        Family::V4,
+        ip_method::Event::State(ip_method::State::Bound),
+        &mut journal,
+    ));
+    let states: Vec<_> = journal
+        .drain()
+        .filter(|observation| {
+            matches!(observation.event, net_observe::Event::InterfaceState { .. })
+        })
+        .collect();
+
+    // ASSERT
+    assert_eq!(states.len(), 1);
+}
+
+#[cfg(feature = "ipv4")]
+#[test]
+fn same_v4_ignores_the_obtained_time_and_tracks_the_phase() {
+    // ARRANGE
+    let older = dhcp_view(SystemTime::UNIX_EPOCH, dhcp::Phase::Bound);
+    let renewed = dhcp_view(
+        SystemTime::UNIX_EPOCH + Duration::from_secs(50),
+        dhcp::Phase::Bound,
+    );
+    let degraded = dhcp_view(SystemTime::UNIX_EPOCH, dhcp::Phase::Degraded);
+
+    // ACT
+    let same_lease = super::observe::same_v4(Some(&older), Some(&renewed));
+    let changed_phase = super::observe::same_v4(Some(&older), Some(&degraded));
+
+    // ASSERT
+    assert!(same_lease);
+    assert!(!changed_phase);
+}
+
+#[cfg(feature = "ipv4")]
+#[test]
+fn dhcp_lease_is_journaled_when_the_view_changes() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+    let offer = dhcp_frame(dhcp_proto::message_type::OFFER);
+    let ack = dhcp_frame(dhcp_proto::message_type::ACK);
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Some(dhcp_config()),
+        None,
+    ));
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V4,
+            input: ip_method::Input::SocketOpened {
+                slot: SocketSlot::Primary,
+            },
+        },
+    ));
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V4,
+            input: ip_method::Input::Entropy(DHCP_XID),
+        },
+    ));
+
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V4,
+            input: ip_method::Input::Frame {
+                slot: SocketSlot::Primary,
+                bytes: &offer,
+                source: None,
+            },
+        },
+    ));
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V4,
+            input: ip_method::Input::Entropy(DHCP_XID),
+        },
+    ));
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V4,
+            input: ip_method::Input::Frame {
+                slot: SocketSlot::Primary,
+                bytes: &ack,
+                source: None,
+            },
+        },
+    ));
+    drop(drain_with(&mut controller, &mut journal, now));
+    let lease = journal.drain().find_map(|observation| {
+        if let net_observe::Event::DhcpLease { lease, .. } = observation.event {
+            Some(lease)
+        } else {
+            None
+        }
+    });
+
+    // ASSERT
+    let lease = lease.expect("DHCP lease observed");
+    assert_eq!(lease.address, DHCP_ASSIGNED);
+    assert_eq!(lease.prefix_len, 24);
+    assert_eq!(lease.server, DHCP_SERVER);
+    assert_eq!(lease.gateway, Some(DHCP_SERVER));
+    assert_eq!(lease.dns, Vec::<Ipv4Addr>::new());
+    assert_eq!(lease.phase, net_observe::interface::DhcpPhase::Bound);
+}
+
+#[cfg(feature = "ipv6")]
+#[test]
+fn slaac_update_is_journaled_when_the_view_changes() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+    let packet = advertisement();
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        None,
+        Some(slaac_config()),
+    ));
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V6,
+            input: ip_method::Input::SocketOpened {
+                slot: SocketSlot::Primary,
+            },
+        },
+    ));
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Poll,
+    ));
+
+    drop(observe_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Input::Method {
+            family: Family::V6,
+            input: ip_method::Input::Frame {
+                slot: SocketSlot::Primary,
+                bytes: &packet,
+                source: Some(IpAddr::V6(ROUTER)),
+            },
+        },
+    ));
+    let update = journal.drain().find_map(|observation| {
+        if let net_observe::Event::SlaacUpdate { update, .. } = observation.event {
+            Some(update)
+        } else {
+            None
+        }
+    });
+
+    // ASSERT
+    let update = update.expect("SLAAC update observed");
+    assert_eq!(update.addresses, vec![(SLAAC_ADDRESS, 64)]);
+    assert_eq!(update.routers, vec![ROUTER]);
+}
+
+#[cfg(not(feature = "ipv4"))]
+#[test]
+fn ipv4_replacement_notice_is_journaled() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Some(Ipv4Config {
+            dhcp: true,
+            ..Ipv4Config::default()
+        }),
+        None,
+    ));
+    let notices: Vec<_> = journal
+        .drain()
+        .filter_map(|observation| {
+            if let net_observe::Event::Notice { family, text, .. } = observation.event {
+                Some((family, text))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // ASSERT
+    assert!(
+        notices.iter().any(|(family, text)| {
+            family.is_none() && text.contains("ipv4 feature is disabled")
+        })
+    );
+}
+
+#[cfg(not(feature = "ipv6"))]
+#[test]
+fn ipv6_replacement_notice_is_journaled() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        None,
+        Some(Ipv6Config {
+            autoconf: true,
+            ..Ipv6Config::default()
+        }),
+    ));
+    let notices: Vec<_> = journal
+        .drain()
+        .filter_map(|observation| {
+            if let net_observe::Event::Notice { family, text, .. } = observation.event {
+                Some((family, text))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // ASSERT
+    assert!(
+        notices.iter().any(|(family, text)| {
+            family.is_none() && text.contains("ipv6 feature is disabled")
+        })
+    );
 }

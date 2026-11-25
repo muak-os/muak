@@ -133,7 +133,7 @@ pub enum Progress {
 pub struct Loop<R: net_runtime::Runtime> {
     runtime: R,
     supervisor: net_supervisor::Supervisor,
-    journal: net_observe::Journal,
+    journal: net_observe::journal::Journal,
     interfaces: Vec<iface::Controller>,
     names: Vec<netmodel::Name>,
     owners: Vec<(netmodel::Name, netmodel::Name)>,

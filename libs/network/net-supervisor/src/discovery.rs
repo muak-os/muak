@@ -13,7 +13,7 @@ pub(crate) fn on_links(
     supervisor: &mut Supervisor,
     now: Instant,
     links: &[Link],
-    journal: &mut net_observe::Journal,
+    journal: &mut net_observe::journal::Journal,
 ) {
     if supervisor.state.state == State::Uninitialized {
         return;

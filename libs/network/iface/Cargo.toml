@@ -22,6 +22,7 @@ ipv6 = ["dep:slaac"]
 dhcp = { workspace = true, optional = true }
 ip-method = { workspace = true }
 ip-static = { workspace = true }
+net-observe = { workspace = true }
 netmodel = { workspace = true }
 slaac = { workspace = true, optional = true }
 

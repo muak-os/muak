@@ -4,6 +4,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use ip_method::{Command as MethodCommand, Input as MethodInput, State};
+use net_observe::journal::Journal;
+use net_observe::{Event as ObserveEvent, Level};
 
 use crate::method::{Replacement, V4Slot, V6Slot};
 use crate::{Command, Controller, Effect, Family};
@@ -21,7 +23,7 @@ pub(super) fn apply(controller: &mut Controller, command: Command) {
     }
 }
 
-pub(super) fn install(controller: &mut Controller) -> Effect<'static> {
+pub(super) fn install(controller: &mut Controller, journal: &mut Journal) -> Effect<'static> {
     if let Some(replacement) = controller.deferred.take() {
         controller.v4 = replacement.v4;
         controller.v6 = replacement.v6;
@@ -30,6 +32,16 @@ pub(super) fn install(controller: &mut Controller) -> Effect<'static> {
         controller.snapshot.v6 = None;
         controller.snapshot.v6_state = State::Stopped;
         controller.pending.clear();
+        for notice in &replacement.notices {
+            journal.record(
+                Level::Warn,
+                ObserveEvent::Notice {
+                    name: controller.link.name.clone(),
+                    family: None,
+                    text: notice.clone(),
+                },
+            );
+        }
         controller.snapshot.notices.clear();
         controller.snapshot.notices.extend(replacement.notices);
         controller.shutdown = false;

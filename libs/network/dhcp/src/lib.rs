@@ -32,7 +32,7 @@ const MAX_FRAME_LEN: usize = 1536;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A successfully acquired `DHCPv4` lease with timing and server metadata.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lease {
     /// Wall clock time the lease was obtained at.
     pub obtained_at: SystemTime,
@@ -74,7 +74,7 @@ pub enum Phase {
 }
 
 /// Lease and lifecycle phase the method reports to the controller.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     /// Lease currently held.
     pub lease: Lease,
