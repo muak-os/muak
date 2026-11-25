@@ -421,6 +421,28 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_effects_report_the_target() {
+        // ARRANGE
+        let target = Some(name("br0"));
+
+        // ACT / ASSERT
+        assert_eq!(
+            render(&Event::EffectStarted {
+                kind: EffectKind::ReconcileInterface,
+                target: target.clone(),
+            }),
+            "Reconciling br0"
+        );
+        assert_eq!(
+            render(&Event::EffectFinished {
+                kind: EffectKind::ReconcileInterface,
+                target,
+            }),
+            "Reconcile completed on br0"
+        );
+    }
+
+    #[test]
     fn interface_state_and_notices_name_the_family() {
         // ACT / ASSERT
         assert_eq!(

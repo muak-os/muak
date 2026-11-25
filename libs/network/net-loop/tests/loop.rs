@@ -705,6 +705,47 @@ fn reconcile_reaches_the_interface_controller() {
 }
 
 #[test]
+fn satisfied_reconcile_only_journals_debug_trace() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![bridge(), ethernet()]));
+    block_on(boot(&mut driver, now, wall));
+    drop(driver.drain_observations());
+    let deadline = driver.next_wake(now).expect("reconcile deadline");
+
+    // ACT
+    block_on(settle(&mut driver, deadline, wall));
+    let observations: Vec<net_observe::Observation> = driver.drain_observations().collect();
+
+    // ASSERT
+    assert!(
+        !observations.is_empty(),
+        "the satisfied reconcile should still trace its work"
+    );
+    assert!(
+        observations
+            .iter()
+            .all(|observation| observation.level == net_observe::Level::Debug),
+        "a satisfied reconcile must not emit operator-level observations"
+    );
+    assert!(observations.iter().any(|observation| matches!(
+        &observation.event,
+        net_observe::Event::EffectStarted {
+            kind: net_observe::EffectKind::ReconcileInterface,
+            target,
+        } if *target == Some(name("br0"))
+    )));
+    assert!(observations.iter().all(|observation| !matches!(
+        observation.event,
+        net_observe::Event::BridgeReady { .. }
+            | net_observe::Event::Enslaved { .. }
+            | net_observe::Event::StateChanged { .. }
+            | net_observe::Event::InterfaceState { .. }
+    )));
+}
+
+#[test]
 fn wait_event_handles_one_event() {
     // ARRANGE
     let now = Instant::now();

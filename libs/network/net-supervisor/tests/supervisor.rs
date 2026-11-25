@@ -951,6 +951,57 @@ fn reconcile_heals_without_requeueing_a_satisfied_bridge() {
 }
 
 #[test]
+fn satisfied_reconcile_journals_no_operator_observations() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Up)];
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
+    let now = Instant::now();
+    run(
+        &mut supervisor,
+        now,
+        Input::BridgeReady {
+            name: name("br0"),
+            index: 5,
+            mac: Mac::default(),
+            state: LinkState::Up,
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &configured(LinkState::Up),
+        },
+    );
+
+    // ACT
+    let mut journal = net_observe::journal::Journal::new();
+    let step = supervisor.step(now, Input::Command(Command::Reconcile), &mut journal);
+    let observations: Vec<net_observe::Observation> = journal.drain().collect();
+
+    // ASSERT
+    assert!(
+        matches!(step, Step::Effect(Effect::ReconcileInterface { .. })),
+        "a satisfied reconcile must still emit the reconcile effect"
+    );
+    assert!(
+        observations
+            .iter()
+            .all(|observation| observation.level == net_observe::Level::Debug),
+        "a satisfied reconcile must not journal operator-level observations"
+    );
+}
+
+#[test]
 fn reconcile_enslaves_again_after_detach() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
