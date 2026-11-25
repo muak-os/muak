@@ -13,6 +13,7 @@ const ETH_ALEN: usize = 6;
 const ETH_ALEN_U8: u8 = 6;
 const ETH_PROTOCOL_IP: u16 = 0x0800_u16.to_be();
 const SOCK_ADDR_LL_LEN: SocketAddrLen = 20;
+const SOCK_ADDR_LL_INDEX_LEN: SocketAddrLen = 8;
 const IF_NAME_MAX: usize = 16;
 
 #[repr(C)]
@@ -24,6 +25,15 @@ struct SockAddrLl {
     packet_type: u8,
     hardware_addr_len: u8,
     address: [u8; 8],
+}
+
+// The kernel truncates `sockaddr_ll` to `offsetof(sll_addr) + sll_halen`, so a six byte
+// hardware address yields 18 bytes. Only the leading fields can be read back safely.
+#[repr(C)]
+struct SockAddrLlIndex {
+    family: u16,
+    protocol: u16,
+    if_index: i32,
 }
 
 // SAFETY: `SockAddrLl` is `repr(C)` and matches the kernel ABI for `sockaddr_ll`, and
@@ -153,16 +163,18 @@ fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> io::Result<
 
 fn bound_if_index(fd: BorrowedFd<'_>) -> io::Result<i32> {
     let addr = net::getsockname(fd).map_err(io::Error::from)?;
-    if addr.address_family() != net::AddressFamily::PACKET || addr.addr_len() < SOCK_ADDR_LL_LEN {
+    if addr.address_family() != net::AddressFamily::PACKET
+        || addr.addr_len() < SOCK_ADDR_LL_INDEX_LEN
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "socket is not bound to an AF_PACKET device",
         ));
     }
 
-    // SAFETY: `addr` reports the `AF_PACKET` family and carries at least one full `sockaddr_ll`,
-    // which the kernel wrote using that layout.
-    let bound = unsafe { core::ptr::read(addr.as_ptr().cast::<SockAddrLl>()) };
+    // SAFETY: `addr` reports the `AF_PACKET` family and carries at least the leading
+    // `SockAddrLlIndex` fields, which the kernel wrote using that layout.
+    let bound = unsafe { core::ptr::read(addr.as_ptr().cast::<SockAddrLlIndex>()) };
 
     Ok(bound.if_index)
 }
@@ -199,6 +211,21 @@ mod tests {
 
         // ASSERT
         assert_eq!(length, expected);
+    }
+
+    #[test]
+    fn getsockname_prefix_is_shorter_than_bind_sockaddr() {
+        // ARRANGE
+        let expected = size_of::<SockAddrLlIndex>();
+
+        // ACT
+        let prefix = usize::try_from(SOCK_ADDR_LL_INDEX_LEN).expect("prefix length fits usize");
+        let bind = usize::try_from(SOCK_ADDR_LL_LEN).expect("sockaddr_ll length fits usize");
+
+        // ASSERT
+        assert_eq!(prefix, 8);
+        assert_eq!(prefix, expected);
+        assert!(prefix < bind);
     }
 
     #[test]
