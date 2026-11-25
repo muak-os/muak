@@ -81,19 +81,21 @@ pub enum EffectKind {
 }
 
 impl EffectKind {
-    /// Returns Debug for high-frequency effects and Info otherwise.
+    /// Returns Info for operator events and Debug for effect-trace noise.
     #[must_use = "observability needs the level to report the effect"]
     pub const fn level(self) -> Level {
         match self {
-            Self::ProbeCarriers | Self::Publish | Self::WriteResolver => Level::Debug,
             Self::Discover
             | Self::SetLinkUp
             | Self::ConfigureInterface
-            | Self::ReconcileInterface
+            | Self::ShutdownInterface => Level::Info,
+            Self::ProbeCarriers
             | Self::EnsureBridge
             | Self::Enslave
             | Self::Detach
-            | Self::ShutdownInterface => Level::Info,
+            | Self::ReconcileInterface
+            | Self::Publish
+            | Self::WriteResolver => Level::Debug,
         }
     }
 }
@@ -325,17 +327,17 @@ mod tests {
     }
 
     #[test]
-    fn effect_levels_are_debug_only_for_high_frequency_effects() {
+    fn effect_levels_separate_operator_events_from_trace_noise() {
         // ARRANGE
         let cases = [
             (EffectKind::Discover, Level::Info),
             (EffectKind::ProbeCarriers, Level::Debug),
             (EffectKind::SetLinkUp, Level::Info),
             (EffectKind::ConfigureInterface, Level::Info),
-            (EffectKind::ReconcileInterface, Level::Info),
-            (EffectKind::EnsureBridge, Level::Info),
-            (EffectKind::Enslave, Level::Info),
-            (EffectKind::Detach, Level::Info),
+            (EffectKind::ReconcileInterface, Level::Debug),
+            (EffectKind::EnsureBridge, Level::Debug),
+            (EffectKind::Enslave, Level::Debug),
+            (EffectKind::Detach, Level::Debug),
             (EffectKind::ShutdownInterface, Level::Info),
             (EffectKind::Publish, Level::Debug),
             (EffectKind::WriteResolver, Level::Debug),

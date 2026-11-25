@@ -24,7 +24,7 @@ pub(super) async fn add<R: net_runtime::Runtime>(
         )
         .await?;
     journal.record(
-        Level::Info,
+        Level::Debug,
         Event::AddressAssigned {
             name: link,
             address,
@@ -53,7 +53,7 @@ pub(super) async fn remove<R: net_runtime::Runtime>(
         )
         .await?;
     journal.record(
-        Level::Info,
+        Level::Debug,
         Event::AddressRemoved {
             name: link,
             address,
@@ -72,7 +72,7 @@ pub(super) async fn ensure_route<R: net_runtime::Runtime>(
 ) -> io::Result<()> {
     runtime.route().ensure_default(&link, gateway).await?;
     journal.record(
-        Level::Info,
+        Level::Debug,
         Event::RouteEnsured {
             name: link,
             gateway,
@@ -90,7 +90,7 @@ pub(super) async fn remove_route<R: net_runtime::Runtime>(
 ) -> io::Result<()> {
     runtime.route().remove_default(&link, gateway).await?;
     journal.record(
-        Level::Info,
+        Level::Debug,
         Event::RouteRemoved {
             name: link,
             gateway,
