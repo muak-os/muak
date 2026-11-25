@@ -1547,6 +1547,7 @@ dependencies = [
  "granola",
  "kmsg",
  "net-loop",
+ "net-runtime",
  "net-runtime-linux",
  "net-supervisor",
  "netmodel",

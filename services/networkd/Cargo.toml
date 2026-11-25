@@ -26,6 +26,7 @@ config = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
 net-loop = { workspace = true, default-features = false }
+net-runtime = { workspace = true, default-features = false }
 net-runtime-linux = { workspace = true, default-features = false, features = ["tokio"] }
 net-supervisor = { workspace = true, default-features = false }
 netmodel = { workspace = true }
@@ -34,4 +35,5 @@ netmodel = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+net-runtime = { workspace = true, default-features = false, features = ["mock"] }
 tempfile = { workspace = true }
