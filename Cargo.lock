@@ -1446,6 +1446,7 @@ name = "net-runtime"
 version = "0.0.0"
 dependencies = [
  "ip-method",
+ "net-runtime",
  "netmodel",
 ]
 

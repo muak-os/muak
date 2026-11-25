@@ -13,10 +13,6 @@ mod resolver;
 mod step;
 mod supervisor_effects;
 
-#[cfg(test)]
-#[path = "../tests/unit/mod.rs"]
-mod tests;
-
 use alloc::collections::VecDeque;
 
 use pending::Pending;

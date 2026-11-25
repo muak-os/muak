@@ -20,3 +20,6 @@ mock = []
 # Internal
 ip-method = { workspace = true }
 netmodel = { workspace = true }
+
+[dev-dependencies]
+net-runtime = { path = ".", features = ["mock"] }

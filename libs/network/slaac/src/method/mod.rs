@@ -83,7 +83,3 @@ fn report(method: &Slaac) -> Option<View> {
         dns: method.dns_servers.iter().map(|dns| dns.value).collect(),
     })
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/method.rs"]
-mod tests;

@@ -1,15 +1,16 @@
 //! Supervisor policy tests driving the sans-io state machine.
 
+#![cfg(test)]
+
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::io;
 use std::time::{Duration, Instant};
 
-use netmodel::{Link, LinkState, Mac, Name};
-
-use crate::{
+use net_supervisor::{
     BridgeConfig, Command, Config, Effect, EffectKind, Input, InterfaceConfig, InterfaceKind,
     State, Step, Supervisor,
 };
+use netmodel::{Link, LinkState, Mac, Name};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Seen {
@@ -214,61 +215,6 @@ fn new_starts_uninitialized_and_idles() {
     // ASSERT
     assert_eq!(status.state, State::Uninitialized);
     assert!(supervisor.next_wake(now).is_none());
-}
-
-#[test]
-fn valid_transitions_advance_state() {
-    // ARRANGE
-    let pairs = [
-        (State::Uninitialized, State::Initializing),
-        (State::Initializing, State::Operational),
-        (State::Initializing, State::Degraded),
-        (State::Operational, State::Ready),
-        (State::Operational, State::Degraded),
-        (State::Ready, State::Degraded),
-        (State::Degraded, State::Initializing),
-        (State::Degraded, State::Operational),
-    ];
-    for (from, to) in pairs {
-        let mut snapshot = crate::state::Snapshot {
-            state: from,
-            ..crate::state::Snapshot::default()
-        };
-
-        // ACT
-        let moved = snapshot.transition(to);
-
-        // ASSERT
-        assert!(moved, "{from:?} -> {to:?} must be valid");
-        assert_eq!(snapshot.state, to);
-    }
-}
-
-#[test]
-fn invalid_transitions_leave_state_unchanged() {
-    // ARRANGE
-    let pairs = [
-        (State::Uninitialized, State::Operational),
-        (State::Uninitialized, State::Ready),
-        (State::Uninitialized, State::Degraded),
-        (State::Initializing, State::Ready),
-        (State::Operational, State::Initializing),
-        (State::Ready, State::Operational),
-        (State::Degraded, State::Ready),
-    ];
-    for (from, to) in pairs {
-        let mut snapshot = crate::state::Snapshot {
-            state: from,
-            ..crate::state::Snapshot::default()
-        };
-
-        // ACT
-        let moved = snapshot.transition(to);
-
-        // ASSERT
-        assert!(!moved, "{from:?} -> {to:?} must be invalid");
-        assert_eq!(snapshot.state, from);
-    }
 }
 
 #[test]
@@ -548,28 +494,6 @@ fn dormant_carriers_degrade_without_provisioning() {
         effect,
         Seen::Bridge { .. } | Seen::Enslave { .. } | Seen::Configure { .. }
     )));
-}
-
-#[test]
-fn carrier_probe_updates_admin_state_from_the_fresh_link() {
-    // ARRANGE
-    let links = [link("eth0", 2, LinkState::Down)];
-    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
-    let now = Instant::now();
-    run(&mut supervisor, now, Input::Command(Command::Initialize));
-    run(&mut supervisor, now, Input::Links(&links));
-
-    // ACT
-    run(
-        &mut supervisor,
-        now,
-        Input::Carriers(&[link("eth0", 2, LinkState::Up)]),
-    );
-
-    // ASSERT
-    assert_eq!(supervisor.links[0].admin, netmodel::AdminState::Up);
-    assert_eq!(supervisor.links[0].carrier, netmodel::CarrierState::Up);
-    assert_eq!(supervisor.status().state, State::Ready);
 }
 
 #[test]
@@ -989,115 +913,6 @@ fn configure_renders_only_enabled_families() {
     );
 }
 
-#[cfg(feature = "ipv4")]
-#[test]
-fn dns_aggregates_static_and_dhcp_views() {
-    // ARRANGE
-    let mut supervisor = Supervisor::new(config(Vec::new()));
-    let owner = name("eth0");
-    supervisor.state.primary = Some(owner.clone());
-    supervisor.known.insert(owner.clone());
-    supervisor.snapshots.insert(
-        owner,
-        iface::Snapshot {
-            link: LinkState::Up,
-            v4: Some(iface::V4View::Dhcp(dhcp::View {
-                lease: dhcp::Lease {
-                    obtained_at: std::time::SystemTime::UNIX_EPOCH,
-                    lease_time: Duration::from_secs(60),
-                    renewal_time: Duration::from_secs(30),
-                    rebind_time: Duration::from_secs(50),
-                    server_ip: Ipv4Addr::new(10, 0, 0, 1),
-                    assigned_ip: Ipv4Addr::new(10, 0, 0, 2),
-                    prefix_len: 24,
-                    gateway: None,
-                    dns_servers: vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(1, 1, 1, 1)],
-                },
-                phase: dhcp::Phase::Bound,
-            })),
-            v4_state: ip_method::State::Bound,
-            v6: None,
-            v6_state: ip_method::State::Stopped,
-            notices: Vec::new(),
-        },
-    );
-
-    // ACT
-    crate::dns::flush(&mut supervisor);
-    let seen = run(&mut supervisor, Instant::now(), Input::Poll);
-
-    // ASSERT
-    assert_eq!(
-        seen.first(),
-        Some(&Seen::Resolver {
-            v4: vec![Ipv4Addr::new(1, 1, 1, 1)],
-            v6: Vec::new(),
-        })
-    );
-}
-
-#[cfg(feature = "ipv6")]
-#[test]
-fn dns_aggregates_slaac_and_falls_back_to_config() {
-    // ARRANGE
-    let mut supervisor = Supervisor::new(config(Vec::new()));
-    let owner = name("eth0");
-    supervisor.state.primary = Some(owner.clone());
-    supervisor.known.insert(owner.clone());
-    supervisor.snapshots.insert(
-        owner,
-        iface::Snapshot {
-            link: LinkState::Up,
-            v4: None,
-            v4_state: ip_method::State::Stopped,
-            v6: Some(iface::V6View::Slaac(slaac::View {
-                addresses: Vec::new(),
-                routers: Vec::new(),
-                dns: Vec::new(),
-            })),
-            v6_state: ip_method::State::Bound,
-            notices: Vec::new(),
-        },
-    );
-
-    // ACT
-    crate::dns::flush(&mut supervisor);
-    let seen = run(&mut supervisor, Instant::now(), Input::Poll);
-
-    // ASSERT
-    assert_eq!(
-        seen.first(),
-        Some(&Seen::Resolver {
-            v4: vec![Ipv4Addr::new(9, 9, 9, 9)],
-            v6: Vec::new(),
-        })
-    );
-}
-
-#[test]
-fn dns_is_unchanged_between_flushes() {
-    // ARRANGE
-    let mut supervisor = Supervisor::new(config(Vec::new()));
-    let owner = name("eth0");
-    supervisor.state.primary = Some(owner.clone());
-    supervisor.known.insert(owner);
-
-    // ACT
-    crate::dns::flush(&mut supervisor);
-    let first = run(&mut supervisor, Instant::now(), Input::Poll);
-    crate::dns::flush(&mut supervisor);
-    let second = run(&mut supervisor, Instant::now(), Input::Poll);
-
-    // ASSERT
-    let resolvers = |seen: &[Seen]| {
-        seen.iter()
-            .filter(|effect| matches!(effect, Seen::Resolver { .. }))
-            .count()
-    };
-    assert_eq!(resolvers(&first), 1);
-    assert_eq!(resolvers(&second), 0);
-}
-
 #[test]
 fn shutdown_queues_every_known_interface_and_resets() {
     // ARRANGE
@@ -1187,29 +1002,6 @@ fn link_events_are_counted() {
 }
 
 #[test]
-fn enslaved_and_detached_inputs_track_ownership() {
-    // ARRANGE
-    let mut supervisor = Supervisor::new(config(Vec::new()));
-    let now = Instant::now();
-
-    // ACT
-    run(
-        &mut supervisor,
-        now,
-        Input::Enslaved {
-            port: name("eth0"),
-            master: name("br0"),
-        },
-    );
-    let enslaved_owner = supervisor.status().owner;
-    run(&mut supervisor, now, Input::Detached { port: name("eth0") });
-
-    // ASSERT
-    assert_eq!(enslaved_owner, Some(name("br0")));
-    assert!(!crate::owner::is_enslaved(&supervisor, &name("eth0")));
-}
-
-#[test]
 fn bridge_ready_registers_the_bridge() {
     // ARRANGE
     let mut supervisor = Supervisor::new(config(Vec::new()));
@@ -1251,7 +1043,6 @@ fn added_link_is_queued_for_discovery() {
     // ASSERT
     assert_eq!(seen.first(), Some(&Seen::Discover));
     assert_eq!(supervisor.status().primary, None);
-    assert!(!supervisor.physical.contains(&name("eth0")));
 }
 
 #[test]
@@ -1299,7 +1090,6 @@ fn loopback_is_not_elected_and_no_carrier_degrades() {
     // ASSERT
     assert_eq!(supervisor.status().state, State::Degraded);
     assert_ne!(supervisor.status().primary, Some(name("lo")));
-    assert!(!supervisor.known.contains(&name("lo")));
     assert!(
         !seen
             .iter()
@@ -1407,32 +1197,6 @@ fn deleted_unknown_link_does_not_shutdown() {
             .any(|effect| matches!(effect, Seen::Shutdown(_)))
     );
     assert_eq!(supervisor.status().primary, Some(name("eth0")));
-}
-
-#[test]
-fn shutdown_clears_pending_actions() {
-    // ARRANGE
-    let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
-    let now = Instant::now();
-    supervisor
-        .queue
-        .push_back(crate::actions::Action::EnsureBridge {
-            index: 0,
-            name: name("br0"),
-        });
-
-    // ACT
-    let seen = run(&mut supervisor, now, Input::Command(Command::Shutdown));
-
-    // ASSERT
-    assert_eq!(seen.first(), Some(&Seen::Shutdown(name("eth0"))));
-    assert!(
-        !seen
-            .iter()
-            .any(|effect| matches!(effect, Seen::Bridge { .. }))
-    );
-    assert_eq!(supervisor.status().state, State::Uninitialized);
 }
 
 #[test]

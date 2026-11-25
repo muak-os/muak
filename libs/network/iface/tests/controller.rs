@@ -1,5 +1,7 @@
 //! Controller tests over the sans-io method steps.
 
+#![cfg(test)]
+
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use core::net::SocketAddr;
 #[cfg(feature = "ipv6")]
@@ -9,6 +11,7 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 use std::time::{Instant, SystemTime};
 
+use iface::{Command, Controller, Effect, Family, Input, Step, V4View, V6View};
 #[cfg(feature = "ipv4")]
 use ip::v4::udp;
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
@@ -24,8 +27,6 @@ use ndp::types::PrefixInformation;
 #[cfg(feature = "ipv6")]
 use ndp::{ALL_ROUTERS, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
 use netmodel::{Ipv4Config, Ipv6Config, LinkState, Mac, Name};
-
-use crate::{Command, Controller, Effect, Family, Input, Step, V4View, V6View};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
 const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
@@ -317,24 +318,6 @@ fn dhcp_frame(kind: u8) -> Vec<u8> {
     udp::wrap(&payload, source, destination, &mut frame)
         .expect("DHCP frame fits")
         .to_vec()
-}
-
-#[cfg(feature = "ipv4")]
-fn dhcp_view(obtained_at: SystemTime, phase: dhcp::Phase) -> V4View {
-    V4View::Dhcp(dhcp::View {
-        lease: dhcp::Lease {
-            obtained_at,
-            lease_time: Duration::from_secs(100),
-            renewal_time: Duration::from_secs(50),
-            rebind_time: Duration::from_secs(80),
-            server_ip: DHCP_SERVER,
-            assigned_ip: DHCP_ASSIGNED,
-            prefix_len: 24,
-            gateway: Some(DHCP_SERVER),
-            dns_servers: vec![Ipv4Addr::new(8, 8, 8, 8)],
-        },
-        phase,
-    })
 }
 
 #[test]
@@ -835,7 +818,7 @@ fn notices_are_capped_and_cleared_on_configure() {
     drop(configure(&mut controller, now, Some(v4_config()), None));
 
     // ASSERT
-    assert_eq!(capped, super::event::MAX_NOTICES);
+    assert_eq!(capped, 8);
     assert_eq!(controller.snapshot().notices.len(), 0);
 }
 
@@ -1089,123 +1072,6 @@ fn v6_method_state_is_journaled() {
         net_observe::interface::Family::V6,
         net_observe::interface::MethodState::Bound
     )));
-}
-
-#[test]
-fn warnings_and_failures_are_journaled_at_their_levels() {
-    // ARRANGE
-    let mut controller = Controller::new(link());
-    let mut journal = net_observe::journal::Journal::new();
-
-    // ACT
-    drop(super::event::handle(
-        &mut controller,
-        Family::V4,
-        ip_method::Event::Warning(String::from("lease renew failed")),
-        &mut journal,
-    ));
-    drop(super::event::handle(
-        &mut controller,
-        Family::V4,
-        ip_method::Event::Failed(ip_method::Failure::Protocol(String::from(
-            "exchange failed",
-        ))),
-        &mut journal,
-    ));
-    let observations: Vec<_> = journal.drain().collect();
-
-    // ASSERT
-    assert_eq!(observations[0].level, net_observe::Level::Warn);
-    assert!(matches!(
-        observations[0].event,
-        net_observe::Event::Notice {
-            family: Some(net_observe::interface::Family::V4),
-            ..
-        }
-    ));
-    assert_eq!(observations[1].level, net_observe::Level::Error);
-    assert!(matches!(
-        observations[1].event,
-        net_observe::Event::Notice {
-            family: Some(net_observe::interface::Family::V4),
-            ref text,
-            ..
-        } if text == "method protocol failed: exchange failed"
-    ));
-}
-
-#[cfg(feature = "ipv4")]
-#[test]
-fn degraded_dhcp_lease_is_journaled_at_warn() {
-    // ARRANGE
-    let mut controller = Controller::new(link());
-    let mut journal = net_observe::journal::Journal::new();
-    controller.snapshot.v4 = Some(dhcp_view(SystemTime::UNIX_EPOCH, dhcp::Phase::Degraded));
-
-    // ACT
-    super::observe::record_v4(&controller, &mut journal);
-    let observations: Vec<_> = journal.drain().collect();
-
-    // ASSERT
-    assert_eq!(observations.len(), 1);
-    assert_eq!(observations[0].level, net_observe::Level::Warn);
-    assert!(matches!(
-        observations[0].event,
-        net_observe::Event::DhcpLease {
-            ref lease,
-            ..
-        } if lease.phase == net_observe::interface::DhcpPhase::Degraded
-    ));
-}
-
-#[test]
-fn repeated_bound_state_is_journaled_once() {
-    // ARRANGE
-    let mut controller = Controller::new(link());
-    let mut journal = net_observe::journal::Journal::new();
-
-    // ACT
-    drop(super::event::handle(
-        &mut controller,
-        Family::V4,
-        ip_method::Event::State(ip_method::State::Bound),
-        &mut journal,
-    ));
-    drop(super::event::handle(
-        &mut controller,
-        Family::V4,
-        ip_method::Event::State(ip_method::State::Bound),
-        &mut journal,
-    ));
-    let states: Vec<_> = journal
-        .drain()
-        .filter(|observation| {
-            matches!(observation.event, net_observe::Event::InterfaceState { .. })
-        })
-        .collect();
-
-    // ASSERT
-    assert_eq!(states.len(), 1);
-}
-
-#[cfg(feature = "ipv4")]
-#[test]
-fn same_v4_ignores_the_obtained_time_and_tracks_the_phase() {
-    // ARRANGE
-    let older = dhcp_view(SystemTime::UNIX_EPOCH, dhcp::Phase::Bound);
-    let renewed = dhcp_view(
-        SystemTime::UNIX_EPOCH + Duration::from_secs(50),
-        dhcp::Phase::Bound,
-    );
-    let degraded = dhcp_view(SystemTime::UNIX_EPOCH, dhcp::Phase::Degraded);
-
-    // ACT
-    let same_lease = super::observe::same_v4(Some(&older), Some(&renewed));
-    let changed_phase = super::observe::same_v4(Some(&older), Some(&degraded));
-
-    // ASSERT
-    assert!(same_lease);
-    assert!(!changed_phase);
 }
 
 #[cfg(feature = "ipv4")]

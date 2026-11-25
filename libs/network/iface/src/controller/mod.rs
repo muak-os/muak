@@ -75,7 +75,3 @@ impl core::fmt::Debug for Controller {
             .finish_non_exhaustive()
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/controller.rs"]
-mod tests;

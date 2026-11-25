@@ -56,6 +56,12 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         &self.sockets
     }
 
+    /// Returns the runtime the loop drives.
+    #[must_use = "callers need the runtime to drive its ports"]
+    pub const fn runtime(&self) -> &R {
+        &self.runtime
+    }
+
     /// Returns the supervisor status the last step reached.
     #[must_use = "callers need the status to report network readiness"]
     pub fn status(&self) -> net_supervisor::Status {

@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use core::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::io;
 use std::time::{Duration, Instant, SystemTime};
@@ -12,8 +14,7 @@ use ndp::parse::router_solicitation;
 use ndp::types::PrefixInformation;
 use ndp::{ALL_ROUTERS, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
 use netmodel::{Ipv6Config, LinkState, Mac, Name};
-
-use crate::{Slaac, View};
+use slaac::{Slaac, View};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
 const ROUTER: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);

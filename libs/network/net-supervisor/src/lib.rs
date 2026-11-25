@@ -20,10 +20,6 @@ mod state;
 mod supervisor;
 mod view;
 
-#[cfg(test)]
-#[path = "../tests/unit/mod.rs"]
-mod tests;
-
 use alloc::collections::VecDeque;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::collections::{HashMap, HashSet};
