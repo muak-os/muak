@@ -8,6 +8,7 @@ mod link;
 mod route;
 mod socket;
 #[cfg(test)]
+#[path = "../../tests/unit/mock.rs"]
 mod tests;
 mod udp;
 

@@ -77,4 +77,5 @@ impl core::fmt::Debug for Controller {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/controller.rs"]
 mod tests;

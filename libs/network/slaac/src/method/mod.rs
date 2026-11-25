@@ -85,4 +85,5 @@ fn report(method: &Slaac) -> Option<View> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/method.rs"]
 mod tests;

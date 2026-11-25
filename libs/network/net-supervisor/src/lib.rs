@@ -21,6 +21,7 @@ mod supervisor;
 mod view;
 
 #[cfg(test)]
+#[path = "../tests/unit/mod.rs"]
 mod tests;
 
 use alloc::collections::VecDeque;
