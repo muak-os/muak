@@ -1495,6 +1495,81 @@ fn carrier_probe_records_both_transitions_in_order() {
 }
 
 #[test]
+fn carrier_probe_records_the_primary_before_the_state_transitions() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    let links = [link("eth0", 2, LinkState::Up)];
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+
+    // ACT
+    let observations = observed(&mut supervisor, now, Input::Carriers(&links));
+
+    // ASSERT
+    let primary = observations
+        .iter()
+        .position(|observation| {
+            matches!(observation.event, net_observe::Event::PrimaryChanged { .. })
+        })
+        .expect("the carrier probe should elect a primary");
+    let changed = observations
+        .iter()
+        .position(|observation| {
+            matches!(observation.event, net_observe::Event::StateChanged { .. })
+        })
+        .expect("the carrier probe should change the supervisor state");
+    assert!(
+        primary < changed,
+        "primary change at {primary} should precede its state change at {changed}"
+    );
+}
+
+#[test]
+fn transient_owner_without_a_link_is_deferred_until_the_snapshot() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(Config::default());
+    let now = Instant::now();
+
+    // ACT
+    let ready = observed(
+        &mut supervisor,
+        now,
+        Input::BridgeReady {
+            name: name("br0"),
+            index: 5,
+            mac: Mac::default(),
+            state: LinkState::Up,
+        },
+    );
+    let snapshot = configured(LinkState::Up);
+    let settled = observed(
+        &mut supervisor,
+        now,
+        Input::InterfaceSnapshot {
+            name: name("br0"),
+            snapshot: &snapshot,
+        },
+    );
+
+    // ASSERT
+    assert_eq!(
+        count(&ready, |event| matches!(
+            event,
+            net_observe::Event::OwnerChanged { .. }
+        )),
+        0
+    );
+    assert!(settled.contains(&net_observe::Observation {
+        level: net_observe::Level::Info,
+        event: net_observe::Event::OwnerChanged {
+            owner: Some(name("br0")),
+            link: Some(LinkState::Up),
+        },
+    }));
+}
+
+#[test]
 fn shutdown_from_ready_records_the_reset() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];

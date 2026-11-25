@@ -62,6 +62,8 @@ impl Supervisor {
         let before = self.status_key();
         let publish = !matches!(&input, Input::Command(Command::Shutdown));
         dispatch::handle(self, now, input, journal);
+        let key = self.status_key();
+        observe::record(journal, &before, &key);
         for (from, to) in core::mem::take(&mut self.state.transitions) {
             journal.record(
                 net_observe::Level::Info,
@@ -72,8 +74,6 @@ impl Supervisor {
             );
         }
 
-        let key = self.status_key();
-        observe::record(journal, &before, &key);
         if publish && key != self.published {
             self.published = key;
             self.queue.push_back(Action::Publish);

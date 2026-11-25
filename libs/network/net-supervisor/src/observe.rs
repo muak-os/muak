@@ -48,7 +48,8 @@ pub(crate) fn record(journal: &mut Journal, before: &StatusKey, after: &StatusKe
         );
     }
 
-    if before.2 != after.2 || before.3 != after.3 {
+    let transient = after.2.is_some() && after.3.is_none();
+    if !transient && (before.2 != after.2 || before.3 != after.3) {
         journal.record(
             Level::Info,
             Event::OwnerChanged {
