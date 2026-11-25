@@ -156,6 +156,16 @@ fn consume(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) -> Optio
     }
 }
 
+fn count(
+    observations: &[net_observe::Observation],
+    predicate: impl Fn(&net_observe::Event) -> bool,
+) -> usize {
+    observations
+        .iter()
+        .filter(|observation| predicate(&observation.event))
+        .count()
+}
+
 fn transitions(
     observations: &[net_observe::Observation],
 ) -> Vec<(net_observe::SupervisorState, net_observe::SupervisorState)> {
@@ -1597,6 +1607,148 @@ fn link_event_is_recorded_before_it_is_applied() {
         recorded < applied,
         "link event at {recorded} should precede its state change at {applied}"
     );
+}
+
+#[test]
+fn repeated_bridge_ready_journals_the_bridge_once() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(Config::default());
+    let now = Instant::now();
+
+    // ACT
+    let first = observed(
+        &mut supervisor,
+        now,
+        Input::BridgeReady {
+            name: name("br0"),
+            index: 5,
+            mac: Mac::default(),
+            state: LinkState::Up,
+        },
+    );
+    let second = observed(
+        &mut supervisor,
+        now,
+        Input::BridgeReady {
+            name: name("br0"),
+            index: 5,
+            mac: Mac::default(),
+            state: LinkState::Up,
+        },
+    );
+
+    // ASSERT
+    assert_eq!(
+        count(&first, |event| matches!(
+            event,
+            net_observe::Event::BridgeReady { .. }
+        )),
+        1
+    );
+    assert_eq!(
+        count(&second, |event| matches!(
+            event,
+            net_observe::Event::BridgeReady { .. }
+        )),
+        0
+    );
+}
+
+#[test]
+fn repeated_enslaved_journals_the_port_once() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![bridge(), ethernet("auto", true)]));
+    let now = Instant::now();
+
+    // ACT
+    let first = observed(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    let second = observed(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+
+    // ASSERT
+    assert_eq!(
+        count(&first, |event| matches!(
+            event,
+            net_observe::Event::Enslaved { .. }
+        )),
+        1
+    );
+    assert_eq!(
+        count(&second, |event| matches!(
+            event,
+            net_observe::Event::Enslaved { .. }
+        )),
+        0
+    );
+}
+
+#[test]
+fn repeated_detached_for_an_unknown_port_journals_nothing() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(Config::default());
+    let now = Instant::now();
+
+    // ACT
+    let first = observed(&mut supervisor, now, Input::Detached { port: name("eth0") });
+    let second = observed(&mut supervisor, now, Input::Detached { port: name("eth0") });
+
+    // ASSERT
+    assert!(
+        first.is_empty(),
+        "a port that was never enslaved must not be recorded as detached"
+    );
+    assert!(
+        second.is_empty(),
+        "a repeated detach must not be recorded again"
+    );
+}
+
+#[test]
+fn enslaved_after_detach_journals_the_port_again() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![bridge(), ethernet("auto", true)]));
+    let now = Instant::now();
+    run(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+    run(&mut supervisor, now, Input::Detached { port: name("eth0") });
+
+    // ACT
+    let observations = observed(
+        &mut supervisor,
+        now,
+        Input::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    );
+
+    // ASSERT
+    assert!(observations.contains(&net_observe::Observation {
+        level: net_observe::Level::Info,
+        event: net_observe::Event::Enslaved {
+            port: name("eth0"),
+            master: name("br0"),
+        },
+    }));
 }
 
 #[test]

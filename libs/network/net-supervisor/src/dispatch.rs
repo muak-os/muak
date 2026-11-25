@@ -39,36 +39,54 @@ pub(crate) fn handle(
             mac,
             state,
         } => {
-            journal.record(
-                net_observe::Level::Info,
-                net_observe::Event::BridgeReady {
-                    name: name.clone(),
-                    index,
-                    state,
-                },
-            );
+            if link_state_changed(supervisor, &name, state) {
+                journal.record(
+                    net_observe::Level::Info,
+                    net_observe::Event::BridgeReady {
+                        name: name.clone(),
+                        index,
+                        state,
+                    },
+                );
+            }
             feedback::on_bridge_ready(supervisor, &name, index, mac, state);
         }
         Input::Enslaved { port, master } => {
-            journal.record(
-                net_observe::Level::Info,
-                net_observe::Event::Enslaved {
-                    port: port.clone(),
-                    master: master.clone(),
-                },
-            );
+            if supervisor.enslaved.get(&port) != Some(&master) {
+                journal.record(
+                    net_observe::Level::Info,
+                    net_observe::Event::Enslaved {
+                        port: port.clone(),
+                        master: master.clone(),
+                    },
+                );
+            }
             feedback::on_enslaved(supervisor, &port, &master);
         }
         Input::Detached { port } => {
-            journal.record(
-                net_observe::Level::Info,
-                net_observe::Event::Detached { port: port.clone() },
-            );
+            if supervisor.enslaved.contains_key(&port) {
+                journal.record(
+                    net_observe::Level::Info,
+                    net_observe::Event::Detached { port: port.clone() },
+                );
+            }
             feedback::on_detached(supervisor, &port);
         }
         Input::EffectFailed { kind, .. } => on_effect_failed(supervisor, now, kind),
         Input::Timer => on_timer(supervisor, now),
     }
+}
+
+fn link_state_changed(
+    supervisor: &Supervisor,
+    name: &netmodel::Name,
+    state: netmodel::LinkState,
+) -> bool {
+    !supervisor
+        .links
+        .iter()
+        .find(|link| &link.name == name)
+        .is_some_and(|link| link.state() == state)
 }
 
 fn on_command(supervisor: &mut Supervisor, now: Instant, command: Command) {
