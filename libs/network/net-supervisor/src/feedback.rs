@@ -62,7 +62,8 @@ fn upsert_link(
     state: netmodel::LinkState,
 ) {
     if let Some(link) = supervisor.links.iter_mut().find(|link| &link.name == name) {
-        link.state = state;
+        link.admin = state.admin();
+        link.carrier = state.carrier();
         return;
     }
 
@@ -70,7 +71,8 @@ fn upsert_link(
         name: name.clone(),
         index,
         mac,
-        state,
+        admin: state.admin(),
+        carrier: state.carrier(),
         is_virtual: false,
         master: None,
     });

@@ -159,7 +159,7 @@ fn update_link(method: &mut Slaac, now: Instant, link: LinkInfo) {
     match method.link.state {
         LinkState::Down => solicit::suspend(method),
         LinkState::Up if running => solicit::start(method, now),
-        LinkState::Up | LinkState::NoCarrier => {}
+        LinkState::Up | LinkState::NoCarrier | LinkState::Dormant => {}
     }
 }
 

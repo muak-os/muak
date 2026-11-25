@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 
+mod carrier;
 mod message;
 mod parse;
 

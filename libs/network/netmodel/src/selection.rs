@@ -2,7 +2,7 @@
 
 use core::cmp::Ordering;
 
-use crate::{Link, LinkState, Name, Selector};
+use crate::{Link, Name, Selector};
 
 impl Selector {
     /// Selects the highest-priority link as the primary.
@@ -46,7 +46,7 @@ impl Selector {
             score = score.saturating_add(2000);
         }
 
-        if link.state != LinkState::Down {
+        if link.is_admin_up() {
             score = score.saturating_add(1000);
         }
 

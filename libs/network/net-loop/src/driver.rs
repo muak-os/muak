@@ -201,6 +201,6 @@ pub(crate) fn link_info(link: &netmodel::Link) -> ip_method::LinkInfo {
         name: link.name.clone(),
         index: link.index,
         mac: link.mac,
-        state: link.state,
+        state: link.state(),
     }
 }

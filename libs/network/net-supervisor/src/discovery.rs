@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use netmodel::{Link, LinkState, Name, Selector};
+use netmodel::{AdminState, CarrierState, Link, Name, Selector};
 
 use crate::actions::Action;
 use crate::{State, Supervisor, dns, provision, retry};
@@ -49,7 +49,7 @@ pub(crate) fn on_links(supervisor: &mut Supervisor, now: Instant, links: &[Link]
 
     retry::succeeded(supervisor);
     for link in &physical {
-        if link.state != LinkState::Down {
+        if link.is_admin_up() {
             continue;
         }
         supervisor.queue.push_back(Action::SetLinkUp {
@@ -60,13 +60,19 @@ pub(crate) fn on_links(supervisor: &mut Supervisor, now: Instant, links: &[Link]
 }
 
 /// Applies carrier state and provisions the elected interfaces.
-pub(crate) fn on_carriers(supervisor: &mut Supervisor, now: Instant, carriers: &[(u32, bool)]) {
+pub(crate) fn on_carriers(supervisor: &mut Supervisor, now: Instant, links: &[Link]) {
     if supervisor.state.is_operational() || supervisor.state.state == State::Uninitialized {
         return;
     }
 
     for link in &mut supervisor.links {
-        link.state = carrier_state(carrier_for(carriers, link.index));
+        if let Some(fresh) = links.iter().find(|fresh| fresh.index == link.index) {
+            link.admin = fresh.admin;
+            link.carrier = fresh.carrier;
+        } else {
+            link.admin = AdminState::Down;
+            link.carrier = CarrierState::Unknown;
+        }
     }
 
     if !supervisor.links.iter().any(Link::has_carrier) {
@@ -127,21 +133,5 @@ fn refresh(supervisor: &mut Supervisor, physical: Vec<Link>) {
         {
             supervisor.state.backups.push(name);
         }
-    }
-}
-
-fn carrier_for(carriers: &[(u32, bool)], index: u32) -> bool {
-    carriers
-        .iter()
-        .copied()
-        .find_map(|(carrier_index, carrier)| (carrier_index == index).then_some(carrier))
-        .unwrap_or(false)
-}
-
-const fn carrier_state(carrier: bool) -> LinkState {
-    if carrier {
-        LinkState::Up
-    } else {
-        LinkState::NoCarrier
     }
 }

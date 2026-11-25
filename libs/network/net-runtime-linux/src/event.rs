@@ -66,7 +66,7 @@ async fn seed(state: &mut State) -> io::Result<()> {
     let links = control::links(&state.handle).await?;
     state.previous = links
         .into_iter()
-        .map(|link| (link.index, link.state))
+        .map(|link| (link.index, link.state()))
         .collect();
     state.seeded = true;
 
@@ -120,7 +120,7 @@ fn classify_inner(
         previous.remove(&reply.header.index);
     }
 
-    let state = netlink_linux::parse_link(message).map(|link| (link.index, link.state));
+    let state = netlink_linux::parse_link(message).map(|link| (link.index, link.state()));
     let known = state.and_then(|(index, _)| previous.get(&index).copied());
     let event = netlink_linux::parse_event(message, known);
 

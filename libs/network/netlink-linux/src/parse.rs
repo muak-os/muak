@@ -3,10 +3,12 @@
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use netlink_packet_route::address::AddressAttribute;
-use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkInfo, LinkMessage};
+use netlink_packet_route::link::{LinkAttribute, LinkInfo, LinkMessage};
 use netlink_packet_route::route::{RouteAddress, RouteAttribute};
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
 use netmodel::{Address, Link, LinkEvent, LinkState, Mac, Name, Route};
+
+use crate::carrier;
 
 pub(crate) fn link(message: &RouteNetlinkMessage) -> Option<Link> {
     let (RouteNetlinkMessage::NewLink(ref message) | RouteNetlinkMessage::GetLink(ref message)) =
@@ -15,11 +17,14 @@ pub(crate) fn link(message: &RouteNetlinkMessage) -> Option<Link> {
         return None;
     };
 
+    let (admin, carrier) = carrier::parts(message);
+
     Some(Link {
         name: link_name(message)?,
         index: message.header.index,
         mac: link_mac(message),
-        state: link_state(message.header.flags),
+        admin,
+        carrier,
         is_virtual: is_virtual_link(message),
         master: link_master(message),
     })
@@ -85,19 +90,18 @@ pub(crate) fn event(
         });
     };
 
-    carrier_event(previous, message.header.flags, name, index)
+    carrier_event(previous, message, name, index)
 }
 
 fn carrier_event(
     previous: LinkState,
-    flags: LinkFlags,
+    message: &LinkMessage,
     name: Name,
     index: u32,
 ) -> Option<LinkEvent> {
-    let was_present = matches!(previous, LinkState::Up);
-    let is_present = flags.contains(LinkFlags::LowerUp);
+    let current = carrier::state(message);
 
-    match (was_present, is_present) {
+    match (previous.has_carrier(), current.has_carrier()) {
         (false, true) => Some(LinkEvent::Up { name, index }),
         (true, false) => Some(LinkEvent::Down { name, index }),
         (false, false) | (true, true) => None,
@@ -124,17 +128,6 @@ fn link_mac_array(message: &LinkMessage) -> Option<[u8; 6]> {
 
 fn link_mac(message: &LinkMessage) -> Mac {
     link_mac_array(message).map_or_else(Mac::default, Mac::new)
-}
-
-const fn link_state(flags: LinkFlags) -> LinkState {
-    match (
-        flags.contains(LinkFlags::Up),
-        flags.contains(LinkFlags::LowerUp),
-    ) {
-        (false, false | true) => LinkState::Down,
-        (true, true) => LinkState::Up,
-        (true, false) => LinkState::NoCarrier,
-    }
 }
 
 fn is_virtual_link(message: &LinkMessage) -> bool {

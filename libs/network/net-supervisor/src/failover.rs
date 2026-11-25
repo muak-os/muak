@@ -1,6 +1,6 @@
 //! Primary/backup promotion and failover policy.
 
-use netmodel::{LinkState, Name};
+use netmodel::{Link, LinkState, Name};
 
 use crate::{InterfaceKind, Supervisor, owner, provision, view};
 
@@ -26,7 +26,7 @@ pub(crate) fn recover_if_possible(supervisor: &mut Supervisor) {
     let healthy = supervisor
         .snapshots
         .get(&owner)
-        .is_some_and(|snapshot| view::is_configured(snapshot) && snapshot.link == LinkState::Up);
+        .is_some_and(|snapshot| view::is_configured(snapshot) && snapshot.link.has_carrier());
     if healthy {
         supervisor.state.ensure_operational();
     }
@@ -105,7 +105,7 @@ fn first_eligible_backup(supervisor: &Supervisor) -> Option<Name> {
 fn is_eligible(supervisor: &Supervisor, name: &Name) -> bool {
     supervisor.physical.contains(name)
         && !owner::is_enslaved(supervisor, name)
-        && link_state(supervisor, name) == Some(LinkState::Up)
+        && link_state(supervisor, name).is_some_and(LinkState::has_carrier)
 }
 
 fn link_state(supervisor: &Supervisor, name: &Name) -> Option<LinkState> {
@@ -118,7 +118,7 @@ fn link_state(supervisor: &Supervisor, name: &Name) -> Option<LinkState> {
                 .links
                 .iter()
                 .find(|link| &link.name == name)
-                .map(|link| link.state)
+                .map(Link::state)
         })
 }
 

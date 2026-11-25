@@ -1,12 +1,24 @@
 //! Link snapshot helpers.
 
-use crate::Link;
+use crate::{Link, LinkState};
 
 impl Link {
+    /// Returns the combined administrative and carrier state.
+    #[must_use = "every readiness decision is derived from the link state"]
+    pub const fn state(&self) -> LinkState {
+        LinkState::from_parts(self.admin, self.carrier)
+    }
+
+    /// Returns true when the link is administratively up.
+    #[must_use = "callers must skip administratively disabled links"]
+    pub const fn is_admin_up(&self) -> bool {
+        self.admin.is_up()
+    }
+
     /// Returns true when the underlying link has an active carrier signal.
     #[must_use = "callers must skip links without a carrier"]
     pub const fn has_carrier(&self) -> bool {
-        self.state.has_carrier()
+        self.state().has_carrier()
     }
 
     /// Returns true when the name follows a physical Ethernet naming convention.

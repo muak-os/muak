@@ -16,8 +16,8 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
 ) -> io::Result<()> {
     match pending {
         Pending::Links(links) => discover(driver, now, wall, &links).await?,
-        Pending::Carriers(carriers) => {
-            step::drive(driver, now, net_supervisor::Input::Carriers(&carriers)).await;
+        Pending::Carriers(links) => {
+            step::drive(driver, now, net_supervisor::Input::Carriers(&links)).await;
         }
         Pending::Snapshot { name, snapshot } => {
             let input = net_supervisor::Input::InterfaceSnapshot {
@@ -130,7 +130,7 @@ async fn enslave<R: net_runtime::Runtime>(
 ) -> io::Result<()> {
     driver::enslave(driver, port.clone(), master.clone());
     if let Some(link) = driver.runtime.link().link(port).await?
-        && let Some(info) = driver::owner_link(driver, master, link.state).await?
+        && let Some(info) = driver::owner_link(driver, master, link.state()).await?
     {
         driver.pending.push_back(Pending::InterfaceLink {
             name: master.clone(),

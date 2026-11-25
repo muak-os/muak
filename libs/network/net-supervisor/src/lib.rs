@@ -123,8 +123,8 @@ pub enum Input<'a> {
     Command(Command),
     /// Full link inventory.
     Links(&'a [netmodel::Link]),
-    /// Carrier state per link index.
-    Carriers(&'a [(u32, bool)]),
+    /// Full link inventory with fresh administrative and carrier state.
+    Carriers(&'a [netmodel::Link]),
     /// Link lifecycle event.
     LinkEvent(netmodel::LinkEvent),
     /// Snapshot published by an interface controller.

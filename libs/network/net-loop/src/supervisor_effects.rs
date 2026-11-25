@@ -24,18 +24,10 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         }
         net_supervisor::Effect::ProbeCarriers => {
             let links = runtime.link().links().await?;
-            let carriers = links
-                .iter()
-                .map(|link| (link.index, link.has_carrier()))
-                .collect();
-            pending.push_back(Pending::Carriers(carriers));
+            pending.push_back(Pending::Carriers(links));
         }
         net_supervisor::Effect::SetLinkUp { name } => {
             runtime.link().set_up(&name).await?;
-            // net-runtime-linux seeds its previous-state map on the first
-            // events().next() after activation, so the initial RTM_NEWLINK can
-            // be suppressed. Refresh the controller view here instead of
-            // leaving it on a stale Down snapshot until the next event.
             if let Some(link) = runtime.link().link(&name).await? {
                 pending.push_back(Pending::InterfaceLink {
                     name,
@@ -68,7 +60,7 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
                 name,
                 index: link.index,
                 mac: link.mac,
-                state: link.state,
+                state: link.state(),
             });
         }
         net_supervisor::Effect::Enslave { port, master } => {

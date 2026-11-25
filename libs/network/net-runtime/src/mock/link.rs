@@ -46,7 +46,7 @@ impl crate::Link for Mock {
     }
 
     fn set_up(&self, name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
-        std::future::ready(self.write(|state| set_state(state, name, netmodel::LinkState::Up)))
+        std::future::ready(self.write(|state| set_admin_up(state, name)))
     }
 }
 
@@ -69,11 +69,13 @@ fn ensure_bridge(state: &mut State, name: &netmodel::Name, stp: bool) {
 
     let index = state.next_link_index;
     state.next_link_index = state.next_link_index.wrapping_add(1);
+    let link_state = netmodel::LinkState::Down;
     state.links.push(netmodel::Link {
         name: name.clone(),
         index,
         mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
+        admin: link_state.admin(),
+        carrier: link_state.carrier(),
         is_virtual: true,
         master: None,
     });
@@ -86,6 +88,17 @@ fn record_bridge_stp(state: &mut State, name: &netmodel::Name, stp: bool) {
     }
 }
 
+fn set_admin_up(state: &mut State, name: &netmodel::Name) -> Result<()> {
+    let link = state
+        .links
+        .iter_mut()
+        .find(|link| &link.name == name)
+        .ok_or_else(super::not_found)?;
+    link.admin = netmodel::AdminState::Up;
+
+    Ok(())
+}
+
 fn set_state(
     state: &mut State,
     name: &netmodel::Name,
@@ -96,7 +109,8 @@ fn set_state(
         .iter_mut()
         .find(|link| &link.name == name)
         .ok_or_else(super::not_found)?;
-    link.state = new_state;
+    link.admin = new_state.admin();
+    link.carrier = new_state.carrier();
 
     Ok(())
 }

@@ -49,7 +49,8 @@ fn link(label: &str, index: u32, state: LinkState) -> Link {
         name: name(label),
         index,
         mac: Mac::default(),
-        state,
+        admin: state.admin(),
+        carrier: state.carrier(),
         is_virtual: false,
         master: None,
     }
@@ -165,12 +166,12 @@ fn run(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) -> Vec<Seen>
     seen
 }
 
-fn boot(interfaces: Vec<InterfaceConfig>, links: &[Link], carriers: &[(u32, bool)]) -> Supervisor {
+fn boot(interfaces: Vec<InterfaceConfig>, links: &[Link], probe: &[Link]) -> Supervisor {
     let mut supervisor = Supervisor::new(config(interfaces));
     let now = Instant::now();
     run(&mut supervisor, now, Input::Command(Command::Initialize));
     run(&mut supervisor, now, Input::Links(links));
-    run(&mut supervisor, now, Input::Carriers(carriers));
+    run(&mut supervisor, now, Input::Carriers(probe));
 
     supervisor
 }
@@ -254,7 +255,7 @@ fn initialize_discovers_then_probes_then_provisions() {
     // ACT
     let discover = run(&mut supervisor, now, Input::Command(Command::Initialize));
     let probe = run(&mut supervisor, now, Input::Links(&links));
-    let provision = run(&mut supervisor, now, Input::Carriers(&[(2, true)]));
+    let provision = run(&mut supervisor, now, Input::Carriers(&links));
 
     // ASSERT
     assert_eq!(discover.first(), Some(&Seen::Discover));
@@ -301,6 +302,26 @@ fn initialize_discovers_then_probes_then_provisions() {
 }
 
 #[test]
+fn missing_link_in_carrier_probe_degrades_without_a_primary() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(
+        &mut supervisor,
+        now,
+        Input::Links(&[link("eth0", 2, LinkState::Up)]),
+    );
+
+    // ACT
+    run(&mut supervisor, now, Input::Carriers(&[]));
+
+    // ASSERT
+    assert_eq!(supervisor.status().state, State::Degraded);
+    assert_eq!(supervisor.status().primary, None);
+}
+
+#[test]
 fn no_physical_links_degrades() {
     // ARRANGE
     let virtual_link = Link {
@@ -339,7 +360,10 @@ fn down_links_are_activated_before_the_carrier_probe() {
     let provisioned = run(
         &mut supervisor,
         now,
-        Input::Carriers(&[(2, true), (3, true)]),
+        Input::Carriers(&[
+            link("eth0", 2, LinkState::Up),
+            link("eth1", 3, LinkState::Up),
+        ]),
     );
 
     // ASSERT
@@ -368,7 +392,11 @@ fn degraded_link_event_up_requeues_discovery() {
     let now = Instant::now();
     run(&mut supervisor, now, Input::Command(Command::Initialize));
     run(&mut supervisor, now, Input::Links(&links));
-    let degraded = run(&mut supervisor, now, Input::Carriers(&[(2, false)]));
+    let degraded = run(
+        &mut supervisor,
+        now,
+        Input::Carriers(&[link("eth0", 2, LinkState::NoCarrier)]),
+    );
 
     // ACT
     let seen = run(
@@ -433,7 +461,11 @@ fn no_carrier_degrades_without_provisioning() {
     let inventory = run(&mut supervisor, now, Input::Links(&links));
 
     // ACT
-    let seen = run(&mut supervisor, now, Input::Carriers(&[(2, false)]));
+    let seen = run(
+        &mut supervisor,
+        now,
+        Input::Carriers(&[link("eth0", 2, LinkState::NoCarrier)]),
+    );
 
     // ASSERT
     assert_eq!(inventory, vec![Seen::Probe]);
@@ -442,6 +474,76 @@ fn no_carrier_degrades_without_provisioning() {
         effect,
         Seen::Bridge { .. } | Seen::Enslave { .. } | Seen::Configure { .. }
     )));
+}
+
+#[test]
+fn admin_down_carriers_degrade_without_provisioning() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Down)];
+    let mut supervisor = Supervisor::new(config(vec![bridge(), ethernet("auto", true)]));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+
+    // ACT
+    let seen = run(
+        &mut supervisor,
+        now,
+        Input::Carriers(&[link("eth0", 2, LinkState::Down)]),
+    );
+
+    // ASSERT
+    assert_eq!(supervisor.status().state, State::Degraded);
+    assert!(!seen.iter().any(|effect| matches!(
+        effect,
+        Seen::Bridge { .. } | Seen::Enslave { .. } | Seen::Configure { .. }
+    )));
+}
+
+#[test]
+fn dormant_carriers_degrade_without_provisioning() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Dormant)];
+    let mut supervisor = Supervisor::new(config(vec![bridge(), ethernet("auto", true)]));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+
+    // ACT
+    let seen = run(
+        &mut supervisor,
+        now,
+        Input::Carriers(&[link("eth0", 2, LinkState::Dormant)]),
+    );
+
+    // ASSERT
+    assert_eq!(supervisor.status().state, State::Degraded);
+    assert!(!seen.iter().any(|effect| matches!(
+        effect,
+        Seen::Bridge { .. } | Seen::Enslave { .. } | Seen::Configure { .. }
+    )));
+}
+
+#[test]
+fn carrier_probe_updates_admin_state_from_the_fresh_link() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Down)];
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+
+    // ACT
+    run(
+        &mut supervisor,
+        now,
+        Input::Carriers(&[link("eth0", 2, LinkState::Up)]),
+    );
+
+    // ASSERT
+    assert_eq!(supervisor.links[0].admin, netmodel::AdminState::Up);
+    assert_eq!(supervisor.links[0].carrier, netmodel::CarrierState::Up);
+    assert_eq!(supervisor.status().state, State::Ready);
 }
 
 #[test]
@@ -454,7 +556,7 @@ fn ethernet_addresses_go_to_the_bridge_owner() {
     run(&mut supervisor, now, Input::Links(&links));
 
     // ACT
-    run(&mut supervisor, now, Input::Carriers(&[(2, true)]));
+    run(&mut supervisor, now, Input::Carriers(&links));
     let seen = run(
         &mut supervisor,
         now,
@@ -476,7 +578,7 @@ fn ethernet_addresses_go_to_the_bridge_owner() {
 fn active_bridge_owner_reconciles_on_enslavement() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     let first = run(
         &mut supervisor,
@@ -524,11 +626,7 @@ fn primary_loss_promotes_a_configured_backup() {
         link("eth0", 2, LinkState::Up),
         link("eth1", 3, LinkState::Up),
     ];
-    let mut supervisor = boot(
-        vec![ethernet("auto", true)],
-        &links,
-        &[(2, true), (3, true)],
-    );
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     run(
         &mut supervisor,
@@ -564,7 +662,7 @@ fn primary_loss_promotes_a_configured_backup() {
 fn primary_loss_without_a_backup_degrades() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
 
     // ACT
@@ -589,11 +687,7 @@ fn enslaved_owner_failure_rebridges_to_the_backup() {
         link("eth0", 2, LinkState::Up),
         link("eth1", 3, LinkState::Up),
     ];
-    let mut supervisor = boot(
-        vec![bridge(), ethernet("auto", true)],
-        &links,
-        &[(2, true), (3, true)],
-    );
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     run(
         &mut supervisor,
@@ -638,11 +732,7 @@ fn owner_no_carrier_fails_over_to_the_backup() {
         link("eth0", 2, LinkState::Up),
         link("eth1", 3, LinkState::Up),
     ];
-    let mut supervisor = boot(
-        vec![bridge(), ethernet("auto", true)],
-        &links,
-        &[(2, true), (3, true)],
-    );
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     run(
         &mut supervisor,
@@ -687,11 +777,7 @@ fn primary_removal_promotes_the_first_eligible_backup() {
         link("eth0", 2, LinkState::Up),
         link("eth1", 3, LinkState::Up),
     ];
-    let mut supervisor = boot(
-        vec![ethernet("auto", true)],
-        &links,
-        &[(2, true), (3, true)],
-    );
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
 
     // ACT
@@ -716,11 +802,7 @@ fn backup_recovery_restores_the_primary() {
         link("eth0", 2, LinkState::Up),
         link("eth1", 3, LinkState::Up),
     ];
-    let mut supervisor = boot(
-        vec![ethernet("auto", true)],
-        &links,
-        &[(2, true), (3, true)],
-    );
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     run(
         &mut supervisor,
@@ -751,7 +833,7 @@ fn backup_recovery_restores_the_primary() {
 fn configured_owner_recovers_operational() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     run(
         &mut supervisor,
@@ -781,7 +863,7 @@ fn configured_owner_recovers_operational() {
 fn timer_reconciles_only_when_due() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     let due = now + Duration::from_secs(30);
     run(
@@ -823,7 +905,7 @@ fn timer_reconciles_only_when_due() {
 fn reconcile_configures_an_owner_that_lost_its_methods() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
 
     // ACT
@@ -855,7 +937,7 @@ fn configure_renders_only_enabled_families() {
         bridge: None,
     };
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![dual], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![dual], &links, &links);
     let now = Instant::now();
 
     // ACT
@@ -997,12 +1079,15 @@ fn shutdown_queues_every_known_interface_and_resets() {
         link("eth0", 2, LinkState::Up),
         link("eth1", 3, LinkState::Up),
     ];
-    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     run(
         &mut supervisor,
         now,
-        Input::Carriers(&[(2, true), (3, true)]),
+        Input::Carriers(&[
+            link("eth0", 2, LinkState::Up),
+            link("eth1", 3, LinkState::Up),
+        ]),
     );
 
     // ACT
@@ -1041,7 +1126,7 @@ fn effect_failure_degrades_during_initialization() {
 fn effect_failure_keeps_running_when_provisioned() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
 
     // ACT
@@ -1179,7 +1264,10 @@ fn loopback_is_not_elected_and_no_carrier_degrades() {
     let seen = run(
         &mut supervisor,
         now,
-        Input::Carriers(&[(1, true), (2, false)]),
+        Input::Carriers(&[
+            link("lo", 1, LinkState::Up),
+            link("eth0", 2, LinkState::NoCarrier),
+        ]),
     );
 
     // ASSERT
@@ -1210,7 +1298,7 @@ fn existing_bridge_inventory_reaches_ready_after_feedback() {
     let now = Instant::now();
     run(&mut supervisor, now, Input::Command(Command::Initialize));
     run(&mut supervisor, now, Input::Links(&links));
-    run(&mut supervisor, now, Input::Carriers(&[(2, true)]));
+    run(&mut supervisor, now, Input::Carriers(&links));
     assert_eq!(supervisor.status().state, State::Ready);
     assert_eq!(supervisor.status().primary, Some(name("eth0")));
 
@@ -1241,7 +1329,7 @@ fn failed_ensure_bridge_keeps_the_primary_as_owner() {
     let now = Instant::now();
     run(&mut supervisor, now, Input::Command(Command::Initialize));
     run(&mut supervisor, now, Input::Links(&links));
-    let provisioned = run(&mut supervisor, now, Input::Carriers(&[(2, true)]));
+    let provisioned = run(&mut supervisor, now, Input::Carriers(&links));
     assert!(provisioned.contains(&Seen::Bridge {
         name: name("br0"),
         stp: false,
@@ -1273,7 +1361,7 @@ fn failed_ensure_bridge_keeps_the_primary_as_owner() {
 fn deleted_unknown_link_does_not_shutdown() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
 
     // ACT
@@ -1299,7 +1387,7 @@ fn deleted_unknown_link_does_not_shutdown() {
 fn shutdown_clears_pending_actions() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
-    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &[(2, true)]);
+    let mut supervisor = boot(vec![ethernet("auto", true)], &links, &links);
     let now = Instant::now();
     supervisor
         .queue

@@ -4,7 +4,7 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use netmodel::LinkState;
+    use netmodel::{AdminState, CarrierState, LinkState};
 
     use crate::common;
 
@@ -17,6 +17,41 @@ mod tests {
         // ACT / ASSERT
         assert!(up.has_carrier());
         assert!(!down.has_carrier());
+    }
+
+    #[test]
+    fn dormant_and_no_carrier_have_no_carrier() {
+        // ARRANGE
+        let dormant = common::link("eth0", LinkState::Dormant);
+        let no_carrier = common::link("eth0", LinkState::NoCarrier);
+
+        // ACT / ASSERT
+        assert!(!dormant.has_carrier());
+        assert!(!no_carrier.has_carrier());
+    }
+
+    #[test]
+    fn unknown_carrier_while_admin_up_is_usable() {
+        // ARRANGE
+        let link = common::link_with_parts("eth0", 2, AdminState::Up, CarrierState::Unknown);
+
+        // ACT
+        let state = link.state();
+
+        // ASSERT
+        assert_eq!(state, LinkState::Up);
+        assert!(link.has_carrier());
+    }
+
+    #[test]
+    fn admin_state_is_reported_independently_of_carrier() {
+        // ARRANGE
+        let link = common::link_with_parts("eth0", 2, AdminState::Up, CarrierState::Down);
+
+        // ACT / ASSERT
+        assert!(link.is_admin_up());
+        assert!(!link.has_carrier());
+        assert_eq!(link.state(), LinkState::NoCarrier);
     }
 
     #[test]

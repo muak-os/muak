@@ -55,7 +55,7 @@ pub(super) fn link(controller: &mut Controller, info: &ip_method::LinkInfo) {
         return;
     }
 
-    let up = matches!(info.state, netmodel::LinkState::Up);
+    let up = info.state.has_carrier();
     if let Some(input) = link_input(controller, Family::V4, info, up) {
         controller.pending.push_back((Family::V4, input));
     }

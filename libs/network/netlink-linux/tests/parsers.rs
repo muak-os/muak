@@ -4,10 +4,12 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use netlink_linux::{parse_address, parse_address_index, parse_event, parse_link, parse_route};
 use netlink_packet_route::address::{AddressAttribute, AddressMessage};
-use netlink_packet_route::link::{InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage};
+use netlink_packet_route::link::{
+    InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage, State as OperState,
+};
 use netlink_packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netmodel::{Address, Link, LinkEvent, LinkState, Mac, Route};
+use netmodel::{Address, AdminState, CarrierState, Link, LinkEvent, LinkState, Mac, Route};
 
 fn link(index: u32, name: &str, flags: LinkFlags, change_mask: LinkFlags) -> LinkMessage {
     let mut message = LinkMessage::default();
@@ -19,6 +21,24 @@ fn link(index: u32, name: &str, flags: LinkFlags, change_mask: LinkFlags) -> Lin
         .push(LinkAttribute::IfName(name.to_owned()));
 
     message
+}
+
+fn link_with_state(
+    index: u32,
+    name: &str,
+    flags: LinkFlags,
+    operstate: Option<OperState>,
+    carrier: Option<u8>,
+) -> RouteNetlinkMessage {
+    let mut message = link(index, name, flags, LinkFlags::empty());
+    if let Some(operstate) = operstate {
+        message.attributes.push(LinkAttribute::OperState(operstate));
+    }
+    if let Some(carrier) = carrier {
+        message.attributes.push(LinkAttribute::Carrier(carrier));
+    }
+
+    RouteNetlinkMessage::NewLink(message)
 }
 
 fn address(index: u32, address: IpAddr, prefix_len: u8) -> AddressMessage {
@@ -57,6 +77,9 @@ mod tests {
             .push(LinkAttribute::LinkInfo(vec![LinkInfo::Kind(
                 InfoKind::Veth,
             )]));
+        message
+            .attributes
+            .push(LinkAttribute::OperState(OperState::Up));
         let message = RouteNetlinkMessage::NewLink(message);
 
         // ACT
@@ -69,7 +92,8 @@ mod tests {
                 name: "eth0".parse().expect("valid name"),
                 index: 7,
                 mac: Mac::new([1, 2, 3, 4, 5, 6]),
-                state: LinkState::Up,
+                admin: AdminState::Up,
+                carrier: CarrierState::Up,
                 is_virtual: true,
                 master: Some(3),
             })
@@ -89,8 +113,134 @@ mod tests {
         let carrier = parse_link(&no_carrier);
 
         // ASSERT
-        assert_eq!(down.map(|link| link.state), Some(LinkState::Down));
-        assert_eq!(carrier.map(|link| link.state), Some(LinkState::NoCarrier));
+        assert_eq!(down.map(|link| link.state()), Some(LinkState::Down));
+        assert_eq!(carrier.map(|link| link.state()), Some(LinkState::NoCarrier));
+    }
+
+    #[test]
+    fn parse_link_admin_down_wins_over_operstate_up() {
+        // ARRANGE
+        let message = link_with_state(1, "eth0", LinkFlags::empty(), Some(OperState::Up), None);
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::Down));
+    }
+
+    #[test]
+    fn parse_link_operstate_up_wins_over_missing_lower_up() {
+        // ARRANGE
+        let message = link_with_state(1, "eth0", LinkFlags::Up, Some(OperState::Up), None);
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::Up));
+    }
+
+    #[test]
+    fn parse_link_operstate_down_wins_over_lower_up_flags() {
+        // ARRANGE
+        let message = link_with_state(
+            1,
+            "eth0",
+            LinkFlags::Up | LinkFlags::LowerUp | LinkFlags::Running,
+            Some(OperState::Down),
+            Some(1),
+        );
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::NoCarrier));
+    }
+
+    #[test]
+    fn parse_link_operstate_dormant_becomes_dormant() {
+        // ARRANGE
+        let message = link_with_state(
+            1,
+            "eth0",
+            LinkFlags::Up | LinkFlags::Dormant,
+            Some(OperState::Dormant),
+            Some(1),
+        );
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::Dormant));
+    }
+
+    #[test]
+    fn parse_link_unknown_operstate_falls_back_to_lower_up_and_running() {
+        // ARRANGE
+        let message = link_with_state(
+            1,
+            "eth0",
+            LinkFlags::Up | LinkFlags::LowerUp | LinkFlags::Running,
+            Some(OperState::Unknown),
+            None,
+        );
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::Up));
+    }
+
+    #[test]
+    fn parse_link_missing_operstate_falls_back_to_ifla_carrier() {
+        // ARRANGE
+        let up = link_with_state(1, "eth0", LinkFlags::Up, None, Some(1));
+        let down = link_with_state(2, "eth1", LinkFlags::Up, None, Some(0));
+
+        // ACT
+        let parsed_up = parse_link(&up);
+        let parsed_down = parse_link(&down);
+
+        // ASSERT
+        assert_eq!(parsed_up.map(|link| link.state()), Some(LinkState::Up));
+        assert_eq!(
+            parsed_down.map(|link| link.state()),
+            Some(LinkState::NoCarrier)
+        );
+    }
+
+    #[test]
+    fn parse_link_unknown_operstate_falls_back_to_dormant_flag() {
+        // ARRANGE
+        let message = link_with_state(
+            1,
+            "eth0",
+            LinkFlags::Up | LinkFlags::Dormant,
+            Some(OperState::Unknown),
+            None,
+        );
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::Dormant));
+    }
+
+    #[test]
+    fn parse_link_missing_state_reports_no_carrier() {
+        // ARRANGE
+        let message = link_with_state(1, "eth0", LinkFlags::Up, None, None);
+
+        // ACT
+        let parsed = parse_link(&message);
+
+        // ASSERT
+        assert_eq!(parsed.map(|link| link.state()), Some(LinkState::NoCarrier));
     }
 
     #[test]
@@ -289,7 +439,7 @@ mod tests {
         let message = RouteNetlinkMessage::NewLink(link(
             7,
             "eth0",
-            LinkFlags::Up | LinkFlags::LowerUp,
+            LinkFlags::Up | LinkFlags::LowerUp | LinkFlags::Running,
             LinkFlags::LowerUp,
         ));
 
@@ -331,7 +481,7 @@ mod tests {
         let present = RouteNetlinkMessage::NewLink(link(
             7,
             "eth0",
-            LinkFlags::Up | LinkFlags::LowerUp,
+            LinkFlags::Up | LinkFlags::LowerUp | LinkFlags::Running,
             LinkFlags::empty(),
         ));
         let absent =
@@ -344,6 +494,60 @@ mod tests {
         // ASSERT
         assert!(unchanged_present.is_none());
         assert!(unchanged_absent.is_none());
+    }
+
+    #[test]
+    fn parse_event_emits_up_across_a_dormant_transition() {
+        // ARRANGE
+        let message = link_with_state(7, "eth0", LinkFlags::Up, Some(OperState::Up), None);
+
+        // ACT
+        let parsed = parse_event(&message, Some(LinkState::Dormant));
+
+        // ASSERT
+        assert_eq!(
+            parsed,
+            Some(LinkEvent::Up {
+                name: "eth0".parse().expect("valid name"),
+                index: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_event_emits_down_across_an_admin_transition() {
+        // ARRANGE
+        let message = link_with_state(7, "eth0", LinkFlags::empty(), Some(OperState::Up), None);
+
+        // ACT
+        let parsed = parse_event(&message, Some(LinkState::Up));
+
+        // ASSERT
+        assert_eq!(
+            parsed,
+            Some(LinkEvent::Down {
+                name: "eth0".parse().expect("valid name"),
+                index: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_event_ignores_unchanged_dormant_carrier() {
+        // ARRANGE
+        let message = link_with_state(
+            7,
+            "eth0",
+            LinkFlags::Up | LinkFlags::Dormant,
+            Some(OperState::Dormant),
+            None,
+        );
+
+        // ACT
+        let parsed = parse_event(&message, Some(LinkState::Dormant));
+
+        // ASSERT
+        assert!(parsed.is_none());
     }
 
     #[test]

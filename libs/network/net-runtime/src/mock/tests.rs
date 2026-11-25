@@ -14,11 +14,14 @@ fn runtime() -> Mock {
 }
 
 fn link(name: &netmodel::Name, index: u32) -> netmodel::Link {
+    let state = netmodel::LinkState::Down;
+
     netmodel::Link {
         name: name.clone(),
         index,
         mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
+        admin: state.admin(),
+        carrier: state.carrier(),
         is_virtual: false,
         master: None,
     }
@@ -283,9 +286,30 @@ fn link_address_and_route_state_is_tracked() {
     let listed = block_on(Address::list(&mock, &name)).expect("address list");
 
     // ASSERT
-    assert_eq!(link.expect("known link").state, netmodel::LinkState::Up);
+    assert_eq!(link.expect("known link").state(), netmodel::LinkState::Up);
     assert_eq!(listed, vec![address]);
     assert_eq!(mock.default_routes(), vec![(name, gateway)]);
+}
+
+#[test]
+fn set_up_leaves_carrier_untouched() {
+    // ARRANGE
+    let mock = runtime();
+    let name = netmodel::Name::new("eth0").expect("valid name");
+    mock.set_link(netmodel::Link {
+        carrier: netmodel::CarrierState::Down,
+        ..link(&name, 2)
+    });
+
+    // ACT
+    block_on(Link::set_up(&mock, &name)).expect("bring link up");
+    let updated = block_on(Link::link(&mock, &name))
+        .expect("link query")
+        .expect("known link");
+
+    // ASSERT
+    assert_eq!(updated.admin, netmodel::AdminState::Up);
+    assert_eq!(updated.carrier, netmodel::CarrierState::Down);
 }
 
 #[test]

@@ -9,7 +9,7 @@ use std::time::{Instant, SystemTime};
 
 use net_runtime::mock::Mock;
 
-use super::{block_on, name, runtime};
+use super::{block_on, model_link, name, runtime};
 use crate::{Loop, Pending, Progress};
 
 const ADDRESS: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
@@ -368,7 +368,7 @@ fn link_state(driver: &Loop<Mock>, interface: &netmodel::Name) -> netmodel::Link
     block_on(net_runtime::Link::link(&driver.runtime, interface))
         .expect("query link")
         .expect("known link")
-        .state
+        .state()
 }
 
 #[test]
@@ -399,14 +399,7 @@ fn down_link_is_activated_before_the_carrier_probe() {
     let now = Instant::now();
     let wall = SystemTime::UNIX_EPOCH;
     let mock = Mock::new(now, wall);
-    mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
-        is_virtual: false,
-        master: None,
-    });
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::Down));
     let mut driver: Loop<Mock> = Loop::new(mock, config(vec![ethernet()]));
 
     // ACT
@@ -518,16 +511,11 @@ fn discovery_refresh_failure_still_feeds_the_supervisor() {
     }
     block_on(driver.start(now));
     driver.pending.clear();
-    driver
-        .pending
-        .push_back(Pending::Links(vec![netmodel::Link {
-            name: name("eth0"),
-            index: 2,
-            mac: netmodel::Mac::default(),
-            state: netmodel::LinkState::Up,
-            is_virtual: false,
-            master: None,
-        }]));
+    driver.pending.push_back(Pending::Links(vec![model_link(
+        "eth0",
+        2,
+        netmodel::LinkState::Up,
+    )]));
 
     // ACT
     let error = block_on(driver.step(now, wall)).expect_err("refresh effect fails");
@@ -536,6 +524,7 @@ fn discovery_refresh_failure_still_feeds_the_supervisor() {
     // ASSERT
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
     assert_eq!(driver.status().state, net_supervisor::State::Degraded);
+    assert_eq!(driver.status().primary, None);
 }
 
 #[test]
@@ -544,28 +533,16 @@ fn degraded_probe_recovers_when_the_link_comes_up_on_retry() {
     let now = Instant::now();
     let wall = SystemTime::UNIX_EPOCH;
     let mock = Mock::new(now, wall);
-    mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::NoCarrier,
-        is_virtual: false,
-        master: None,
-    });
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::NoCarrier));
     let mut driver: Loop<Mock> = Loop::new(mock, config(vec![ethernet()]));
 
     // ACT
     block_on(boot(&mut driver, now, wall));
     let degraded = driver.status().state;
     let retry = driver.next_wake(now).expect("retry deadline");
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Up,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Up));
     block_on(settle(&mut driver, retry, wall));
 
     // ASSERT
@@ -580,27 +557,16 @@ fn slow_phy_link_up_event_recovers_the_supervisor() {
     let now = Instant::now();
     let wall = SystemTime::UNIX_EPOCH;
     let mock = Mock::new(now, wall);
-    mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
-        is_virtual: false,
-        master: None,
-    });
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::Down));
     let mut driver: Loop<SlowPhy> = Loop::new(SlowPhy { mock }, config(vec![ethernet()]));
 
     // ACT
     block_on(boot(&mut driver, now, wall));
     let degraded = driver.status().state;
-    driver.runtime.mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Up,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .mock
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Up));
     driver.runtime.mock.push_event(netmodel::LinkEvent::Up {
         name: name("eth0"),
         index: 2,
@@ -644,14 +610,9 @@ fn link_event_reaches_the_controller_and_the_supervisor() {
     let wall = SystemTime::UNIX_EPOCH;
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![ethernet()]));
     block_on(boot(&mut driver, now, wall));
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Down));
     driver.runtime.push_event(netmodel::LinkEvent::Down {
         name: name("eth0"),
         index: 2,
@@ -767,14 +728,9 @@ fn link_event_updates_the_controller_before_the_supervisor() {
     let wall = SystemTime::UNIX_EPOCH;
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![ethernet()]));
     block_on(boot(&mut driver, now, wall));
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Down));
     driver.runtime.push_event(netmodel::LinkEvent::Down {
         name: name("eth0"),
         index: 2,
@@ -800,14 +756,9 @@ fn port_carrier_down_reaches_the_bridge_owner() {
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![bridge(), ethernet()]));
     block_on(boot(&mut driver, now, wall));
     let boot_link = driver.status().owner_link;
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Down));
     driver.runtime.push_event(netmodel::LinkEvent::Down {
         name: name("eth0"),
         index: 2,
@@ -817,14 +768,9 @@ fn port_carrier_down_reaches_the_bridge_owner() {
     // ACT
     block_on(settle(&mut driver, now, wall));
     let down = driver.status();
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Up,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Up));
     driver.runtime.push_event(netmodel::LinkEvent::Up {
         name: name("eth0"),
         index: 2,
@@ -849,14 +795,9 @@ fn port_carrier_loss_degrades_and_recovers_the_bridge_owner() {
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![bridge(), ethernet()]));
     block_on(boot(&mut driver, now, wall));
     let boot_link = driver.status().owner_link;
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::NoCarrier,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::NoCarrier));
     driver.runtime.push_event(netmodel::LinkEvent::Down {
         name: name("eth0"),
         index: 2,
@@ -866,14 +807,9 @@ fn port_carrier_loss_degrades_and_recovers_the_bridge_owner() {
     // ACT
     block_on(settle(&mut driver, now, wall));
     let lost = driver.status();
-    driver.runtime.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Up,
-        is_virtual: false,
-        master: None,
-    });
+    driver
+        .runtime
+        .set_link(model_link("eth0", 2, netmodel::LinkState::Up));
     driver.runtime.push_event(netmodel::LinkEvent::Up {
         name: name("eth0"),
         index: 2,
@@ -896,13 +832,10 @@ fn enslaving_a_port_makes_a_down_bridge_carry() {
     let now = Instant::now();
     let wall = SystemTime::UNIX_EPOCH;
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(Vec::new()));
+    let bridge_link = model_link("br0", 9, netmodel::LinkState::Down);
     driver.runtime.set_link(netmodel::Link {
-        name: name("br0"),
-        index: 9,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
         is_virtual: true,
-        master: None,
+        ..bridge_link
     });
     driver.add_interface(ip_method::LinkInfo {
         name: name("br0"),
@@ -1036,16 +969,11 @@ fn discovery_refreshes_a_readded_link() {
     let wall = SystemTime::UNIX_EPOCH;
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![ethernet()]));
     block_on(boot(&mut driver, now, wall));
-    driver
-        .pending
-        .push_back(Pending::Links(vec![netmodel::Link {
-            name: name("eth0"),
-            index: 7,
-            mac: netmodel::Mac::default(),
-            state: netmodel::LinkState::Down,
-            is_virtual: false,
-            master: None,
-        }]));
+    driver.pending.push_back(Pending::Links(vec![model_link(
+        "eth0",
+        7,
+        netmodel::LinkState::Down,
+    )]));
 
     // ACT
     block_on(driver.step(now, wall)).expect("discovery step");

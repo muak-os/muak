@@ -8,8 +8,8 @@
 pub(crate) enum Pending {
     /// Full link inventory returned by discovery.
     Links(Vec<netmodel::Link>),
-    /// Carrier state per link index.
-    Carriers(Vec<(u32, bool)>),
+    /// Full link inventory with fresh administrative and carrier state.
+    Carriers(Vec<netmodel::Link>),
     /// Snapshot an interface controller published.
     Snapshot {
         /// Interface the snapshot belongs to.

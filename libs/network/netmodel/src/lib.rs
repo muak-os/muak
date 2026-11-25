@@ -28,14 +28,40 @@ pub struct InvalidName(String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Mac([u8; 6]);
 
+/// Administrative state of a network link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AdminState {
+    /// Administratively enabled.
+    Up,
+    /// Administratively disabled.
+    #[default]
+    Down,
+}
+
+/// Carrier state of a network link as reported by the kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CarrierState {
+    /// Carrier detected.
+    Up,
+    /// Carrier down.
+    Down,
+    /// Carrier dormant, waiting for an external event.
+    Dormant,
+    /// The driver does not report a carrier state.
+    #[default]
+    Unknown,
+}
+
 /// Administrative and carrier state of a network link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkState {
-    /// Link is administratively up with carrier detected.
+    /// Link is administratively up and the carrier is usable.
     Up,
-    /// Link is administratively up but no carrier detected.
+    /// Link is administratively up but the carrier is down.
     NoCarrier,
-    /// Link is administratively down.
+    /// Link is administratively up and the carrier is dormant, waiting for an external event.
+    Dormant,
+    /// Link is administratively down, so its carrier is not observable. This is not a no-carrier verdict.
     Down,
 }
 
@@ -48,8 +74,10 @@ pub struct Link {
     pub index: u32,
     /// Hardware address.
     pub mac: Mac,
-    /// Current link state.
-    pub state: LinkState,
+    /// Administrative state.
+    pub admin: AdminState,
+    /// Carrier state.
+    pub carrier: CarrierState,
     /// Whether the device carries a virtual link kind.
     pub is_virtual: bool,
     /// Index of the master (bridge/bond) this device is enslaved to, if any.

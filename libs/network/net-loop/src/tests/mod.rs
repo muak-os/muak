@@ -36,6 +36,18 @@ fn link(text: &str, index: u32) -> ip_method::LinkInfo {
     }
 }
 
+fn model_link(text: &str, index: u32, state: netmodel::LinkState) -> netmodel::Link {
+    netmodel::Link {
+        name: name(text),
+        index,
+        mac: netmodel::Mac::default(),
+        admin: state.admin(),
+        carrier: state.carrier(),
+        is_virtual: false,
+        master: None,
+    }
+}
+
 fn owner(interface: &str, slot: ip_method::SocketSlot) -> SocketOwner {
     SocketOwner {
         interface: name(interface),
@@ -83,14 +95,7 @@ fn apply_supervisor(
 
 fn runtime() -> Mock {
     let mock = Mock::new(Instant::now(), SystemTime::UNIX_EPOCH);
-    mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Up,
-        is_virtual: false,
-        master: None,
-    });
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::Up));
 
     mock
 }
@@ -275,22 +280,8 @@ fn probe_carriers_rereads_the_state_per_link() {
     // ARRANGE
     let mock = runtime();
     let mut pending = VecDeque::new();
-    mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Up,
-        is_virtual: false,
-        master: None,
-    });
-    mock.set_link(netmodel::Link {
-        name: name("eth1"),
-        index: 3,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::NoCarrier,
-        is_virtual: false,
-        master: None,
-    });
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::Up));
+    mock.set_link(model_link("eth1", 3, netmodel::LinkState::NoCarrier));
 
     // ACT
     apply_supervisor(&mock, &mut pending, net_supervisor::Effect::ProbeCarriers)
@@ -300,21 +291,41 @@ fn probe_carriers_rereads_the_state_per_link() {
     let Some(Pending::Carriers(carriers)) = pending.pop_front() else {
         panic!("carrier state expected");
     };
-    assert_eq!(carriers, vec![(2, true), (3, false)]);
+    assert_eq!(
+        carriers,
+        vec![
+            model_link("eth0", 2, netmodel::LinkState::Up),
+            model_link("eth1", 3, netmodel::LinkState::NoCarrier),
+        ]
+    );
+}
+
+#[test]
+fn probe_carriers_returns_dormant_links_as_they_are() {
+    // ARRANGE
+    let mock = runtime();
+    let mut pending = VecDeque::new();
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::Dormant));
+
+    // ACT
+    apply_supervisor(&mock, &mut pending, net_supervisor::Effect::ProbeCarriers)
+        .expect("probe carriers");
+
+    // ASSERT
+    let Some(Pending::Carriers(carriers)) = pending.pop_front() else {
+        panic!("carrier state expected");
+    };
+    assert_eq!(
+        carriers,
+        vec![model_link("eth0", 2, netmodel::LinkState::Dormant)]
+    );
 }
 
 #[test]
 fn set_link_up_reaches_the_runtime_and_refreshes_the_link_view() {
     // ARRANGE
     let mock = runtime();
-    mock.set_link(netmodel::Link {
-        name: name("eth0"),
-        index: 2,
-        mac: netmodel::Mac::default(),
-        state: netmodel::LinkState::Down,
-        is_virtual: false,
-        master: None,
-    });
+    mock.set_link(model_link("eth0", 2, netmodel::LinkState::Down));
     let mut pending = VecDeque::new();
 
     // ACT
@@ -336,7 +347,7 @@ fn set_link_up_reaches_the_runtime_and_refreshes_the_link_view() {
     else {
         panic!("link view refresh expected");
     };
-    assert_eq!(link.state, netmodel::LinkState::Up);
+    assert_eq!(link.state(), netmodel::LinkState::Up);
     assert_eq!(refreshed, name("eth0"));
     assert_eq!(info.state, netmodel::LinkState::Up);
     assert!(pending.is_empty());
@@ -639,8 +650,8 @@ fn set_link_up_and_down_reach_the_runtime() {
         .expect("known link");
 
     // ASSERT
-    assert_eq!(down.state, netmodel::LinkState::Down);
-    assert_eq!(up.state, netmodel::LinkState::Up);
+    assert_eq!(down.state(), netmodel::LinkState::Down);
+    assert_eq!(up.state(), netmodel::LinkState::Up);
 }
 
 #[test]

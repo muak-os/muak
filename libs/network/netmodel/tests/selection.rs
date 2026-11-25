@@ -4,7 +4,7 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use netmodel::{Link, LinkState, Name, Selector};
+    use netmodel::{AdminState, CarrierState, Link, LinkState, Name, Selector};
 
     use crate::common;
 
@@ -36,6 +36,51 @@ mod tests {
 
         // ASSERT
         assert_eq!(primary.expect("should have primary").name, "eth1");
+    }
+
+    #[test]
+    fn primary_prefers_up_over_dormant() {
+        // ARRANGE
+        let links = [
+            common::link("eno1", LinkState::Dormant),
+            common::link("eth0", LinkState::Up),
+        ];
+
+        // ACT
+        let primary = Selector::primary(&links);
+
+        // ASSERT
+        assert_eq!(primary.expect("should have primary").name, "eth0");
+    }
+
+    #[test]
+    fn primary_prefers_dormant_over_admin_down() {
+        // ARRANGE
+        let links = [
+            common::link("eno1", LinkState::Down),
+            common::link("eth0", LinkState::Dormant),
+        ];
+
+        // ACT
+        let primary = Selector::primary(&links);
+
+        // ASSERT
+        assert_eq!(primary.expect("should have primary").name, "eth0");
+    }
+
+    #[test]
+    fn unknown_carrier_ranks_as_up() {
+        // ARRANGE
+        let links = [
+            common::link("eno1", LinkState::NoCarrier),
+            common::link_with_parts("eth0", 0, AdminState::Up, CarrierState::Unknown),
+        ];
+
+        // ACT
+        let primary = Selector::primary(&links);
+
+        // ASSERT
+        assert_eq!(primary.expect("should have primary").name, "eth0");
     }
 
     #[test]
