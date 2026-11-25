@@ -404,6 +404,30 @@ fn boot_journals_discovery_state_and_effects() {
 }
 
 #[test]
+fn boot_journals_started_effects_without_finished_effects() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![ethernet()]));
+
+    // ACT
+    block_on(boot(&mut driver, now, wall));
+    let observations: Vec<net_observe::Observation> = driver.drain_observations().collect();
+
+    // ASSERT
+    assert!(
+        observations.iter().any(|observation| matches!(
+            observation.event,
+            net_observe::Event::EffectStarted { .. }
+        ))
+    );
+    assert!(observations.iter().all(|observation| !matches!(
+        observation.event,
+        net_observe::Event::EffectFinished { .. }
+    )));
+}
+
+#[test]
 fn boot_journals_binding_and_address_assignment() {
     // ARRANGE
     let now = Instant::now();

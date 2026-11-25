@@ -129,9 +129,8 @@ async fn poll_supervisor<R: net_runtime::Runtime>(
     let kind = effect.kind();
     let observed = net_observe::EffectKind::from(kind);
     let target = effect.target().cloned();
-    let level = observed.level();
     driver.journal.record(
-        level,
+        observed.level(),
         net_observe::Event::EffectStarted {
             kind: observed,
             target: target.clone(),
@@ -144,27 +143,18 @@ async fn poll_supervisor<R: net_runtime::Runtime>(
         effect,
     )
     .await;
-    match applied {
-        Ok(()) => driver.journal.record(
-            level,
-            net_observe::Event::EffectFinished {
+    if let Err(error) = applied {
+        driver.journal.record(
+            net_observe::Level::Warn,
+            net_observe::Event::EffectFailed {
                 kind: observed,
                 target,
+                error: error.to_string(),
             },
-        ),
-        Err(error) => {
-            driver.journal.record(
-                net_observe::Level::Warn,
-                net_observe::Event::EffectFailed {
-                    kind: observed,
-                    target,
-                    error: error.to_string(),
-                },
-            );
-            driver
-                .pending
-                .push_back(Pending::EffectFailed { kind, error });
-        }
+        );
+        driver
+            .pending
+            .push_back(Pending::EffectFailed { kind, error });
     }
 
     true
