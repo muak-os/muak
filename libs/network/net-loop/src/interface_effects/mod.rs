@@ -1,15 +1,17 @@
 //! Execution of interface effects against the runtime ports.
 
 mod address;
+mod socket;
 
 use alloc::collections::VecDeque;
 use std::io;
 
 use net_observe::journal::Journal;
-use net_runtime::{Entropy as _, Icmpv6 as _, Link as _, Packet as _, Udp as _};
+use net_runtime::{Entropy as _, Link as _};
+pub(crate) use socket::release;
 
+use crate::SocketTable;
 use crate::pending::Pending;
-use crate::{SocketOwner, SocketTable};
 
 /// Executes one interface effect with the owning interface name in scope.
 pub(crate) async fn apply<R: net_runtime::Runtime>(
@@ -40,16 +42,24 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             address::remove_route(runtime, journal, link, gateway).await
         }
         iface::Effect::OpenSocket { family, spec } => {
-            open(runtime, interface, sockets, family, spec).await
+            socket::open(runtime, interface, sockets, pending, family, spec).await
         }
         iface::Effect::Send {
             family,
             slot,
             frame,
             dst,
-        } => send(runtime, interface, sockets, family, slot, frame, dst).await,
+        } => {
+            let transmit = socket::Transmit {
+                family,
+                slot,
+                frame,
+                dst,
+            };
+            socket::send(runtime, interface, sockets, pending, transmit).await
+        }
         iface::Effect::CloseSocket { family, slot } => {
-            close(runtime, interface, sockets, family, slot).await
+            socket::close(runtime, interface, sockets, pending, family, slot).await
         }
         iface::Effect::RequestEntropy { family } => {
             let mut bytes = [0_u8; 4];
@@ -64,134 +74,4 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
         }
         iface::Effect::Publish => Ok(()),
     }
-}
-
-async fn open<R: net_runtime::Runtime>(
-    runtime: &R,
-    interface: &netmodel::Name,
-    sockets: &mut SocketTable,
-    family: iface::Family,
-    spec: ip_method::SocketSpec,
-) -> io::Result<()> {
-    if spec.link != *interface {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "socket spec link does not match the owning interface",
-        ));
-    }
-
-    let stale = sockets
-        .find(interface, family, spec.slot)
-        .and_then(|id| sockets.get(id).map(|owner| (id, owner.kind)));
-    if let Some((id, kind)) = stale {
-        release(runtime, sockets, id, kind).await?;
-    }
-
-    let id = match spec.kind {
-        ip_method::SocketKind::RawL2 => runtime.packet().open(&spec).await?,
-        ip_method::SocketKind::Udp => runtime.udp().open(&spec).await?,
-        ip_method::SocketKind::RawIcmpv6 => runtime.icmpv6().open(&spec).await?,
-    };
-
-    sockets.insert(
-        id,
-        SocketOwner {
-            interface: interface.clone(),
-            family,
-            slot: spec.slot,
-            kind: spec.kind,
-        },
-    );
-
-    Ok(())
-}
-
-async fn send<R: net_runtime::Runtime>(
-    runtime: &R,
-    interface: &netmodel::Name,
-    sockets: &SocketTable,
-    family: iface::Family,
-    slot: ip_method::SocketSlot,
-    frame: &[u8],
-    dst: Option<core::net::SocketAddr>,
-) -> io::Result<()> {
-    let Some(id) = sockets.find(interface, family, slot) else {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "no socket open for the requested slot",
-        ));
-    };
-    let Some(kind) = sockets.get(id).map(|owner| owner.kind) else {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "socket table entry disappeared during dispatch",
-        ));
-    };
-
-    match kind {
-        ip_method::SocketKind::RawL2 => {
-            reject_destination(dst)?;
-            runtime.packet().send(id, frame).await.map(|_| ())
-        }
-        ip_method::SocketKind::Udp => {
-            reject_destination(dst)?;
-            runtime.udp().send(id, frame).await.map(|_| ())
-        }
-        ip_method::SocketKind::RawIcmpv6 => {
-            let Some(core::net::SocketAddr::V6(address)) = dst else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "ICMPv6 send requires an IPv6 destination",
-                ));
-            };
-            runtime
-                .icmpv6()
-                .send(id, *address.ip(), frame)
-                .await
-                .map(|_| ())
-        }
-    }
-}
-
-async fn close<R: net_runtime::Runtime>(
-    runtime: &R,
-    interface: &netmodel::Name,
-    sockets: &mut SocketTable,
-    family: iface::Family,
-    slot: ip_method::SocketSlot,
-) -> io::Result<()> {
-    let Some(id) = sockets.find(interface, family, slot) else {
-        return Ok(());
-    };
-    let Some(kind) = sockets.get(id).map(|owner| owner.kind) else {
-        return Ok(());
-    };
-
-    release(runtime, sockets, id, kind).await
-}
-
-async fn release<R: net_runtime::Runtime>(
-    runtime: &R,
-    sockets: &mut SocketTable,
-    id: net_runtime::SocketId,
-    kind: ip_method::SocketKind,
-) -> io::Result<()> {
-    sockets.remove(id);
-
-    match kind {
-        ip_method::SocketKind::RawL2 => runtime.packet().close(id).await,
-        ip_method::SocketKind::Udp => runtime.udp().close(id).await,
-        ip_method::SocketKind::RawIcmpv6 => runtime.icmpv6().close(id).await,
-    }
-}
-
-fn reject_destination(dst: Option<core::net::SocketAddr>) -> io::Result<()> {
-    if dst.is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "only an ICMPv6 socket takes a destination address",
-        ));
-    }
-
-    Ok(())
 }

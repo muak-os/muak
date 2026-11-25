@@ -1,5 +1,7 @@
 //! Pending inputs fed back into the supervisor and the interface controllers.
 
+mod socket;
+
 use std::io;
 use std::time::{Instant, SystemTime};
 
@@ -15,9 +17,10 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
     wall: SystemTime,
 ) -> io::Result<()> {
     match pending {
-        Pending::Links(links) => discover(driver, now, wall, &links).await?,
+        Pending::Links(links) => discover(driver, now, wall, &links).await,
         Pending::Carriers(links) => {
             step::drive(driver, now, net_supervisor::Input::Carriers(&links)).await;
+            Ok(())
         }
         Pending::Snapshot { name, snapshot } => {
             let input = net_supervisor::Input::InterfaceSnapshot {
@@ -25,6 +28,7 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
                 snapshot: &snapshot,
             };
             step::drive(driver, now, input).await;
+            Ok(())
         }
         Pending::BridgeReady {
             name,
@@ -32,15 +36,13 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
             mac,
             state,
         } => {
-            driver::ensure(
-                driver,
-                ip_method::LinkInfo {
-                    name: name.clone(),
-                    index,
-                    mac,
-                    state,
-                },
-            );
+            let info = ip_method::LinkInfo {
+                name: name.clone(),
+                index,
+                mac,
+                state,
+            };
+            driver::ensure(driver, info);
             let input = net_supervisor::Input::BridgeReady {
                 name,
                 index,
@@ -48,53 +50,42 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
                 state,
             };
             step::drive(driver, now, input).await;
+            Ok(())
         }
-        Pending::Enslaved { port, master } => {
-            enslave(driver, now, &port, &master).await?;
-        }
+        Pending::Enslaved { port, master } => enslave(driver, now, &port, &master).await,
         Pending::Detached { port } => {
             driver::detach(driver, &port);
             step::drive(driver, now, net_supervisor::Input::Detached { port }).await;
+            Ok(())
         }
         Pending::ConfigureInterface { name, v4, v6 } => {
-            command(
-                driver,
-                now,
-                wall,
-                &name,
-                iface::Command::Configure { v4, v6 },
-            )
-            .await?;
+            let configure = iface::Command::Configure { v4, v6 };
+            command(driver, now, wall, &name, configure).await
         }
         Pending::ReconcileInterface { name } => {
-            command(driver, now, wall, &name, iface::Command::Reconcile).await?;
+            command(driver, now, wall, &name, iface::Command::Reconcile).await
         }
-        Pending::ShutdownInterface { name } => shutdown(driver, now, wall, &name).await?,
+        Pending::ShutdownInterface { name } => shutdown(driver, now, wall, &name).await,
         Pending::InterfaceLink { name, info } => {
-            events::interface_link(driver, now, wall, &name, info).await?;
+            events::interface_link(driver, now, wall, &name, info).await
         }
-        Pending::LinkEvent(event) => events::link_event(driver, now, wall, event).await?,
+        Pending::LinkEvent(event) => events::link_event(driver, now, wall, event).await,
         Pending::SupervisorLinkEvent(event) => {
             step::drive(driver, now, net_supervisor::Input::LinkEvent(event)).await;
+            Ok(())
         }
         Pending::EffectFailed { kind, error } => {
             let input = net_supervisor::Input::EffectFailed { kind, error };
             step::drive(driver, now, input).await;
+            Ok(())
         }
-        Pending::Entropy {
-            name,
-            family,
-            value,
-        } => {
-            let input = iface::Input::Method {
-                family,
-                input: ip_method::Input::Entropy(value),
-            };
-            interface_input(driver, now, wall, &name, input).await?;
-        }
+        other @ (Pending::Entropy { .. }
+        | Pending::SocketOpened { .. }
+        | Pending::SendCompleted { .. }
+        | Pending::SocketClosed { .. }
+        | Pending::SocketError { .. }
+        | Pending::Frame { .. }) => socket::feed(driver, other, now, wall).await,
     }
-
-    Ok(())
 }
 
 async fn discover<R: net_runtime::Runtime>(

@@ -3,8 +3,6 @@
 use std::io;
 use std::time::{Instant, SystemTime};
 
-use net_runtime::Events as _;
-
 use crate::pending::Pending;
 use crate::{Loop, Progress, feedback, interface_effects, supervisor_effects};
 
@@ -42,15 +40,6 @@ pub(crate) async fn run<R: net_runtime::Runtime>(
     }
 
     Ok(Progress::Idle)
-}
-
-pub(crate) async fn wait_event<R: net_runtime::Runtime>(
-    driver: &mut Loop<R>,
-) -> io::Result<Progress> {
-    let event = driver.runtime.events().next().await?;
-    driver.pending.push_back(Pending::LinkEvent(event));
-
-    Ok(Progress::Worked)
 }
 
 pub(crate) async fn drive<R: net_runtime::Runtime>(

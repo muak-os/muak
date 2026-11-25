@@ -1426,8 +1426,12 @@ dependencies = [
 name = "net-loop"
 version = "0.0.0"
 dependencies = [
+ "dhcp-proto",
+ "futures-util",
  "iface",
+ "ip",
  "ip-method",
+ "ndp",
  "net-observe",
  "net-runtime",
  "net-supervisor",

@@ -1,5 +1,7 @@
 //! Owned inputs produced by effect dispatch and fed back into the FSMs.
 
+use alloc::vec::Vec;
+
 /// Input the driver owns until the next step.
 ///
 /// Effects borrow the FSM that produced them, so anything the FSMs must see
@@ -85,5 +87,56 @@ pub(crate) enum Pending {
         family: iface::Family,
         /// Random value the runtime filled.
         value: u32,
+    },
+    /// Socket the runtime opened for one interface method.
+    SocketOpened {
+        /// Interface that owns the socket.
+        name: netmodel::Name,
+        /// Address family that owns the socket.
+        family: iface::Family,
+        /// Slot the socket occupies on the method.
+        slot: ip_method::SocketSlot,
+    },
+    /// Send the runtime completed for one interface method.
+    SendCompleted {
+        /// Interface that owns the socket.
+        name: netmodel::Name,
+        /// Address family that owns the socket.
+        family: iface::Family,
+        /// Slot the send completed on.
+        slot: ip_method::SocketSlot,
+    },
+    /// Socket the runtime closed for one interface method.
+    SocketClosed {
+        /// Interface that owned the socket.
+        name: netmodel::Name,
+        /// Address family that owned the socket.
+        family: iface::Family,
+        /// Slot the socket occupied on the method.
+        slot: ip_method::SocketSlot,
+    },
+    /// Socket error the runtime reported for one interface method.
+    SocketError {
+        /// Interface that owns the socket.
+        name: netmodel::Name,
+        /// Address family that owns the socket.
+        family: iface::Family,
+        /// Slot that reported the error.
+        slot: ip_method::SocketSlot,
+        /// Error the runtime reported.
+        error: std::io::Error,
+    },
+    /// Frame the runtime received on a socket of one interface method.
+    Frame {
+        /// Interface that owns the socket.
+        name: netmodel::Name,
+        /// Address family that owns the socket.
+        family: iface::Family,
+        /// Slot the frame arrived on.
+        slot: ip_method::SocketSlot,
+        /// Raw frame bytes.
+        bytes: Vec<u8>,
+        /// Source address the transport reported, when it reports one.
+        source: Option<core::net::IpAddr>,
     },
 }

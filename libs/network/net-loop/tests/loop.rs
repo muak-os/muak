@@ -3,14 +3,29 @@
 #![cfg(test)]
 
 use core::future::Future;
+#[cfg(feature = "ipv6")]
+use core::net::Ipv6Addr;
 use core::net::{IpAddr, Ipv4Addr};
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 use std::io;
 use std::time::{Instant, SystemTime};
 
+#[cfg(feature = "ipv4")]
+use ip::v4;
+#[cfg(feature = "ipv6")]
+use ndp::build;
 use net_loop::{Loop, Progress, SocketOwner, SocketTable};
 use net_runtime::mock::Mock;
+
+#[cfg(feature = "ipv4")]
+const DHCP_XID: u32 = 0x0302_0100;
+#[cfg(feature = "ipv4")]
+const DHCP_SERVER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 1);
+#[cfg(feature = "ipv6")]
+const ROUTER: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+#[cfg(feature = "ipv6")]
+const PREFIX_V6: Ipv6Addr = Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 0);
 
 const ADDRESS: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
 const PREFIX: u8 = 24;
@@ -967,6 +982,250 @@ fn add_interface_exposes_the_controller_without_a_wake() {
     assert_eq!(controllers.len(), 1);
     assert_eq!(controllers[0].link().index, 3);
     assert!(driver.next_wake(now).is_none());
+}
+
+#[cfg(feature = "ipv4")]
+fn dhcp_interface() -> net_supervisor::InterfaceConfig {
+    net_supervisor::InterfaceConfig {
+        name: String::from("eth0"),
+        kind: net_supervisor::InterfaceKind::Ethernet,
+        ipv4: Some(netmodel::Ipv4Config {
+            dhcp: true,
+            ..netmodel::Ipv4Config::default()
+        }),
+        ipv6: None,
+        bridge: None,
+    }
+}
+
+#[cfg(feature = "ipv6")]
+fn slaac_interface() -> net_supervisor::InterfaceConfig {
+    net_supervisor::InterfaceConfig {
+        name: String::from("eth0"),
+        kind: net_supervisor::InterfaceKind::Ethernet,
+        ipv4: None,
+        ipv6: Some(netmodel::Ipv6Config {
+            autoconf: true,
+            ..netmodel::Ipv6Config::default()
+        }),
+        bridge: None,
+    }
+}
+
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+fn open_socket(
+    driver: &Loop<Mock>,
+    family: iface::Family,
+    slot: ip_method::SocketSlot,
+) -> net_runtime::SocketId {
+    driver
+        .sockets()
+        .find(&name("eth0"), family, slot)
+        .expect("open socket")
+}
+
+#[cfg(feature = "ipv4")]
+fn dhcp_payload(frame: &[u8]) -> &[u8] {
+    v4::udp::unwrap(frame).expect("DHCP frame").2
+}
+
+#[cfg(feature = "ipv4")]
+fn dhcp_reply(xid: u32, kind: u8) -> Vec<u8> {
+    let mut buffer = [0_u8; 1500];
+    let mac = netmodel::Mac::default().into_array();
+    let header = dhcp_proto::header::build_with(&mut buffer, xid, mac, Ipv4Addr::UNSPECIFIED, 0)
+        .expect("DHCP header fits");
+    let mut payload = header.to_vec();
+    payload[16..20].copy_from_slice(&ADDRESS.octets());
+    payload.extend_from_slice(&[
+        53, 1, kind, 54, 4, 10, 0, 0, 1, 1, 4, 255, 255, 255, 0, 3, 4, 10, 0, 0, 1, 51, 4, 0, 0, 0,
+        100, 255,
+    ]);
+    let source = v4::Addr {
+        ip: DHCP_SERVER,
+        port: dhcp_proto::DHCP_SERVER_PORT,
+    };
+    let destination = v4::Addr {
+        ip: Ipv4Addr::BROADCAST,
+        port: dhcp_proto::DHCP_CLIENT_PORT,
+    };
+    let mut frame = [0_u8; 1536];
+    let written = v4::udp::wrap(&payload, source, destination, &mut frame)
+        .expect("DHCP frame fits")
+        .len();
+
+    frame[..written].to_vec()
+}
+
+#[cfg(feature = "ipv4")]
+#[test]
+fn dhcp_exchange_binds_a_lease_through_the_socket_path() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![dhcp_interface()]));
+    block_on(boot(&mut driver, now, wall));
+    let id = open_socket(&driver, iface::Family::V4, ip_method::SocketSlot::Primary);
+    let kind = driver.sockets().get(id).map(|owner| owner.kind);
+    let discover = driver.runtime().sent(id).expect("sent frames");
+    let offer = dhcp_reply(DHCP_XID, dhcp_proto::message_type::OFFER);
+
+    // ACT
+    driver
+        .runtime()
+        .push_inbound(id, &offer)
+        .expect("queue offer");
+    let offered = block_on(driver.wait_event()).expect("wait offer");
+    block_on(settle(&mut driver, now, wall));
+    let sent = driver.runtime().sent(id).expect("sent frames");
+    let xid = sent
+        .get(1)
+        .map(|frame| dhcp_proto::xid::extract(dhcp_payload(frame)))
+        .expect("request sent");
+    let ack = dhcp_reply(xid, dhcp_proto::message_type::ACK);
+    driver.runtime().push_inbound(id, &ack).expect("queue ack");
+    let acknowledged = block_on(driver.wait_event()).expect("wait ack");
+    block_on(settle(&mut driver, now, wall));
+    let lease = driver.drain_observations().find_map(|observation| {
+        let net_observe::Event::DhcpLease { lease, .. } = observation.event else {
+            return None;
+        };
+        Some((observation.level, lease))
+    });
+
+    // ASSERT
+    assert_eq!(kind, Some(ip_method::SocketKind::RawL2));
+    assert_eq!(
+        discover.len(),
+        1,
+        "only the Discover leaves before the offer"
+    );
+    assert_eq!(
+        discover
+            .first()
+            .map(|frame| dhcp_proto::xid::extract(dhcp_payload(frame))),
+        Some(DHCP_XID)
+    );
+    assert_eq!(offered, Progress::Worked);
+    assert_eq!(acknowledged, Progress::Worked);
+    let (level, lease) = lease.expect("DHCP lease observed");
+    assert_eq!(level, net_observe::Level::Info);
+    assert_eq!(lease.address, ADDRESS);
+    assert_eq!(lease.server, DHCP_SERVER);
+    assert_eq!(lease.phase, net_observe::interface::DhcpPhase::Bound);
+}
+
+#[cfg(feature = "ipv4")]
+#[test]
+fn socket_error_reaches_the_address_method() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![dhcp_interface()]));
+    block_on(boot(&mut driver, now, wall));
+    let id = open_socket(&driver, iface::Family::V4, ip_method::SocketSlot::Primary);
+
+    // ACT
+    block_on(net_runtime::Packet::close(driver.runtime(), id)).expect("close socket");
+    let waited = block_on(driver.wait_event()).expect("wait event");
+    block_on(settle(&mut driver, now, wall));
+    let noticed = driver.drain_observations().any(|observation| {
+        matches!(
+            observation.event,
+            net_observe::Event::Notice { ref text, .. } if text.contains("DHCP acquire failed")
+        )
+    });
+
+    // ASSERT
+    assert_eq!(waited, Progress::Worked);
+    assert!(
+        noticed,
+        "the receive error must reach the DHCP method as a socket error"
+    );
+    assert!(
+        driver.sockets().get(id).is_none(),
+        "the dead socket must be released after the receive error"
+    );
+}
+
+#[cfg(feature = "ipv6")]
+fn advertisement() -> Vec<u8> {
+    let prefixes = [ndp::types::PrefixInformation {
+        prefix: PREFIX_V6,
+        prefix_len: 64,
+        on_link: true,
+        autonomous: true,
+        valid_lifetime: 7200,
+        preferred_lifetime: 3600,
+    }];
+    let header = ndp::message::AdvertisementHeader {
+        hop_limit: 64,
+        managed_flag: false,
+        other_flag: false,
+        router_lifetime: 1800,
+        reachable_time: 0,
+        retrans_timer: 0,
+    };
+    let content = build::router::Advertisement {
+        header,
+        link_layer: None,
+        mtu: None,
+        prefixes: &prefixes,
+        dns_lifetime: 0,
+        dns_servers: &[],
+    };
+    let mut buffer = [0_u8; 256];
+
+    build::router::advertisement(ROUTER, ROUTER, &content, &mut buffer)
+        .expect("advertisement fits")
+        .to_vec()
+}
+
+#[cfg(feature = "ipv6")]
+#[test]
+fn slaac_advertisement_provisions_an_address_through_the_socket_path() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let announced = net_supervisor::Config {
+        ipv6: true,
+        dns: Vec::new(),
+        interfaces: vec![slaac_interface()],
+    };
+    let mut driver: Loop<Mock> = Loop::new(runtime(), announced);
+    block_on(boot(&mut driver, now, wall));
+    let id = open_socket(&driver, iface::Family::V6, ip_method::SocketSlot::Primary);
+    let kind = driver.sockets().get(id).map(|owner| owner.kind);
+    let solicited = driver.runtime().sent(id).expect("sent frames");
+    let packet = advertisement();
+
+    // ACT
+    driver
+        .runtime()
+        .push_inbound_from(id, &packet, ROUTER)
+        .expect("queue advertisement");
+    let waited = block_on(driver.wait_event()).expect("wait event");
+    block_on(settle(&mut driver, now, wall));
+    let update = driver.drain_observations().find_map(|observation| {
+        let net_observe::Event::SlaacUpdate { update, .. } = observation.event else {
+            return None;
+        };
+        Some((observation.level, update))
+    });
+
+    // ASSERT
+    assert_eq!(kind, Some(ip_method::SocketKind::RawIcmpv6));
+    assert_eq!(
+        solicited.first().map(|frame| frame[0]),
+        Some(ndp::ROUTER_SOLICITATION),
+        "the opened socket lets SLAAC solicit a router"
+    );
+    assert_eq!(waited, Progress::Worked);
+    let (level, update) = update.expect("SLAAC update observed");
+    assert_eq!(level, net_observe::Level::Info);
+    assert_eq!(update.routers, vec![ROUTER]);
+    assert_eq!(update.addresses.len(), 1);
+    assert_eq!(update.addresses[0].1, 64);
 }
 
 #[test]

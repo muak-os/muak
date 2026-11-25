@@ -18,6 +18,9 @@ ipv4 = ["iface/ipv4", "net-supervisor/ipv4"]
 ipv6 = ["iface/ipv6", "net-supervisor/ipv6"]
 
 [dependencies]
+# Asynchronous
+futures-util = { workspace = true, features = ["async-await"] }
+
 # Internal
 iface = { workspace = true, default-features = false }
 ip-method = { workspace = true }
@@ -27,4 +30,8 @@ net-runtime = { workspace = true }
 net-supervisor = { workspace = true, default-features = false }
 
 [dev-dependencies]
+# Internal
+dhcp-proto = { workspace = true }
+ip = { workspace = true, features = ["v4"] }
+ndp = { workspace = true }
 net-runtime = { workspace = true, features = ["mock"] }

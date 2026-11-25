@@ -113,13 +113,13 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         step::run(self, now, wall).await
     }
 
-    /// Waits for the next link event and queues its handling.
+    /// Waits for the next socket frame or link event and queues its handling.
     ///
     /// # Errors
     ///
     /// Returns the error the link event port reported.
     pub async fn wait_event(&mut self) -> io::Result<Progress> {
-        step::wait_event(self).await
+        crate::pump::wait_event(self).await
     }
 }
 
