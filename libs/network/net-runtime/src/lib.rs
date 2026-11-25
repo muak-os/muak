@@ -8,7 +8,7 @@ extern crate alloc;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 
-/// Identifier of a socket opened by the runtime.
+/// Identifier of a socket opened by the runtime, unique across all of its ports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SocketId(u32);
 

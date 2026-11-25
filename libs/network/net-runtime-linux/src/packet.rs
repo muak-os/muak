@@ -45,7 +45,7 @@ async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> io::Result<SocketId>
     // SAFETY: the runtime owns the descriptor for the whole registration.
     let socket = unsafe { AsyncFd::register(fd) }?;
 
-    Ok(runtime.packet.insert(socket).await)
+    Ok(runtime.packet.insert(&runtime.ids, socket).await)
 }
 
 async fn recv(runtime: &super::Tokio, id: SocketId, buf: &mut [u8]) -> io::Result<usize> {

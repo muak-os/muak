@@ -53,7 +53,7 @@ async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> io::Result<SocketId>
     // SAFETY: the runtime owns the descriptor for the whole registration.
     let socket = unsafe { AsyncFd::register(fd) }?;
 
-    Ok(runtime.icmpv6.insert(socket).await)
+    Ok(runtime.icmpv6.insert(&runtime.ids, socket).await)
 }
 
 async fn recv(

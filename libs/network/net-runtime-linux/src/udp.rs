@@ -44,7 +44,7 @@ async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> io::Result<SocketId>
         socket.connect(peer).await?;
     }
 
-    Ok(runtime.udp.insert(socket).await)
+    Ok(runtime.udp.insert(&runtime.ids, socket).await)
 }
 
 async fn recv(runtime: &super::Tokio, id: SocketId, buf: &mut [u8]) -> io::Result<usize> {
