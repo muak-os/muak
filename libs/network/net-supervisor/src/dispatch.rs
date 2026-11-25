@@ -72,7 +72,9 @@ fn shutdown(supervisor: &mut Supervisor) {
 
 fn on_effect_failed(supervisor: &mut Supervisor, now: Instant, kind: EffectKind) {
     match kind {
-        EffectKind::Discover | EffectKind::ProbeCarriers => fail_discovery(supervisor, now),
+        EffectKind::Discover | EffectKind::ProbeCarriers | EffectKind::SetLinkUp => {
+            fail_discovery(supervisor, now);
+        }
         EffectKind::ConfigureInterface
         | EffectKind::ReconcileInterface
         | EffectKind::EnsureBridge

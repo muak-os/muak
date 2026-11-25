@@ -173,10 +173,12 @@ pub enum Input<'a> {
 pub enum Effect<'a> {
     /// Discover the current links.
     Discover,
-    /// Probe carrier state for the given links.
-    ProbeCarriers {
-        /// Links to probe.
-        links: &'a [netmodel::Link],
+    /// Probe carrier state after re-reading the link state.
+    ProbeCarriers,
+    /// Bring one administratively down link up.
+    SetLinkUp {
+        /// Link to activate.
+        name: netmodel::Name,
     },
     /// Configure one interface.
     ConfigureInterface {
@@ -234,6 +236,8 @@ pub enum EffectKind {
     Discover,
     /// Carrier probing.
     ProbeCarriers,
+    /// Link activation.
+    SetLinkUp,
     /// Interface configuration.
     ConfigureInterface,
     /// Interface reconciliation.
@@ -262,7 +266,8 @@ impl Effect<'_> {
     pub const fn kind(&self) -> EffectKind {
         match *self {
             Self::Discover => EffectKind::Discover,
-            Self::ProbeCarriers { .. } => EffectKind::ProbeCarriers,
+            Self::ProbeCarriers => EffectKind::ProbeCarriers,
+            Self::SetLinkUp { .. } => EffectKind::SetLinkUp,
             Self::ConfigureInterface { .. } => EffectKind::ConfigureInterface,
             Self::ReconcileInterface { .. } => EffectKind::ReconcileInterface,
             Self::EnsureBridge { .. } => EffectKind::EnsureBridge,

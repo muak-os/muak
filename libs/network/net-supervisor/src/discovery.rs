@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use netmodel::{Link, Name, Selector};
+use netmodel::{Link, LinkState, Name, Selector};
 
 use crate::actions::Action;
 use crate::{State, Supervisor, dns, provision, retry};
@@ -48,6 +48,14 @@ pub(crate) fn on_links(supervisor: &mut Supervisor, now: Instant, links: &[Link]
     }
 
     retry::succeeded(supervisor);
+    for link in &physical {
+        if link.state != LinkState::Down {
+            continue;
+        }
+        supervisor.queue.push_back(Action::SetLinkUp {
+            name: link.name.clone(),
+        });
+    }
     supervisor.queue.push_back(Action::ProbeCarriers);
 }
 
@@ -130,10 +138,10 @@ fn carrier_for(carriers: &[(u32, bool)], index: u32) -> bool {
         .unwrap_or(false)
 }
 
-const fn carrier_state(carrier: bool) -> netmodel::LinkState {
+const fn carrier_state(carrier: bool) -> LinkState {
     if carrier {
-        netmodel::LinkState::Up
+        LinkState::Up
     } else {
-        netmodel::LinkState::NoCarrier
+        LinkState::NoCarrier
     }
 }

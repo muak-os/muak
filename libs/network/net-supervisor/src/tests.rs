@@ -14,7 +14,8 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Seen {
     Discover,
-    Probe(usize),
+    Probe,
+    SetLinkUp(Name),
     Configure {
         name: Name,
         v4: bool,
@@ -121,7 +122,8 @@ fn failed() -> iface::Snapshot {
 fn describe(effect: Effect<'_>) -> Seen {
     match effect {
         Effect::Discover => Seen::Discover,
-        Effect::ProbeCarriers { links } => Seen::Probe(links.len()),
+        Effect::ProbeCarriers => Seen::Probe,
+        Effect::SetLinkUp { name } => Seen::SetLinkUp(name),
         Effect::ConfigureInterface { name, v4, v6 } => Seen::Configure {
             name,
             v4: v4.is_some(),
@@ -256,7 +258,7 @@ fn initialize_discovers_then_probes_then_provisions() {
 
     // ASSERT
     assert_eq!(discover.first(), Some(&Seen::Discover));
-    assert_eq!(probe, vec![Seen::Probe(1)]);
+    assert_eq!(probe, vec![Seen::Probe]);
     assert_eq!(supervisor.status().primary, Some(name("eth0")));
     assert_eq!(supervisor.status().state, State::Ready);
     assert_eq!(supervisor.status().owner, Some(name("eth0")));
@@ -314,7 +316,111 @@ fn no_physical_links_degrades() {
 
     // ASSERT
     assert_eq!(supervisor.status().state, State::Degraded);
-    assert!(!seen.iter().any(|effect| matches!(effect, Seen::Probe(_))));
+    assert!(
+        !seen
+            .iter()
+            .any(|effect| matches!(effect, Seen::Probe | Seen::SetLinkUp(_)))
+    );
+}
+
+#[test]
+fn down_links_are_activated_before_the_carrier_probe() {
+    // ARRANGE
+    let links = [
+        link("eth0", 2, LinkState::Down),
+        link("eth1", 3, LinkState::Down),
+    ];
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+
+    // ACT
+    let seen = run(&mut supervisor, now, Input::Links(&links));
+    let provisioned = run(
+        &mut supervisor,
+        now,
+        Input::Carriers(&[(2, true), (3, true)]),
+    );
+
+    // ASSERT
+    assert_eq!(
+        seen,
+        vec![
+            Seen::SetLinkUp(name("eth0")),
+            Seen::SetLinkUp(name("eth1")),
+            Seen::Probe,
+        ]
+    );
+    assert_eq!(supervisor.status().state, State::Ready);
+    assert_eq!(supervisor.status().primary, Some(name("eth0")));
+    assert!(provisioned.contains(&Seen::Configure {
+        name: name("eth0"),
+        v4: true,
+        v6: false,
+    }));
+}
+
+#[test]
+fn degraded_link_event_up_requeues_discovery() {
+    // ARRANGE
+    let links = [link("eth0", 2, LinkState::Down)];
+    let mut supervisor = Supervisor::new(config(vec![ethernet("auto", true)]));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+    run(&mut supervisor, now, Input::Links(&links));
+    let degraded = run(&mut supervisor, now, Input::Carriers(&[(2, false)]));
+
+    // ACT
+    let seen = run(
+        &mut supervisor,
+        now,
+        Input::LinkEvent(netmodel::LinkEvent::Up {
+            name: name("eth0"),
+            index: 2,
+        }),
+    );
+
+    // ASSERT
+    assert_eq!(supervisor.status().state, State::Degraded);
+    assert!(supervisor.status().primary.is_none());
+    assert!(!degraded.iter().any(|effect| matches!(
+        effect,
+        Seen::Configure { .. } | Seen::Bridge { .. } | Seen::Enslave { .. }
+    )));
+    assert_eq!(seen.first(), Some(&Seen::Discover));
+}
+
+#[test]
+fn set_link_up_failure_degrades_and_retries() {
+    // ARRANGE
+    let mut supervisor = Supervisor::new(config(Vec::new()));
+    let now = Instant::now();
+    run(&mut supervisor, now, Input::Command(Command::Initialize));
+
+    // ACT
+    run(
+        &mut supervisor,
+        now,
+        Input::EffectFailed {
+            kind: EffectKind::SetLinkUp,
+            error: io::Error::other("boom"),
+        },
+    );
+
+    // ASSERT
+    assert_eq!(supervisor.status().state, State::Degraded);
+    let retry = supervisor.next_wake(now).expect("retry scheduled");
+    assert_eq!(
+        retry,
+        now.checked_add(Duration::from_secs(1))
+            .expect("retry deadline")
+    );
+    assert!(
+        retry
+            < now
+                .checked_add(Duration::from_secs(30))
+                .expect("reconcile deadline")
+    );
 }
 
 #[test]
@@ -324,12 +430,13 @@ fn no_carrier_degrades_without_provisioning() {
     let mut supervisor = Supervisor::new(config(vec![bridge(), ethernet("auto", true)]));
     let now = Instant::now();
     run(&mut supervisor, now, Input::Command(Command::Initialize));
-    run(&mut supervisor, now, Input::Links(&links));
+    let inventory = run(&mut supervisor, now, Input::Links(&links));
 
     // ACT
     let seen = run(&mut supervisor, now, Input::Carriers(&[(2, false)]));
 
     // ASSERT
+    assert_eq!(inventory, vec![Seen::Probe]);
     assert_eq!(supervisor.status().state, State::Degraded);
     assert!(!seen.iter().any(|effect| matches!(
         effect,
@@ -758,7 +865,8 @@ fn configure_renders_only_enabled_families() {
     let families = seen.iter().find_map(|effect| match *effect {
         Seen::Configure { v4, v6, .. } => Some((v4, v6)),
         Seen::Discover
-        | Seen::Probe(_)
+        | Seen::Probe
+        | Seen::SetLinkUp(_)
         | Seen::Reconcile(_)
         | Seen::Bridge { .. }
         | Seen::Enslave { .. }

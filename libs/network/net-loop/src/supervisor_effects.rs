@@ -5,6 +5,7 @@ use std::io;
 
 use net_runtime::Link as _;
 
+use crate::driver;
 use crate::pending::Pending;
 use crate::resolver::Nameservers;
 
@@ -21,12 +22,26 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             let links = runtime.link().links().await?;
             pending.push_back(Pending::Links(links));
         }
-        net_supervisor::Effect::ProbeCarriers { links } => {
+        net_supervisor::Effect::ProbeCarriers => {
+            let links = runtime.link().links().await?;
             let carriers = links
                 .iter()
                 .map(|link| (link.index, link.has_carrier()))
                 .collect();
             pending.push_back(Pending::Carriers(carriers));
+        }
+        net_supervisor::Effect::SetLinkUp { name } => {
+            runtime.link().set_up(&name).await?;
+            // net-runtime-linux seeds its previous-state map on the first
+            // events().next() after activation, so the initial RTM_NEWLINK can
+            // be suppressed. Refresh the controller view here instead of
+            // leaving it on a stale Down snapshot until the next event.
+            if let Some(link) = runtime.link().link(&name).await? {
+                pending.push_back(Pending::InterfaceLink {
+                    name,
+                    info: driver::link_info(&link),
+                });
+            }
         }
         net_supervisor::Effect::ConfigureInterface { name, v4, v6 } => {
             runtime.link().set_up(&name).await?;

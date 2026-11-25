@@ -4,7 +4,7 @@ use netmodel::{LinkEvent, Name};
 
 use crate::actions::Action;
 use crate::reconcile::run;
-use crate::{Supervisor, dns, failover, owner};
+use crate::{State, Supervisor, dns, failover, owner};
 
 /// Applies one link lifecycle event.
 pub(crate) fn apply(supervisor: &mut Supervisor, event: LinkEvent) {
@@ -18,6 +18,14 @@ pub(crate) fn apply(supervisor: &mut Supervisor, event: LinkEvent) {
 }
 
 fn on_up(supervisor: &mut Supervisor, name: &Name) {
+    if matches!(
+        supervisor.state.state,
+        State::Initializing | State::Degraded
+    ) && supervisor.state.primary.is_none()
+    {
+        supervisor.queue.push_back(Action::Discover);
+        return;
+    }
     if owner::is_enslaved(supervisor, name) {
         refresh_owner(supervisor);
         return;

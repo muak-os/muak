@@ -271,42 +271,75 @@ fn discover_queues_the_link_inventory() {
 }
 
 #[test]
-fn probe_carriers_queues_the_state_per_link() {
+fn probe_carriers_rereads_the_state_per_link() {
     // ARRANGE
     let mock = runtime();
     let mut pending = VecDeque::new();
-    let links = [
-        netmodel::Link {
-            name: name("eth0"),
-            index: 2,
-            mac: netmodel::Mac::default(),
-            state: netmodel::LinkState::Up,
-            is_virtual: false,
-            master: None,
-        },
-        netmodel::Link {
-            name: name("eth1"),
-            index: 3,
-            mac: netmodel::Mac::default(),
-            state: netmodel::LinkState::NoCarrier,
-            is_virtual: false,
-            master: None,
-        },
-    ];
+    mock.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::Up,
+        is_virtual: false,
+        master: None,
+    });
+    mock.set_link(netmodel::Link {
+        name: name("eth1"),
+        index: 3,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::NoCarrier,
+        is_virtual: false,
+        master: None,
+    });
 
     // ACT
-    apply_supervisor(
-        &mock,
-        &mut pending,
-        net_supervisor::Effect::ProbeCarriers { links: &links },
-    )
-    .expect("probe carriers");
+    apply_supervisor(&mock, &mut pending, net_supervisor::Effect::ProbeCarriers)
+        .expect("probe carriers");
 
     // ASSERT
     let Some(Pending::Carriers(carriers)) = pending.pop_front() else {
         panic!("carrier state expected");
     };
     assert_eq!(carriers, vec![(2, true), (3, false)]);
+}
+
+#[test]
+fn set_link_up_reaches_the_runtime_and_refreshes_the_link_view() {
+    // ARRANGE
+    let mock = runtime();
+    mock.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::Down,
+        is_virtual: false,
+        master: None,
+    });
+    let mut pending = VecDeque::new();
+
+    // ACT
+    apply_supervisor(
+        &mock,
+        &mut pending,
+        net_supervisor::Effect::SetLinkUp { name: name("eth0") },
+    )
+    .expect("set link up");
+
+    // ASSERT
+    let link = block_on(net_runtime::Link::link(&mock, &name("eth0")))
+        .expect("query link")
+        .expect("known link");
+    let Some(Pending::InterfaceLink {
+        name: refreshed,
+        info,
+    }) = pending.pop_front()
+    else {
+        panic!("link view refresh expected");
+    };
+    assert_eq!(link.state, netmodel::LinkState::Up);
+    assert_eq!(refreshed, name("eth0"));
+    assert_eq!(info.state, netmodel::LinkState::Up);
+    assert!(pending.is_empty());
 }
 
 #[test]

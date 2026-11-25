@@ -126,7 +126,8 @@ impl Supervisor {
     fn render(&self, action: Action) -> Step<'_> {
         let effect = match action {
             Action::Discover => Effect::Discover,
-            Action::ProbeCarriers => Effect::ProbeCarriers { links: &self.links },
+            Action::ProbeCarriers => Effect::ProbeCarriers,
+            Action::SetLinkUp { name } => Effect::SetLinkUp { name },
             Action::EnsureBridge { index, name } => {
                 let config = self
                     .config

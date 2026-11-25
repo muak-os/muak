@@ -16,6 +16,9 @@ mod tests {
         let artifacts = Artifacts::from_env()?;
         let fixture = TestFixture::boot_live(&artifacts)?;
         fixture.vm.wait_ready(Duration::from_secs(30)).await?;
+        fixture
+            .vm
+            .assert_serial_contains("[granola] Service networkd ready")?;
         let cli = Cli::new(&artifacts.cli_bin, fixture.vm.host_port)?;
 
         // ACT & ASSERT

@@ -10,8 +10,13 @@ use netmodel::Name;
 pub(crate) enum Action {
     /// Discover the current links.
     Discover,
-    /// Probe carrier state for the last discovered links.
+    /// Probe carrier state after re-reading the link state.
     ProbeCarriers,
+    /// Bring one administratively down link up.
+    SetLinkUp {
+        /// Link to activate.
+        name: Name,
+    },
     /// Ensure the bridge at `index` exists.
     EnsureBridge {
         /// Index of the bridge interface configuration.

@@ -203,6 +203,101 @@ impl net_runtime::Link for BrokenLink {
     }
 }
 
+struct SlowPhy {
+    mock: Mock,
+}
+
+impl net_runtime::Runtime for SlowPhy {
+    type Address = Mock;
+    type Clock = Mock;
+    type Entropy = Mock;
+    type Events = Mock;
+    type Icmpv6 = Mock;
+    type Link = Self;
+    type Packet = Mock;
+    type Route = Mock;
+    type Udp = Mock;
+
+    fn address(&self) -> &Mock {
+        self.mock.address()
+    }
+
+    fn clock(&self) -> &Mock {
+        self.mock.clock()
+    }
+
+    fn entropy(&self) -> &Mock {
+        self.mock.entropy()
+    }
+
+    fn events(&self) -> &Mock {
+        self.mock.events()
+    }
+
+    fn icmpv6(&self) -> &Mock {
+        self.mock.icmpv6()
+    }
+
+    fn link(&self) -> &Self::Link {
+        self
+    }
+
+    fn packet(&self) -> &Mock {
+        self.mock.packet()
+    }
+
+    fn route(&self) -> &Mock {
+        self.mock.route()
+    }
+
+    fn udp(&self) -> &Mock {
+        self.mock.udp()
+    }
+}
+
+impl net_runtime::Link for SlowPhy {
+    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+        self.mock.detach(port)
+    }
+
+    fn ensure_bridge(
+        &self,
+        name: &netmodel::Name,
+        stp: bool,
+    ) -> impl Future<Output = io::Result<()>> + Send {
+        self.mock.ensure_bridge(name, stp)
+    }
+
+    fn link(
+        &self,
+        name: &netmodel::Name,
+    ) -> impl Future<Output = io::Result<Option<netmodel::Link>>> + Send {
+        self.mock.link(name)
+    }
+
+    fn links(&self) -> impl Future<Output = io::Result<Vec<netmodel::Link>>> + Send {
+        self.mock.links()
+    }
+
+    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+        self.mock.set_down(name)
+    }
+
+    fn set_master(
+        &self,
+        port: &netmodel::Name,
+        master: &netmodel::Name,
+    ) -> impl Future<Output = io::Result<()>> + Send {
+        self.mock.set_master(port, master)
+    }
+
+    fn set_up(&self, _name: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+        // A slow PHY stays down after the administrative up request; carrier
+        // only arrives with the link event.
+        std::future::ready(Ok(()))
+    }
+}
+
 fn ethernet() -> net_supervisor::InterfaceConfig {
     net_supervisor::InterfaceConfig {
         name: String::from("eth0"),
@@ -264,7 +359,7 @@ async fn settle<R: net_runtime::Runtime>(driver: &mut Loop<R>, now: Instant, wal
     panic!("driver did not settle");
 }
 
-async fn boot(driver: &mut Loop<Mock>, now: Instant, wall: SystemTime) {
+async fn boot<R: net_runtime::Runtime>(driver: &mut Loop<R>, now: Instant, wall: SystemTime) {
     driver.start(now).await;
     settle(driver, now, wall).await;
 }
@@ -295,6 +390,36 @@ fn start_discovers_provisions_and_configures() {
     assert_eq!(driver.status().owner, Some(name("eth0")));
     assert_eq!(driver.interfaces().len(), 1);
     assert_eq!(driver.interfaces()[0].link().name, name("eth0"));
+    assert_eq!(addresses(&driver, &name("eth0")), vec![assigned()]);
+}
+
+#[test]
+fn down_link_is_activated_before_the_carrier_probe() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mock = Mock::new(now, wall);
+    mock.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::Down,
+        is_virtual: false,
+        master: None,
+    });
+    let mut driver: Loop<Mock> = Loop::new(mock, config(vec![ethernet()]));
+
+    // ACT
+    block_on(boot(&mut driver, now, wall));
+
+    // ASSERT
+    assert_eq!(driver.status().state, net_supervisor::State::Ready);
+    assert_eq!(driver.status().primary, Some(name("eth0")));
+    assert_eq!(
+        driver.interfaces()[0].snapshot().link,
+        netmodel::LinkState::Up
+    );
+    assert_eq!(link_state(&driver, &name("eth0")), netmodel::LinkState::Up);
     assert_eq!(addresses(&driver, &name("eth0")), vec![assigned()]);
 }
 
@@ -410,6 +535,81 @@ fn discovery_refresh_failure_still_feeds_the_supervisor() {
 
     // ASSERT
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert_eq!(driver.status().state, net_supervisor::State::Degraded);
+}
+
+#[test]
+fn degraded_probe_recovers_when_the_link_comes_up_on_retry() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mock = Mock::new(now, wall);
+    mock.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::NoCarrier,
+        is_virtual: false,
+        master: None,
+    });
+    let mut driver: Loop<Mock> = Loop::new(mock, config(vec![ethernet()]));
+
+    // ACT
+    block_on(boot(&mut driver, now, wall));
+    let degraded = driver.status().state;
+    let retry = driver.next_wake(now).expect("retry deadline");
+    driver.runtime.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::Up,
+        is_virtual: false,
+        master: None,
+    });
+    block_on(settle(&mut driver, retry, wall));
+
+    // ASSERT
+    assert_eq!(degraded, net_supervisor::State::Degraded);
+    assert_eq!(driver.status().state, net_supervisor::State::Ready);
+    assert_eq!(driver.status().primary, Some(name("eth0")));
+}
+
+#[test]
+fn slow_phy_link_up_event_recovers_the_supervisor() {
+    // ARRANGE
+    let now = Instant::now();
+    let wall = SystemTime::UNIX_EPOCH;
+    let mock = Mock::new(now, wall);
+    mock.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::Down,
+        is_virtual: false,
+        master: None,
+    });
+    let mut driver: Loop<SlowPhy> = Loop::new(SlowPhy { mock }, config(vec![ethernet()]));
+
+    // ACT
+    block_on(boot(&mut driver, now, wall));
+    let degraded = driver.status().state;
+    driver.runtime.mock.set_link(netmodel::Link {
+        name: name("eth0"),
+        index: 2,
+        mac: netmodel::Mac::default(),
+        state: netmodel::LinkState::Up,
+        is_virtual: false,
+        master: None,
+    });
+    driver.runtime.mock.push_event(netmodel::LinkEvent::Up {
+        name: name("eth0"),
+        index: 2,
+    });
+    block_on(driver.wait_event()).expect("wait event");
+    block_on(settle(&mut driver, now, wall));
+
+    // ASSERT
+    assert_eq!(degraded, net_supervisor::State::Degraded);
     assert_eq!(driver.status().state, net_supervisor::State::Ready);
     assert_eq!(driver.status().primary, Some(name("eth0")));
 }
