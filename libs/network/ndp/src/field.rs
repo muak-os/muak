@@ -3,13 +3,9 @@
 use core::net::Ipv6Addr;
 use core::ops::Range;
 
-use crate::checksum;
 use crate::error::{NdpError, Result};
+use crate::icmpv6::{CHECKSUM, CHECKSUM_LEN, checksum};
 
-/// Offset of the `ICMPv6` checksum field.
-pub(crate) const CHECKSUM: usize = 2;
-/// Length of the `ICMPv6` checksum field.
-pub(crate) const CHECKSUM_LEN: usize = 2;
 /// Length of an IPv6 address in bytes.
 pub(crate) const ADDRESS_LEN: usize = 16;
 

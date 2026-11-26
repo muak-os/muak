@@ -190,9 +190,10 @@ mod tests {
 
     use super::{Advertisement, advertisement};
     use crate::error::NdpError;
+    use crate::icmpv6::checksum;
     use crate::message::AdvertisementHeader;
+    use crate::parse;
     use crate::types::{self, LINK_LAYER_LEN, PrefixInformation};
-    use crate::{checksum, parse};
 
     const MAC: [u8; LINK_LAYER_LEN] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 

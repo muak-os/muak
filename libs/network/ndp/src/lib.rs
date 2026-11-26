@@ -1,26 +1,22 @@
-//! RFC 4861 Neighbor Discovery and RFC 4443 `ICMPv6` codec.
+//! RFC 4861 Neighbor Discovery message codec over RFC 4443 `ICMPv6` framing.
 
 #![warn(missing_docs)]
 
 pub mod build;
 pub mod error;
 mod field;
+pub mod icmpv6;
 pub mod message;
 pub mod parse;
 pub mod types;
 
 use core::net::Ipv6Addr;
 
-use ip::v6;
-
 /// IPv6 all-routers link-local multicast address.
 pub const ALL_ROUTERS: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
 
 /// IPv6 all-nodes link-local multicast address.
 pub const ALL_NODES: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1);
-
-/// Upper-layer protocol number of `ICMPv6`.
-pub const NEXT_HEADER_ICMPV6: u8 = 58;
 
 /// `ICMPv6` Router Solicitation type code.
 pub const ROUTER_SOLICITATION: u8 = 133;
@@ -30,9 +26,3 @@ pub const ROUTER_ADVERTISEMENT: u8 = 134;
 pub const NEIGHBOR_SOLICITATION: u8 = 135;
 /// `ICMPv6` Neighbor Advertisement type code.
 pub const NEIGHBOR_ADVERTISEMENT: u8 = 136;
-
-/// Computes the `ICMPv6` checksum of `message` over the RFC 8200 section 8.1 pseudo-header.
-#[must_use = "callers need the checksum"]
-pub fn checksum(source: Ipv6Addr, destination: Ipv6Addr, message: &[u8]) -> u16 {
-    v6::sum(source, destination, NEXT_HEADER_ICMPV6, message)
-}

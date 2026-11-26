@@ -1,6 +1,6 @@
 [package]
 name = "ndp"
-description = "RFC 4861 Neighbor Discovery and RFC 4443 ICMPv6 codec"
+description = "RFC 4861 Neighbor Discovery message codec over RFC 4443 ICMPv6 framing"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

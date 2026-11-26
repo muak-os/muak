@@ -131,9 +131,10 @@ mod tests {
 
     use super::{neighbor_advertisement, neighbor_solicitation, router_solicitation};
     use crate::error::NdpError;
+    use crate::icmpv6::checksum;
     use crate::message::NeighborFlags;
     use crate::types::{self, LINK_LAYER_LEN};
-    use crate::{ALL_ROUTERS, checksum, parse};
+    use crate::{ALL_ROUTERS, parse};
 
     const MAC: [u8; LINK_LAYER_LEN] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 
