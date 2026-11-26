@@ -1,3 +1,5 @@
+//! TAP device setup and teardown for VM networking.
+
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
 

@@ -35,9 +35,8 @@ use tokio::net::UdpSocket;
 
 /// Linux runtime backend implemented with tokio.
 ///
-/// Socket receive operations await readiness and return data, an error, or
-/// cancellation. Unlike the deterministic mock they never report
-/// [`std::io::ErrorKind::WouldBlock`].
+/// Socket receive operations await readiness and return data, an error, or cancellation. Unlike the deterministic mock
+/// they never report [`std::io::ErrorKind::WouldBlock`].
 #[cfg(feature = "tokio")]
 pub struct Tokio {
     link: control::Handle,
@@ -56,8 +55,9 @@ pub struct Tokio {
 impl Tokio {
     /// Opens a route netlink connection and creates the runtime.
     ///
-    /// The connection task is spawned on the current tokio runtime, so this
-    /// must be called from inside a tokio runtime context.
+    /// # Panics
+    ///
+    /// Panics when called outside a tokio runtime context.
     ///
     /// # Errors
     ///

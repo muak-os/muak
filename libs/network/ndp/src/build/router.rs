@@ -38,13 +38,10 @@ pub struct Advertisement<'a> {
 
 /// Writes a Router Advertisement into `message` and returns the written bytes.
 ///
-/// `source` and `destination` are the IPv6 addresses of the eventual datagram, used for the
-/// `ICMPv6` checksum pseudo-header.
-///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `message` cannot hold the advertisement and
-/// [`Failure::LengthOverflow`] when the DNS server list does not fit the option length field.
+/// Returns [`Failure::TooSmall`] when `message` cannot hold the advertisement and [`Failure::LengthOverflow`] when the
+/// DNS server list does not fit the option length field.
 pub fn advertisement<'a>(
     source: Ipv6Addr,
     destination: Ipv6Addr,

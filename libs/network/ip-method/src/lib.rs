@@ -146,9 +146,8 @@ pub enum Input<'a> {
         slot: SocketSlot,
         /// Raw frame bytes.
         bytes: &'a [u8],
-        /// Source address of the received frame, when the transport reports
-        /// one. Raw L2 and UDP sockets may report `None`; a raw `ICMPv6`
-        /// socket reports the IPv6 source address.
+        /// Source address of the received frame, when the transport reports one. Raw L2 and UDP sockets may report
+        /// `None`; a raw `ICMPv6` socket reports the IPv6 source address.
         source: Option<IpAddr>,
     },
     /// Socket finished opening.
@@ -175,8 +174,8 @@ pub enum Input<'a> {
     },
     /// Entropy was provided by the runtime.
     ///
-    /// Each request supplies at least 32 bits. A method needing more must
-    /// request again or derive additional bits from other inputs.
+    /// Each request supplies at least 32 bits. A method needing more must request again or derive additional bits from
+    /// other inputs.
     Entropy(u32),
     /// Timer deadline elapsed.
     Timer,
@@ -189,12 +188,9 @@ pub enum Effect<'a> {
     OpenSocket(SocketSpec),
     /// Send a frame on an already open socket.
     ///
-    /// `dst` is `None` for a [`SocketKind::RawL2`] socket, whose Ethernet
-    /// destination is inside the frame, and for a [`SocketKind::Udp`] socket,
-    /// which is connected through [`SocketSpec::peer`]. A
-    /// [`SocketKind::RawIcmpv6`] socket requires
-    /// `Some(SocketAddr::V6(..))` because the frame does not carry its
-    /// destination.
+    /// `dst` is `None` for a [`SocketKind::RawL2`] socket, whose Ethernet destination is inside the frame, and for a
+    /// [`SocketKind::Udp`] socket, which is connected through [`SocketSpec::peer`]. A [`SocketKind::RawIcmpv6`] socket
+    /// requires `Some(SocketAddr::V6(..))` because the frame does not carry its destination.
     Send {
         /// Slot to send the frame on.
         slot: SocketSlot,
@@ -210,8 +206,8 @@ pub enum Effect<'a> {
     },
     /// Request fresh entropy from the runtime.
     ///
-    /// Each request supplies at least 32 bits. A method needing more must
-    /// request again or derive additional bits from other inputs.
+    /// Each request supplies at least 32 bits. A method needing more must request again or derive additional bits from
+    /// other inputs.
     RequestEntropy,
     /// Emit an event to the controller.
     Emit(Event),
@@ -231,20 +227,12 @@ pub trait Method {
     /// Point-in-time state the method exposes to the controller.
     type View;
 
-    /// Earliest instant at which the method must be polled again with no I/O pending.
-    ///
-    /// Returning an earlier instant is safe; a later one is a bug. Returning `now`
-    /// asks the controller for an immediate step.
+    /// Earliest instant at which the method must be polled again with no I/O pending. Returning an earlier instant is
+    /// safe; a later one is a bug. Returning `now` asks the controller for an immediate step.
     fn next_wake(&self, now: Instant) -> Option<Instant>;
 
-    /// Performs at most one step and returns the next effect.
-    ///
-    /// Every deadline at or before `now` must be handled before waiting for I/O.
-    ///
-    /// Frames received via [`Input::Frame`] are borrowed from the caller, while
-    /// [`Effect::Send`] may only borrow from `self`, so a method replying to a
-    /// received frame must copy or re-serialize the reply into its own fixed
-    /// buffer.
+    /// Performs at most one step and returns the next effect. Every deadline at or before `now` must be handled before
+    /// waiting for I/O.
     fn step(&mut self, now: Instant, wall: SystemTime, input: Input<'_>) -> Step<'_>;
 
     /// Returns the method's current view, or `None` when it has nothing to report.

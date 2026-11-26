@@ -272,10 +272,6 @@ impl Effect<'_> {
     }
 
     /// Returns the kind of work this effect asks the runtime to perform.
-    ///
-    /// The driver reports a failed effect back as [`Input::EffectFailed`], and
-    /// that input carries the kind instead of the borrowed effect, so the kind
-    /// has to be readable while the effect is still alive.
     #[must_use = "the driver needs the kind to report an effect failure"]
     pub const fn kind(&self) -> EffectKind {
         match *self {

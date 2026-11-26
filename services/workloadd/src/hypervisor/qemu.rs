@@ -1,3 +1,5 @@
+//! QEMU process driver.
+
 use anyhow::Result;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::Command;

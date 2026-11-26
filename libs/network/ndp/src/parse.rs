@@ -32,8 +32,8 @@ const OVERRIDE_FLAG: u8 = 0x20;
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the solicitation header, and
-/// [`Failure::WrongType`] when the message is not a Router Solicitation.
+/// Returns [`Failure::Truncated`] when `message` is shorter than the solicitation header, and [`Failure::WrongType`]
+/// when the message is not a Router Solicitation.
 pub fn router_solicitation(message: &[u8]) -> Result<Options<'_>> {
     check(message, ROUTER_SOLICITATION, SOLICITATION_LEN)?;
     let options = message
@@ -47,8 +47,8 @@ pub fn router_solicitation(message: &[u8]) -> Result<Options<'_>> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the advertisement header, and
-/// [`Failure::WrongType`] when the message is not a Router Advertisement.
+/// Returns [`Failure::Truncated`] when `message` is shorter than the advertisement header, and [`Failure::WrongType`]
+/// when the message is not a Router Advertisement.
 pub fn router_advertisement(message: &[u8]) -> Result<RouterAdvertisement<'_>> {
     check(message, ROUTER_ADVERTISEMENT, ADVERTISEMENT_LEN)?;
     let flags = field::byte(message, FLAGS)?;
@@ -74,8 +74,8 @@ pub fn router_advertisement(message: &[u8]) -> Result<RouterAdvertisement<'_>> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the solicitation header, and
-/// [`Failure::WrongType`] when the message is not a Neighbor Solicitation.
+/// Returns [`Failure::Truncated`] when `message` is shorter than the solicitation header, and [`Failure::WrongType`]
+/// when the message is not a Neighbor Solicitation.
 pub fn neighbor_solicitation(message: &[u8]) -> Result<NeighborSolicitation<'_>> {
     check(message, NEIGHBOR_SOLICITATION, NEIGHBOR_LEN)?;
 
@@ -89,8 +89,8 @@ pub fn neighbor_solicitation(message: &[u8]) -> Result<NeighborSolicitation<'_>>
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the advertisement header, and
-/// [`Failure::WrongType`] when the message is not a Neighbor Advertisement.
+/// Returns [`Failure::Truncated`] when `message` is shorter than the advertisement header, and [`Failure::WrongType`]
+/// when the message is not a Neighbor Advertisement.
 pub fn neighbor_advertisement(message: &[u8]) -> Result<NeighborAdvertisement<'_>> {
     check(message, NEIGHBOR_ADVERTISEMENT, NEIGHBOR_LEN)?;
     let flags = field::byte(message, NEIGHBOR_FLAGS)?;

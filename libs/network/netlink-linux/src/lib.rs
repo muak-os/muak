@@ -1,4 +1,4 @@
-//! Linux rtnetlink message builders and typed parsers that never open sockets and leave sequence and port numbers to the caller.
+//! Linux rtnetlink message builders and typed parsers that leave sequence and port numbers to the caller.
 
 #![warn(missing_docs)]
 
@@ -215,13 +215,10 @@ pub fn parse_route(message: &RouteNetlinkMessage) -> Option<Route> {
 
 /// Parses link lifecycle events from a route netlink notification.
 ///
-/// `previous` is the caller's last known state for the link index. `None` marks
-/// an unknown link, so a `NewLink` notification becomes [`LinkEvent::Added`].
-/// A known link only emits [`LinkEvent::Up`] or [`LinkEvent::Down`] when its
-/// carrier presence changed. `DelLink` always becomes [`LinkEvent::Deleted`].
-///
-/// [`LinkEvent::Error`] is not produced here: overrun, kernel, and closed
-/// payloads come from the socket backend and are mapped by `net-runtime-linux`.
+/// `previous` is the caller's last known state for the link index. `None` marks an unknown link, so a `NewLink`
+/// notification becomes [`LinkEvent::Added`]. A known link only emits [`LinkEvent::Up`] or [`LinkEvent::Down`] when its
+/// carrier presence changed. `DelLink` always becomes [`LinkEvent::Deleted`]. [`LinkEvent::Error`] is not produced
+/// here.
 #[must_use = "the parsed event must be dispatched or dropped intentionally"]
 pub fn parse_event(
     message: &RouteNetlinkMessage,

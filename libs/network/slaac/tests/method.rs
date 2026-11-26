@@ -1,3 +1,5 @@
+//! Scripted method tests for the SLAAC finite state machine.
+
 #![cfg(test)]
 
 use core::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};

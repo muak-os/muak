@@ -19,10 +19,8 @@ const OVERRIDE_FLAG: u8 = 0x20;
 
 /// Writes a Router Solicitation into `message` and returns the written bytes.
 ///
-/// `source` and `destination` are the IPv6 addresses of the eventual datagram, used for the
-/// `ICMPv6` checksum pseudo-header. `link_layer` becomes a Source Link-Layer Address option
-/// only when `source` is specified, as RFC 4861 section 4.1 requires; an unspecified source
-/// drops the option even when a link-layer address is supplied.
+/// `link_layer` becomes a Source Link-Layer Address option only when `source` is specified, as RFC 4861 section 4.1
+/// requires; an unspecified source drops the option even when a link-layer address is supplied.
 ///
 /// # Errors
 ///
@@ -53,9 +51,6 @@ pub fn router_solicitation(
 
 /// Writes a Neighbor Solicitation into `message` and returns the written bytes.
 ///
-/// `source` and `destination` are the IPv6 addresses of the eventual datagram, used for the
-/// `ICMPv6` checksum pseudo-header.
-///
 /// # Errors
 ///
 /// Returns [`Failure::TooSmall`] when `message` cannot hold the solicitation.
@@ -81,9 +76,6 @@ pub fn neighbor_solicitation(
 }
 
 /// Writes a Neighbor Advertisement into `message` and returns the written bytes.
-///
-/// `source` and `destination` are the IPv6 addresses of the eventual datagram, used for the
-/// `ICMPv6` checksum pseudo-header.
 ///
 /// # Errors
 ///

@@ -52,9 +52,6 @@ impl<T> Table<T> {
     }
 
     /// Borrows the table while a caller performs one socket operation.
-    ///
-    /// The returned guard is held across the socket await, so closing that
-    /// socket requires the receive or send future to be dropped first.
     pub(crate) async fn read(&self) -> RwLockReadGuard<'_, HashMap<SocketId, T>> {
         self.entries.read().await
     }

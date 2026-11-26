@@ -3,9 +3,6 @@
 use netmodel::Name;
 
 /// One queued supervisor action.
-///
-/// Names are owned so the queue can outlive a step, while configuration stays
-/// in the supervisor and is borrowed only when the action is rendered.
 #[derive(Debug)]
 pub(crate) enum Action {
     /// Discover the current links.

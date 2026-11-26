@@ -113,7 +113,8 @@ pub enum Effect<'a> {
         /// Specification of the socket to open.
         spec: ip_method::SocketSpec,
     },
-    /// Send a frame on a socket the family already opened; destination is required only for `ICMPv6`, not raw L2 or `UDP`.
+    /// Send a frame on a socket the family already opened; destination is required only for `ICMPv6`, not raw L2 or
+    /// `UDP`.
     Send {
         /// Family the socket belongs to.
         family: Family,

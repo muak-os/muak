@@ -9,8 +9,7 @@ use crate::driver;
 use crate::pending::Pending;
 use crate::resolver::Nameservers;
 
-/// Executes one supervisor effect and queues the results the supervisor
-/// must consume later.
+/// Executes one supervisor effect and queues the results the supervisor must consume later.
 pub(crate) async fn apply<R: net_runtime::Runtime>(
     runtime: &R,
     pending: &mut VecDeque<Pending>,

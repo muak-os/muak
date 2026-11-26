@@ -1,3 +1,5 @@
+//! VM actor handle and task entry points.
+
 mod commands;
 mod state;
 mod tap;

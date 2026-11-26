@@ -4,9 +4,6 @@ use alloc::vec::Vec;
 use core::net::{Ipv4Addr, Ipv6Addr};
 
 /// Nameserver addresses the supervisor last asked the service to write.
-///
-/// The driver owns no file, so it only keeps the payload until the service
-/// that owns name resolution reads it.
 #[derive(Debug, Default)]
 pub(crate) struct Nameservers {
     v4: Vec<Ipv4Addr>,

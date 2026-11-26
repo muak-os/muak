@@ -1,3 +1,5 @@
+//! Live VM boot end-to-end test.
+
 use core::time::Duration;
 
 use anyhow::Result;

@@ -20,22 +20,18 @@ pub enum Mode {
         /// Server that offered the lease.
         server: Ipv4Addr,
     },
-    /// RENEWING: `ciaddr` holds the assigned address, no option 50, no server identifier,
-    /// broadcast flag cleared.
+    /// RENEWING: `ciaddr` holds the assigned address, no option 50, no server identifier, broadcast flag cleared.
     Renew,
-    /// REBINDING: `ciaddr` holds the assigned address, no option 50, no server identifier,
-    /// broadcast flag set.
+    /// REBINDING: `ciaddr` holds the assigned address, no option 50, no server identifier, broadcast flag set.
     Rebind,
 }
 
 /// Writes a DHCP DISCOVER message with the caller supplied transaction ID into `buf`.
 ///
-/// The transaction ID is an input: the codec owns no entropy source.
-///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the
-/// header and the DISCOVER options.
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the header and the DISCOVER
+/// options.
 pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     let required = header::LEN
         .saturating_add(MESSAGE_TYPE_LEN)
@@ -63,13 +59,10 @@ pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
 
 /// Writes a DHCP REQUEST message with the caller supplied transaction ID into `buf`.
 ///
-/// The transaction ID is an input: the codec owns no entropy source. The [`Mode`] decides whether
-/// the assigned address travels in option 50 (SELECTING) or in `ciaddr` (RENEWING, REBINDING).
-///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the
-/// header and the REQUEST options.
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the header and the REQUEST
+/// options.
 pub fn request(
     buf: &mut [u8],
     xid: u32,
@@ -125,8 +118,7 @@ pub fn request(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the
-/// option at `cursor`.
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the option at `cursor`.
 pub(crate) fn append_param_request_list(buf: &mut [u8], cursor: usize) -> Result<usize> {
     put(
         buf,

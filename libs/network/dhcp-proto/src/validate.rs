@@ -7,11 +7,10 @@ use crate::{Failure, Result};
 ///
 /// # Errors
 ///
-/// Returns [`Failure::ResponseTooShort`] when the message cannot hold the fixed header, the magic
-/// cookie and the options, [`Failure::XidMismatch`] when the transaction ID belongs to another
-/// exchange, [`Failure::Nak`] when the server refused the request, [`Failure::MessageType`] when
-/// the message type is not `expected_type`, and [`Failure::MissingMessageType`] when the option is
-/// absent.
+/// Returns [`Failure::ResponseTooShort`] when the message cannot hold the fixed header, the magic cookie and the
+/// options, [`Failure::XidMismatch`] when the transaction ID belongs to another exchange, [`Failure::Nak`] when the
+/// server refused the request, [`Failure::MessageType`] when the message type is not `expected_type`, and
+/// [`Failure::MissingMessageType`] when the option is absent.
 pub fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<ParsedOptions> {
     let options_start = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
     if buf.len() < options_start {

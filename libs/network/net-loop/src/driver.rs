@@ -11,10 +11,8 @@ use crate::resolver::Nameservers;
 use crate::{Progress, step};
 
 impl<R: net_runtime::Runtime> crate::Loop<R> {
-    /// Creates a driver loop for the runtime and supervisor configuration.
-    ///
-    /// The loop does not start the supervisor: callers run [`crate::Loop::start`]
-    /// before stepping so callers that only step keep working.
+    /// Creates a driver loop for the runtime and supervisor configuration. Does not initialize the supervisor: callers
+    /// run [`crate::Loop::start`] before stepping.
     #[must_use = "the loop owns the FSMs and must be stepped"]
     pub fn new(runtime: R, config: net_supervisor::Config) -> Self {
         Self {
@@ -31,10 +29,7 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
         }
     }
 
-    /// Feeds the supervisor its initialization command and executes the effect.
-    ///
-    /// Services call this once before entering the step loop. Calling it again
-    /// is a no-op, so a reconnecting service cannot restart discovery.
+    /// Feeds the supervisor its initialization command and executes the effect. Calling it again is a no-op.
     pub async fn start(&mut self, now: Instant) -> Progress {
         step::start(self, now).await
     }
@@ -106,9 +101,8 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
     ///
     /// # Errors
     ///
-    /// Returns the error a runtime port reported while executing an interface
-    /// effect or feeding a pending input back. Supervisor effect failures are
-    /// fed back to the supervisor instead of being returned.
+    /// Returns the error a runtime port reported while executing an interface effect or feeding a pending input back.
+    /// Supervisor effect failures are fed back to the supervisor instead of being returned.
     pub async fn step(&mut self, now: Instant, wall: SystemTime) -> io::Result<Progress> {
         step::run(self, now, wall).await
     }

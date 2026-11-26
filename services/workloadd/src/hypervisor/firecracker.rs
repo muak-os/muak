@@ -1,3 +1,5 @@
+//! Firecracker process driver.
+
 use anyhow::Result;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::fs::{create_dir_all, write};

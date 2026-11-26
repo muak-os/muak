@@ -15,8 +15,8 @@ const PROTOCOL_UDP: u8 = 17;
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `buf` cannot hold both headers and the payload, and
-/// [`Failure::LengthOverflow`] when either length field overflows [`u16::MAX`].
+/// Returns [`Failure::TooSmall`] when `buf` cannot hold both headers and the payload, and [`Failure::LengthOverflow`]
+/// when either length field overflows [`u16::MAX`].
 pub fn wrap<'a>(payload: &[u8], src: Addr, dst: Addr, buf: &'a mut [u8]) -> Result<&'a mut [u8]> {
     let udp_len = UDP_HEADER_LEN.saturating_add(payload.len());
     let frame_len = header::IPV4_HEADER_LEN.saturating_add(udp_len);
@@ -35,10 +35,10 @@ pub fn wrap<'a>(payload: &[u8], src: Addr, dst: Addr, buf: &'a mut [u8]) -> Resu
 ///
 /// # Errors
 ///
-/// Returns whatever [`header::parse`] returns for a malformed IPv4 header,
-/// [`Failure::NotUdp`] when the protocol is not UDP, and [`Failure::Truncated`] when the datagram
-/// is too short to hold a UDP header or when a length field is inconsistent: a total length below
-/// the IHL, a UDP length below the 8 byte UDP header, or a UDP length past the end of the segment.
+/// Returns whatever [`header::parse`] returns for a malformed IPv4 header, [`Failure::NotUdp`] when the protocol is not
+/// UDP, and [`Failure::Truncated`] when the datagram is too short to hold a UDP header or when a length field is
+/// inconsistent: a total length below the IHL, a UDP length below the 8 byte UDP header, or a UDP length past the end
+/// of the segment.
 pub fn unwrap(buf: &[u8]) -> Result<(Addr, Addr, &[u8])> {
     let header = header::parse(buf)?;
     if header.protocol != PROTOCOL_UDP {

@@ -100,8 +100,8 @@ pub enum Option<'a> {
 
 /// Iterator over the options that follow a Neighbor Discovery message header.
 ///
-/// Unknown option types are skipped. Iteration stops at the first option whose length does not
-/// fit the remaining bytes, which also covers the zero length that RFC 4861 rejects.
+/// Unknown option types are skipped. Iteration stops at the first option whose length does not fit the remaining bytes,
+/// which also covers the zero length that RFC 4861 rejects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Options<'a> {
     remaining: &'a [u8],

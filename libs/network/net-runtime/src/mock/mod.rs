@@ -1,4 +1,4 @@
-//! Deterministic in-memory runtime whose single mutex lets tests drive time, entropy, links, sockets, and events without the operating system.
+//! Deterministic in-memory runtime for driving time, entropy, links, sockets, and events in tests.
 
 mod address;
 mod clock;

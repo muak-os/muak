@@ -30,8 +30,8 @@ pub struct Header {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `buf` cannot hold a header and
-/// [`Failure::LengthOverflow`] when the declared total length exceeds [`u16::MAX`].
+/// Returns [`Failure::TooSmall`] when `buf` cannot hold a header and [`Failure::LengthOverflow`] when the declared
+/// total length exceeds [`u16::MAX`].
 pub fn build(
     src: Ipv4Addr,
     dst: Ipv4Addr,
@@ -89,10 +89,9 @@ pub fn build(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `buf` is shorter than the minimum header or than the
-/// declared total length, and [`Failure::BadIhl`] when the IHL field is below the minimum header
-/// length or the IHL-derived extent does not fit the buffer. A declared total length below the
-/// header length is reported as [`Failure::Truncated`] as well.
+/// Returns [`Failure::Truncated`] when `buf` is shorter than the minimum header or than the declared total length, and
+/// [`Failure::BadIhl`] when the IHL field is below the minimum header length or the IHL-derived extent does not fit the
+/// buffer. A declared total length below the header length is reported as [`Failure::Truncated`] as well.
 pub fn parse(buf: &[u8]) -> Result<Header> {
     if buf.len() < IPV4_HEADER_LEN {
         return Err(Failure::Truncated(buf.len(), IPV4_HEADER_LEN));

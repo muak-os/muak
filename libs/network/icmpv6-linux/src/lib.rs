@@ -31,10 +31,6 @@ impl Filter {
 
 /// Opens a raw `ICMPv6` socket bound to `link`.
 ///
-/// The socket is non blocking and close on exec. Every `ICMPv6` type is delivered: type filtering
-/// is userspace policy, so the method that owns the protocol decides what to consume and what to
-/// drop.
-///
 /// # Errors
 ///
 /// Returns an error when socket creation, `SO_BINDTODEVICE`, or the `ICMP6_FILTER` option fails.
@@ -55,14 +51,9 @@ pub fn open(link: &Name) -> io::Result<OwnedFd> {
 
 /// Sends `payload` to `dst` scoped to the socket's bound interface.
 ///
-/// `SO_BINDTODEVICE` set in [`open`] supplies the outgoing interface, so the destination is built
-/// with a `scope_id` of zero on purpose: the kernel scopes link local destinations by the device
-/// the socket is bound to.
-///
 /// # Errors
 ///
-/// Returns an error when the send fails. [`io::ErrorKind::WouldBlock`] is a normal result for a
-/// non blocking socket.
+/// Returns an error when the send fails. [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
 pub fn send(fd: BorrowedFd<'_>, dst: Ipv6Addr, payload: &[u8]) -> io::Result<usize> {
     let addr = SocketAddrV6::new(dst, 0, 0, 0);
 
@@ -73,8 +64,7 @@ pub fn send(fd: BorrowedFd<'_>, dst: Ipv6Addr, payload: &[u8]) -> io::Result<usi
 ///
 /// # Errors
 ///
-/// Returns an error when the receive fails. [`io::ErrorKind::WouldBlock`] is a normal result for a
-/// non blocking socket.
+/// Returns an error when the receive fails. [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
 pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<(usize, Option<Ipv6Addr>)> {
     net::recvfrom(fd, buf, net::RecvFlags::empty())
         .map(|(_flags, len, addr)| (len, source_address(addr)))

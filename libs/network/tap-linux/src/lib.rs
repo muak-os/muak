@@ -30,13 +30,10 @@ struct IfReq {
 
 /// Creates a persistent TAP device named `name` with virtio headers enabled.
 ///
-/// The returned file descriptor is the device queue. It stays open until the caller drops it, and
-/// the device itself survives that drop because it is persistent.
-///
 /// # Errors
 ///
-/// Returns an error when the name is invalid, the tun device cannot be opened, or the `TUNSETIFF`
-/// or `TUNSETPERSIST` ioctls fail.
+/// Returns an error when the name is invalid, the tun device cannot be opened, or the `TUNSETIFF` or `TUNSETPERSIST`
+/// ioctls fail.
 pub fn create(name: &str) -> io::Result<OwnedFd> {
     let fd = attach(name)?;
     set_persist(fd.as_fd(), PERSIST)?;
@@ -46,18 +43,15 @@ pub fn create(name: &str) -> io::Result<OwnedFd> {
 
 /// Deletes the persistent TAP device named `name`.
 ///
-/// Deleting attaches to the device with `TUNSETIFF` and clears the persistence flag with
-/// `TUNSETPERSIST`, so the device disappears once the descriptor is dropped. An absent device is
-/// not an error: `TUNSETIFF` creates it and the non persistent device is then destroyed when the
+/// An absent device is not an error: the attach creates it and the non persistent device is destroyed when the
 /// descriptor drops.
 ///
 /// # Errors
 ///
-/// Returns an error when the name is invalid or the tun device cannot be opened. Both ioctls also
-/// fail when the device cannot be changed: `TUNSETIFF` returns `EBUSY` while another queue holder
-/// keeps the device attached, `EPERM` without `CAP_NET_ADMIN`, and `EINVAL` when the name exists
-/// but is not a TAP device or was created with different queue flags. The kernel error is kept in
-/// the returned [`io::Error`].
+/// Returns an error when the name is invalid or the tun device cannot be opened. Both ioctls also fail when the device
+/// cannot be changed: `TUNSETIFF` returns `EBUSY` while another queue holder keeps the device attached, `EPERM` without
+/// `CAP_NET_ADMIN`, and `EINVAL` when the name exists but is not a TAP device or was created with different queue
+/// flags. The kernel error is kept in the returned [`io::Error`].
 pub fn delete(name: &str) -> io::Result<()> {
     let fd = attach(name)?;
 

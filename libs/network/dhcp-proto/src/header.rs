@@ -13,13 +13,9 @@ pub const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
 
 /// Writes the fixed header and magic cookie with an explicit `ciaddr` and `flags`.
 ///
-/// `ciaddr` carries the address a RENEWING or REBINDING client already holds; it stays zero for
-/// DISCOVER, SELECTING and all server messages.
-///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
-/// [`LEN`].
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
 pub fn build_with(
     buf: &mut [u8],
     xid: u32,
@@ -51,8 +47,7 @@ pub fn build_with(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
-/// [`LEN`].
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
 pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     build_with(buf, xid, mac, Ipv4Addr::UNSPECIFIED, FLAG_BROADCAST)
 }
@@ -61,8 +56,7 @@ pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than
-/// [`LEN`].
+/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
 pub fn build_unicast(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     build_with(buf, xid, mac, Ipv4Addr::UNSPECIFIED, 0)
 }

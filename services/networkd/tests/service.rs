@@ -10,7 +10,6 @@ mod tests {
     use net_runtime::{Events, Runtime};
     use networkd::service::{Readiness, Service};
 
-    /// Event port that never produces an event, so waiting must rely on the timer.
     struct Paused;
 
     impl Events for Paused {
@@ -19,7 +18,6 @@ mod tests {
         }
     }
 
-    /// Mock runtime with a blocking event port so readiness waits are deterministic.
     struct Sandbox {
         mock: Mock,
     }

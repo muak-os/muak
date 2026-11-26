@@ -155,8 +155,8 @@ pub trait Events {
     ///
     /// # Errors
     ///
-    /// Returns an error when link monitoring fails or the stream closes.
-    /// [`std::io::ErrorKind::WouldBlock`] means no event is ready yet.
+    /// Returns an error when link monitoring fails or the stream closes. [`std::io::ErrorKind::WouldBlock`] means no
+    /// event is ready yet.
     fn next(&self) -> impl Future<Output = std::io::Result<netmodel::LinkEvent>> + Send;
 }
 
@@ -183,8 +183,8 @@ pub trait Packet {
     ///
     /// # Errors
     ///
-    /// Returns an error when the socket is closed or the receive fails.
-    /// [`std::io::ErrorKind::WouldBlock`] means no frame is ready yet.
+    /// Returns an error when the socket is closed or the receive fails. [`std::io::ErrorKind::WouldBlock`] means no
+    /// frame is ready yet.
     fn recv(
         &self,
         id: SocketId,
@@ -205,11 +205,9 @@ pub trait Packet {
 
 /// Datagram (`UDP`) socket capability.
 ///
-/// Every socket kind shares [`ip_method::SocketSpec`], so `bind` and `peer` are
-/// not `UDP`-specific. Implementations should retain those endpoints for the
-/// lifetime of the socket opened by [`open`](Udp::open). Unlike the raw
-/// [`Packet`] and [`Icmpv6`] ports, a `UDP` socket is addressed by its
-/// endpoints rather than by a frame destination.
+/// Every socket kind shares [`ip_method::SocketSpec`], so `bind` and `peer` are not `UDP`-specific. Implementations
+/// should retain those endpoints for the lifetime of the socket opened by [`open`](Udp::open). Unlike the raw
+/// [`Packet`] and [`Icmpv6`] ports, a `UDP` socket is addressed by its endpoints rather than by a frame destination.
 pub trait Udp {
     /// Closes an open socket.
     ///
@@ -232,8 +230,8 @@ pub trait Udp {
     ///
     /// # Errors
     ///
-    /// Returns an error when the socket is closed or the receive fails.
-    /// [`std::io::ErrorKind::WouldBlock`] means no datagram is ready yet.
+    /// Returns an error when the socket is closed or the receive fails. [`std::io::ErrorKind::WouldBlock`] means no
+    /// datagram is ready yet.
     fn recv(
         &self,
         id: SocketId,
@@ -275,8 +273,8 @@ pub trait Icmpv6 {
     ///
     /// # Errors
     ///
-    /// Returns an error when the socket is closed or the receive fails.
-    /// [`std::io::ErrorKind::WouldBlock`] means no frame is ready yet.
+    /// Returns an error when the socket is closed or the receive fails. [`std::io::ErrorKind::WouldBlock`] means no
+    /// frame is ready yet.
     fn recv(
         &self,
         id: SocketId,
@@ -312,9 +310,6 @@ pub trait Entropy {
 }
 
 /// Bundle of the ports a network runtime provides.
-///
-/// The driver reaches every capability through the accessors, so it never
-/// needs to know how a backend stores its ports.
 pub trait Runtime {
     /// Address management port.
     type Address: Address;

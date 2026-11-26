@@ -46,8 +46,7 @@ pub enum Failure {
     TooSmall(usize),
     /// A length does not fit the field that must carry it.
     ///
-    /// The value is the offending option length in 8 byte units, as RFC 4861 option length
-    /// fields count 8 byte units.
+    /// The value is the offending option length in 8 byte units, as RFC 4861 option length fields count 8 byte units.
     #[error("length {0} does not fit its length field")]
     LengthOverflow(usize),
 }
@@ -56,8 +55,6 @@ pub enum Failure {
 pub type Result<T> = CoreResult<T, Failure>;
 
 /// Computes the `ICMPv6` checksum of `message` over the RFC 8200 section 8.1 pseudo-header.
-///
-/// A message that carries its correct checksum yields zero.
 #[must_use = "callers need the checksum"]
 pub fn checksum(source: Ipv6Addr, destination: Ipv6Addr, message: &[u8]) -> u16 {
     v6::sum(source, destination, NEXT_HEADER_ICMPV6, message)

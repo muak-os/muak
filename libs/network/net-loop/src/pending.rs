@@ -3,9 +3,6 @@
 use alloc::vec::Vec;
 
 /// Input the driver owns until the next step.
-///
-/// Effects borrow the FSM that produced them, so anything the FSMs must see
-/// again is copied into one of these variants first.
 #[derive(Debug)]
 pub(crate) enum Pending {
     /// Full link inventory returned by discovery.

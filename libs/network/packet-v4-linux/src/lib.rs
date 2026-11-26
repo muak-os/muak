@@ -27,8 +27,6 @@ struct SockAddrLl {
     address: [u8; 8],
 }
 
-// The kernel truncates `sockaddr_ll` to `offsetof(sll_addr) + sll_halen`, so a six byte
-// hardware address yields 18 bytes. Only the leading fields can be read back safely.
 #[repr(C)]
 struct SockAddrLlIndex {
     family: u16,
@@ -52,12 +50,9 @@ unsafe impl SocketAddrArg for SockAddrLl {
 
 /// Opens an `AF_PACKET`/`SOCK_DGRAM` socket bound to `link` and filtered to IPv4.
 ///
-/// The socket is non blocking and close on exec, so waiting for readiness is the caller's job.
-///
 /// # Errors
 ///
-/// Returns an error when socket creation, `SO_BINDTODEVICE`, the interface index lookup, or the
-/// interface bind fails.
+/// Returns an error when socket creation, `SO_BINDTODEVICE`, the interface index lookup, or the interface bind fails.
 pub fn open(link: &Name) -> io::Result<OwnedFd> {
     let fd = net::socket_with(
         net::AddressFamily::PACKET,
@@ -85,9 +80,6 @@ pub fn open(link: &Name) -> io::Result<OwnedFd> {
 
 /// Sends `frame` to the link-layer destination `dst` on the socket's bound interface.
 ///
-/// The adapter stores no state, so this calls `getsockname` to recover the interface index that
-/// `open` bound. That costs one extra syscall per frame.
-///
 /// # Errors
 ///
 /// Returns an error when the descriptor is not a bound `AF_PACKET` socket or the send fails.
@@ -108,8 +100,7 @@ pub fn send(fd: BorrowedFd<'_>, frame: &[u8], dst: [u8; ETH_ALEN]) -> io::Result
 ///
 /// # Errors
 ///
-/// Returns an error when the receive fails. [`io::ErrorKind::WouldBlock`] is a normal result for a
-/// non blocking socket.
+/// Returns an error when the receive fails. [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
 pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<usize> {
     net::recv(fd, buf, net::RecvFlags::empty())
         .map(|(_flags, len)| len)
