@@ -1,16 +1,17 @@
-//! Family-neutral static address provisioning method.
+//! Static address provisioning method.
 
 use alloc::collections::VecDeque;
+use core::net::IpAddr;
 use std::time::{Instant, SystemTime};
 
 use ip_method::{AddressConfig, Command, Effect, Event, Input, Intent, Method, State, Step};
 
-use crate::{Config, Family, Static, View};
+use crate::{Config, Static, View};
 
-impl<F: Family> Static<F> {
+impl<A: Copy + Into<IpAddr>> Static<A> {
     /// Creates a static method from the given configuration.
     #[must_use = "the method owns the provisioning state"]
-    pub const fn new(config: Config<F::Address>) -> Self {
+    pub const fn new(config: Config<A>) -> Self {
         Self {
             config,
             started: false,
@@ -20,7 +21,7 @@ impl<F: Family> Static<F> {
 
     /// Returns the configuration the method was created with.
     #[must_use = "callers need the configuration to report it"]
-    pub const fn config(&self) -> &Config<F::Address> {
+    pub const fn config(&self) -> &Config<A> {
         &self.config
     }
 
@@ -39,7 +40,7 @@ impl<F: Family> Static<F> {
             self.queue.push_back(Event::Intent(intent));
         }
         if let Some(gateway) = self.config.gateway {
-            let intent = Intent::EnsureDefaultRoute(F::ip(gateway));
+            let intent = Intent::EnsureDefaultRoute(gateway.into());
             self.queue.push_back(Event::Intent(intent));
         }
         self.queue.push_back(Event::State(State::Bound));
@@ -52,29 +53,29 @@ impl<F: Family> Static<F> {
             self.queue.push_back(Event::Intent(intent));
         }
         if let Some(gateway) = self.config.gateway {
-            let intent = Intent::RemoveDefaultRoute(F::ip(gateway));
+            let intent = Intent::RemoveDefaultRoute(gateway.into());
             self.queue.push_back(Event::Intent(intent));
         }
         self.queue.push_back(Event::State(State::Stopped));
     }
 
-    fn configure(address: F::Address, prefix_len: u8) -> Intent {
+    fn configure(address: A, prefix_len: u8) -> Intent {
         Intent::Configure(AddressConfig {
-            address: F::ip(address),
+            address: address.into(),
             prefix_len,
         })
     }
 
-    fn deconfigure(address: F::Address, prefix_len: u8) -> Intent {
+    fn deconfigure(address: A, prefix_len: u8) -> Intent {
         Intent::Deconfigure(AddressConfig {
-            address: F::ip(address),
+            address: address.into(),
             prefix_len,
         })
     }
 }
 
-impl<F: Family> Method for Static<F> {
-    type View = View<F::Address>;
+impl<A: Copy + Into<IpAddr>> Method for Static<A> {
+    type View = View<A>;
 
     fn step(&mut self, _now: Instant, _wall: SystemTime, input: Input<'_>) -> Step<'_> {
         if let Input::Command(command) = input {
@@ -113,22 +114,12 @@ mod tests {
 
     use ip_method::{Command, Effect, Event, Input, Intent, Method as _, State, Step};
 
-    use crate::{Config, Family, Static, View};
+    use crate::{Config, Static, View};
 
     const ADDRESS_A: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
     const ADDRESS_B: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 3);
     const GATEWAY: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 1);
     const DNS: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 53);
-
-    struct V4;
-
-    impl Family for V4 {
-        type Address = Ipv4Addr;
-
-        fn ip(address: Ipv4Addr) -> IpAddr {
-            IpAddr::V4(address)
-        }
-    }
 
     fn config() -> Config<Ipv4Addr> {
         Config {
@@ -138,7 +129,7 @@ mod tests {
         }
     }
 
-    fn send(method: &mut Static<V4>, input: Input<'_>) -> Option<Event> {
+    fn send(method: &mut Static<Ipv4Addr>, input: Input<'_>) -> Option<Event> {
         let step = method.step(Instant::now(), SystemTime::UNIX_EPOCH, input);
 
         match step {
@@ -148,11 +139,11 @@ mod tests {
         }
     }
 
-    fn command(method: &mut Static<V4>, command: Command) -> Event {
+    fn command(method: &mut Static<Ipv4Addr>, command: Command) -> Event {
         send(method, Input::Command(command)).expect("command emits its first event")
     }
 
-    fn next_event(method: &mut Static<V4>) -> Event {
+    fn next_event(method: &mut Static<Ipv4Addr>) -> Event {
         send(method, Input::Poll).expect("expected an emitted event")
     }
 
@@ -163,11 +154,11 @@ mod tests {
         }
     }
 
-    fn expect_intent(method: &mut Static<V4>) -> Intent {
+    fn expect_intent(method: &mut Static<Ipv4Addr>) -> Intent {
         intent_of(&next_event(method))
     }
 
-    fn drain_events(method: &mut Static<V4>, count: usize) {
+    fn drain_events(method: &mut Static<Ipv4Addr>, count: usize) {
         for _ in 0_usize..count {
             drop(next_event(method));
         }
@@ -179,7 +170,7 @@ mod tests {
         let config = config();
 
         // ACT
-        let method = Static::<V4>::new(config);
+        let method = Static::<Ipv4Addr>::new(config);
 
         // ASSERT
         assert_eq!(
@@ -193,7 +184,7 @@ mod tests {
     #[test]
     fn start_queues_configure_route_and_bound() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
 
         // ACT
         let first = intent_of(&command(&mut method, Command::Start));
@@ -215,7 +206,7 @@ mod tests {
     #[test]
     fn stop_queues_deconfigure_route_and_stopped() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -240,7 +231,7 @@ mod tests {
     #[test]
     fn poll_waits_after_start_events_drained() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -254,7 +245,7 @@ mod tests {
     #[test]
     fn poll_waits_after_stop_events_drained() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
         drop(command(&mut method, Command::Stop));
@@ -270,7 +261,7 @@ mod tests {
     #[test]
     fn reconcile_queues_configure_route_and_bound() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
 
         // ACT
         let first = intent_of(&command(&mut method, Command::Reconcile));
@@ -291,7 +282,7 @@ mod tests {
     #[test]
     fn stop_without_gateway_deconfigures_and_stops() {
         // ARRANGE
-        let mut method = Static::<V4>::new(Config {
+        let mut method = Static::<Ipv4Addr>::new(Config {
             addresses: vec![(ADDRESS_A, 24), (ADDRESS_B, 24)],
             gateway: None,
             dns: Vec::new(),
@@ -315,7 +306,7 @@ mod tests {
     #[test]
     fn start_without_addresses_binds_without_view() {
         // ARRANGE
-        let mut method = Static::<V4>::new(Config {
+        let mut method = Static::<Ipv4Addr>::new(Config {
             addresses: Vec::new(),
             gateway: None,
             dns: Vec::new(),
@@ -333,7 +324,7 @@ mod tests {
     #[test]
     fn link_up_requeues_configure() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -348,7 +339,7 @@ mod tests {
     #[test]
     fn link_down_degrades_and_keeps_view() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -364,7 +355,7 @@ mod tests {
     #[test]
     fn view_is_none_before_start() {
         // ARRANGE
-        let method = Static::<V4>::new(config());
+        let method = Static::<Ipv4Addr>::new(config());
 
         // ACT
         let view = method.view();
@@ -376,7 +367,7 @@ mod tests {
     #[test]
     fn ignored_input_waits_when_idle() {
         // ARRANGE
-        let mut method = Static::<V4>::new(config());
+        let mut method = Static::<Ipv4Addr>::new(config());
 
         // ACT
         let event = send(&mut method, Input::Entropy(7));

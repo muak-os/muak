@@ -2,22 +2,23 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::net::{Ipv4Addr, Ipv6Addr};
 use std::time::{Instant, SystemTime};
 
 use ip_method::{Input, LinkInfo, Method, Step};
 
-use crate::{V4View, V6View, adapter};
+use crate::{V4View, V6View};
 
 /// Exactly one IPv4 provisioning method active on the interface.
 pub(crate) struct V4Slot {
-    static_method: Option<ip_static::Static<adapter::V4>>,
+    static_method: Option<ip_static::Static<Ipv4Addr>>,
     #[cfg(feature = "ipv4")]
     dhcp: Option<dhcp::Dhcp>,
 }
 
 /// Exactly one IPv6 provisioning method active on the interface.
 pub(crate) struct V6Slot {
-    static_method: Option<ip_static::Static<adapter::V6>>,
+    static_method: Option<ip_static::Static<Ipv6Addr>>,
     #[cfg(feature = "ipv6")]
     slaac: Option<slaac::Slaac>,
 }
@@ -57,7 +58,7 @@ impl V4Slot {
         false
     }
 
-    const fn fixed(method: ip_static::Static<adapter::V4>) -> Self {
+    const fn fixed(method: ip_static::Static<Ipv4Addr>) -> Self {
         Self {
             static_method: Some(method),
             #[cfg(feature = "ipv4")]
@@ -102,7 +103,7 @@ impl V6Slot {
         false
     }
 
-    const fn fixed(method: ip_static::Static<adapter::V6>) -> Self {
+    const fn fixed(method: ip_static::Static<Ipv6Addr>) -> Self {
         Self {
             static_method: Some(method),
             #[cfg(feature = "ipv6")]

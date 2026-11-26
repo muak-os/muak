@@ -4,7 +4,6 @@
 
 extern crate alloc;
 
-mod adapter;
 mod controller;
 mod method;
 

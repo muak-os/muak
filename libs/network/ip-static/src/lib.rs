@@ -11,15 +11,6 @@ use core::net::IpAddr;
 
 use ip_method::Event;
 
-/// Address family adapter for [`Static`].
-pub trait Family {
-    /// Concrete address type for the family.
-    type Address: Copy + Eq;
-
-    /// Converts a family address into a family-neutral address.
-    fn ip(address: Self::Address) -> IpAddr;
-}
-
 /// Address configuration shared by the static methods.
 #[derive(Debug, Clone)]
 pub struct Config<A> {
@@ -44,9 +35,9 @@ pub struct View<A> {
     pub dns: Vec<A>,
 }
 
-/// Static address method generic over the address family.
-pub struct Static<F: Family> {
-    config: Config<F::Address>,
+/// Static address method generic over the concrete address type.
+pub struct Static<A: Copy + Into<IpAddr>> {
+    config: Config<A>,
     started: bool,
     queue: VecDeque<Event>,
 }
