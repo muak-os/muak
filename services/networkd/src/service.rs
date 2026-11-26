@@ -36,9 +36,9 @@ pub struct Service<R: Runtime> {
 }
 
 impl<R: Runtime> Service<R> {
-    /// Creates the service over the runtime and supervisor configuration.
+    /// Creates the service over the runtime and network configuration.
     #[must_use = "the service owns the driver loop and must be started"]
-    pub fn new(runtime: R, config: net_supervisor::Config) -> Self {
+    pub fn new(runtime: R, config: netmodel::Config) -> Self {
         Self {
             driver: Loop::new(runtime, config),
             resolver: Resolver::default(),

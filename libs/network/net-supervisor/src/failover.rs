@@ -1,8 +1,8 @@
 //! Primary/backup promotion and failover policy.
 
-use netmodel::{Link, LinkState, Name};
+use netmodel::{InterfaceKind, Link, LinkState, Name};
 
-use crate::{InterfaceKind, Supervisor, owner, provision, view};
+use crate::{Supervisor, owner, provision, view};
 
 /// Fails over when the current layer 3 owner reported a failure.
 pub(crate) fn switch_if_needed(supervisor: &mut Supervisor) {

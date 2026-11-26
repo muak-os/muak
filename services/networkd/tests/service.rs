@@ -86,13 +86,13 @@ mod tests {
         Service::new(Sandbox { mock }, config())
     }
 
-    fn config() -> net_supervisor::Config {
-        net_supervisor::Config {
+    fn config() -> netmodel::Config {
+        netmodel::Config {
             ipv6: false,
             dns: Vec::new(),
-            interfaces: vec![net_supervisor::InterfaceConfig {
+            interfaces: vec![netmodel::InterfaceConfig {
                 name: String::from("eth0"),
-                kind: net_supervisor::InterfaceKind::Ethernet,
+                kind: netmodel::InterfaceKind::Ethernet,
                 ipv4: Some(netmodel::Ipv4Config {
                     addresses: vec![(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)],
                     gateway: None,

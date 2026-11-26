@@ -11,10 +11,10 @@ use crate::resolver::Nameservers;
 use crate::{Loop, Progress, SocketTable, pump, step};
 
 impl<R: net_runtime::Runtime> Loop<R> {
-    /// Creates a driver loop for the runtime and supervisor configuration. Does not initialize the supervisor: callers
+    /// Creates a driver loop for the runtime and network configuration. Does not initialize the supervisor: callers
     /// run [`crate::Loop::start`] before stepping.
     #[must_use = "the loop owns the FSMs and must be stepped"]
-    pub fn new(runtime: R, config: net_supervisor::Config) -> Self {
+    pub fn new(runtime: R, config: netmodel::Config) -> Self {
         Self {
             runtime,
             supervisor: net_supervisor::Supervisor::new(config),

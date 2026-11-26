@@ -6,11 +6,8 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::io;
 use std::time::{Duration, Instant};
 
-use net_supervisor::{
-    BridgeConfig, Command, Config, Effect, EffectKind, Input, InterfaceConfig, InterfaceKind,
-    State, Step, Supervisor,
-};
-use netmodel::{Link, LinkState, Mac, Name};
+use net_supervisor::{Command, Effect, EffectKind, Input, State, Step, Supervisor};
+use netmodel::{BridgeConfig, Config, InterfaceConfig, InterfaceKind, Link, LinkState, Mac, Name};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Seen {

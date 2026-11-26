@@ -21,7 +21,7 @@ mod supervisor;
 mod view;
 
 use alloc::collections::VecDeque;
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::{Ipv4Addr, Ipv6Addr};
 use std::collections::{HashMap, HashSet};
 
 /// Readiness of the whole network subsystem.
@@ -38,50 +38,6 @@ pub enum State {
     Ready,
     /// Provisioning failed or was degraded.
     Degraded,
-}
-
-/// Network configuration covering DNS, IPv6 toggle, and interfaces.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Config {
-    /// Whether IPv6 networking is enabled.
-    pub ipv6: bool,
-    /// DNS server addresses for name resolution.
-    pub dns: Vec<IpAddr>,
-    /// Declarative list of network interfaces.
-    pub interfaces: Vec<InterfaceConfig>,
-}
-
-/// Declarative configuration for a single network interface.
-#[derive(Debug, Clone, PartialEq)]
-pub struct InterfaceConfig {
-    /// Interface name.
-    pub name: String,
-    /// Interface kind.
-    pub kind: InterfaceKind,
-    /// Optional IPv4 configuration.
-    pub ipv4: Option<netmodel::Ipv4Config>,
-    /// Optional IPv6 configuration.
-    pub ipv6: Option<netmodel::Ipv6Config>,
-    /// Optional bridge-specific configuration.
-    pub bridge: Option<BridgeConfig>,
-}
-
-/// Kind of network interface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InterfaceKind {
-    /// Bridge interface connecting multiple networks.
-    Bridge,
-    /// Standard Ethernet interface.
-    Ethernet,
-}
-
-/// Bridge-specific configuration.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BridgeConfig {
-    /// Member ports attached to the bridge.
-    pub port: Vec<String>,
-    /// Whether Spanning Tree Protocol is enabled.
-    pub stp: bool,
 }
 
 /// Point-in-time status of the network supervisor.
@@ -197,7 +153,7 @@ pub enum Effect<'a> {
         /// Bridge to create or update.
         name: netmodel::Name,
         /// Bridge configuration to apply.
-        config: &'a BridgeConfig,
+        config: &'a netmodel::BridgeConfig,
     },
     /// Enslave a port to a bridge.
     Enslave {
@@ -302,7 +258,7 @@ pub enum Step<'a> {
 /// Supervisor driving the global network state machine.
 #[derive(Debug)]
 pub struct Supervisor {
-    pub(crate) config: Config,
+    pub(crate) config: netmodel::Config,
     pub(crate) state: state::Snapshot,
     pub(crate) links: Vec<netmodel::Link>,
     pub(crate) known: HashSet<netmodel::Name>,
@@ -313,9 +269,9 @@ pub struct Supervisor {
     pub(crate) queue: VecDeque<actions::Action>,
     pub(crate) resolver_v4: Vec<Ipv4Addr>,
     pub(crate) resolver_v6: Vec<Ipv6Addr>,
-    pub(crate) empty_bridge: BridgeConfig,
+    pub(crate) empty_bridge: netmodel::BridgeConfig,
     #[cfg(any(feature = "ipv4", feature = "ipv6"))]
-    pub(crate) empty_interface: InterfaceConfig,
+    pub(crate) empty_interface: netmodel::InterfaceConfig,
     pub(crate) processed_events: u64,
     pub(crate) reconcile_at: Option<std::time::Instant>,
     pub(crate) retry_at: Option<std::time::Instant>,

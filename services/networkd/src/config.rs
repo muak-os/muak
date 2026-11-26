@@ -1,11 +1,11 @@
-//! Conversion from the system network configuration to the supervisor config.
+//! Conversion from the system network configuration to the network model configuration.
 
 use config::system::network;
 
-/// Converts the system network configuration into a supervisor configuration.
-#[must_use = "the caller needs the supervisor configuration to build the loop"]
-pub fn convert(config: &network::Config) -> net_supervisor::Config {
-    net_supervisor::Config {
+/// Converts the system network configuration into a network model configuration.
+#[must_use = "the caller needs the network configuration to build the loop"]
+pub fn convert(config: &network::Config) -> netmodel::Config {
+    netmodel::Config {
         ipv6: config.ipv6,
         dns: config.dns.clone(),
         interfaces: config
@@ -19,7 +19,7 @@ pub fn convert(config: &network::Config) -> net_supervisor::Config {
 fn interface_config(
     config: &network::Config,
     source: &network::InterfaceConfig,
-) -> net_supervisor::InterfaceConfig {
+) -> netmodel::InterfaceConfig {
     #[cfg(not(feature = "ipv4"))]
     let ipv4 = None;
     #[cfg(feature = "ipv4")]
@@ -37,7 +37,7 @@ fn interface_config(
     #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
     let _config = config;
 
-    net_supervisor::InterfaceConfig {
+    netmodel::InterfaceConfig {
         name: source.name.clone(),
         kind: kind(&source.kind),
         ipv4,
@@ -46,16 +46,16 @@ fn interface_config(
     }
 }
 
-const fn kind(kind: &network::InterfaceKind) -> net_supervisor::InterfaceKind {
+const fn kind(kind: &network::InterfaceKind) -> netmodel::InterfaceKind {
     if matches!(kind, network::InterfaceKind::Bridge) {
-        net_supervisor::InterfaceKind::Bridge
+        netmodel::InterfaceKind::Bridge
     } else {
-        net_supervisor::InterfaceKind::Ethernet
+        netmodel::InterfaceKind::Ethernet
     }
 }
 
-fn bridge_config(config: &network::BridgeConfig) -> net_supervisor::BridgeConfig {
-    net_supervisor::BridgeConfig {
+fn bridge_config(config: &network::BridgeConfig) -> netmodel::BridgeConfig {
+    netmodel::BridgeConfig {
         port: config.port.clone(),
         stp: config.stp,
     }
@@ -157,10 +157,7 @@ mod tests {
         // ASSERT
         assert!(!config.ipv6);
         assert_eq!(config.dns, Vec::<IpAddr>::new());
-        assert_eq!(
-            config.interfaces,
-            Vec::<net_supervisor::InterfaceConfig>::new()
-        );
+        assert_eq!(config.interfaces, Vec::<netmodel::InterfaceConfig>::new());
     }
 
     #[test]
@@ -193,10 +190,7 @@ mod tests {
         let config = convert(&source);
 
         // ASSERT
-        assert_eq!(
-            config.interfaces[0].kind,
-            net_supervisor::InterfaceKind::Ethernet
-        );
+        assert_eq!(config.interfaces[0].kind, netmodel::InterfaceKind::Ethernet);
     }
 
     #[test]
@@ -217,10 +211,7 @@ mod tests {
         let config = convert(&source);
 
         // ASSERT
-        assert_eq!(
-            config.interfaces[0].kind,
-            net_supervisor::InterfaceKind::Bridge
-        );
+        assert_eq!(config.interfaces[0].kind, netmodel::InterfaceKind::Bridge);
         let bridge = config.interfaces[0].bridge.as_ref().expect("bridge config");
         assert_eq!(bridge.port, vec!["eth0".to_owned(), "eth1".to_owned()]);
         assert!(bridge.stp);

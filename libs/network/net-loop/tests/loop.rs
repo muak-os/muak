@@ -270,23 +270,23 @@ fn runtime() -> Mock {
     mock
 }
 
-fn ethernet() -> net_supervisor::InterfaceConfig {
-    net_supervisor::InterfaceConfig {
+fn ethernet() -> netmodel::InterfaceConfig {
+    netmodel::InterfaceConfig {
         name: String::from("eth0"),
-        kind: net_supervisor::InterfaceKind::Ethernet,
+        kind: netmodel::InterfaceKind::Ethernet,
         ipv4: Some(address()),
         ipv6: None,
         bridge: None,
     }
 }
 
-fn bridge() -> net_supervisor::InterfaceConfig {
-    net_supervisor::InterfaceConfig {
+fn bridge() -> netmodel::InterfaceConfig {
+    netmodel::InterfaceConfig {
         name: String::from("br0"),
-        kind: net_supervisor::InterfaceKind::Bridge,
+        kind: netmodel::InterfaceKind::Bridge,
         ipv4: Some(address()),
         ipv6: None,
-        bridge: Some(net_supervisor::BridgeConfig {
+        bridge: Some(netmodel::BridgeConfig {
             port: vec![String::from("auto")],
             stp: false,
         }),
@@ -302,8 +302,8 @@ fn address() -> netmodel::Ipv4Config {
     }
 }
 
-fn config(interfaces: Vec<net_supervisor::InterfaceConfig>) -> net_supervisor::Config {
-    net_supervisor::Config {
+fn config(interfaces: Vec<netmodel::InterfaceConfig>) -> netmodel::Config {
+    netmodel::Config {
         ipv6: false,
         dns: Vec::new(),
         interfaces,
@@ -957,7 +957,7 @@ fn next_wake_keeps_the_supervisor_deadline_when_a_controller_has_none() {
 fn new_loop_is_idle_and_empty() {
     // ARRANGE
     let now = Instant::now();
-    let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    let mut driver: Loop<Mock> = Loop::new(runtime(), netmodel::Config::default());
 
     // ACT
     let progress = block_on(driver.step(now, SystemTime::UNIX_EPOCH)).expect("step");
@@ -972,7 +972,7 @@ fn new_loop_is_idle_and_empty() {
 fn add_interface_exposes_the_controller_without_a_wake() {
     // ARRANGE
     let now = Instant::now();
-    let mut driver: Loop<Mock> = Loop::new(runtime(), net_supervisor::Config::default());
+    let mut driver: Loop<Mock> = Loop::new(runtime(), netmodel::Config::default());
 
     // ACT
     driver.add_interface(link("eth1", 3));
@@ -985,10 +985,10 @@ fn add_interface_exposes_the_controller_without_a_wake() {
 }
 
 #[cfg(feature = "ipv4")]
-fn dhcp_interface() -> net_supervisor::InterfaceConfig {
-    net_supervisor::InterfaceConfig {
+fn dhcp_interface() -> netmodel::InterfaceConfig {
+    netmodel::InterfaceConfig {
         name: String::from("eth0"),
-        kind: net_supervisor::InterfaceKind::Ethernet,
+        kind: netmodel::InterfaceKind::Ethernet,
         ipv4: Some(netmodel::Ipv4Config {
             dhcp: true,
             ..netmodel::Ipv4Config::default()
@@ -999,10 +999,10 @@ fn dhcp_interface() -> net_supervisor::InterfaceConfig {
 }
 
 #[cfg(feature = "ipv6")]
-fn slaac_interface() -> net_supervisor::InterfaceConfig {
-    net_supervisor::InterfaceConfig {
+fn slaac_interface() -> netmodel::InterfaceConfig {
+    netmodel::InterfaceConfig {
         name: String::from("eth0"),
-        kind: net_supervisor::InterfaceKind::Ethernet,
+        kind: netmodel::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: Some(netmodel::Ipv6Config {
             autoconf: true,
@@ -1187,7 +1187,7 @@ fn slaac_advertisement_provisions_an_address_through_the_socket_path() {
     // ARRANGE
     let now = Instant::now();
     let wall = SystemTime::UNIX_EPOCH;
-    let announced = net_supervisor::Config {
+    let announced = netmodel::Config {
         ipv6: true,
         dns: Vec::new(),
         interfaces: vec![slaac_interface()],

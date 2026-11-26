@@ -99,6 +99,50 @@ pub struct Route {
     pub gateway: Option<IpAddr>,
 }
 
+/// Network configuration covering DNS, IPv6 toggle, and interfaces.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Config {
+    /// Whether IPv6 networking is enabled.
+    pub ipv6: bool,
+    /// DNS server addresses for name resolution.
+    pub dns: Vec<IpAddr>,
+    /// Declarative list of network interfaces.
+    pub interfaces: Vec<InterfaceConfig>,
+}
+
+/// Declarative configuration for a single network interface.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceConfig {
+    /// Interface name.
+    pub name: String,
+    /// Interface kind.
+    pub kind: InterfaceKind,
+    /// Optional IPv4 configuration.
+    pub ipv4: Option<Ipv4Config>,
+    /// Optional IPv6 configuration.
+    pub ipv6: Option<Ipv6Config>,
+    /// Optional bridge-specific configuration.
+    pub bridge: Option<BridgeConfig>,
+}
+
+/// Kind of network interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfaceKind {
+    /// Bridge interface connecting multiple networks.
+    Bridge,
+    /// Standard Ethernet interface.
+    Ethernet,
+}
+
+/// Bridge-specific configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BridgeConfig {
+    /// Member ports attached to the bridge.
+    pub port: Vec<String>,
+    /// Whether Spanning Tree Protocol is enabled.
+    pub stp: bool,
+}
+
 /// IPv4 address provisioning configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ipv4Config {

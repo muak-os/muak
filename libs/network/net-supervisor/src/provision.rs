@@ -1,9 +1,9 @@
 //! Declarative interface and bridge provisioning.
 
-use netmodel::Name;
+use netmodel::{InterfaceConfig, InterfaceKind, Name};
 
 use crate::actions::Action;
-use crate::{InterfaceConfig, InterfaceKind, Supervisor, view};
+use crate::{Supervisor, view};
 
 /// Queues bridge creation, port enslavement, and address configuration.
 pub(crate) fn provision_all(supervisor: &mut Supervisor) {

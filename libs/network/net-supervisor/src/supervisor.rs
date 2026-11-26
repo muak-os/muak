@@ -4,14 +4,13 @@ use alloc::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use netmodel::BridgeConfig;
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+use netmodel::{InterfaceConfig, InterfaceKind};
+
 use crate::actions::Action;
 use crate::state::Snapshot;
-use crate::{
-    BridgeConfig, Command, Config, Effect, Input, State, Status, Step, Supervisor, dispatch,
-    observe, owner,
-};
-#[cfg(any(feature = "ipv4", feature = "ipv6"))]
-use crate::{InterfaceConfig, InterfaceKind};
+use crate::{Command, Effect, Input, State, Status, Step, Supervisor, dispatch, observe, owner};
 
 /// Fields that trigger a status publication when any of them changes.
 pub(crate) type StatusKey = (
@@ -25,7 +24,7 @@ pub(crate) type StatusKey = (
 impl Supervisor {
     /// Creates a supervisor for the given configuration with an idle status.
     #[must_use = "the supervisor owns the network state"]
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: netmodel::Config) -> Self {
         Self {
             config,
             state: Snapshot::default(),
@@ -124,7 +123,7 @@ impl Supervisor {
 
     /// Returns the configuration the supervisor runs on.
     #[must_use = "callers need the configuration to reconcile interfaces"]
-    pub const fn config(&self) -> &Config {
+    pub const fn config(&self) -> &netmodel::Config {
         &self.config
     }
 
