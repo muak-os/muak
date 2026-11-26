@@ -47,7 +47,6 @@ members = [
 
     "libs/network/dhcp",
     "libs/network/dhcp-proto",
-    "libs/network/ethernet",
     "libs/network/icmpv6-linux",
     "libs/network/iface",
     "libs/network/ip",
@@ -117,7 +116,6 @@ uki = { path = "libs/uki" }
 ## Network
 dhcp = { path = "libs/network/dhcp" }
 dhcp-proto = { path = "libs/network/dhcp-proto" }
-ethernet = { path = "libs/network/ethernet" }
 icmpv6-linux = { path = "libs/network/icmpv6-linux" }
 iface = { path = "libs/network/iface", default-features = false }
 ip = { path = "libs/network/ip", default-features = false }
