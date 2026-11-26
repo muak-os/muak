@@ -120,6 +120,38 @@ mod backend {
     }
 
     #[tokio::test]
+    async fn link_reports_the_loopback() {
+        // ARRANGE
+        let runtime = Tokio::new().expect("runtime should open");
+        let name = Name::new("lo").expect("loopback name is valid");
+
+        // ACT
+        let link = net_runtime::Link::link(&runtime, &name)
+            .await
+            .expect("link query should succeed")
+            .expect("loopback should exist");
+
+        // ASSERT
+        assert!(link.index > 0);
+        assert_eq!(link.name, name);
+    }
+
+    #[tokio::test]
+    async fn link_skips_a_missing_link() {
+        // ARRANGE
+        let runtime = Tokio::new().expect("runtime should open");
+        let name = Name::new("nomissing0").expect("missing name is valid");
+
+        // ACT
+        let link = net_runtime::Link::link(&runtime, &name)
+            .await
+            .expect("link query should succeed");
+
+        // ASSERT
+        assert!(link.is_none());
+    }
+
+    #[tokio::test]
     async fn packet_rejects_a_datagram_specification() {
         // ARRANGE
         let runtime = Tokio::new().expect("runtime should open");

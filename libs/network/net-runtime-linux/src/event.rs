@@ -49,7 +49,7 @@ impl net_runtime::Events for super::Tokio {
 
 async fn drain(state: &Mutex<State>) -> io::Result<LinkEvent> {
     let mut state = state.lock().await;
-    seed(&mut state).await?;
+    seed(&mut state).await;
 
     loop {
         if let Some(event) = step(&mut state).await? {
@@ -58,19 +58,20 @@ async fn drain(state: &Mutex<State>) -> io::Result<LinkEvent> {
     }
 }
 
-async fn seed(state: &mut State) -> io::Result<()> {
+async fn seed(state: &mut State) {
     if state.seeded {
-        return Ok(());
+        return;
     }
 
-    let links = control::links(&state.handle).await?;
+    state.seeded = true;
+    let Ok(links) = control::links(&state.handle).await else {
+        return;
+    };
+
     state.previous = links
         .into_iter()
         .map(|link| (link.index, link.state()))
         .collect();
-    state.seeded = true;
-
-    Ok(())
 }
 
 async fn step(state: &mut State) -> io::Result<Option<LinkEvent>> {

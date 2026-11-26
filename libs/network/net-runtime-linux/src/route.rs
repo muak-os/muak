@@ -9,7 +9,7 @@ use crate::control;
 
 impl net_runtime::Route for super::Tokio {
     async fn ensure_default(&self, link: &Name, gateway: IpAddr) -> io::Result<()> {
-        let index = control::resolve(&self.route, link).await?;
+        let index = control::resolve(link)?;
 
         control::tolerate(
             control::execute(&self.route, netlink_linux::add_route(index, gateway)).await,
@@ -18,7 +18,7 @@ impl net_runtime::Route for super::Tokio {
     }
 
     async fn remove_default(&self, link: &Name, gateway: IpAddr) -> io::Result<()> {
-        let index = control::resolve(&self.route, link).await?;
+        let index = control::resolve(link)?;
 
         control::tolerate(
             control::execute(&self.route, netlink_linux::remove_route(index, gateway)).await,

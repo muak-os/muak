@@ -28,6 +28,7 @@ tokio = [
     "dep:packet-v4-linux",
     "dep:icmpv6-linux",
     "dep:getrandom",
+    "dep:libc",
     "dep:net-runtime",
     "dep:netmodel",
 ]
@@ -40,6 +41,7 @@ tokio = { workspace = true, features = ["net", "time", "sync", "rt"], optional =
 
 # Networking
 getrandom = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
 netlink-packet-core = { workspace = true, optional = true }
 netlink-packet-route = { workspace = true, optional = true }
 netlink-proto = { workspace = true, optional = true }
