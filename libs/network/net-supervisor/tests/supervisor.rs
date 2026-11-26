@@ -906,7 +906,7 @@ fn timer_reconciles_a_detached_bridge() {
 }
 
 #[test]
-fn reconcile_heals_without_requeueing_a_satisfied_bridge() {
+fn reconcile_heals_without_requeuing_a_satisfied_bridge() {
     // ARRANGE
     let links = [link("eth0", 2, LinkState::Up)];
     let mut supervisor = boot(vec![bridge(), ethernet("auto", true)], &links, &links);

@@ -1,4 +1,4 @@
-//! Socket pendings fed back into the address method that owns the socket.
+//! Socket pending events fed back into the address method that owns the socket.
 
 use std::io;
 use std::time::{Instant, SystemTime};
