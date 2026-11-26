@@ -11,7 +11,9 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 use std::time::{Instant, SystemTime};
 
-use iface::{Command, Controller, Effect, Family, Input, Step, V4View, V6View};
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+use iface::Family;
+use iface::{Command, Controller, Effect, Input, Step, V4View, V6View};
 #[cfg(feature = "ipv4")]
 use ip::v4::udp;
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
@@ -1261,9 +1263,9 @@ fn ipv4_replacement_notice_is_journaled() {
 
     // ASSERT
     assert!(
-        notices.iter().any(|(family, text)| {
-            family.is_none() && text.contains("ipv4 feature is disabled")
-        })
+        notices
+            .iter()
+            .any(|notice| notice.0.is_none() && notice.1.contains("ipv4 feature is disabled"))
     );
 }
 
@@ -1299,9 +1301,9 @@ fn ipv6_replacement_notice_is_journaled() {
 
     // ASSERT
     assert!(
-        notices.iter().any(|(family, text)| {
-            family.is_none() && text.contains("ipv6 feature is disabled")
-        })
+        notices
+            .iter()
+            .any(|notice| notice.0.is_none() && notice.1.contains("ipv6 feature is disabled"))
     );
 }
 

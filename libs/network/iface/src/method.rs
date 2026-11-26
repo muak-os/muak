@@ -9,18 +9,26 @@ use ip_method::{Input, LinkInfo, Method, Step};
 
 use crate::{V4View, V6View};
 
+#[cfg(feature = "ipv4")]
+type DhcpMethod = dhcp::Dhcp;
+#[cfg(not(feature = "ipv4"))]
+type DhcpMethod = core::convert::Infallible;
+
+#[cfg(feature = "ipv6")]
+type SlaacMethod = slaac::Slaac;
+#[cfg(not(feature = "ipv6"))]
+type SlaacMethod = core::convert::Infallible;
+
 /// Exactly one IPv4 provisioning method active on the interface.
 pub(crate) struct V4Slot {
     static_method: Option<ip_static::Static<Ipv4Addr>>,
-    #[cfg(feature = "ipv4")]
-    dhcp: Option<dhcp::Dhcp>,
+    dhcp: Option<DhcpMethod>,
 }
 
 /// Exactly one IPv6 provisioning method active on the interface.
 pub(crate) struct V6Slot {
     static_method: Option<ip_static::Static<Ipv6Addr>>,
-    #[cfg(feature = "ipv6")]
-    slaac: Option<slaac::Slaac>,
+    slaac: Option<SlaacMethod>,
 }
 
 /// Methods a deferred reconfigure installs once the outgoing ones stop.
@@ -47,21 +55,13 @@ impl V4Slot {
     }
 
     /// Returns whether the slot owns a DHCP method.
-    #[cfg(feature = "ipv4")]
     pub(crate) const fn is_dhcp(&self) -> bool {
         self.dhcp.is_some()
-    }
-
-    /// Without the feature the slot never owns a DHCP method.
-    #[cfg(not(feature = "ipv4"))]
-    pub(crate) const fn is_dhcp(&self) -> bool {
-        false
     }
 
     const fn fixed(method: ip_static::Static<Ipv4Addr>) -> Self {
         Self {
             static_method: Some(method),
-            #[cfg(feature = "ipv4")]
             dhcp: None,
         }
     }
@@ -92,21 +92,13 @@ impl V6Slot {
     }
 
     /// Returns whether the slot owns a SLAAC method.
-    #[cfg(feature = "ipv6")]
     pub(crate) const fn is_stateless(&self) -> bool {
         self.slaac.is_some()
-    }
-
-    /// Without the feature the slot never owns a SLAAC method.
-    #[cfg(not(feature = "ipv6"))]
-    pub(crate) const fn is_stateless(&self) -> bool {
-        false
     }
 
     const fn fixed(method: ip_static::Static<Ipv6Addr>) -> Self {
         Self {
             static_method: Some(method),
-            #[cfg(feature = "ipv6")]
             slaac: None,
         }
     }

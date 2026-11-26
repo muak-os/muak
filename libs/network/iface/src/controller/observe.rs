@@ -75,7 +75,7 @@ pub(super) fn record_v4(controller: &Controller, journal: &mut Journal) {
 }
 
 #[cfg(not(feature = "ipv4"))]
-fn record_v4(_controller: &Controller, _journal: &mut Journal) {}
+const fn record_v4(_controller: &Controller, _journal: &mut Journal) {}
 
 pub(super) const fn family(family: Family) -> ObserveFamily {
     match family {
@@ -130,7 +130,7 @@ fn record_v6(controller: &Controller, journal: &mut Journal) {
 }
 
 #[cfg(not(feature = "ipv6"))]
-fn record_v6(_controller: &Controller, _journal: &mut Journal) {}
+const fn record_v6(_controller: &Controller, _journal: &mut Journal) {}
 
 #[cfg(feature = "ipv4")]
 const fn dhcp_phase(phase: dhcp::Phase) -> net_observe::interface::DhcpPhase {
