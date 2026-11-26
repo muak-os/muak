@@ -10,44 +10,38 @@ use net_observe::journal::Journal;
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use net_observe::{Event as ObserveEvent, Level};
 
-#[cfg(feature = "ipv6")]
-use crate::V6View;
-use crate::{Controller, Family, V4View};
+use crate::{Controller, Family, V4View, V6View};
 
 pub(super) fn refresh(controller: &mut Controller, family: Family, journal: &mut Journal) {
     match family {
         Family::V4 => {
             let view = controller.v4.as_ref().and_then(Method::view);
             let changed = !same_v4(controller.snapshot.v4.as_ref(), view.as_ref());
-            controller.snapshot.v4 = view;
-            if changed {
-                record_v4(controller, journal);
+            if changed && let Some(view) = view.as_ref() {
+                record_v4(controller, view, journal);
             }
+            controller.snapshot.v4 = view;
         }
         Family::V6 => {
             let view = controller.v6.as_ref().and_then(Method::view);
             let changed = view != controller.snapshot.v6;
-            controller.snapshot.v6 = view;
-            if changed {
-                record_v6(controller, journal);
+            if changed && let Some(view) = view.as_ref() {
+                record_v6(controller, view, journal);
             }
+            controller.snapshot.v6 = view;
         }
     }
 }
 
-pub(super) fn same_v4(old: Option<&V4View>, new: Option<&V4View>) -> bool {
-    match (old, new) {
-        (None, None) => true,
-        (Some(old), Some(new)) => same_v4_views(old, new),
-        _ => false,
+pub(super) const fn family(family: Family) -> ObserveFamily {
+    match family {
+        Family::V4 => ObserveFamily::V4,
+        Family::V6 => ObserveFamily::V6,
     }
 }
 
 #[cfg(feature = "ipv4")]
-pub(super) fn record_v4(controller: &Controller, journal: &mut Journal) {
-    let Some(view) = controller.snapshot.v4.as_ref() else {
-        return;
-    };
+fn record_v4(controller: &Controller, view: &V4View, journal: &mut Journal) {
     let V4View::Dhcp(ref view) = *view else {
         return;
     };
@@ -75,12 +69,49 @@ pub(super) fn record_v4(controller: &Controller, journal: &mut Journal) {
 }
 
 #[cfg(not(feature = "ipv4"))]
-const fn record_v4(_controller: &Controller, _journal: &mut Journal) {}
+const fn record_v4(_controller: &Controller, _view: &V4View, _journal: &mut Journal) {}
 
-pub(super) const fn family(family: Family) -> ObserveFamily {
-    match family {
-        Family::V4 => ObserveFamily::V4,
-        Family::V6 => ObserveFamily::V6,
+#[cfg(feature = "ipv6")]
+fn record_v6(controller: &Controller, view: &V6View, journal: &mut Journal) {
+    let V6View::Slaac(ref view) = *view else {
+        return;
+    };
+    let update = SlaacUpdate {
+        addresses: view.addresses.clone(),
+        routers: view.routers.clone(),
+        dns: view.dns.clone(),
+    };
+
+    journal.record(
+        Level::Info,
+        ObserveEvent::SlaacUpdate {
+            name: controller.link.name.clone(),
+            update,
+        },
+    );
+}
+
+#[cfg(not(feature = "ipv6"))]
+const fn record_v6(_controller: &Controller, _view: &V6View, _journal: &mut Journal) {}
+
+#[cfg(feature = "ipv4")]
+const fn dhcp_phase(phase: dhcp::Phase) -> net_observe::interface::DhcpPhase {
+    match phase {
+        dhcp::Phase::Idle => net_observe::interface::DhcpPhase::Idle,
+        dhcp::Phase::Acquiring => net_observe::interface::DhcpPhase::Acquiring,
+        dhcp::Phase::Bound => net_observe::interface::DhcpPhase::Bound,
+        dhcp::Phase::Renewing => net_observe::interface::DhcpPhase::Renewing,
+        dhcp::Phase::Rebinding => net_observe::interface::DhcpPhase::Rebinding,
+        dhcp::Phase::Degraded => net_observe::interface::DhcpPhase::Degraded,
+        dhcp::Phase::Stopped => net_observe::interface::DhcpPhase::Stopped,
+    }
+}
+
+fn same_v4(old: Option<&V4View>, new: Option<&V4View>) -> bool {
+    match (old, new) {
+        (None, None) => true,
+        (Some(old), Some(new)) => same_v4_views(old, new),
+        _ => false,
     }
 }
 
@@ -103,44 +134,5 @@ fn same_v4_views(old: &V4View, new: &V4View) -> bool {
                     && old.lease.dns_servers == new.lease.dns_servers
             }
         },
-    }
-}
-
-#[cfg(feature = "ipv6")]
-fn record_v6(controller: &Controller, journal: &mut Journal) {
-    let Some(view) = controller.snapshot.v6.as_ref() else {
-        return;
-    };
-    let V6View::Slaac(ref view) = *view else {
-        return;
-    };
-    let update = SlaacUpdate {
-        addresses: view.addresses.clone(),
-        routers: view.routers.clone(),
-        dns: view.dns.clone(),
-    };
-
-    journal.record(
-        Level::Info,
-        ObserveEvent::SlaacUpdate {
-            name: controller.link.name.clone(),
-            update,
-        },
-    );
-}
-
-#[cfg(not(feature = "ipv6"))]
-const fn record_v6(_controller: &Controller, _journal: &mut Journal) {}
-
-#[cfg(feature = "ipv4")]
-const fn dhcp_phase(phase: dhcp::Phase) -> net_observe::interface::DhcpPhase {
-    match phase {
-        dhcp::Phase::Idle => net_observe::interface::DhcpPhase::Idle,
-        dhcp::Phase::Acquiring => net_observe::interface::DhcpPhase::Acquiring,
-        dhcp::Phase::Bound => net_observe::interface::DhcpPhase::Bound,
-        dhcp::Phase::Renewing => net_observe::interface::DhcpPhase::Renewing,
-        dhcp::Phase::Rebinding => net_observe::interface::DhcpPhase::Rebinding,
-        dhcp::Phase::Degraded => net_observe::interface::DhcpPhase::Degraded,
-        dhcp::Phase::Stopped => net_observe::interface::DhcpPhase::Stopped,
     }
 }
