@@ -1178,7 +1178,9 @@ fn link_events_are_counted() {
     run(
         &mut supervisor,
         now,
-        Input::LinkEvent(netmodel::LinkEvent::Error(netmodel::LinkFailure::Closed)),
+        Input::LinkEvent(netmodel::LinkEvent::Error(
+            netmodel::error::LinkError::Closed,
+        )),
     );
 
     // ASSERT

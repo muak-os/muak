@@ -351,7 +351,7 @@ mod tests {
     fn monitor_failures_report_the_cause() {
         // ARRANGE
         let event = Event::LinkEvent {
-            event: netmodel::LinkEvent::Error(netmodel::LinkFailure::Kernel(
+            event: netmodel::LinkEvent::Error(netmodel::error::LinkError::Kernel(
                 NonZeroI32::new(105_i32).expect("non-zero"),
             )),
         };

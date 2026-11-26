@@ -4,7 +4,8 @@
 mod tests {
     use core::num::NonZeroI32;
 
-    use crate::{LinkEvent, LinkFailure, Mac, Name};
+    use crate::error::LinkError;
+    use crate::{LinkEvent, Mac, Name};
 
     #[test]
     fn added_carries_name_index_and_mac() {
@@ -33,7 +34,7 @@ mod tests {
     #[test]
     fn error_carries_typed_failure() {
         // ARRANGE
-        let failure = LinkFailure::Kernel(NonZeroI32::new(105_i32).expect("non-zero"));
+        let failure = LinkError::Kernel(NonZeroI32::new(105_i32).expect("non-zero"));
 
         // ACT
         let event = LinkEvent::Error(failure);
@@ -45,9 +46,9 @@ mod tests {
     #[test]
     fn failure_messages_match_the_monitor_contract() {
         // ARRANGE
-        let overrun = LinkFailure::Overrun;
-        let kernel = LinkFailure::Kernel(NonZeroI32::new(105_i32).expect("non-zero"));
-        let closed = LinkFailure::Closed;
+        let overrun = LinkError::Overrun;
+        let kernel = LinkError::Kernel(NonZeroI32::new(105_i32).expect("non-zero"));
+        let closed = LinkError::Closed;
 
         // ACT
         let overrun_message = overrun.to_string();

@@ -6,7 +6,8 @@ use std::io;
 use futures_util::StreamExt as _;
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::RouteNetlinkMessage;
-use netmodel::{LinkEvent, LinkFailure, LinkState};
+use netmodel::error::LinkError;
+use netmodel::{LinkEvent, LinkState};
 use tokio::sync::Mutex;
 
 use crate::control::{self, Messages};
@@ -91,7 +92,7 @@ fn closed(state: &mut State) -> io::Result<Option<LinkEvent>> {
 
     state.closed = true;
 
-    Ok(Some(LinkEvent::Error(LinkFailure::Closed)))
+    Ok(Some(LinkEvent::Error(LinkError::Closed)))
 }
 
 fn classify(
@@ -101,10 +102,10 @@ fn classify(
     if let NetlinkPayload::Error(error) = payload {
         return error
             .code
-            .map(|code| LinkEvent::Error(LinkFailure::Kernel(code)));
+            .map(|code| LinkEvent::Error(LinkError::Kernel(code)));
     }
     if let NetlinkPayload::Overrun(_) = payload {
-        return Some(LinkEvent::Error(LinkFailure::Overrun));
+        return Some(LinkEvent::Error(LinkError::Overrun));
     }
     if let NetlinkPayload::InnerMessage(message) = payload {
         return classify_inner(&message, previous);
@@ -156,7 +157,7 @@ mod tests {
         let event = classify(NetlinkPayload::Overrun(Vec::new()), &mut previous);
 
         // ASSERT
-        assert_eq!(event, Some(LinkEvent::Error(LinkFailure::Overrun)));
+        assert_eq!(event, Some(LinkEvent::Error(LinkError::Overrun)));
     }
 
     #[test]
@@ -169,7 +170,7 @@ mod tests {
         let event = classify(NetlinkPayload::Error(nack(code.get())), &mut previous);
 
         // ASSERT
-        assert_eq!(event, Some(LinkEvent::Error(LinkFailure::Kernel(code))));
+        assert_eq!(event, Some(LinkEvent::Error(LinkError::Kernel(code))));
     }
 
     #[test]

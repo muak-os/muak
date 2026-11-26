@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod address;
+pub mod error;
 mod event;
 mod hardware;
 mod link;
@@ -11,18 +12,12 @@ mod selection;
 mod state;
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use core::num::NonZeroI32;
 
-use thiserror::Error;
+use crate::error::LinkError;
 
 /// A validated Linux network interface name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Name(String);
-
-/// An invalid network interface name.
-#[derive(Debug, Error)]
-#[error("invalid interface name: {0:?}")]
-pub struct InvalidName(String);
 
 /// A 6-byte hardware address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -167,19 +162,5 @@ pub enum LinkEvent {
         index: u32,
     },
     /// Link monitoring reported a failure.
-    Error(LinkFailure),
-}
-
-/// A failure reported by link monitoring.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum LinkFailure {
-    /// Netlink notification buffer overran, so link events may have been lost.
-    #[error("netlink notification buffer overran, events may be lost")]
-    Overrun,
-    /// Netlink reported an error on the event socket.
-    #[error("netlink event socket error: {0}")]
-    Kernel(NonZeroI32),
-    /// Netlink event stream closed, so link events are no longer delivered.
-    #[error("netlink event stream closed")]
-    Closed,
+    Error(LinkError),
 }

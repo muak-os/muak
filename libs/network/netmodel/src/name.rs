@@ -4,7 +4,8 @@ use core::borrow::Borrow;
 use core::fmt;
 use core::str::FromStr;
 
-use crate::{InvalidName, Name};
+use crate::Name;
+use crate::error::NameError;
 
 impl Name {
     const MAX_LEN: usize = 15;
@@ -13,14 +14,14 @@ impl Name {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidName`] when the provided interface name is empty, too long, or contains a NUL byte.
-    pub fn new<Source>(name: Source) -> Result<Self, InvalidName>
+    /// Returns [`NameError`] when the provided interface name is empty, too long, or contains a NUL byte.
+    pub fn new<Source>(name: Source) -> Result<Self, NameError>
     where
         Source: Into<String>,
     {
         let name = name.into();
         if name.is_empty() || name.len() > Self::MAX_LEN || name.contains('\0') {
-            return Err(InvalidName(name));
+            return Err(NameError(name));
         }
 
         Ok(Self(name))
@@ -52,7 +53,7 @@ impl Borrow<str> for Name {
 }
 
 impl FromStr for Name {
-    type Err = InvalidName;
+    type Err = NameError;
 
     fn from_str(source: &str) -> Result<Self, Self::Err> {
         Self::new(source.to_owned())
