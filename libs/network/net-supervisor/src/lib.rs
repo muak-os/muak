@@ -10,7 +10,7 @@ mod dispatch;
 mod dns;
 mod failover;
 mod feedback;
-mod link_events;
+mod links;
 mod observe;
 mod owner;
 mod provision;

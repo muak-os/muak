@@ -4,8 +4,7 @@ use std::time::Instant;
 
 use crate::actions::Action;
 use crate::{
-    Command, EffectKind, Input, State, Supervisor, discovery, feedback, link_events, reconcile,
-    retry,
+    Command, EffectKind, Input, State, Supervisor, discovery, feedback, links, reconcile, retry,
 };
 
 /// Routes one input into the matching policy handler.
@@ -28,7 +27,7 @@ pub(crate) fn handle(
                     event: event.clone(),
                 },
             );
-            link_events::apply(supervisor, event);
+            links::apply(supervisor, event);
         }
         Input::InterfaceSnapshot { name, snapshot } => {
             feedback::on_snapshot(supervisor, &name, snapshot);
