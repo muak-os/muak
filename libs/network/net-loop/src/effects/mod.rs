@@ -1,7 +1,8 @@
-//! Execution of interface effects against the runtime ports.
+//! Execution of interface and supervisor effects against the runtime ports.
 
 mod address;
 mod socket;
+pub(crate) mod supervisor;
 
 use alloc::collections::VecDeque;
 use std::io;

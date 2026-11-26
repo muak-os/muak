@@ -4,7 +4,7 @@ use std::io;
 use std::time::{Instant, SystemTime};
 
 use crate::pending::Pending;
-use crate::{Loop, Progress, feedback, interface_effects, supervisor_effects};
+use crate::{Loop, Progress, effects, feedback};
 
 pub(crate) async fn start<R: net_runtime::Runtime>(driver: &mut Loop<R>, now: Instant) -> Progress {
     if driver.started {
@@ -90,7 +90,7 @@ pub(crate) async fn advance<R: net_runtime::Runtime>(
         | iface::Effect::Send { .. }
         | iface::Effect::CloseSocket { .. }
         | iface::Effect::RequestEntropy { .. }) => {
-            interface_effects::apply(
+            effects::apply(
                 &driver.runtime,
                 name,
                 &mut driver.sockets,
@@ -125,7 +125,7 @@ async fn poll_supervisor<R: net_runtime::Runtime>(
             target: target.clone(),
         },
     );
-    let applied = supervisor_effects::apply(
+    let applied = effects::supervisor::apply(
         &driver.runtime,
         &mut driver.pending,
         &mut driver.resolver,

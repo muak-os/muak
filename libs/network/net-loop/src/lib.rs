@@ -5,14 +5,13 @@
 extern crate alloc;
 
 mod driver;
+mod effects;
 mod events;
 mod feedback;
-mod interface_effects;
 mod pending;
 mod pump;
 mod resolver;
 mod step;
-mod supervisor_effects;
 
 use alloc::collections::VecDeque;
 

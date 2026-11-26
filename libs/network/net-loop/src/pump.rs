@@ -11,7 +11,7 @@ use futures_util::stream::FuturesUnordered;
 use net_runtime::{Events as _, Icmpv6 as _, Packet as _, Udp as _};
 
 use crate::pending::Pending;
-use crate::{Loop, Progress, SocketEntry, SocketTable, interface_effects};
+use crate::{Loop, Progress, SocketEntry, SocketTable, effects};
 
 const FRAME_BUDGET: usize = 2048;
 
@@ -73,7 +73,7 @@ async fn queue<R: net_runtime::Runtime>(driver: &mut Loop<R>, received: Received
             source,
         },
         Err(error) => {
-            drop(interface_effects::release(&driver.runtime, &mut driver.sockets, id, kind).await);
+            drop(effects::release(&driver.runtime, &mut driver.sockets, id, kind).await);
             Pending::SocketError {
                 name,
                 family,
