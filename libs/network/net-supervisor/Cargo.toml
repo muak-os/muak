@@ -22,7 +22,6 @@ netmodel = { workspace = true }
 net-observe = { workspace = true }
 
 [dev-dependencies]
-# Tests build real `iface::Snapshot` values with static, DHCP, and SLAAC views.
 dhcp = { workspace = true }
 ip-static = { workspace = true }
 slaac = { workspace = true }
