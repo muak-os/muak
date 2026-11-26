@@ -99,39 +99,33 @@ fn configure(
     broadcast(controller, MethodCommand::Stop);
 }
 
-#[cfg(any(not(feature = "ipv4"), not(feature = "ipv6")))]
 fn replacement_notices(
     v4: Option<&netmodel::Ipv4Config>,
     v6: Option<&netmodel::Ipv6Config>,
 ) -> Vec<String> {
-    let _ = v4;
-    let _ = v6;
-
     let mut notices = Vec::new();
-    #[cfg(not(feature = "ipv4"))]
-    if let Some(notice) = v4.and_then(|config| {
-        (config.addresses.is_empty() && config.dhcp)
-            .then(|| String::from("DHCP requested but the ipv4 feature is disabled"))
-    }) {
-        notices.push(notice);
+
+    if cfg!(not(feature = "ipv4"))
+        && let Some(config) = v4
+        && config.addresses.is_empty()
+        && config.dhcp
+    {
+        notices.push(String::from(
+            "DHCP requested but the ipv4 feature is disabled",
+        ));
     }
-    #[cfg(not(feature = "ipv6"))]
-    if let Some(notice) = v6.and_then(|config| {
-        (config.addresses.is_empty() && config.autoconf)
-            .then(|| String::from("SLAAC requested but the ipv6 feature is disabled"))
-    }) {
-        notices.push(notice);
+
+    if cfg!(not(feature = "ipv6"))
+        && let Some(config) = v6
+        && config.addresses.is_empty()
+        && config.autoconf
+    {
+        notices.push(String::from(
+            "SLAAC requested but the ipv6 feature is disabled",
+        ));
     }
 
     notices
-}
-
-#[cfg(all(feature = "ipv4", feature = "ipv6"))]
-const fn replacement_notices(
-    _v4: Option<&netmodel::Ipv4Config>,
-    _v6: Option<&netmodel::Ipv6Config>,
-) -> Vec<String> {
-    Vec::new()
 }
 
 fn broadcast(controller: &mut Controller, command: MethodCommand) {

@@ -1304,3 +1304,34 @@ fn ipv6_replacement_notice_is_journaled() {
         })
     );
 }
+
+#[cfg(all(feature = "ipv4", feature = "ipv6"))]
+#[test]
+fn replacement_with_enabled_features_journals_no_notice() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+
+    // ACT
+    drop(configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Some(Ipv4Config {
+            dhcp: true,
+            ..Ipv4Config::default()
+        }),
+        Some(Ipv6Config {
+            autoconf: true,
+            ..Ipv6Config::default()
+        }),
+    ));
+
+    // ASSERT
+    assert!(
+        !journal
+            .drain()
+            .any(|observation| matches!(observation.event, net_observe::Event::Notice { .. }))
+    );
+}
