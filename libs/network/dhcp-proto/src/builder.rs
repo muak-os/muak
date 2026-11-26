@@ -3,7 +3,8 @@
 use core::net::Ipv4Addr;
 
 use super::{header, message_type, option};
-use crate::{FLAG_BROADCAST, Failure, Result};
+use crate::FLAG_BROADCAST;
+use crate::error::{DhcpProtoError, Result};
 
 const MESSAGE_TYPE_LEN: usize = 3;
 const REQUESTED_IP_LEN: usize = 6;
@@ -30,7 +31,7 @@ pub enum Mode {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the header and the DISCOVER
+/// Returns [`DhcpProtoError::MessageTooLong`] with the required byte count when `buf` cannot hold the header and the DISCOVER
 /// options.
 pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     let required = header::LEN
@@ -38,7 +39,7 @@ pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
         .saturating_add(PARAM_REQUEST_LIST_LEN)
         .saturating_add(END_LEN);
     let Some(out) = buf.get_mut(..required) else {
-        return Err(Failure::MessageTooLong {
+        return Err(DhcpProtoError::MessageTooLong {
             required,
             capacity: buf.len(),
         });
@@ -61,7 +62,7 @@ pub fn discover(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the header and the REQUEST
+/// Returns [`DhcpProtoError::MessageTooLong`] with the required byte count when `buf` cannot hold the header and the REQUEST
 /// options.
 pub fn request(
     buf: &mut [u8],
@@ -80,7 +81,7 @@ pub fn request(
             .saturating_add(SERVER_ID_LEN);
     }
     let Some(out) = buf.get_mut(..required) else {
-        return Err(Failure::MessageTooLong {
+        return Err(DhcpProtoError::MessageTooLong {
             required,
             capacity: buf.len(),
         });
@@ -118,7 +119,7 @@ pub fn request(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` cannot hold the option at `cursor`.
+/// Returns [`DhcpProtoError::MessageTooLong`] with the required byte count when `buf` cannot hold the option at `cursor`.
 pub(crate) fn append_param_request_list(buf: &mut [u8], cursor: usize) -> Result<usize> {
     put(
         buf,
@@ -137,7 +138,7 @@ pub(crate) fn append_param_request_list(buf: &mut [u8], cursor: usize) -> Result
 fn put(buf: &mut [u8], cursor: usize, bytes: &[u8]) -> Result<usize> {
     let end = cursor.saturating_add(bytes.len());
     let Some(slot) = buf.get_mut(cursor..end) else {
-        return Err(Failure::MessageTooLong {
+        return Err(DhcpProtoError::MessageTooLong {
             required: end,
             capacity: buf.len(),
         });
@@ -431,7 +432,7 @@ mod tests {
         let result = discover(&mut buf[..required - 1], 1, MAC);
 
         // ASSERT
-        let Err(Failure::MessageTooLong {
+        let Err(DhcpProtoError::MessageTooLong {
             required: needed,
             capacity,
         }) = result
@@ -455,7 +456,7 @@ mod tests {
         let result = request(&mut buf[..required - 1], 1, MAC, assigned, Mode::Renew);
 
         // ASSERT
-        let Err(Failure::MessageTooLong {
+        let Err(DhcpProtoError::MessageTooLong {
             required: needed,
             capacity,
         }) = result
@@ -482,7 +483,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(required, 262);
-        let Err(Failure::MessageTooLong {
+        let Err(DhcpProtoError::MessageTooLong {
             required: needed,
             capacity,
         }) = result

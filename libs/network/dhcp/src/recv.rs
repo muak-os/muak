@@ -3,6 +3,7 @@
 use core::net::{IpAddr, Ipv4Addr};
 use std::time::{Instant, SystemTime};
 
+use dhcp_proto::error::DhcpProtoError;
 use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, ParsedOptions, header, validate};
 use ip::v4::udp;
 use ip_method::SocketSlot;
@@ -134,7 +135,7 @@ fn accept(
 ) -> Option<ParsedOptions> {
     match validate::response(payload, method.xid, kind.expected()) {
         Ok(options) => Some(options),
-        Err(dhcp_proto::Failure::Nak) => {
+        Err(DhcpProtoError::Nak) => {
             state::failure(method, now, kind, Fault::Nak);
             None
         }

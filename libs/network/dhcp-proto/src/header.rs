@@ -3,7 +3,7 @@
 use core::net::Ipv4Addr;
 
 use super::{BOOTREQUEST, FLAG_BROADCAST, MAGIC_COOKIE, field};
-use crate::{Failure, Result};
+use crate::error::{DhcpProtoError, Result};
 
 const HTYPE_ETHERNET: u8 = 1;
 const HLEN_ETHERNET: u8 = 6;
@@ -15,7 +15,7 @@ pub const LEN: usize = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
+/// Returns [`DhcpProtoError::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
 pub fn build_with(
     buf: &mut [u8],
     xid: u32,
@@ -24,7 +24,7 @@ pub fn build_with(
     flags: u16,
 ) -> Result<&mut [u8]> {
     let Some(out) = buf.get_mut(..LEN) else {
-        return Err(Failure::MessageTooLong {
+        return Err(DhcpProtoError::MessageTooLong {
             required: LEN,
             capacity: buf.len(),
         });
@@ -47,7 +47,7 @@ pub fn build_with(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
+/// Returns [`DhcpProtoError::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
 pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     build_with(buf, xid, mac, Ipv4Addr::UNSPECIFIED, FLAG_BROADCAST)
 }
@@ -56,7 +56,7 @@ pub fn build(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
+/// Returns [`DhcpProtoError::MessageTooLong`] with the required byte count when `buf` is shorter than [`LEN`].
 pub fn build_unicast(buf: &mut [u8], xid: u32, mac: [u8; 6]) -> Result<&mut [u8]> {
     build_with(buf, xid, mac, Ipv4Addr::UNSPECIFIED, 0)
 }
@@ -238,7 +238,7 @@ mod tests {
         let result = build(&mut buf, 1, MAC);
 
         // ASSERT
-        let Err(Failure::MessageTooLong { required, capacity }) = result else {
+        let Err(DhcpProtoError::MessageTooLong { required, capacity }) = result else {
             panic!("expected MessageTooLong");
         };
         assert_eq!(required, LEN);

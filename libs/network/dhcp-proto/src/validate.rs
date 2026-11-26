@@ -1,39 +1,39 @@
 //! Validation of received `DHCPv4` responses.
 
 use super::{MAGIC_COOKIE, ParsedOptions, field, message_type, options, xid};
-use crate::{Failure, Result};
+use crate::error::{DhcpProtoError, Result};
 
 /// Validates a received DHCP response and parses its options.
 ///
 /// # Errors
 ///
-/// Returns [`Failure::ResponseTooShort`] when the message cannot hold the fixed header, the magic cookie and the
-/// options, [`Failure::XidMismatch`] when the transaction ID belongs to another exchange, [`Failure::Nak`] when the
-/// server refused the request, [`Failure::MessageType`] when the message type is not `expected_type`, and
-/// [`Failure::MissingMessageType`] when the option is absent.
+/// Returns [`DhcpProtoError::ResponseTooShort`] when the message cannot hold the fixed header, the magic cookie and the
+/// options, [`DhcpProtoError::XidMismatch`] when the transaction ID belongs to another exchange, [`DhcpProtoError::Nak`] when the
+/// server refused the request, [`DhcpProtoError::MessageType`] when the message type is not `expected_type`, and
+/// [`DhcpProtoError::MissingMessageType`] when the option is absent.
 pub fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<ParsedOptions> {
     let options_start = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
     if buf.len() < options_start {
-        return Err(Failure::ResponseTooShort(buf.len()));
+        return Err(DhcpProtoError::ResponseTooShort(buf.len()));
     }
 
     if xid::extract(buf) != expected_xid {
-        return Err(Failure::XidMismatch);
+        return Err(DhcpProtoError::XidMismatch);
     }
 
     let opts_bytes = buf
         .get(options_start..)
-        .ok_or(Failure::ResponseTooShort(buf.len()))?;
+        .ok_or(DhcpProtoError::ResponseTooShort(buf.len()))?;
     let opts = options::parse(opts_bytes);
 
     match opts.message_type {
-        Some(message_type::NAK) => Err(Failure::Nak),
+        Some(message_type::NAK) => Err(DhcpProtoError::Nak),
         Some(msg_type) if msg_type == expected_type => Ok(opts),
-        Some(msg_type) => Err(Failure::MessageType {
+        Some(msg_type) => Err(DhcpProtoError::MessageType {
             expected: expected_type,
             got: msg_type,
         }),
-        None => Err(Failure::MissingMessageType),
+        None => Err(DhcpProtoError::MissingMessageType),
     }
 }
 
@@ -61,7 +61,7 @@ mod tests {
         let result = response(&buf, 0, message_type::OFFER);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::ResponseTooShort(100))));
+        assert!(matches!(result, Err(DhcpProtoError::ResponseTooShort(100))));
     }
 
     #[test]
@@ -74,7 +74,7 @@ mod tests {
         let result = response(&pkt, 0x2222, message_type::OFFER);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::XidMismatch)));
+        assert!(matches!(result, Err(DhcpProtoError::XidMismatch)));
     }
 
     #[test]
@@ -89,7 +89,7 @@ mod tests {
         // ASSERT
         assert!(matches!(
             result,
-            Err(Failure::MessageType {
+            Err(DhcpProtoError::MessageType {
                 expected: message_type::OFFER,
                 got: message_type::ACK,
             })
@@ -106,7 +106,7 @@ mod tests {
         let result = response(&pkt, 0x1111, message_type::OFFER);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::MissingMessageType)));
+        assert!(matches!(result, Err(DhcpProtoError::MissingMessageType)));
     }
 
     #[test]
@@ -135,6 +135,6 @@ mod tests {
         let result = response(&pkt, 0x1234, message_type::ACK);
 
         // ASSERT
-        assert!(matches!(result, Err(Failure::Nak)));
+        assert!(matches!(result, Err(DhcpProtoError::Nak)));
     }
 }
