@@ -3,7 +3,8 @@
 use alloc::collections::VecDeque;
 use std::time::Instant;
 
-use ip_method::{Command, Event, Failure, State};
+use ip_method::error::IpMethodError;
+use ip_method::{Command, Event, State};
 
 use crate::effects::Action;
 use crate::exchange::{Exchange, SocketState, Transmit};
@@ -114,7 +115,7 @@ pub(super) fn degrade(method: &mut Dhcp, fault: Fault) {
     method.retry_at = None;
     method.exchange = Exchange::Idle;
     exchange::release_all(method);
-    let failure = Failure::Protocol(fault.to_string());
+    let failure = IpMethodError::Protocol(fault.to_string());
     method
         .queue
         .push_back(Action::Event(Event::Failed(failure)));

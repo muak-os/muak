@@ -6,8 +6,9 @@ use core::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::io;
 use std::time::{Duration, Instant, SystemTime};
 
+use ip_method::error::IpMethodError;
 use ip_method::{
-    Command, Effect, Event, Failure, Input, Intent, LinkInfo, Method as _, SocketKind, SocketSlot,
+    Command, Effect, Event, Input, Intent, LinkInfo, Method as _, SocketKind, SocketSlot,
     SocketSpec, State, Step,
 };
 use ndp::build::router::{Advertisement, advertisement as build_advertisement};
@@ -115,7 +116,7 @@ fn convert_event(event: Event) -> Observed {
         Event::Intent(intent) => Observed::Intent(intent),
         Event::State(state) => Observed::State(state),
         Event::Warning(text) => Observed::Warning(text),
-        Event::Failed(Failure::Io(_) | Failure::Protocol(_)) => Observed::Failed,
+        Event::Failed(IpMethodError::Io(_) | IpMethodError::Protocol(_)) => Observed::Failed,
     }
 }
 

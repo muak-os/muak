@@ -2,12 +2,15 @@
 
 #![warn(missing_docs)]
 
+pub mod error;
+
 use core::net::{IpAddr, SocketAddr};
 use std::io;
 use std::time::{Instant, SystemTime};
 
 use netmodel::{LinkState, Mac, Name};
-use thiserror::Error;
+
+use crate::error::IpMethodError;
 
 /// Commands the controller sends to an address method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,18 +72,7 @@ pub enum Event {
     /// Method reported a nonfatal issue.
     Warning(String),
     /// Method failed.
-    Failed(Failure),
-}
-
-/// Failures reported by an address method.
-#[derive(Debug, Error)]
-pub enum Failure {
-    /// Socket input or output failed.
-    #[error("method I/O failed: {0}")]
-    Io(#[source] io::Error),
-    /// Protocol exchange failed.
-    #[error("method protocol failed: {0}")]
-    Protocol(String),
+    Failed(IpMethodError),
 }
 
 /// Slot an address method uses for one logical socket.

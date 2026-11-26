@@ -4,9 +4,9 @@ use core::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::io;
 use std::time::Instant;
 
+use ip_method::error::IpMethodError;
 use ip_method::{
-    Command, Effect, Event, Failure, Input, LinkInfo, SocketKind, SocketSlot, SocketSpec, State,
-    Step,
+    Command, Effect, Event, Input, LinkInfo, SocketKind, SocketSlot, SocketSpec, State, Step,
 };
 use ndp::ALL_ROUTERS;
 use netmodel::LinkState;
@@ -149,7 +149,7 @@ fn handle_error(method: &mut Slaac, now: Instant, error: io::Error) {
     } else {
         method
             .queue
-            .push_back(Action::Emit(Event::Failed(Failure::Io(error))));
+            .push_back(Action::Emit(Event::Failed(IpMethodError::Io(error))));
     }
 }
 

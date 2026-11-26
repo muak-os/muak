@@ -8,9 +8,9 @@ use std::time::{Instant, SystemTime};
 use dhcp::Dhcp;
 use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, header, message_type};
 use ip::v4::{Addr, udp};
+use ip_method::error::IpMethodError;
 use ip_method::{
-    Command, Effect, Event, Failure, Input, Intent, Method as _, SocketKind, SocketSlot, State,
-    Step,
+    Command, Effect, Event, Input, Intent, Method as _, SocketKind, SocketSlot, State, Step,
 };
 use netmodel::{Ipv4Config, LinkState, Mac, Name};
 
@@ -265,7 +265,7 @@ pub(crate) fn states(trace: &[Trace]) -> Vec<State> {
 }
 
 /// Returns the failure the method reported, when it reported one.
-pub(crate) fn failure(trace: &[Trace]) -> Option<&Failure> {
+pub(crate) fn failure(trace: &[Trace]) -> Option<&IpMethodError> {
     trace.iter().find_map(|effect| match effect {
         &Trace::Event(Event::Failed(ref failure)) => Some(failure),
         &Trace::Opened(..)
