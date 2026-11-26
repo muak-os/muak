@@ -46,14 +46,22 @@ impl<R: Runtime> Service<R> {
         }
     }
 
+    /// Starts the supervisor and drains the work it produces immediately.
+    ///
     /// # Errors
+    ///
+    /// Returns the error a runtime port reported while draining the loop.
     pub async fn start(&mut self) -> io::Result<()> {
         self.driver.start(Instant::now()).await;
 
         self.settle().await
     }
 
+    /// Drains the loop until the network reports usable or the timeout elapses.
+    ///
     /// # Errors
+    ///
+    /// Returns the error a runtime port reported while stepping or waiting.
     pub async fn wait_ready(&mut self, timeout: Duration) -> io::Result<Readiness> {
         let deadline = Instant::now().checked_add(timeout);
         self.settle().await?;
@@ -61,7 +69,11 @@ impl<R: Runtime> Service<R> {
         self.await_ready(deadline).await
     }
 
+    /// Steps and waits until a shutdown signal is received.
+    ///
     /// # Errors
+    ///
+    /// Returns the error a runtime port reported while stepping, waiting, or notifying the supervisor.
     pub async fn run(&mut self, notifier: &Notifier) -> io::Result<()> {
         self.settle().await?;
         self.report(notifier)?;
