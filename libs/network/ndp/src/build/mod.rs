@@ -4,11 +4,10 @@ pub mod router;
 
 use core::net::Ipv6Addr;
 
+use crate::error::{NdpError, Result};
 use crate::message::NeighborFlags;
 use crate::types::{self, LINK_LAYER_LEN};
-use crate::{
-    Failure, NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_SOLICITATION, Result, field,
-};
+use crate::{NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_SOLICITATION, field};
 
 const SOLICITATION_LEN: usize = 8;
 const NEIGHBOR_LEN: usize = 24;
@@ -24,7 +23,7 @@ const OVERRIDE_FLAG: u8 = 0x20;
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `message` cannot hold the solicitation.
+/// Returns [`NdpError::TooSmall`] when `message` cannot hold the solicitation.
 pub fn router_solicitation(
     source: Ipv6Addr,
     destination: Ipv6Addr,
@@ -38,7 +37,7 @@ pub fn router_solicitation(
     };
     let required = SOLICITATION_LEN.saturating_add(link_layer.map_or(0, |_| LINK_LAYER_OPTION_LEN));
     if message.len() < required {
-        return Err(Failure::TooSmall(required));
+        return Err(NdpError::TooSmall(required));
     }
 
     let mut cursor = field::put(message, 0, &[ROUTER_SOLICITATION, 0, 0, 0, 0, 0, 0, 0])?;
@@ -53,7 +52,7 @@ pub fn router_solicitation(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `message` cannot hold the solicitation.
+/// Returns [`NdpError::TooSmall`] when `message` cannot hold the solicitation.
 pub fn neighbor_solicitation(
     source: Ipv6Addr,
     destination: Ipv6Addr,
@@ -63,7 +62,7 @@ pub fn neighbor_solicitation(
 ) -> Result<&mut [u8]> {
     let required = NEIGHBOR_LEN.saturating_add(link_layer.map_or(0, |_| LINK_LAYER_OPTION_LEN));
     if message.len() < required {
-        return Err(Failure::TooSmall(required));
+        return Err(NdpError::TooSmall(required));
     }
 
     let mut cursor = field::put(message, 0, &[NEIGHBOR_SOLICITATION, 0, 0, 0, 0, 0, 0, 0])?;
@@ -79,7 +78,7 @@ pub fn neighbor_solicitation(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `message` cannot hold the advertisement.
+/// Returns [`NdpError::TooSmall`] when `message` cannot hold the advertisement.
 pub fn neighbor_advertisement(
     source: Ipv6Addr,
     destination: Ipv6Addr,
@@ -90,7 +89,7 @@ pub fn neighbor_advertisement(
 ) -> Result<&mut [u8]> {
     let required = NEIGHBOR_LEN.saturating_add(link_layer.map_or(0, |_| LINK_LAYER_OPTION_LEN));
     if message.len() < required {
-        return Err(Failure::TooSmall(required));
+        return Err(NdpError::TooSmall(required));
     }
 
     let mut flag_bits = 0;
@@ -134,9 +133,10 @@ mod tests {
     use core::net::Ipv6Addr;
 
     use super::{neighbor_advertisement, neighbor_solicitation, router_solicitation};
+    use crate::error::NdpError;
     use crate::message::NeighborFlags;
     use crate::types::{self, LINK_LAYER_LEN};
-    use crate::{ALL_ROUTERS, Failure, checksum, parse};
+    use crate::{ALL_ROUTERS, checksum, parse};
 
     const MAC: [u8; LINK_LAYER_LEN] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 
@@ -345,7 +345,7 @@ mod tests {
         );
 
         // ASSERT
-        assert_eq!(solicitation, Err(Failure::TooSmall(16)));
-        assert_eq!(advertisement, Err(Failure::TooSmall(24)));
+        assert_eq!(solicitation, Err(NdpError::TooSmall(16)));
+        assert_eq!(advertisement, Err(NdpError::TooSmall(24)));
     }
 }

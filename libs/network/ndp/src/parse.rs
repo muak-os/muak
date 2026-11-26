@@ -1,13 +1,13 @@
 //! Parsing of `ICMPv6` Neighbor Discovery messages (RFC 4861 section 4).
 
+use crate::error::{NdpError, Result};
 use crate::message::{
     AdvertisementHeader, NeighborAdvertisement, NeighborFlags, NeighborSolicitation,
     RouterAdvertisement,
 };
 use crate::types::Options;
 use crate::{
-    Failure, NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT,
-    ROUTER_SOLICITATION, Result, field,
+    NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION, field,
 };
 
 const SOLICITATION_LEN: usize = 8;
@@ -32,13 +32,13 @@ const OVERRIDE_FLAG: u8 = 0x20;
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the solicitation header, and [`Failure::WrongType`]
+/// Returns [`NdpError::Truncated`] when `message` is shorter than the solicitation header, and [`NdpError::WrongType`]
 /// when the message is not a Router Solicitation.
 pub fn router_solicitation(message: &[u8]) -> Result<Options<'_>> {
     check(message, ROUTER_SOLICITATION, SOLICITATION_LEN)?;
     let options = message
         .get(SOLICITATION_LEN..)
-        .ok_or(Failure::Truncated(message.len(), SOLICITATION_LEN))?;
+        .ok_or(NdpError::Truncated(message.len(), SOLICITATION_LEN))?;
 
     Ok(Options::new(options))
 }
@@ -47,7 +47,7 @@ pub fn router_solicitation(message: &[u8]) -> Result<Options<'_>> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the advertisement header, and [`Failure::WrongType`]
+/// Returns [`NdpError::Truncated`] when `message` is shorter than the advertisement header, and [`NdpError::WrongType`]
 /// when the message is not a Router Advertisement.
 pub fn router_advertisement(message: &[u8]) -> Result<RouterAdvertisement<'_>> {
     check(message, ROUTER_ADVERTISEMENT, ADVERTISEMENT_LEN)?;
@@ -62,7 +62,7 @@ pub fn router_advertisement(message: &[u8]) -> Result<RouterAdvertisement<'_>> {
     };
     let options = message
         .get(ADVERTISEMENT_LEN..)
-        .ok_or(Failure::Truncated(message.len(), ADVERTISEMENT_LEN))?;
+        .ok_or(NdpError::Truncated(message.len(), ADVERTISEMENT_LEN))?;
 
     Ok(RouterAdvertisement {
         header,
@@ -74,7 +74,7 @@ pub fn router_advertisement(message: &[u8]) -> Result<RouterAdvertisement<'_>> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the solicitation header, and [`Failure::WrongType`]
+/// Returns [`NdpError::Truncated`] when `message` is shorter than the solicitation header, and [`NdpError::WrongType`]
 /// when the message is not a Neighbor Solicitation.
 pub fn neighbor_solicitation(message: &[u8]) -> Result<NeighborSolicitation<'_>> {
     check(message, NEIGHBOR_SOLICITATION, NEIGHBOR_LEN)?;
@@ -89,7 +89,7 @@ pub fn neighbor_solicitation(message: &[u8]) -> Result<NeighborSolicitation<'_>>
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `message` is shorter than the advertisement header, and [`Failure::WrongType`]
+/// Returns [`NdpError::Truncated`] when `message` is shorter than the advertisement header, and [`NdpError::WrongType`]
 /// when the message is not a Neighbor Advertisement.
 pub fn neighbor_advertisement(message: &[u8]) -> Result<NeighborAdvertisement<'_>> {
     check(message, NEIGHBOR_ADVERTISEMENT, NEIGHBOR_LEN)?;
@@ -108,11 +108,11 @@ pub fn neighbor_advertisement(message: &[u8]) -> Result<NeighborAdvertisement<'_
 
 fn check(message: &[u8], kind: u8, minimum: usize) -> Result<()> {
     if message.len() < minimum {
-        return Err(Failure::Truncated(message.len(), minimum));
+        return Err(NdpError::Truncated(message.len(), minimum));
     }
     let actual = field::byte(message, 0)?;
     if actual != kind {
-        return Err(Failure::WrongType(actual));
+        return Err(NdpError::WrongType(actual));
     }
 
     Ok(())
@@ -121,7 +121,7 @@ fn check(message: &[u8], kind: u8, minimum: usize) -> Result<()> {
 fn options(message: &[u8]) -> Result<&[u8]> {
     message
         .get(NEIGHBOR_LEN..)
-        .ok_or(Failure::Truncated(message.len(), NEIGHBOR_LEN))
+        .ok_or(NdpError::Truncated(message.len(), NEIGHBOR_LEN))
 }
 
 #[cfg(test)]
@@ -129,10 +129,10 @@ mod tests {
     use core::net::Ipv6Addr;
 
     use super::{neighbor_advertisement, neighbor_solicitation, router_advertisement};
+    use crate::error::NdpError;
     use crate::types::Option;
     use crate::{
-        Failure, NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT,
-        ROUTER_SOLICITATION,
+        NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION,
     };
 
     fn ra_base(hop_limit: u8, flags: u8, router_lifetime: u16) -> Vec<u8> {
@@ -198,7 +198,7 @@ mod tests {
         let result = router_advertisement(&message);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::Truncated(4, 16)));
+        assert_eq!(result, Err(NdpError::Truncated(4, 16)));
     }
 
     #[test]
@@ -211,7 +211,7 @@ mod tests {
         let result = router_advertisement(&message);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::WrongType(ROUTER_SOLICITATION)));
+        assert_eq!(result, Err(NdpError::WrongType(ROUTER_SOLICITATION)));
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
         let result = neighbor_solicitation(&message[..16]);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::Truncated(16, 24)));
+        assert_eq!(result, Err(NdpError::Truncated(16, 24)));
     }
 
     #[test]
@@ -297,6 +297,6 @@ mod tests {
         let result = neighbor_advertisement(&message[..20]);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::Truncated(20, 24)));
+        assert_eq!(result, Err(NdpError::Truncated(20, 24)));
     }
 }

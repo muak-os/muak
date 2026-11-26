@@ -3,7 +3,8 @@
 use core::net::Ipv6Addr;
 use core::ops::Range;
 
-use crate::{Failure, Result, checksum};
+use crate::checksum;
+use crate::error::{NdpError, Result};
 
 /// Offset of the `ICMPv6` checksum field.
 pub(crate) const CHECKSUM: usize = 2;
@@ -21,7 +22,7 @@ pub(crate) fn slot(data: &mut [u8], range: Range<usize>) -> Option<&mut [u8]> {
 pub(crate) fn byte(data: &[u8], offset: usize) -> Result<u8> {
     data.get(offset)
         .copied()
-        .ok_or(Failure::Truncated(data.len(), offset.saturating_add(1)))
+        .ok_or(NdpError::Truncated(data.len(), offset.saturating_add(1)))
 }
 
 /// Reads the big-endian `u16` at `offset`.
@@ -29,7 +30,7 @@ pub(crate) fn u16_at(data: &[u8], offset: usize) -> Result<u16> {
     data.get(offset..)
         .and_then(<[u8]>::first_chunk::<2>)
         .map(|bytes| u16::from_be_bytes(*bytes))
-        .ok_or(Failure::Truncated(data.len(), offset.saturating_add(2)))
+        .ok_or(NdpError::Truncated(data.len(), offset.saturating_add(2)))
 }
 
 /// Reads the big-endian `u32` at `offset`.
@@ -37,7 +38,7 @@ pub(crate) fn u32_at(data: &[u8], offset: usize) -> Result<u32> {
     data.get(offset..)
         .and_then(<[u8]>::first_chunk::<4>)
         .map(|bytes| u32::from_be_bytes(*bytes))
-        .ok_or(Failure::Truncated(data.len(), offset.saturating_add(4)))
+        .ok_or(NdpError::Truncated(data.len(), offset.saturating_add(4)))
 }
 
 /// Reads the IPv6 address at `offset`.
@@ -45,7 +46,7 @@ pub(crate) fn address_at(data: &[u8], offset: usize) -> Result<Ipv6Addr> {
     data.get(offset..)
         .and_then(<[u8]>::first_chunk::<ADDRESS_LEN>)
         .map(|octets| Ipv6Addr::from(*octets))
-        .ok_or(Failure::Truncated(
+        .ok_or(NdpError::Truncated(
             data.len(),
             offset.saturating_add(ADDRESS_LEN),
         ))
@@ -55,7 +56,7 @@ pub(crate) fn address_at(data: &[u8], offset: usize) -> Result<Ipv6Addr> {
 pub(crate) fn put(buffer: &mut [u8], cursor: usize, bytes: &[u8]) -> Result<usize> {
     let end = cursor.saturating_add(bytes.len());
     slot(buffer, cursor..end)
-        .ok_or(Failure::TooSmall(end))?
+        .ok_or(NdpError::TooSmall(end))?
         .copy_from_slice(bytes);
 
     Ok(end)
@@ -68,11 +69,11 @@ pub(crate) fn seal(
     source: Ipv6Addr,
     destination: Ipv6Addr,
 ) -> Result<&mut [u8]> {
-    let written = message.get_mut(..end).ok_or(Failure::TooSmall(end))?;
+    let written = message.get_mut(..end).ok_or(NdpError::TooSmall(end))?;
     let sum = checksum(source, destination, written);
     let field_end = CHECKSUM.saturating_add(CHECKSUM_LEN);
     slot(written, CHECKSUM..field_end)
-        .ok_or(Failure::TooSmall(field_end))?
+        .ok_or(NdpError::TooSmall(field_end))?
         .copy_from_slice(&sum.to_be_bytes());
 
     Ok(written)

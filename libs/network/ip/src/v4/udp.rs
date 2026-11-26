@@ -3,8 +3,9 @@
 use core::net::Ipv4Addr;
 
 use super::Addr;
+use crate::checksum;
+use crate::error::{IpError, Result};
 use crate::v4::header;
-use crate::{Failure, Result, checksum};
 
 /// Length of a UDP header.
 pub(crate) const UDP_HEADER_LEN: usize = 8;
@@ -15,14 +16,14 @@ const PROTOCOL_UDP: u8 = 17;
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `buf` cannot hold both headers and the payload, and [`Failure::LengthOverflow`]
+/// Returns [`IpError::TooSmall`] when `buf` cannot hold both headers and the payload, and [`IpError::LengthOverflow`]
 /// when either length field overflows [`u16::MAX`].
 pub fn wrap<'a>(payload: &[u8], src: Addr, dst: Addr, buf: &'a mut [u8]) -> Result<&'a mut [u8]> {
     let udp_len = UDP_HEADER_LEN.saturating_add(payload.len());
     let frame_len = header::IPV4_HEADER_LEN.saturating_add(udp_len);
     let frame = buf
         .get_mut(..frame_len)
-        .ok_or(Failure::TooSmall(frame_len))?;
+        .ok_or(IpError::TooSmall(frame_len))?;
     let (ip, segment) = frame.split_at_mut(header::IPV4_HEADER_LEN);
 
     write_segment(payload, src, dst, segment)?;
@@ -35,28 +36,28 @@ pub fn wrap<'a>(payload: &[u8], src: Addr, dst: Addr, buf: &'a mut [u8]) -> Resu
 ///
 /// # Errors
 ///
-/// Returns whatever [`header::parse`] returns for a malformed IPv4 header, [`Failure::NotUdp`] when the protocol is not
-/// UDP, and [`Failure::Truncated`] when the datagram is too short to hold a UDP header or when a length field is
+/// Returns whatever [`header::parse`] returns for a malformed IPv4 header, [`IpError::NotUdp`] when the protocol is not
+/// UDP, and [`IpError::Truncated`] when the datagram is too short to hold a UDP header or when a length field is
 /// inconsistent: a total length below the IHL, a UDP length below the 8 byte UDP header, or a UDP length past the end
 /// of the segment.
 pub fn unwrap(buf: &[u8]) -> Result<(Addr, Addr, &[u8])> {
     let header = header::parse(buf)?;
     if header.protocol != PROTOCOL_UDP {
-        return Err(Failure::NotUdp(header.protocol));
+        return Err(IpError::NotUdp(header.protocol));
     }
     let segment = buf
         .get(header.ihl..header.total_len)
-        .ok_or(Failure::Truncated(header.total_len, header.ihl))?;
+        .ok_or(IpError::Truncated(header.total_len, header.ihl))?;
     if segment.len() < UDP_HEADER_LEN {
-        return Err(Failure::Truncated(segment.len(), UDP_HEADER_LEN));
+        return Err(IpError::Truncated(segment.len(), UDP_HEADER_LEN));
     }
     let udp_len = usize::from(read_u16(segment, 4)?);
     if udp_len < UDP_HEADER_LEN {
-        return Err(Failure::Truncated(udp_len, UDP_HEADER_LEN));
+        return Err(IpError::Truncated(udp_len, UDP_HEADER_LEN));
     }
     let payload = segment
         .get(UDP_HEADER_LEN..udp_len)
-        .ok_or(Failure::Truncated(segment.len(), udp_len))?;
+        .ok_or(IpError::Truncated(segment.len(), udp_len))?;
 
     Ok((
         Addr {
@@ -73,23 +74,23 @@ pub fn unwrap(buf: &[u8]) -> Result<(Addr, Addr, &[u8])> {
 
 fn write_segment(payload: &[u8], src: Addr, dst: Addr, segment: &mut [u8]) -> Result<()> {
     let udp_len =
-        u16::try_from(segment.len()).map_err(|_error| Failure::LengthOverflow(segment.len()))?;
+        u16::try_from(segment.len()).map_err(|_error| IpError::LengthOverflow(segment.len()))?;
 
     super::slot(segment, 0..2)
-        .ok_or(Failure::TooSmall(UDP_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(UDP_HEADER_LEN))?
         .copy_from_slice(&src.port.to_be_bytes());
     super::slot(segment, 2..4)
-        .ok_or(Failure::TooSmall(UDP_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(UDP_HEADER_LEN))?
         .copy_from_slice(&dst.port.to_be_bytes());
     super::slot(segment, 4..6)
-        .ok_or(Failure::TooSmall(UDP_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(UDP_HEADER_LEN))?
         .copy_from_slice(&udp_len.to_be_bytes());
     super::slot(segment, 6..8)
-        .ok_or(Failure::TooSmall(UDP_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(UDP_HEADER_LEN))?
         .copy_from_slice(&0_u16.to_be_bytes());
     let payload_end = segment.len();
     super::slot(segment, UDP_HEADER_LEN..payload_end)
-        .ok_or(Failure::TooSmall(UDP_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(UDP_HEADER_LEN))?
         .copy_from_slice(payload);
 
     let udp_checksum = segment_checksum(src.ip, dst.ip, udp_len, segment);
@@ -99,7 +100,7 @@ fn write_segment(payload: &[u8], src: Addr, dst: Addr, segment: &mut [u8]) -> Re
         udp_checksum
     };
     super::slot(segment, 6..8)
-        .ok_or(Failure::TooSmall(UDP_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(UDP_HEADER_LEN))?
         .copy_from_slice(&udp_checksum.to_be_bytes());
 
     Ok(())
@@ -118,7 +119,7 @@ fn read_u16(data: &[u8], offset: usize) -> Result<u16> {
     let word = data
         .get(offset..)
         .and_then(<[u8]>::first_chunk::<2>)
-        .ok_or(Failure::Truncated(data.len(), offset.saturating_add(2)))?;
+        .ok_or(IpError::Truncated(data.len(), offset.saturating_add(2)))?;
 
     Ok(u16::from_be_bytes(*word))
 }
@@ -223,7 +224,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             result,
-            Err(Failure::TooSmall(
+            Err(IpError::TooSmall(
                 header::IPV4_HEADER_LEN + UDP_HEADER_LEN + "payload".len()
             ))
         );
@@ -240,7 +241,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             result,
-            Err(Failure::Truncated(buf.len(), header::IPV4_HEADER_LEN))
+            Err(IpError::Truncated(buf.len(), header::IPV4_HEADER_LEN))
         );
     }
 
@@ -257,7 +258,7 @@ mod tests {
         let result = unwrap(frame);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::NotUdp(6)));
+        assert_eq!(result, Err(IpError::NotUdp(6)));
     }
 
     #[test]
@@ -273,7 +274,7 @@ mod tests {
         let result = unwrap(frame);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::BadIhl(16)));
+        assert_eq!(result, Err(IpError::BadIhl(16)));
     }
 
     #[test]
@@ -296,7 +297,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             result,
-            Err(Failure::Truncated(segment_len, usize::from(declared)))
+            Err(IpError::Truncated(segment_len, usize::from(declared)))
         );
     }
 
@@ -316,7 +317,7 @@ mod tests {
         let result = unwrap(frame);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::Truncated(4, UDP_HEADER_LEN)));
+        assert_eq!(result, Err(IpError::Truncated(4, UDP_HEADER_LEN)));
     }
 
     #[test]
@@ -336,7 +337,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             result,
-            Err(Failure::Truncated(frame_len, usize::from(declared)))
+            Err(IpError::Truncated(frame_len, usize::from(declared)))
         );
     }
 }

@@ -3,9 +3,10 @@
 use core::net::Ipv6Addr;
 
 use super::write_link_layer;
+use crate::error::{NdpError, Result};
 use crate::message::AdvertisementHeader;
 use crate::types::{self, LINK_LAYER_LEN, PrefixInformation};
-use crate::{Failure, ROUTER_ADVERTISEMENT, Result, field};
+use crate::{ROUTER_ADVERTISEMENT, field};
 
 const ADVERTISEMENT_LEN: usize = 16;
 const LINK_LAYER_OPTION_LEN: usize = 8;
@@ -40,7 +41,7 @@ pub struct Advertisement<'a> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `message` cannot hold the advertisement and [`Failure::LengthOverflow`] when the
+/// Returns [`NdpError::TooSmall`] when `message` cannot hold the advertisement and [`NdpError::LengthOverflow`] when the
 /// DNS server list does not fit the option length field.
 pub fn advertisement<'a>(
     source: Ipv6Addr,
@@ -50,7 +51,7 @@ pub fn advertisement<'a>(
 ) -> Result<&'a mut [u8]> {
     let required = advertisement_len(advertisement);
     if message.len() < required {
-        return Err(Failure::TooSmall(required));
+        return Err(NdpError::TooSmall(required));
     }
 
     let mut flag_bits = 0;
@@ -169,7 +170,7 @@ fn write_recursive_dns_servers(
     servers: &[Ipv6Addr],
 ) -> Result<usize> {
     let units = 1_usize.saturating_add(servers.len().saturating_mul(2));
-    let units = u8::try_from(units).map_err(|_error| Failure::LengthOverflow(units))?;
+    let units = u8::try_from(units).map_err(|_error| NdpError::LengthOverflow(units))?;
     let mut cursor = field::put(
         message,
         cursor,
@@ -188,9 +189,10 @@ mod tests {
     use core::net::Ipv6Addr;
 
     use super::{Advertisement, advertisement};
+    use crate::error::NdpError;
     use crate::message::AdvertisementHeader;
     use crate::types::{self, LINK_LAYER_LEN, PrefixInformation};
-    use crate::{Failure, checksum, parse};
+    use crate::{checksum, parse};
 
     const MAC: [u8; LINK_LAYER_LEN] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 
@@ -349,6 +351,6 @@ mod tests {
         let result = advertisement(source(), destination(), &to_write, &mut message);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::TooSmall(16 + 8 + 8 + 32)));
+        assert_eq!(result, Err(NdpError::TooSmall(16 + 8 + 8 + 32)));
     }
 }

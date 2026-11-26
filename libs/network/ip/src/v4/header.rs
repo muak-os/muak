@@ -2,7 +2,8 @@
 
 use core::net::Ipv4Addr;
 
-use crate::{Failure, Result, checksum};
+use crate::checksum;
+use crate::error::{IpError, Result};
 
 /// Length of an IPv4 header without options.
 pub(crate) const IPV4_HEADER_LEN: usize = 20;
@@ -30,7 +31,7 @@ pub struct Header {
 ///
 /// # Errors
 ///
-/// Returns [`Failure::TooSmall`] when `buf` cannot hold a header and [`Failure::LengthOverflow`] when the declared
+/// Returns [`IpError::TooSmall`] when `buf` cannot hold a header and [`IpError::LengthOverflow`] when the declared
 /// total length exceeds [`u16::MAX`].
 pub fn build(
     src: Ipv4Addr,
@@ -41,45 +42,45 @@ pub fn build(
 ) -> Result<&mut [u8]> {
     let head = buf
         .get_mut(..IPV4_HEADER_LEN)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?;
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?;
     let total_len = IPV4_HEADER_LEN.saturating_add(payload_len);
     let total_len =
-        u16::try_from(total_len).map_err(|_error| Failure::LengthOverflow(total_len))?;
+        u16::try_from(total_len).map_err(|_error| IpError::LengthOverflow(total_len))?;
 
     super::slot(head, 0..1)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&[IPV4_VERSION_IHL]);
     super::slot(head, 1..2)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&[0]);
     super::slot(head, 2..4)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&total_len.to_be_bytes());
     super::slot(head, 4..6)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&0_u16.to_be_bytes());
     super::slot(head, 6..8)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&IPV4_FLAG_DONT_FRAGMENT.to_be_bytes());
     super::slot(head, 8..9)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&[IPV4_TTL]);
     super::slot(head, 9..10)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&[protocol]);
     super::slot(head, 10..12)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&0_u16.to_be_bytes());
     super::slot(head, 12..16)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&src.octets());
     super::slot(head, 16..20)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&dst.octets());
 
     let ip_checksum = checksum::sum(head);
     super::slot(head, 10..12)
-        .ok_or(Failure::TooSmall(IPV4_HEADER_LEN))?
+        .ok_or(IpError::TooSmall(IPV4_HEADER_LEN))?
         .copy_from_slice(&ip_checksum.to_be_bytes());
 
     Ok(head)
@@ -89,23 +90,23 @@ pub fn build(
 ///
 /// # Errors
 ///
-/// Returns [`Failure::Truncated`] when `buf` is shorter than the minimum header or than the declared total length, and
-/// [`Failure::BadIhl`] when the IHL field is below the minimum header length or the IHL-derived extent does not fit the
-/// buffer. A declared total length below the header length is reported as [`Failure::Truncated`] as well.
+/// Returns [`IpError::Truncated`] when `buf` is shorter than the minimum header or than the declared total length, and
+/// [`IpError::BadIhl`] when the IHL field is below the minimum header length or the IHL-derived extent does not fit the
+/// buffer. A declared total length below the header length is reported as [`IpError::Truncated`] as well.
 pub fn parse(buf: &[u8]) -> Result<Header> {
     if buf.len() < IPV4_HEADER_LEN {
-        return Err(Failure::Truncated(buf.len(), IPV4_HEADER_LEN));
+        return Err(IpError::Truncated(buf.len(), IPV4_HEADER_LEN));
     }
     let ihl = usize::from(byte_at(buf, 0) & 0x0F).saturating_mul(4);
     if ihl < IPV4_HEADER_LEN || buf.len() < ihl {
-        return Err(Failure::BadIhl(ihl));
+        return Err(IpError::BadIhl(ihl));
     }
     let total_len = usize::from(u16::from_be_bytes([byte_at(buf, 2), byte_at(buf, 3)]));
     if total_len < ihl {
-        return Err(Failure::Truncated(total_len, ihl));
+        return Err(IpError::Truncated(total_len, ihl));
     }
     if total_len > buf.len() {
-        return Err(Failure::Truncated(buf.len(), total_len));
+        return Err(IpError::Truncated(buf.len(), total_len));
     }
 
     Ok(Header {
@@ -196,6 +197,6 @@ mod tests {
         let result = parse(&buf);
 
         // ASSERT
-        assert_eq!(result, Err(Failure::Truncated(10, IPV4_HEADER_LEN)));
+        assert_eq!(result, Err(IpError::Truncated(10, IPV4_HEADER_LEN)));
     }
 }
