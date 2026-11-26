@@ -9,9 +9,6 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [features]
 default = ["ipv4", "ipv6"]
 ipv4 = ["iface/ipv4", "net-supervisor/ipv4"]
@@ -35,3 +32,6 @@ dhcp-proto = { workspace = true }
 ip = { workspace = true, features = ["v4"] }
 ndp = { workspace = true }
 net-runtime = { workspace = true, features = ["mock"] }
+
+[lints]
+workspace = true

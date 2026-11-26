@@ -9,9 +9,9 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 # Internal
 netmodel = { workspace = true }
+
+[lints]
+workspace = true

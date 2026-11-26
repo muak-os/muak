@@ -9,10 +9,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 # System/platform APIs
 libc = { workspace = true }
 rustix = { workspace = true }
+
+[lints]
+workspace = true

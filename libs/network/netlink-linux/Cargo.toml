@@ -9,9 +9,6 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 # Networking
 netlink-packet-core = { workspace = true }
@@ -19,3 +16,6 @@ netlink-packet-route = { workspace = true }
 
 # Internal
 netmodel = { workspace = true }
+
+[lints]
+workspace = true

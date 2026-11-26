@@ -9,11 +9,11 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 # Internal
 ip-method = { workspace = true }
 ndp = { workspace = true }
 netmodel = { workspace = true }
+
+[lints]
+workspace = true

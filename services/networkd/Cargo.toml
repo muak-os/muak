@@ -32,9 +32,9 @@ net-supervisor = { workspace = true, default-features = false }
 netmodel = { workspace = true }
 net-observe = { workspace = true }
 
-[lints]
-workspace = true
-
 [dev-dependencies]
 net-runtime = { workspace = true, default-features = false, features = ["mock"] }
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

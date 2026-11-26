@@ -9,9 +9,6 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [features]
 default = ["ipv4", "ipv6"]
 ipv4 = ["iface/ipv4"]
@@ -29,3 +26,6 @@ net-observe = { workspace = true }
 dhcp = { workspace = true }
 ip-static = { workspace = true }
 slaac = { workspace = true }
+
+[lints]
+workspace = true

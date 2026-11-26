@@ -9,12 +9,12 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 # Internal
 dhcp-proto = { workspace = true }
 ip = { workspace = true, features = ["v4"] }
 ip-method = { workspace = true }
 netmodel = { workspace = true }
+
+[lints]
+workspace = true

@@ -9,9 +9,6 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 # Error handling
 thiserror = { workspace = true }
@@ -19,3 +16,6 @@ thiserror = { workspace = true }
 [dev-dependencies]
 # Deliberate port-parity check for `Mac::Display`.
 mac = { workspace = true }
+
+[lints]
+workspace = true

@@ -9,9 +9,6 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[lints]
-workspace = true
-
 [features]
 default = ["ipv4", "ipv6"]
 ipv4 = ["dep:dhcp"]
@@ -31,3 +28,6 @@ slaac = { workspace = true, optional = true }
 dhcp-proto = { workspace = true }
 ip = { workspace = true, features = ["v4"] }
 ndp = { workspace = true }
+
+[lints]
+workspace = true
