@@ -7,8 +7,11 @@ use std::time::Instant;
 use crate::actions::Action;
 use crate::state::Snapshot;
 use crate::{
-    Command, Config, Effect, Input, State, Status, Step, Supervisor, dispatch, observe, owner,
+    BridgeConfig, Command, Config, Effect, Input, State, Status, Step, Supervisor, dispatch,
+    observe, owner,
 };
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+use crate::{InterfaceConfig, InterfaceKind};
 
 /// Fields that trigger a status publication when any of them changes.
 pub(crate) type StatusKey = (
@@ -35,11 +38,11 @@ impl Supervisor {
             queue: VecDeque::new(),
             resolver_v4: Vec::new(),
             resolver_v6: Vec::new(),
-            empty_bridge: crate::BridgeConfig::default(),
+            empty_bridge: BridgeConfig::default(),
             #[cfg(any(feature = "ipv4", feature = "ipv6"))]
-            empty_interface: crate::InterfaceConfig {
+            empty_interface: InterfaceConfig {
                 name: String::new(),
-                kind: crate::InterfaceKind::Ethernet,
+                kind: InterfaceKind::Ethernet,
                 ipv4: None,
                 ipv6: None,
                 bridge: None,

@@ -131,7 +131,8 @@ mod tests {
     use super::{neighbor_advertisement, neighbor_solicitation, router_advertisement};
     use crate::types::Option;
     use crate::{
-        NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION,
+        Failure, NEIGHBOR_ADVERTISEMENT, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT,
+        ROUTER_SOLICITATION,
     };
 
     fn ra_base(hop_limit: u8, flags: u8, router_lifetime: u16) -> Vec<u8> {
@@ -197,7 +198,7 @@ mod tests {
         let result = router_advertisement(&message);
 
         // ASSERT
-        assert_eq!(result, Err(crate::Failure::Truncated(4, 16)));
+        assert_eq!(result, Err(Failure::Truncated(4, 16)));
     }
 
     #[test]
@@ -210,7 +211,7 @@ mod tests {
         let result = router_advertisement(&message);
 
         // ASSERT
-        assert_eq!(result, Err(crate::Failure::WrongType(ROUTER_SOLICITATION)));
+        assert_eq!(result, Err(Failure::WrongType(ROUTER_SOLICITATION)));
     }
 
     #[test]
@@ -254,7 +255,7 @@ mod tests {
         let result = neighbor_solicitation(&message[..16]);
 
         // ASSERT
-        assert_eq!(result, Err(crate::Failure::Truncated(16, 24)));
+        assert_eq!(result, Err(Failure::Truncated(16, 24)));
     }
 
     #[test]
@@ -296,6 +297,6 @@ mod tests {
         let result = neighbor_advertisement(&message[..20]);
 
         // ASSERT
-        assert_eq!(result, Err(crate::Failure::Truncated(20, 24)));
+        assert_eq!(result, Err(Failure::Truncated(20, 24)));
     }
 }

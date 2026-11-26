@@ -4,51 +4,38 @@ use alloc::collections::VecDeque;
 use std::io::Result;
 
 use super::{Frame, Mock, Socket, State};
+use crate::{Icmpv6, Packet, SocketId};
 
-impl crate::Packet for Mock {
-    fn close(&self, id: crate::SocketId) -> impl Future<Output = Result<()>> + Send {
+impl Packet for Mock {
+    fn close(&self, id: SocketId) -> impl Future<Output = Result<()>> + Send {
         std::future::ready(self.write(|state| close(state, id)))
     }
 
-    fn open(
-        &self,
-        spec: &ip_method::SocketSpec,
-    ) -> impl Future<Output = Result<crate::SocketId>> + Send {
+    fn open(&self, spec: &ip_method::SocketSpec) -> impl Future<Output = Result<SocketId>> + Send {
         std::future::ready(self.write(|state| open(state, spec, ip_method::SocketKind::RawL2)))
     }
 
-    fn recv(
-        &self,
-        id: crate::SocketId,
-        buf: &mut [u8],
-    ) -> impl Future<Output = Result<usize>> + Send {
+    fn recv(&self, id: SocketId, buf: &mut [u8]) -> impl Future<Output = Result<usize>> + Send {
         std::future::ready(self.write(|state| receive(state, id, buf)))
     }
 
-    fn send(
-        &self,
-        id: crate::SocketId,
-        frame: &[u8],
-    ) -> impl Future<Output = Result<usize>> + Send {
+    fn send(&self, id: SocketId, frame: &[u8]) -> impl Future<Output = Result<usize>> + Send {
         std::future::ready(self.write(|state| send(state, id, frame, None)))
     }
 }
 
-impl crate::Icmpv6 for Mock {
-    fn close(&self, id: crate::SocketId) -> impl Future<Output = Result<()>> + Send {
+impl Icmpv6 for Mock {
+    fn close(&self, id: SocketId) -> impl Future<Output = Result<()>> + Send {
         std::future::ready(self.write(|state| close(state, id)))
     }
 
-    fn open(
-        &self,
-        spec: &ip_method::SocketSpec,
-    ) -> impl Future<Output = Result<crate::SocketId>> + Send {
+    fn open(&self, spec: &ip_method::SocketSpec) -> impl Future<Output = Result<SocketId>> + Send {
         std::future::ready(self.write(|state| open(state, spec, ip_method::SocketKind::RawIcmpv6)))
     }
 
     fn recv(
         &self,
-        id: crate::SocketId,
+        id: SocketId,
         buf: &mut [u8],
     ) -> impl Future<Output = Result<(usize, Option<core::net::Ipv6Addr>)>> + Send {
         std::future::ready(self.write(|state| {
@@ -59,7 +46,7 @@ impl crate::Icmpv6 for Mock {
 
     fn send(
         &self,
-        id: crate::SocketId,
+        id: SocketId,
         dst: core::net::Ipv6Addr,
         payload: &[u8],
     ) -> impl Future<Output = Result<usize>> + Send {
@@ -71,7 +58,7 @@ fn open(
     state: &mut State,
     spec: &ip_method::SocketSpec,
     expected: ip_method::SocketKind,
-) -> Result<crate::SocketId> {
+) -> Result<SocketId> {
     if spec.kind != expected {
         return Err(super::invalid_input());
     }
@@ -83,16 +70,16 @@ fn open(
         received: VecDeque::new(),
     });
 
-    Ok(crate::SocketId::new(id))
+    Ok(SocketId::new(id))
 }
 
-fn close(state: &mut State, id: crate::SocketId) -> Result<()> {
+fn close(state: &mut State, id: SocketId) -> Result<()> {
     super::retain_socket(&mut state.sockets, id, |socket| socket.id)
 }
 
 fn send(
     state: &mut State,
-    id: crate::SocketId,
+    id: SocketId,
     bytes: &[u8],
     peer: Option<core::net::Ipv6Addr>,
 ) -> Result<usize> {
@@ -105,13 +92,13 @@ fn send(
     Ok(bytes.len())
 }
 
-fn receive(state: &mut State, id: crate::SocketId, buf: &mut [u8]) -> Result<usize> {
+fn receive(state: &mut State, id: SocketId, buf: &mut [u8]) -> Result<usize> {
     let frame = take(state, id)?;
 
     Ok(super::copy_into(&frame.bytes, buf))
 }
 
-fn take(state: &mut State, id: crate::SocketId) -> Result<Frame> {
+fn take(state: &mut State, id: SocketId) -> Result<Frame> {
     state
         .socket_mut(id)?
         .received

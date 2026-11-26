@@ -6,6 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Instant, SystemTime};
 
 use super::{Frame, Mock, State};
+use crate::SocketId;
 
 impl Mock {
     /// Creates a runtime whose clocks start at `now` and `wall`.
@@ -71,7 +72,7 @@ impl Mock {
     /// # Errors
     ///
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
-    pub fn push_inbound(&self, id: crate::SocketId, bytes: &[u8]) -> Result<()> {
+    pub fn push_inbound(&self, id: SocketId, bytes: &[u8]) -> Result<()> {
         self.push_frame(
             id,
             Frame {
@@ -88,7 +89,7 @@ impl Mock {
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn push_inbound_from(
         &self,
-        id: crate::SocketId,
+        id: SocketId,
         bytes: &[u8],
         source: core::net::Ipv6Addr,
     ) -> Result<()> {
@@ -106,7 +107,7 @@ impl Mock {
     /// # Errors
     ///
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
-    pub fn push_inbound_udp(&self, id: crate::SocketId, bytes: &[u8]) -> Result<()> {
+    pub fn push_inbound_udp(&self, id: SocketId, bytes: &[u8]) -> Result<()> {
         self.write(|state| {
             state
                 .udp_mut(id)
@@ -119,7 +120,7 @@ impl Mock {
     /// # Errors
     ///
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
-    pub fn udp_sent(&self, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
+    pub fn udp_sent(&self, id: SocketId) -> Result<Vec<Vec<u8>>> {
         self.read(|state| state.udp(id).map(|datagram| datagram.sent.clone()))
     }
 
@@ -130,7 +131,7 @@ impl Mock {
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn udp_endpoints(
         &self,
-        id: crate::SocketId,
+        id: SocketId,
     ) -> Result<(Option<core::net::SocketAddr>, Option<core::net::SocketAddr>)> {
         self.read(|state| state.udp(id).map(|datagram| (datagram.bind, datagram.peer)))
     }
@@ -140,7 +141,7 @@ impl Mock {
     /// # Errors
     ///
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
-    pub fn sent(&self, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
+    pub fn sent(&self, id: SocketId) -> Result<Vec<Vec<u8>>> {
         self.read(|state| super::sent_frames(state, id))
     }
 
@@ -151,7 +152,7 @@ impl Mock {
     /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn sent_with_peer(
         &self,
-        id: crate::SocketId,
+        id: SocketId,
     ) -> Result<Vec<(Vec<u8>, Option<core::net::Ipv6Addr>)>> {
         self.read(|state| super::sent_frames_with_peer(state, id))
     }
@@ -162,7 +163,7 @@ impl Mock {
         self.read(|state| state.default_routes.clone())
     }
 
-    fn push_frame(&self, id: crate::SocketId, frame: Frame) -> Result<()> {
+    fn push_frame(&self, id: SocketId, frame: Frame) -> Result<()> {
         self.write(|state| super::queue_inbound(state, id, frame))
     }
 

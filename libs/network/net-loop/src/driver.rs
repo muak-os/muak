@@ -8,9 +8,9 @@ use std::time::{Instant, SystemTime};
 use net_runtime::Link as _;
 
 use crate::resolver::Nameservers;
-use crate::{Progress, step};
+use crate::{Loop, Progress, SocketTable, pump, step};
 
-impl<R: net_runtime::Runtime> crate::Loop<R> {
+impl<R: net_runtime::Runtime> Loop<R> {
     /// Creates a driver loop for the runtime and supervisor configuration. Does not initialize the supervisor: callers
     /// run [`crate::Loop::start`] before stepping.
     #[must_use = "the loop owns the FSMs and must be stepped"]
@@ -22,7 +22,7 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
             interfaces: Vec::new(),
             names: Vec::new(),
             owners: Vec::new(),
-            sockets: crate::SocketTable::new(),
+            sockets: SocketTable::new(),
             resolver: Nameservers::default(),
             started: false,
             pending: VecDeque::new(),
@@ -47,7 +47,7 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
 
     /// Returns the logical socket table.
     #[must_use = "callers need the table to inspect the open sockets"]
-    pub const fn sockets(&self) -> &crate::SocketTable {
+    pub const fn sockets(&self) -> &SocketTable {
         &self.sockets
     }
 
@@ -113,13 +113,13 @@ impl<R: net_runtime::Runtime> crate::Loop<R> {
     ///
     /// Returns the error the link event port reported.
     pub async fn wait_event(&mut self) -> io::Result<Progress> {
-        crate::pump::wait_event(self).await
+        pump::wait_event(self).await
     }
 }
 
 /// Ensures exactly one controller exists per interface name.
 pub(crate) fn ensure<R: net_runtime::Runtime>(
-    driver: &mut crate::Loop<R>,
+    driver: &mut Loop<R>,
     link: ip_method::LinkInfo,
 ) -> bool {
     if driver.names.contains(&link.name) {
@@ -134,7 +134,7 @@ pub(crate) fn ensure<R: net_runtime::Runtime>(
 
 /// Records that a port was enslaved to a bridge.
 pub(crate) fn enslave<R: net_runtime::Runtime>(
-    driver: &mut crate::Loop<R>,
+    driver: &mut Loop<R>,
     port: netmodel::Name,
     master: netmodel::Name,
 ) {
@@ -147,7 +147,7 @@ pub(crate) fn enslave<R: net_runtime::Runtime>(
 }
 
 /// Forgets every port that is, or belongs to, the deleted link.
-pub(crate) fn detach<R: net_runtime::Runtime>(driver: &mut crate::Loop<R>, name: &netmodel::Name) {
+pub(crate) fn detach<R: net_runtime::Runtime>(driver: &mut Loop<R>, name: &netmodel::Name) {
     driver
         .owners
         .retain(|entry| &entry.0 != name && &entry.1 != name);
@@ -155,7 +155,7 @@ pub(crate) fn detach<R: net_runtime::Runtime>(driver: &mut crate::Loop<R>, name:
 
 /// Returns the bridge that owns the given port.
 pub(crate) fn owner_of<R: net_runtime::Runtime>(
-    driver: &crate::Loop<R>,
+    driver: &Loop<R>,
     port: &netmodel::Name,
 ) -> Option<netmodel::Name> {
     driver
@@ -167,7 +167,7 @@ pub(crate) fn owner_of<R: net_runtime::Runtime>(
 
 /// Builds the owner link view carrying the carrier state of one of its ports.
 pub(crate) async fn owner_link<R: net_runtime::Runtime>(
-    driver: &crate::Loop<R>,
+    driver: &Loop<R>,
     owner: &netmodel::Name,
     state: netmodel::LinkState,
 ) -> io::Result<Option<ip_method::LinkInfo>> {

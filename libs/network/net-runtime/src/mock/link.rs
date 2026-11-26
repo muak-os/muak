@@ -3,8 +3,9 @@
 use std::io::Result;
 
 use super::{Mock, State};
+use crate::Link;
 
-impl crate::Link for Mock {
+impl Link for Mock {
     fn detach(&self, port: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         std::future::ready(self.write(|state| detach(state, port)))
     }

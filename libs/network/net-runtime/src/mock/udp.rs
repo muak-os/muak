@@ -5,6 +5,7 @@ use core::net::SocketAddr;
 use std::io::Result;
 
 use super::{Mock, State};
+use crate::{SocketId, Udp};
 
 pub(super) struct Datagram {
     pub(super) id: u32,
@@ -14,36 +15,25 @@ pub(super) struct Datagram {
     pub(super) received: VecDeque<Vec<u8>>,
 }
 
-impl crate::Udp for Mock {
-    fn close(&self, id: crate::SocketId) -> impl Future<Output = Result<()>> + Send {
+impl Udp for Mock {
+    fn close(&self, id: SocketId) -> impl Future<Output = Result<()>> + Send {
         std::future::ready(self.write(|state| close(state, id)))
     }
 
-    fn open(
-        &self,
-        spec: &ip_method::SocketSpec,
-    ) -> impl Future<Output = Result<crate::SocketId>> + Send {
+    fn open(&self, spec: &ip_method::SocketSpec) -> impl Future<Output = Result<SocketId>> + Send {
         std::future::ready(self.write(|state| open(state, spec)))
     }
 
-    fn recv(
-        &self,
-        id: crate::SocketId,
-        buf: &mut [u8],
-    ) -> impl Future<Output = Result<usize>> + Send {
+    fn recv(&self, id: SocketId, buf: &mut [u8]) -> impl Future<Output = Result<usize>> + Send {
         std::future::ready(self.write(|state| receive(state, id, buf)))
     }
 
-    fn send(
-        &self,
-        id: crate::SocketId,
-        payload: &[u8],
-    ) -> impl Future<Output = Result<usize>> + Send {
+    fn send(&self, id: SocketId, payload: &[u8]) -> impl Future<Output = Result<usize>> + Send {
         std::future::ready(self.write(|state| send(state, id, payload)))
     }
 }
 
-fn open(state: &mut State, spec: &ip_method::SocketSpec) -> Result<crate::SocketId> {
+fn open(state: &mut State, spec: &ip_method::SocketSpec) -> Result<SocketId> {
     if spec.kind != ip_method::SocketKind::Udp {
         return Err(super::invalid_input());
     }
@@ -57,21 +47,21 @@ fn open(state: &mut State, spec: &ip_method::SocketSpec) -> Result<crate::Socket
         received: VecDeque::new(),
     });
 
-    Ok(crate::SocketId::new(id))
+    Ok(SocketId::new(id))
 }
 
-fn close(state: &mut State, id: crate::SocketId) -> Result<()> {
+fn close(state: &mut State, id: SocketId) -> Result<()> {
     super::retain_socket(&mut state.udp, id, |datagram| datagram.id)
 }
 
-fn send(state: &mut State, id: crate::SocketId, payload: &[u8]) -> Result<usize> {
+fn send(state: &mut State, id: SocketId, payload: &[u8]) -> Result<usize> {
     let datagram = state.udp_mut(id)?;
     datagram.sent.push(payload.to_vec());
 
     Ok(payload.len())
 }
 
-fn receive(state: &mut State, id: crate::SocketId, buf: &mut [u8]) -> Result<usize> {
+fn receive(state: &mut State, id: SocketId, buf: &mut [u8]) -> Result<usize> {
     let payload = state
         .udp_mut(id)?
         .received

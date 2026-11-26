@@ -10,8 +10,7 @@ use ip_method::SocketSlot;
 use crate::effects::Action;
 use crate::exchange::{Exchange, Transmit};
 use crate::fault::Fault;
-use crate::state::{bind, failure};
-use crate::{Dhcp, Lease};
+use crate::{Dhcp, Lease, state};
 
 pub(super) fn frame(
     method: &mut Dhcp,
@@ -50,11 +49,11 @@ fn offered(method: &mut Dhcp, now: Instant, kind: Transmit, payload: Option<&[u8
         return;
     };
     let Some(server) = options.server_id else {
-        failure(method, now, kind, Fault::MissingServerId);
+        state::failure(method, now, kind, Fault::MissingServerId);
         return;
     };
     let Some(offered) = assigned_address(payload, Ipv4Addr::UNSPECIFIED) else {
-        failure(method, now, kind, Fault::MissingAddress);
+        state::failure(method, now, kind, Fault::MissingAddress);
         return;
     };
     method.exchange = Exchange::Entropy(Transmit::Select { server, offered });
@@ -120,11 +119,11 @@ fn acknowledged(
         return;
     };
     let Some(assigned) = assigned_address(payload, assigned) else {
-        failure(method, now, kind, Fault::MissingAddress);
+        state::failure(method, now, kind, Fault::MissingAddress);
         return;
     };
     let lease = Lease::from_ack(wall, assigned, server, options);
-    bind(method, now, kind, lease);
+    state::bind(method, now, kind, lease);
 }
 
 fn accept(
@@ -136,7 +135,7 @@ fn accept(
     match validate::response(payload, method.xid, kind.expected()) {
         Ok(options) => Some(options),
         Err(dhcp_proto::Failure::Nak) => {
-            failure(method, now, kind, Fault::Nak);
+            state::failure(method, now, kind, Fault::Nak);
             None
         }
         Err(_other) => None,

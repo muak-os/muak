@@ -3,8 +3,9 @@
 use std::io::Result;
 
 use super::{Mock, State};
+use crate::Route;
 
-impl crate::Route for Mock {
+impl Route for Mock {
     fn ensure_default(
         &self,
         link: &netmodel::Name,

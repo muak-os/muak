@@ -7,9 +7,9 @@ use std::time::Instant;
 use dhcp_proto::message_type;
 use ip_method::{Event, SocketSlot};
 
-use crate::Dhcp;
 use crate::effects::Action;
 use crate::fault::Fault;
+use crate::{Dhcp, state};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Transmit {
@@ -144,7 +144,7 @@ pub(super) fn on_socket_error(method: &mut Dhcp, now: Instant, slot: SocketSlot)
         return;
     };
     method.exchange = Exchange::Idle;
-    crate::state::failure(method, now, kind, Fault::Socket);
+    state::failure(method, now, kind, Fault::Socket);
 }
 
 pub(super) const fn socket(method: &Dhcp, slot: SocketSlot) -> SocketState {

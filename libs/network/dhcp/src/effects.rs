@@ -7,10 +7,9 @@ use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, builder};
 use ip::v4::udp;
 use ip_method::{Effect, Event, SocketKind, SocketSlot, SocketSpec, Step};
 
-use crate::exchange::{Exchange, SocketState, Transmit, store};
+use crate::exchange::{Exchange, SocketState, Transmit};
 use crate::fault::Fault;
-use crate::state::degrade;
-use crate::{Dhcp, RESPONSE_TIMEOUT};
+use crate::{Dhcp, RESPONSE_TIMEOUT, exchange, state};
 
 pub(super) enum Action {
     Open(SocketSlot),
@@ -35,7 +34,7 @@ fn open(method: &mut Dhcp, slot: SocketSlot) -> Step<'_> {
     if let Some(spec) = spec(method, slot) {
         return Step::Effect(Effect::OpenSocket(spec));
     }
-    store(method, slot, SocketState::Closed);
+    exchange::store(method, slot, SocketState::Closed);
     method.exchange = Exchange::Idle;
 
     Step::Wait
@@ -91,12 +90,12 @@ fn send(method: &mut Dhcp, now: Instant, kind: Transmit) -> Step<'_> {
         ),
     };
     let Ok(message) = encoded else {
-        degrade(method, Fault::Encoding);
+        state::degrade(method, Fault::Encoding);
         return Step::Wait;
     };
     let len = message.len();
     let Some(payload) = method.message.get(..len) else {
-        degrade(method, Fault::Encoding);
+        state::degrade(method, Fault::Encoding);
         return Step::Wait;
     };
     let deadline = now.checked_add(RESPONSE_TIMEOUT).unwrap_or(now);
@@ -125,7 +124,7 @@ fn send(method: &mut Dhcp, now: Instant, kind: Transmit) -> Step<'_> {
             dst: None,
         });
     }
-    degrade(method, Fault::Encoding);
+    state::degrade(method, Fault::Encoding);
 
     Step::Wait
 }

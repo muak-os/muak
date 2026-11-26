@@ -9,7 +9,7 @@ use ip_method::{Event, SocketSlot};
 use crate::effects::Action;
 use crate::exchange::{Exchange, Transmit};
 use crate::fault::Fault;
-use crate::{Dhcp, Phase, exchange, intent, retry};
+use crate::{Dhcp, Phase, exchange, intent, retry, state};
 
 pub(super) fn begin(method: &mut Dhcp) {
     method.phase = Phase::Acquiring;
@@ -66,7 +66,7 @@ pub(super) fn failed(method: &mut Dhcp, now: Instant, fault: Fault) {
         }
         retry::Outcome::Failed => {
             method.attempts = 0;
-            crate::state::degrade(method, fault);
+            state::degrade(method, fault);
         }
     }
 }

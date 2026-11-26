@@ -9,8 +9,7 @@ use ndp::types::Option;
 
 use super::state::{ManagedAddress, ManagedDns, ManagedRouter};
 use super::{Action, intent};
-use crate::Slaac;
-use crate::address::generate;
+use crate::{Slaac, address};
 
 pub(crate) fn receive(method: &mut Slaac, source: Ipv6Addr, message: &[u8], now: Instant) {
     if message.first().copied() != Some(ndp::ROUTER_ADVERTISEMENT) {
@@ -55,7 +54,7 @@ fn initial(
     }) else {
         return false;
     };
-    let Some(address) = generate(
+    let Some(address) = address::generate(
         prefix.prefix,
         prefix.prefix_len,
         method.link.mac.into_array(),
@@ -140,7 +139,7 @@ fn refresh_address(
         let Option::PrefixInformation(prefix) = option else {
             continue;
         };
-        let generated = generate(prefix.prefix, prefix.prefix_len, mac);
+        let generated = address::generate(prefix.prefix, prefix.prefix_len, mac);
         if prefix.autonomous
             && prefix.prefix_len <= 64
             && address.router == source

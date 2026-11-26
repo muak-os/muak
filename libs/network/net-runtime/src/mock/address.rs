@@ -3,8 +3,9 @@
 use std::io::Result;
 
 use super::{Mock, State};
+use crate::Address;
 
-impl crate::Address for Mock {
+impl Address for Mock {
     fn add(
         &self,
         link: &netmodel::Name,

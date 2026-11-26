@@ -3,8 +3,7 @@
 use netmodel::{LinkEvent, Name};
 
 use crate::actions::Action;
-use crate::reconcile::run;
-use crate::{State, Supervisor, dns, failover, owner};
+use crate::{State, Supervisor, dns, failover, owner, reconcile};
 
 /// Applies one link lifecycle event.
 pub(crate) fn apply(supervisor: &mut Supervisor, event: LinkEvent) {
@@ -13,7 +12,7 @@ pub(crate) fn apply(supervisor: &mut Supervisor, event: LinkEvent) {
         LinkEvent::Down { name, .. } => on_down(supervisor, &name),
         LinkEvent::Added { name, index, mac } => on_added(supervisor, &name, index, mac),
         LinkEvent::Deleted { name, .. } => on_deleted(supervisor, &name),
-        LinkEvent::Error(_) => run(supervisor),
+        LinkEvent::Error(_) => reconcile::run(supervisor),
     }
 }
 

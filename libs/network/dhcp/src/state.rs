@@ -9,7 +9,9 @@ use crate::effects::Action;
 use crate::exchange::{Exchange, SocketState, Transmit};
 use crate::fault::Fault;
 use crate::timer::Deadlines;
-use crate::{Dhcp, Lease, MAX_FRAME_LEN, MAX_MESSAGE_LEN, Phase, acquire, lifecycle};
+use crate::{
+    Dhcp, Lease, MAX_FRAME_LEN, MAX_MESSAGE_LEN, Phase, acquire, exchange, intent, lifecycle,
+};
 
 impl Dhcp {
     /// Creates a DHCP method that provisions `link` from `config`.
@@ -87,15 +89,15 @@ pub(super) fn bind(method: &mut Dhcp, now: Instant, kind: Transmit, lease: Lease
     method.exchange = Exchange::Idle;
     method.retry_at = None;
     method.attempts = 0;
-    crate::exchange::release(method, kind.slot());
+    exchange::release(method, kind.slot());
     if let Some(previous) = method.lease.as_ref()
         && replaced(previous, &lease)
     {
-        crate::intent::deconfigure(method);
+        intent::deconfigure(method);
     }
     method.lease = Some(lease);
     method.phase = Phase::Bound;
-    crate::intent::configure(method);
+    intent::configure(method);
     let state = Event::State(State::Bound);
     method.queue.push_back(Action::Event(state));
 }
@@ -111,7 +113,7 @@ pub(super) fn degrade(method: &mut Dhcp, fault: Fault) {
     method.deadlines.disarm();
     method.retry_at = None;
     method.exchange = Exchange::Idle;
-    crate::exchange::release_all(method);
+    exchange::release_all(method);
     let failure = Failure::Protocol(fault.to_string());
     method
         .queue
@@ -126,7 +128,7 @@ fn retry(method: &mut Dhcp, now: Instant) -> bool {
         return false;
     }
     method.retry_at = None;
-    crate::exchange::begin(method, Transmit::Discover);
+    exchange::begin(method, Transmit::Discover);
 
     true
 }
@@ -173,7 +175,7 @@ fn expired_while_down(method: &mut Dhcp, now: Instant) -> bool {
     if !method.deadlines.expired(now) {
         return false;
     }
-    crate::intent::deconfigure(method);
+    intent::deconfigure(method);
     method.lease = None;
     method.bound_at = None;
     method.deadlines.disarm();

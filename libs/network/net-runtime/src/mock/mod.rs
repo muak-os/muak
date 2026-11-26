@@ -14,6 +14,8 @@ use std::io::{Error, ErrorKind, Result};
 use std::sync::Mutex;
 use std::time::{Instant, SystemTime};
 
+use crate::{Runtime, SocketId};
+
 /// Deterministic in-memory runtime.
 pub struct Mock {
     state: Mutex<State>,
@@ -46,28 +48,28 @@ struct Frame {
 }
 
 impl State {
-    fn socket(&self, id: crate::SocketId) -> Result<&Socket> {
+    fn socket(&self, id: SocketId) -> Result<&Socket> {
         self.sockets
             .iter()
             .find(|socket| socket.id == id.get())
             .ok_or_else(not_found)
     }
 
-    fn socket_mut(&mut self, id: crate::SocketId) -> Result<&mut Socket> {
+    fn socket_mut(&mut self, id: SocketId) -> Result<&mut Socket> {
         self.sockets
             .iter_mut()
             .find(|socket| socket.id == id.get())
             .ok_or_else(not_found)
     }
 
-    fn udp(&self, id: crate::SocketId) -> Result<&udp::Datagram> {
+    fn udp(&self, id: SocketId) -> Result<&udp::Datagram> {
         self.udp
             .iter()
             .find(|datagram| datagram.id == id.get())
             .ok_or_else(not_found)
     }
 
-    fn udp_mut(&mut self, id: crate::SocketId) -> Result<&mut udp::Datagram> {
+    fn udp_mut(&mut self, id: SocketId) -> Result<&mut udp::Datagram> {
         self.udp
             .iter_mut()
             .find(|datagram| datagram.id == id.get())
@@ -75,7 +77,7 @@ impl State {
     }
 }
 
-impl crate::Runtime for Mock {
+impl Runtime for Mock {
     type Address = Self;
     type Clock = Self;
     type Entropy = Self;
@@ -123,7 +125,7 @@ impl crate::Runtime for Mock {
     }
 }
 
-fn sent_frames(state: &State, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
+fn sent_frames(state: &State, id: SocketId) -> Result<Vec<Vec<u8>>> {
     let socket = state.socket(id)?;
 
     Ok(socket
@@ -135,7 +137,7 @@ fn sent_frames(state: &State, id: crate::SocketId) -> Result<Vec<Vec<u8>>> {
 
 fn sent_frames_with_peer(
     state: &State,
-    id: crate::SocketId,
+    id: SocketId,
 ) -> Result<Vec<(Vec<u8>, Option<core::net::Ipv6Addr>)>> {
     let socket = state.socket(id)?;
 
@@ -154,17 +156,13 @@ fn require_link(state: &State, name: &netmodel::Name) -> Result<()> {
     Err(not_found())
 }
 
-fn queue_inbound(state: &mut State, id: crate::SocketId, frame: Frame) -> Result<()> {
+fn queue_inbound(state: &mut State, id: SocketId, frame: Frame) -> Result<()> {
     state
         .socket_mut(id)
         .map(|socket| socket.received.push_back(frame))
 }
 
-fn retain_socket<T>(
-    table: &mut Vec<T>,
-    id: crate::SocketId,
-    id_of: impl Fn(&T) -> u32,
-) -> Result<()> {
+fn retain_socket<T>(table: &mut Vec<T>, id: SocketId, id_of: impl Fn(&T) -> u32) -> Result<()> {
     let before = table.len();
     table.retain(|entry| id_of(entry) != id.get());
     if table.len() == before {

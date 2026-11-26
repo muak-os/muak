@@ -3,9 +3,9 @@
 use std::time::Instant;
 
 use crate::actions::Action;
-use crate::reconcile::{RECONCILE_INTERVAL, run};
 use crate::{
-    Command, EffectKind, Input, State, Supervisor, discovery, feedback, link_events, retry,
+    Command, EffectKind, Input, State, Supervisor, discovery, feedback, link_events, reconcile,
+    retry,
 };
 
 /// Routes one input into the matching policy handler.
@@ -92,7 +92,7 @@ fn link_state_changed(
 fn on_command(supervisor: &mut Supervisor, now: Instant, command: Command) {
     match command {
         Command::Initialize => initialize(supervisor, now),
-        Command::Reconcile => run(supervisor),
+        Command::Reconcile => reconcile::run(supervisor),
         Command::Shutdown => shutdown(supervisor),
     }
 }
@@ -101,7 +101,7 @@ fn initialize(supervisor: &mut Supervisor, now: Instant) {
     let previous = supervisor.state.state;
     shutdown(supervisor);
     supervisor.state.transitions.clear();
-    supervisor.reconcile_at = now.checked_add(RECONCILE_INTERVAL);
+    supervisor.reconcile_at = now.checked_add(reconcile::RECONCILE_INTERVAL);
     supervisor.state.transition(State::Initializing);
     if let Some(transition) = supervisor.state.transitions.last_mut() {
         *transition = (previous, State::Initializing);
@@ -161,9 +161,9 @@ fn on_timer(supervisor: &mut Supervisor, now: Instant) {
         return;
     }
 
-    supervisor.reconcile_at = now.checked_add(RECONCILE_INTERVAL);
+    supervisor.reconcile_at = now.checked_add(reconcile::RECONCILE_INTERVAL);
     if supervisor.state.is_operational() {
-        run(supervisor);
+        reconcile::run(supervisor);
     }
 }
 
