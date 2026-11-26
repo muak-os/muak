@@ -787,6 +787,32 @@ fn transient_socket_error_warns_and_backs_off() {
 }
 
 #[test]
+fn address_not_available_is_transient_and_retries() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut method = new_method();
+    start(&mut method, now);
+    let error = io::Error::from(io::ErrorKind::AddrNotAvailable);
+
+    // ACT
+    let warned = observe(
+        &mut method,
+        now,
+        Input::SocketError {
+            slot: SocketSlot::Primary,
+            error,
+        },
+    );
+    let wake = method.next_wake(now);
+    let retried = observe(&mut method, at(now, 4), Input::Timer);
+
+    // ASSERT
+    assert!(matches!(warned, Some(Observed::Warning(text)) if text.contains("transient")));
+    assert_eq!(wake, Some(at(now, 4)));
+    assert!(matches!(retried, Some(Observed::Send { .. })));
+}
+
+#[test]
 fn unexpected_socket_close_is_recovered() {
     // ARRANGE
     let now = Instant::now();

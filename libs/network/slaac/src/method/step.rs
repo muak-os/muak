@@ -143,7 +143,7 @@ fn handle_error(method: &mut Slaac, now: Instant, error: io::Error) {
     method.retry_at = now.checked_add(RTR_SOLICITATION_INTERVAL);
     if matches!(
         error.kind(),
-        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted | io::ErrorKind::AddrNotAvailable
     ) {
         method.warn(format!("transient ICMPv6 socket error: {error}, retrying"));
     } else {
