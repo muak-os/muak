@@ -18,9 +18,6 @@ const OVERRIDE_FLAG: u8 = 0x20;
 
 /// Writes a Router Solicitation into `message` and returns the written bytes.
 ///
-/// `link_layer` becomes a Source Link-Layer Address option only when `source` is specified, as RFC 4861 section 4.1
-/// requires; an unspecified source drops the option even when a link-layer address is supplied.
-///
 /// # Errors
 ///
 /// Returns [`NdpError::TooSmall`] when `message` cannot hold the solicitation.
