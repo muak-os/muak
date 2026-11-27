@@ -81,5 +81,6 @@ async fn method<R: net_runtime::Runtime>(
     input: ip_method::Input<'_>,
 ) -> io::Result<()> {
     let input = iface::Input::Method { family, input };
+
     feedback::interface_input(driver, now, wall, name, input).await
 }
