@@ -1,0 +1,30 @@
+[package]
+name = "net-supervisor"
+description = "Global network supervisor finite state machine"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["ipv4", "ipv6"]
+ipv4 = ["iface/ipv4"]
+ipv6 = ["iface/ipv6"]
+
+[dependencies]
+# Internal
+iface = { workspace = true, default-features = false }
+mac = { workspace = true, default-features = false }
+netmodel = { workspace = true }
+net-observe = { workspace = true }
+
+[dev-dependencies]
+dhcp = { workspace = true }
+ip-static = { workspace = true }
+slaac = { workspace = true }
+
+[lints]
+workspace = true

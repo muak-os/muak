@@ -1,0 +1,33 @@
+[package]
+name = "iface"
+description = "Per-interface network configuration finite state machine"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["ipv4", "ipv6"]
+ipv4 = ["dep:dhcp"]
+ipv6 = ["dep:slaac"]
+
+[dependencies]
+# Internal
+dhcp = { workspace = true, optional = true }
+ip-method = { workspace = true }
+ip-static = { workspace = true }
+net-observe = { workspace = true }
+netmodel = { workspace = true }
+slaac = { workspace = true, optional = true }
+
+[dev-dependencies]
+dhcp-proto = { workspace = true }
+ip = { workspace = true, features = ["v4"] }
+mac = { workspace = true, default-features = false }
+ndp = { workspace = true }
+
+[lints]
+workspace = true

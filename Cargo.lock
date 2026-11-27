@@ -3,13 +3,6 @@
 version = 4
 
 [[package]]
-name = "addrconf"
-version = "0.0.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -24,6 +17,16 @@ dependencies = [
  "cipher",
  "cpubits",
  "cpufeatures",
+]
+
+[[package]]
+name = "afpacket-linux"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "netmodel",
+ "rustix",
+ "thiserror",
 ]
 
 [[package]]
@@ -105,7 +108,7 @@ dependencies = [
  "pki",
  "rustls",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "tokio-rustls",
  "x509-cert",
@@ -252,7 +255,7 @@ dependencies = [
  "parttable",
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -262,7 +265,7 @@ dependencies = [
  "blockdev",
  "crc32c",
  "rustix",
- "thiserror 2.0.21",
+ "thiserror",
  "uuid",
 ]
 
@@ -289,12 +292,6 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
-
-[[package]]
-name = "cfg_aliases"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "cipher"
@@ -379,7 +376,7 @@ dependencies = [
  "semver",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
 ]
 
@@ -510,23 +507,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "dhcp-client"
+name = "dhcp"
 version = "0.0.0"
 dependencies = [
- "addrconf",
  "dhcp-proto",
  "ip",
- "packet",
- "thiserror 2.0.21",
- "tokio",
+ "ip-method",
+ "mac",
+ "netmodel",
 ]
 
 [[package]]
 name = "dhcp-proto"
 version = "0.0.0"
 dependencies = [
- "getrandom 0.4.3",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -549,7 +544,7 @@ dependencies = [
  "parttable",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
  "uuid",
 ]
@@ -618,7 +613,7 @@ version = "0.0.0"
 dependencies = [
  "crc32c",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "zstd",
 ]
 
@@ -637,7 +632,7 @@ name = "esp"
 version = "0.0.0"
 dependencies = [
  "fatfs",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -650,7 +645,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "fatfs"
 version = "0.0.0"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -685,7 +680,7 @@ version = "0.0.0"
 dependencies = [
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uefi",
 ]
 
@@ -1017,6 +1012,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "icmpv6-linux"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "netmodel",
+ "rustix",
+ "thiserror",
+]
+
+[[package]]
+name = "iface"
+version = "0.0.0"
+dependencies = [
+ "dhcp",
+ "dhcp-proto",
+ "ip",
+ "ip-method",
+ "ip-static",
+ "mac",
+ "ndp",
+ "net-observe",
+ "netmodel",
+ "slaac",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1039,7 +1060,24 @@ dependencies = [
 name = "ip"
 version = "0.0.0"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
+]
+
+[[package]]
+name = "ip-method"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "netmodel",
+ "thiserror",
+]
+
+[[package]]
+name = "ip-static"
+version = "0.0.0"
+dependencies = [
+ "ip-method",
+ "netmodel",
 ]
 
 [[package]]
@@ -1083,7 +1121,7 @@ dependencies = [
  "semver",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
 ]
 
@@ -1093,7 +1131,7 @@ version = "0.0.0"
 dependencies = [
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "zstd",
 ]
 
@@ -1102,7 +1140,7 @@ name = "kmsg"
 version = "0.0.0"
 dependencies = [
  "rustix",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1125,7 +1163,7 @@ dependencies = [
  "signature",
  "tar",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "tui",
 ]
@@ -1141,19 +1179,6 @@ name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
-
-[[package]]
-name = "linkctl"
-version = "0.0.0"
-dependencies = [
- "addrconf",
- "dhcp-client",
- "netdev",
- "netlink",
- "packet",
- "slaac",
- "tokio",
-]
 
 [[package]]
 name = "linux-raw-sys"
@@ -1249,7 +1274,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uuid",
  "zeroize",
 ]
@@ -1344,7 +1369,7 @@ version = "0.0.0"
 dependencies = [
  "esp",
  "parttable",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1394,36 +1419,107 @@ dependencies = [
  "clap",
  "erofs",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
-name = "netdev"
+name = "ndp"
 version = "0.0.0"
 dependencies = [
- "netlink",
- "thiserror 2.0.21",
+ "ip",
+ "thiserror",
 ]
 
 [[package]]
-name = "netlink"
+name = "net-loop"
 version = "0.0.0"
 dependencies = [
- "rtnetlink",
- "thiserror 2.0.21",
+ "dhcp-proto",
+ "futures-util",
+ "iface",
+ "ip",
+ "ip-method",
+ "mac",
+ "ndp",
+ "net-observe",
+ "net-runtime",
+ "net-supervisor",
+ "netmodel",
+ "thiserror",
+]
+
+[[package]]
+name = "net-observe"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "netmodel",
+]
+
+[[package]]
+name = "net-runtime"
+version = "0.0.0"
+dependencies = [
+ "ip-method",
+ "mac",
+ "netmodel",
+ "thiserror",
+]
+
+[[package]]
+name = "net-runtime-tokio"
+version = "0.0.0"
+dependencies = [
+ "afpacket-linux",
+ "futures-channel",
+ "futures-util",
+ "icmpv6-linux",
+ "ip-method",
+ "libc",
+ "net-runtime",
+ "net-sys-linux",
+ "netlink-linux",
+ "netlink-packet-core",
+ "netlink-packet-route",
+ "netlink-proto",
+ "netlink-sys",
+ "netmodel",
+ "thiserror",
  "tokio",
- "tokio-stream",
 ]
 
 [[package]]
-name = "netlink-monitor"
+name = "net-supervisor"
 version = "0.0.0"
 dependencies = [
- "netlink",
- "rtnetlink",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
+ "dhcp",
+ "iface",
+ "ip-static",
+ "mac",
+ "net-observe",
+ "netmodel",
+ "slaac",
+]
+
+[[package]]
+name = "net-sys-linux"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+ "net-runtime",
+ "netmodel",
+ "thiserror",
+]
+
+[[package]]
+name = "netlink-linux"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "netlink-packet-core",
+ "netlink-packet-route",
+ "netmodel",
 ]
 
 [[package]]
@@ -1459,7 +1555,7 @@ dependencies = [
  "log",
  "netlink-packet-core",
  "netlink-sys",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1476,33 +1572,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "netmodel"
+version = "0.0.0"
+dependencies = [
+ "mac",
+ "thiserror",
+]
+
+[[package]]
 name = "networkd"
 version = "0.0.0"
 dependencies = [
- "addrconf",
  "anyhow",
  "config",
  "granola",
  "kmsg",
- "linkctl",
  "mac",
- "netdev",
- "netlink",
- "netlink-monitor",
+ "net-loop",
+ "net-observe",
+ "net-runtime",
+ "net-runtime-tokio",
+ "net-supervisor",
+ "netmodel",
  "tempfile",
  "tokio",
-]
-
-[[package]]
-name = "nix"
-version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
-dependencies = [
- "bitflags",
- "cfg-if",
- "cfg_aliases",
- "libc",
 ]
 
 [[package]]
@@ -1531,7 +1624,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1547,7 +1640,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "webpki-roots",
 ]
@@ -1578,16 +1671,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "packet"
-version = "0.0.0"
-dependencies = [
- "libc",
- "rustix",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "partdev"
 version = "0.0.0"
 dependencies = [
@@ -1595,7 +1678,7 @@ dependencies = [
  "parttable",
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1604,7 +1687,7 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "esp",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1734,7 +1817,7 @@ dependencies = [
  "sha2",
  "signature",
  "spki",
- "thiserror 2.0.21",
+ "thiserror",
  "x509-cert",
  "zeroize",
 ]
@@ -1870,7 +1953,7 @@ dependencies = [
  "prost-reflect",
  "prost-types",
  "protox-parse",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1882,7 +1965,7 @@ dependencies = [
  "logos 0.15.1",
  "miette",
  "prost-types",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -1965,7 +2048,7 @@ dependencies = [
  "anyhow",
  "clap",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "zstd",
 ]
 
@@ -2050,24 +2133,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rtnetlink"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc19f84f710fa2f337617f9bc0400260a94224bde7bae28fd8879f3771ca5784"
-dependencies = [
- "futures-channel",
- "futures-util",
- "log",
- "netlink-packet-core",
- "netlink-packet-route",
- "netlink-proto",
- "netlink-sys",
- "nix",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2131,7 +2196,7 @@ dependencies = [
  "libc",
  "rustix",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2149,7 +2214,7 @@ dependencies = [
  "signature",
  "spki",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uefi",
  "uki",
  "x509-cert",
@@ -2300,9 +2365,10 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 name = "slaac"
 version = "0.0.0"
 dependencies = [
- "addrconf",
- "ip",
- "thiserror 2.0.21",
+ "ip-method",
+ "mac",
+ "ndp",
+ "netmodel",
 ]
 
 [[package]]
@@ -2378,12 +2444,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 
 [[package]]
-name = "tap"
+name = "tap-linux"
 version = "0.0.0"
 dependencies = [
- "netlink",
+ "libc",
  "rustix",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2412,31 +2478,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.21",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -2691,7 +2737,7 @@ version = "0.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "sha2",
- "thiserror 2.0.21",
+ "thiserror",
  "zeroize",
 ]
 
@@ -2806,7 +2852,7 @@ dependencies = [
  "object",
  "sha2",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2987,7 +3033,7 @@ dependencies = [
  "sha2",
  "tar",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
  "tui",
  "uki",
@@ -3017,13 +3063,15 @@ dependencies = [
  "granola",
  "kmsg",
  "mac",
- "netlink",
+ "net-runtime",
+ "net-runtime-tokio",
+ "netmodel",
  "prost",
  "protox",
  "rustix",
  "serde",
  "serde_json",
- "tap",
+ "tap-linux",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -3063,7 +3111,7 @@ dependencies = [
  "object",
  "sha2",
  "tempfile",
- "thiserror 2.0.21",
+ "thiserror",
  "uki",
 ]
 

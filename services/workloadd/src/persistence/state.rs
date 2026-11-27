@@ -1,3 +1,5 @@
+//! Persisted VM state records.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -61,6 +63,7 @@ pub(crate) fn load_vms() -> Result<HashMap<String, VmPersisted>> {
 
 fn load_vm_from_path(path: &Path) -> Result<VmPersisted> {
     let content = fs::read_to_string(path)?;
+
     Ok(serde_json::from_str(&content)?)
 }
 
@@ -68,6 +71,7 @@ pub(crate) fn save_vm(vm_id: &str, vm: &VmPersisted) -> Result<()> {
     let path = Path::new(VMS_DIR).join(format!("{vm_id}.json"));
     let json = serde_json::to_string_pretty(vm)?;
     fs::write(path, json)?;
+
     Ok(())
 }
 
@@ -76,5 +80,6 @@ pub(crate) fn delete_vm(vm_id: &str) -> Result<()> {
     if path.exists() {
         fs::remove_file(path)?;
     }
+
     Ok(())
 }

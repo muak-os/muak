@@ -1,0 +1,22 @@
+[package]
+name = "netlink-linux"
+description = "Linux rtnetlink message builders and typed verbs"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Networking
+netlink-packet-core = { workspace = true }
+netlink-packet-route = { workspace = true }
+
+# Internal
+mac = { workspace = true, default-features = false }
+netmodel = { workspace = true }
+
+[lints]
+workspace = true

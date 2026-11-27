@@ -1,0 +1,22 @@
+[package]
+name = "slaac"
+description = "RFC 4862 SLAAC and RFC 4861 router discovery finite state machine"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Internal
+ip-method = { workspace = true }
+ndp = { workspace = true }
+netmodel = { workspace = true }
+
+[dev-dependencies]
+mac = { workspace = true, default-features = false }
+
+[lints]
+workspace = true

@@ -23,12 +23,9 @@ members = [
     "toolchain/sbolt",
     "toolchain/yuki",
 
-    "libs/addrconf",
     "libs/blockdev",
     "libs/btrfs",
     "libs/config",
-    "libs/dhcp-client",
-    "libs/dhcp-proto",
     "libs/disk",
     "libs/esp",
     "libs/partdev",
@@ -36,7 +33,6 @@ members = [
     "libs/kmod",
     "libs/kmsg",
     "libs/luks2",
-    "libs/mac",
     "libs/pki",
     "libs/tpm2",
     "libs/tui",
@@ -44,18 +40,31 @@ members = [
     "libs/fatfs",
     "libs/firmware",
     "libs/granola-macros",
-    "libs/ip",
-    "libs/netdev",
-    "libs/netlink",
-    "libs/netlink-monitor",
-    "libs/linkctl",
     "libs/oci",
     "libs/oci-client",
-    "libs/packet",
     "libs/sandbox",
-    "libs/slaac",
-    "libs/tap",
     "libs/uki",
+
+    "libs/network/afpacket-linux",
+    "libs/network/dhcp",
+    "libs/network/dhcp-proto",
+    "libs/network/icmpv6-linux",
+    "libs/network/iface",
+    "libs/network/ip",
+    "libs/network/ip-method",
+    "libs/network/ip-static",
+    "libs/network/mac",
+    "libs/network/ndp",
+    "libs/network/netlink-linux",
+    "libs/network/net-loop",
+    "libs/network/netmodel",
+    "libs/network/net-observe",
+    "libs/network/net-runtime",
+    "libs/network/net-runtime-tokio",
+    "libs/network/net-supervisor",
+    "libs/network/net-sys-linux",
+    "libs/network/slaac",
+    "libs/network/tap-linux",
 ]
 resolver = "3"
 
@@ -82,44 +91,55 @@ sbolt = { path = "toolchain/sbolt", default-features = false }
 yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
-addrconf = { path = "libs/addrconf" }
 blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
-dhcp-client = { path = "libs/dhcp-client" }
-dhcp-proto = { path = "libs/dhcp-proto" }
 erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }
 fatfs = { path = "libs/fatfs" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
-ip = { path = "libs/ip", default-features = false }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 luks2 = { path = "libs/luks2" }
-mac = { path = "libs/mac" }
-netdev = { path = "libs/netdev" }
-netlink = { path = "libs/netlink" }
-netlink-monitor = { path = "libs/netlink-monitor" }
-linkctl = { path = "libs/linkctl", default-features = false }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
-packet = { path = "libs/packet", default-features = false }
 partdev = { path = "libs/partdev", default-features = false }
 parttable = { path = "libs/parttable" }
 disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
-slaac = { path = "libs/slaac" }
-tap = { path = "libs/tap" }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 uki = { path = "libs/uki" }
 
+## Network
+afpacket-linux = { path = "libs/network/afpacket-linux" }
+dhcp = { path = "libs/network/dhcp" }
+dhcp-proto = { path = "libs/network/dhcp-proto" }
+icmpv6-linux = { path = "libs/network/icmpv6-linux" }
+iface = { path = "libs/network/iface", default-features = false }
+ip = { path = "libs/network/ip", default-features = false }
+ip-method = { path = "libs/network/ip-method" }
+ip-static = { path = "libs/network/ip-static" }
+mac = { path = "libs/network/mac" }
+ndp = { path = "libs/network/ndp" }
+netlink-linux = { path = "libs/network/netlink-linux" }
+net-loop = { path = "libs/network/net-loop" }
+netmodel = { path = "libs/network/netmodel" }
+net-observe = { path = "libs/network/net-observe" }
+net-runtime = { path = "libs/network/net-runtime", default-features = false }
+net-runtime-tokio = { path = "libs/network/net-runtime-tokio" }
+net-supervisor = { path = "libs/network/net-supervisor", default-features = false }
+net-sys-linux = { path = "libs/network/net-sys-linux" }
+slaac = { path = "libs/network/slaac" }
+tap-linux = { path = "libs/network/tap-linux" }
+
 # External crates
 
 ## Asynchronous
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 tokio-rustls = { version = "0.26", default-features = false }
@@ -182,7 +202,10 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http1"
 http-body-util = "0.1"
 
 ## Networking
-rtnetlink = { version = "0.21", default-features = false, features = ["tokio_socket"] }
+netlink-packet-core = "0.8"
+netlink-packet-route = "0.30"
+netlink-proto = { version = "0.12", default-features = false }
+netlink-sys = { version = "0.8", default-features = false }
 
 ## System/platform APIs
 libc = { version = "0.2", default-features = false, features = ["std"] }

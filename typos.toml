@@ -3,3 +3,6 @@
 ND = "ND"
 # `O_WRONLY` open flag suffix.
 WRONLY = "WRONLY"
+# Netlink `RTA_OIF` output interface attribute.
+Oif = "Oif"
+OIF = "OIF"

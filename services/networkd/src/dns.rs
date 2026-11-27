@@ -28,6 +28,7 @@ impl Resolver {
     #[must_use = "dropping it discards the writer for the given path"]
     pub fn with_path(path: PathBuf) -> Self {
         let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
+
         Self {
             v4: Vec::new(),
             v6: Vec::new(),

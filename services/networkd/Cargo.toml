@@ -11,8 +11,8 @@ categories.workspace = true
 
 [features]
 default = ["ipv4", "ipv6"]
-ipv4 = ["linkctl/ipv4"]
-ipv6 = ["linkctl/ipv6"]
+ipv4 = ["net-loop/ipv4", "net-supervisor/ipv4"]
+ipv6 = ["net-loop/ipv6", "net-supervisor/ipv6"]
 
 [dependencies]
 # Asynchronous
@@ -22,19 +22,20 @@ tokio = { workspace = true, features = ["net", "sync", "time", "signal", "fs", "
 anyhow = { workspace = true }
 
 # Internal
-addrconf = { workspace = true }
+config = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
-config = { workspace = true }
-mac = { workspace = true }
-netdev = { workspace = true }
-netlink = { workspace = true }
-netlink-monitor = { workspace = true }
-linkctl = { workspace = true }
+net-loop = { workspace = true, default-features = false }
+net-runtime = { workspace = true, default-features = false }
+net-runtime-tokio = { workspace = true }
+net-supervisor = { workspace = true, default-features = false }
+netmodel = { workspace = true }
+net-observe = { workspace = true }
+
+[dev-dependencies]
+mac = { workspace = true, default-features = false }
+net-runtime = { workspace = true, default-features = false, features = ["mock"] }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["test-util"] }

@@ -31,9 +31,11 @@ btrfs = { workspace = true }
 config = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
-mac = { workspace = true }
-netlink = { workspace = true }
-tap = { workspace = true }
+mac = { workspace = true, features = ["generate"] }
+net-runtime = { workspace = true }
+net-runtime-tokio = { workspace = true }
+netmodel = { workspace = true }
+tap-linux = { workspace = true }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }

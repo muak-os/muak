@@ -1,9 +1,12 @@
+//! VM actor handle and task entry points.
+
 mod commands;
 mod state;
+mod tap;
 
 use anyhow::Result;
 use commands::VmCommand;
-use netlink::Rtnl;
+use net_runtime_tokio::Tokio;
 use state::VmActor;
 use tokio::sync::{mpsc, oneshot};
 
@@ -18,12 +21,14 @@ impl VmActorHandle {
     pub(crate) async fn create(&self, config: VmConfig) -> Result<String> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Create { config, reply }).await?;
+
         rx.await?
     }
 
     pub(crate) async fn start(&self, vm_id: String) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Start { vm_id, reply }).await?;
+
         rx.await?
     }
 
@@ -36,24 +41,28 @@ impl VmActorHandle {
                 reply,
             })
             .await?;
+
         rx.await?
     }
 
     pub(crate) async fn delete(&self, vm_id: String) -> Result<()> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Delete { vm_id, reply }).await?;
+
         rx.await?
     }
 
     pub(crate) async fn get(&self, vm_id: String) -> Result<VmInfo> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::Get { vm_id, reply }).await?;
+
         rx.await?
     }
 
     pub(crate) async fn list(&self) -> Result<Vec<VmInfo>> {
         let (reply, rx) = oneshot::channel();
         self.tx.send(VmCommand::List { reply }).await?;
+
         rx.await?
     }
 
@@ -72,6 +81,7 @@ impl VmActorHandle {
                 reply,
             })
             .await?;
+
         rx.await?
     }
 
@@ -84,12 +94,13 @@ impl VmActorHandle {
                 reply,
             })
             .await?;
+
         rx.await?
     }
 }
 
 pub(crate) async fn start_vm_actor(
-    rtnl: Rtnl,
+    runtime: Tokio,
     bridge_name: String,
     kvm_available: bool,
     auto_restart: bool,
@@ -97,7 +108,7 @@ pub(crate) async fn start_vm_actor(
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
     tokio::spawn(async move {
-        let mut actor = VmActor::new(rtnl, bridge_name, kvm_available, auto_restart);
+        let mut actor = VmActor::new(runtime, bridge_name, kvm_available, auto_restart);
         actor.run(cmd_rx).await;
     });
 

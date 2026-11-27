@@ -1,0 +1,18 @@
+[package]
+name = "ip-static"
+description = "Static IPv4 and IPv6 provisioning method"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Internal
+ip-method = { workspace = true }
+netmodel = { workspace = true }
+
+[lints]
+workspace = true

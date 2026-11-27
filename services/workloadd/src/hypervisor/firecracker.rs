@@ -1,3 +1,5 @@
+//! Firecracker process driver.
+
 use anyhow::Result;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::fs::{create_dir_all, write};
@@ -87,6 +89,7 @@ impl Driver {
                 .ok_or_else(|| anyhow::anyhow!("Invalid PID"))?,
             signal,
         )?;
+
         Ok(())
     }
 }

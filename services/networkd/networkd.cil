@@ -5,6 +5,7 @@
 (call declare_exec (network_t networkd_exec_t))
 
 (allow network_t self (capability (net_admin sys_admin net_raw net_bind_service)))
+(allow network_t kernel_t (system (module_request)))
 
 (allow network_t self (unix_stream_socket (create bind listen accept read write shutdown)))
 (allow network_t self (unix_dgram_socket  (create connect write)))

@@ -12,12 +12,10 @@ use super::WORKLOAD_DIR;
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
-/// Result of scrubbing a single device.
 struct DeviceResult {
     progress: BtrfsScrubProgress,
 }
 
-/// Outcome of a full scrub across all devices.
 enum ScrubOutcome {
     Finished(Vec<DeviceResult>),
     Error(String),
@@ -28,7 +26,6 @@ pub(crate) fn shutdown() {
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
-/// Run a read-only scrub across every device on `WORKLOAD_DIR`.
 fn run() -> ScrubOutcome {
     let device_ids = match get_fs_info(WORKLOAD_DIR) {
         Ok(ids) => ids,
@@ -90,7 +87,6 @@ fn report_outcome(outcome: ScrubOutcome) {
     }
 }
 
-/// Formats bytes as GiB with two decimal places.
 fn format_gib(bytes: u64) -> String {
     const GIB: u64 = 1024 * 1024 * 1024;
     let mut whole = bytes.div_euclid(GIB);

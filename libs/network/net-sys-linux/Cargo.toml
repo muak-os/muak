@@ -1,0 +1,25 @@
+[package]
+name = "net-sys-linux"
+description = "Linux network primitives"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+
+# Networking
+getrandom = { workspace = true }
+libc = { workspace = true }
+
+# Internal
+net-runtime = { workspace = true }
+netmodel = { workspace = true }
+
+[lints]
+workspace = true
