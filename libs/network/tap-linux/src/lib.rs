@@ -43,9 +43,6 @@ pub fn create(name: &str) -> io::Result<OwnedFd> {
 
 /// Deletes the persistent TAP device named `name`.
 ///
-/// An absent device is not an error: the attach creates it and the non persistent device is destroyed when the
-/// descriptor drops.
-///
 /// # Errors
 ///
 /// Returns an error when the name is invalid or the tun device cannot be opened. Both ioctls also fail when the device
