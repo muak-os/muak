@@ -3,7 +3,6 @@
 #![warn(missing_docs)]
 
 pub mod error;
-mod event;
 mod hardware;
 mod interface;
 mod link;

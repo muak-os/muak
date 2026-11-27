@@ -1,11 +1,11 @@
-//! Link lifecycle event construction.
+//! Link lifecycle event tests.
 
 #[cfg(test)]
 mod tests {
     use core::num::NonZeroI32;
 
-    use crate::error::LinkError;
-    use crate::{LinkEvent, Mac, Name};
+    use netmodel::error::LinkError;
+    use netmodel::{LinkEvent, Mac, Name};
 
     #[test]
     fn added_carries_name_index_and_mac() {
