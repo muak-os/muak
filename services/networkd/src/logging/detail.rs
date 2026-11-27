@@ -22,6 +22,7 @@ pub(super) fn dhcp(
     }
     formatter.write_str(" dns ")?;
     address_list(formatter, &lease.dns)?;
+
     write!(formatter, " ({})", lease.phase)
 }
 
@@ -35,6 +36,7 @@ pub(super) fn slaac(
     formatter.write_str(" routers ")?;
     address_list(formatter, &update.routers)?;
     formatter.write_str(" dns ")?;
+
     address_list(formatter, &update.dns)
 }
 
