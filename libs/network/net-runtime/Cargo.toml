@@ -22,8 +22,5 @@ ip-method = { workspace = true }
 mac = { workspace = true, default-features = false }
 netmodel = { workspace = true }
 
-[dev-dependencies]
-net-runtime = { path = ".", features = ["mock"] }
-
 [lints]
 workspace = true

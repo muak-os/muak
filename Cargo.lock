@@ -1462,7 +1462,6 @@ version = "0.0.0"
 dependencies = [
  "ip-method",
  "mac",
- "net-runtime",
  "netmodel",
  "thiserror",
 ]

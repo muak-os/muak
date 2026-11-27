@@ -7,6 +7,8 @@ mod handle;
 mod link;
 mod route;
 mod socket;
+#[cfg(test)]
+mod tests;
 mod udp;
 
 use alloc::collections::VecDeque;

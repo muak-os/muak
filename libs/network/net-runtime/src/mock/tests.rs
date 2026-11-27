@@ -1,17 +1,15 @@
 //! Behaviour tests for the deterministic mock runtime.
 
-#![cfg(test)]
-
 use core::future::Future;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant, SystemTime};
 
-use net_runtime::error::RuntimeError;
-use net_runtime::mock::Mock;
-use net_runtime::{
-    Address, Clock as _, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, Udp,
+use super::Mock;
+use crate::error::RuntimeError;
+use crate::{
+    Address, Clock as _, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, SocketId, Udp,
 };
 
 fn runtime() -> Mock {
@@ -326,7 +324,7 @@ fn set_up_leaves_carrier_untouched() {
 #[test]
 fn socket_id_round_trips_handle_value() {
     // ARRANGE
-    let id = net_runtime::SocketId::new(7);
+    let id = SocketId::new(7);
 
     // ACT
     let value = id.get();
