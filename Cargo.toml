@@ -24,18 +24,15 @@ members = [
     "toolchain/yuki",
 
     "libs/config",
-    "libs/esp",
     "libs/kmod",
     "libs/kmsg",
     "libs/pki",
     "libs/tpm2",
     "libs/tui",
-    "libs/firmware",
     "libs/granola-macros",
     "libs/oci",
     "libs/oci-client",
     "libs/sandbox",
-    "libs/uki",
 
     "libs/network/afpacket-linux",
     "libs/network/dhcp",
@@ -67,6 +64,10 @@ members = [
     "libs/fs/btrfs",
     "libs/fs/erofs",
     "libs/fs/fatfs",
+
+    "libs/boot/esp",
+    "libs/boot/firmware",
+    "libs/boot/uki",
 ]
 resolver = "3"
 
@@ -94,8 +95,6 @@ yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
 config = { path = "libs/config" }
-esp = { path = "libs/esp" }
-firmware = { path = "libs/firmware", default-features = false }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
@@ -106,7 +105,6 @@ pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
 tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
-uki = { path = "libs/uki" }
 
 ## Network
 afpacket-linux = { path = "libs/network/afpacket-linux" }
@@ -141,6 +139,11 @@ parttable = { path = "libs/storage/parttable" }
 btrfs = { path = "libs/fs/btrfs" }
 erofs = { path = "libs/fs/erofs" }
 fatfs = { path = "libs/fs/fatfs" }
+
+## Boot
+esp = { path = "libs/boot/esp" }
+firmware = { path = "libs/boot/firmware", default-features = false }
+uki = { path = "libs/boot/uki" }
 
 # External crates
 
