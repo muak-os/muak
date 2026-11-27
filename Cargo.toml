@@ -23,16 +23,11 @@ members = [
     "toolchain/sbolt",
     "toolchain/yuki",
 
-    "libs/blockdev",
     "libs/btrfs",
     "libs/config",
-    "libs/disk",
     "libs/esp",
-    "libs/partdev",
-    "libs/parttable",
     "libs/kmod",
     "libs/kmsg",
-    "libs/luks2",
     "libs/pki",
     "libs/tpm2",
     "libs/tui",
@@ -65,6 +60,12 @@ members = [
     "libs/network/net-sys-linux",
     "libs/network/slaac",
     "libs/network/tap-linux",
+
+    "libs/storage/blockdev",
+    "libs/storage/disk",
+    "libs/storage/luks2",
+    "libs/storage/partdev",
+    "libs/storage/parttable",
 ]
 resolver = "3"
 
@@ -91,7 +92,6 @@ sbolt = { path = "toolchain/sbolt", default-features = false }
 yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
-blockdev = { path = "libs/blockdev", default-features = false }
 btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
 erofs = { path = "libs/erofs" }
@@ -102,12 +102,8 @@ granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
-luks2 = { path = "libs/luks2" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
-partdev = { path = "libs/partdev", default-features = false }
-parttable = { path = "libs/parttable" }
-disk = { path = "libs/disk" }
 pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
 tpm2 = { path = "libs/tpm2" }
@@ -135,6 +131,13 @@ net-supervisor = { path = "libs/network/net-supervisor", default-features = fals
 net-sys-linux = { path = "libs/network/net-sys-linux" }
 slaac = { path = "libs/network/slaac" }
 tap-linux = { path = "libs/network/tap-linux" }
+
+## Storage
+blockdev = { path = "libs/storage/blockdev", default-features = false }
+disk = { path = "libs/storage/disk" }
+luks2 = { path = "libs/storage/luks2" }
+partdev = { path = "libs/storage/partdev", default-features = false }
+parttable = { path = "libs/storage/parttable" }
 
 # External crates
 
