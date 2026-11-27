@@ -1,4 +1,4 @@
-//! Linux network primitives usable without an async runtime.
+//! Linux network primitives.
 
 #![warn(missing_docs)]
 
