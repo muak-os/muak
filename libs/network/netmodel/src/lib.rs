@@ -2,7 +2,6 @@
 
 #![warn(missing_docs)]
 
-mod address;
 pub mod error;
 mod event;
 mod hardware;

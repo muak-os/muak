@@ -1,10 +1,10 @@
-//! Address and route vocabulary helpers.
+//! Address and route vocabulary tests.
 
 #[cfg(test)]
 mod tests {
     use core::net::{IpAddr, Ipv4Addr};
 
-    use crate::{Address, Ipv4Config, Ipv6Config, Route};
+    use netmodel::{Address, Ipv4Config, Ipv6Config, Route};
 
     #[test]
     fn address_holds_ip_and_prefix() {
