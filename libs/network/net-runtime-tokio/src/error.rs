@@ -14,6 +14,9 @@ pub enum TokioError {
     /// A port operation failed at the operating system boundary.
     #[error(transparent)]
     Io(#[from] io::Error),
+    /// No tokio runtime is running on the current thread.
+    #[error("no tokio runtime in the current context")]
+    NoRuntime,
 }
 
 impl From<afpacket_linux::error::AfpacketError> for TokioError {
@@ -38,6 +41,9 @@ impl From<TokioError> for net_runtime::error::RuntimeError {
     fn from(error: TokioError) -> Self {
         match error {
             TokioError::Io(source) => Self::Io(source),
+            TokioError::NoRuntime => {
+                Self::Io(io::Error::other("no tokio runtime in the current context"))
+            }
         }
     }
 }

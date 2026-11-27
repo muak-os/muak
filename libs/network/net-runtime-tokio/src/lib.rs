@@ -22,9 +22,6 @@ use tokio::io::unix::AsyncFd;
 use tokio::net::UdpSocket;
 
 /// Linux runtime backend implemented with tokio.
-///
-/// Socket receive operations await readiness and return data, an error, or cancellation. Unlike the deterministic mock
-/// they never report [`std::io::ErrorKind::WouldBlock`].
 pub struct Tokio {
     link: control::Handle,
     address: control::Handle,
@@ -41,13 +38,10 @@ pub struct Tokio {
 impl Tokio {
     /// Opens a route netlink connection and creates the runtime.
     ///
-    /// # Panics
-    ///
-    /// Panics when called outside a tokio runtime context.
-    ///
     /// # Errors
     ///
-    /// Returns an error when the netlink socket cannot be opened.
+    /// Returns an error when no tokio runtime is running on the current thread or when the netlink socket cannot be
+    /// opened.
     pub fn new() -> error::Result<Self> {
         let (link, messages) = control::connect()?;
         let events = event::Events::new(messages, link.clone());

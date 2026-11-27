@@ -24,12 +24,13 @@ pub(crate) const fn link_membership() -> u32 {
 }
 
 pub(crate) fn connect() -> Result<(Handle, Messages)> {
+    let runtime = tokio::runtime::Handle::try_current().map_err(|_error| TokioError::NoRuntime)?;
     let (mut connection, handle, messages) = netlink_proto::new_connection_with_socket::<
         RouteNetlinkMessage,
         TokioSocket,
     >(protocols::NETLINK_ROUTE)?;
     subscribe(&mut connection)?;
-    tokio::spawn(connection);
+    runtime.spawn(connection);
 
     Ok((handle, messages))
 }
@@ -151,6 +152,15 @@ mod tests {
         assert_eq!(link_membership(), 1);
         result.expect("link subscription binds");
         assert_eq!(address.multicast_groups(), link_membership());
+    }
+
+    #[test]
+    fn connect_requires_a_running_runtime() {
+        // ARRANGE & ACT
+        let result = connect();
+
+        // ASSERT
+        assert!(matches!(result, Err(TokioError::NoRuntime)));
     }
 
     #[test]
