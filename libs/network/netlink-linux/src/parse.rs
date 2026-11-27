@@ -2,10 +2,11 @@
 
 use core::net::IpAddr;
 
+use mac::Mac;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_packet_route::address::AddressAttribute;
 use netlink_packet_route::link::{LinkAttribute, LinkInfo, LinkMessage};
-use netmodel::{Address, Link, LinkEvent, LinkState, Mac, Name};
+use netmodel::{Address, Link, LinkEvent, LinkState, Name};
 
 use crate::carrier;
 

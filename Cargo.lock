@@ -513,6 +513,7 @@ dependencies = [
  "dhcp-proto",
  "ip",
  "ip-method",
+ "mac",
  "netmodel",
 ]
 
@@ -1029,6 +1030,7 @@ dependencies = [
  "ip",
  "ip-method",
  "ip-static",
+ "mac",
  "ndp",
  "net-observe",
  "netmodel",
@@ -1065,6 +1067,7 @@ dependencies = [
 name = "ip-method"
 version = "0.0.0"
 dependencies = [
+ "mac",
  "netmodel",
  "thiserror",
 ]
@@ -1436,6 +1439,7 @@ dependencies = [
  "iface",
  "ip",
  "ip-method",
+ "mac",
  "ndp",
  "net-observe",
  "net-runtime",
@@ -1448,6 +1452,7 @@ dependencies = [
 name = "net-observe"
 version = "0.0.0"
 dependencies = [
+ "mac",
  "netmodel",
 ]
 
@@ -1456,6 +1461,7 @@ name = "net-runtime"
 version = "0.0.0"
 dependencies = [
  "ip-method",
+ "mac",
  "net-runtime",
  "netmodel",
  "thiserror",
@@ -1490,6 +1496,7 @@ dependencies = [
  "dhcp",
  "iface",
  "ip-static",
+ "mac",
  "net-observe",
  "netmodel",
  "slaac",
@@ -1510,6 +1517,7 @@ dependencies = [
 name = "netlink-linux"
 version = "0.0.0"
 dependencies = [
+ "mac",
  "netlink-packet-core",
  "netlink-packet-route",
  "netmodel",
@@ -1580,6 +1588,7 @@ dependencies = [
  "config",
  "granola",
  "kmsg",
+ "mac",
  "net-loop",
  "net-observe",
  "net-runtime",
@@ -2358,6 +2367,7 @@ name = "slaac"
 version = "0.0.0"
 dependencies = [
  "ip-method",
+ "mac",
  "ndp",
  "netmodel",
 ]

@@ -31,7 +31,7 @@ btrfs = { workspace = true }
 config = { workspace = true }
 granola = { workspace = true }
 kmsg = { workspace = true }
-mac = { workspace = true }
+mac = { workspace = true, features = ["generate"] }
 net-runtime = { workspace = true }
 net-runtime-tokio = { workspace = true }
 netmodel = { workspace = true }

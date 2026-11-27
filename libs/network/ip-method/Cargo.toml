@@ -14,6 +14,7 @@ categories.workspace = true
 thiserror = { workspace = true }
 
 # Internal
+mac = { workspace = true, default-features = false }
 netmodel = { workspace = true }
 
 [lints]

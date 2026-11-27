@@ -309,7 +309,7 @@ mod tests {
         let link = netmodel::Link {
             name: name("eth0"),
             index: 2,
-            mac: netmodel::Mac::default(),
+            mac: mac::Mac::default(),
             admin: netmodel::AdminState::Up,
             carrier: netmodel::CarrierState::Down,
             is_virtual: false,

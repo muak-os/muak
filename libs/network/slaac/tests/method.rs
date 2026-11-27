@@ -11,12 +11,13 @@ use ip_method::{
     Command, Effect, Event, Input, Intent, LinkInfo, Method as _, SocketKind, SocketSlot,
     SocketSpec, Step,
 };
+use mac::Mac;
 use ndp::build::router::{Advertisement, advertisement as build_advertisement};
 use ndp::message::AdvertisementHeader;
 use ndp::parse::router_solicitation;
 use ndp::types::PrefixInformation;
 use ndp::{ALL_ROUTERS, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
-use netmodel::{Ipv6Config, LinkState, Mac, MethodState, Name};
+use netmodel::{Ipv6Config, LinkState, MethodState, Name};
 use slaac::{Slaac, View};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];

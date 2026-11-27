@@ -13,5 +13,8 @@ categories.workspace = true
 # Internal
 netmodel = { workspace = true }
 
+[dev-dependencies]
+mac = { workspace = true, default-features = false }
+
 [lints]
 workspace = true

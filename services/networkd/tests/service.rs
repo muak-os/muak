@@ -76,7 +76,7 @@ mod tests {
         mock.set_link(netmodel::Link {
             name: netmodel::Name::new("eth0").expect("valid name"),
             index: 2,
-            mac: netmodel::Mac::default(),
+            mac: mac::Mac::default(),
             admin: state.admin(),
             carrier: state.carrier(),
             is_virtual: false,

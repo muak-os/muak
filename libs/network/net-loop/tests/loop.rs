@@ -240,7 +240,7 @@ fn link(text: &str, index: u32) -> ip_method::LinkInfo {
     ip_method::LinkInfo {
         name: name(text),
         index,
-        mac: netmodel::Mac::default(),
+        mac: mac::Mac::default(),
         state: netmodel::LinkState::Up,
     }
 }
@@ -249,7 +249,7 @@ fn model_link(text: &str, index: u32, state: netmodel::LinkState) -> netmodel::L
     netmodel::Link {
         name: name(text),
         index,
-        mac: netmodel::Mac::default(),
+        mac: mac::Mac::default(),
         admin: state.admin(),
         carrier: state.carrier(),
         is_virtual: false,
@@ -1035,7 +1035,7 @@ fn dhcp_payload(frame: &[u8]) -> &[u8] {
 #[cfg(feature = "ipv4")]
 fn dhcp_reply(xid: u32, kind: u8) -> Vec<u8> {
     let mut buffer = [0_u8; 1500];
-    let mac = netmodel::Mac::default().into_array();
+    let mac = mac::Mac::default().into_array();
     let header = dhcp_proto::header::build_with(&mut buffer, xid, mac, Ipv4Addr::UNSPECIFIED, 0)
         .expect("DHCP header fits");
     let mut payload = header.to_vec();

@@ -4,8 +4,9 @@
 mod tests {
     use core::num::NonZeroI32;
 
+    use mac::Mac;
     use netmodel::error::LinkError;
-    use netmodel::{LinkEvent, Mac, Name};
+    use netmodel::{LinkEvent, Name};
 
     #[test]
     fn added_carries_name_index_and_mac() {

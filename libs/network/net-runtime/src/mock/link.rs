@@ -73,7 +73,7 @@ fn ensure_bridge(state: &mut State, name: &netmodel::Name, stp: bool) {
     state.links.push(netmodel::Link {
         name: name.clone(),
         index,
-        mac: netmodel::Mac::default(),
+        mac: mac::Mac::default(),
         admin: link_state.admin(),
         carrier: link_state.carrier(),
         is_virtual: true,

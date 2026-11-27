@@ -8,7 +8,8 @@ use core::net::{IpAddr, SocketAddr};
 use std::io;
 use std::time::{Instant, SystemTime};
 
-use netmodel::{LinkState, Mac, MethodState, Name};
+use mac::Mac;
+use netmodel::{LinkState, MethodState, Name};
 
 use crate::error::IpMethodError;
 

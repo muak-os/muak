@@ -2,6 +2,7 @@
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use mac::Mac;
 use netlink_linux::{parse_address, parse_address_index, parse_event, parse_link};
 use netlink_packet_route::address::{AddressAttribute, AddressMessage};
 use netlink_packet_route::link::{
@@ -9,7 +10,7 @@ use netlink_packet_route::link::{
 };
 use netlink_packet_route::route::RouteMessage;
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netmodel::{Address, AdminState, CarrierState, Link, LinkEvent, LinkState, Mac};
+use netmodel::{Address, AdminState, CarrierState, Link, LinkEvent, LinkState};
 
 fn link(index: u32, name: &str, flags: LinkFlags, change_mask: LinkFlags) -> LinkMessage {
     let mut message = LinkMessage::default();

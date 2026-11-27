@@ -23,7 +23,7 @@ pub(crate) fn on_bridge_ready(
     supervisor: &mut Supervisor,
     name: &netmodel::Name,
     index: u32,
-    mac: netmodel::Mac,
+    mac: mac::Mac,
     state: netmodel::LinkState,
 ) {
     supervisor.known.insert(name.clone());
@@ -58,7 +58,7 @@ fn upsert_link(
     supervisor: &mut Supervisor,
     name: &netmodel::Name,
     index: u32,
-    mac: netmodel::Mac,
+    mac: mac::Mac,
     state: netmodel::LinkState,
 ) {
     if let Some(link) = supervisor.links.iter_mut().find(|link| &link.name == name) {

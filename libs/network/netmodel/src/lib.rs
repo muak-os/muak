@@ -3,7 +3,6 @@
 #![warn(missing_docs)]
 
 pub mod error;
-mod hardware;
 mod interface;
 mod link;
 mod name;
@@ -12,15 +11,13 @@ mod state;
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use mac::Mac;
+
 use crate::error::LinkError;
 
 /// A validated Linux network interface name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Name(String);
-
-/// A 6-byte hardware address.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Mac([u8; 6]);
 
 /// Administrative state of a network link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

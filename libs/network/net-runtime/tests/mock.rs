@@ -24,7 +24,7 @@ fn link(name: &netmodel::Name, index: u32) -> netmodel::Link {
     netmodel::Link {
         name: name.clone(),
         index,
-        mac: netmodel::Mac::default(),
+        mac: mac::Mac::default(),
         admin: state.admin(),
         carrier: state.carrier(),
         is_virtual: false,

@@ -18,6 +18,7 @@ use ip::v4::udp;
 use ip_method::SocketKind;
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use ip_method::SocketSlot;
+use mac::Mac;
 #[cfg(feature = "ipv6")]
 use ndp::build::router::{Advertisement, advertisement as build_advertisement};
 #[cfg(feature = "ipv6")]
@@ -28,7 +29,7 @@ use ndp::types::PrefixInformation;
 use ndp::{ALL_ROUTERS, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use netmodel::Family;
-use netmodel::{Ipv4Config, Ipv6Config, LinkState, Mac, Name};
+use netmodel::{Ipv4Config, Ipv6Config, LinkState, Name};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
 const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);

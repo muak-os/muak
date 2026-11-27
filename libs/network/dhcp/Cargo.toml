@@ -16,5 +16,8 @@ ip = { workspace = true, features = ["v4"] }
 ip-method = { workspace = true }
 netmodel = { workspace = true }
 
+[dev-dependencies]
+mac = { workspace = true, default-features = false }
+
 [lints]
 workspace = true

@@ -23,7 +23,7 @@ pub(crate) enum Pending {
         /// Kernel interface index.
         index: u32,
         /// Hardware address.
-        mac: netmodel::Mac,
+        mac: mac::Mac,
         /// Current link state.
         state: netmodel::LinkState,
     },

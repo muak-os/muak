@@ -280,7 +280,7 @@ mod tests {
         let physical = netmodel::Link {
             name: name("eth0"),
             index: 8,
-            mac: netmodel::Mac::default(),
+            mac: mac::Mac::default(),
             admin: netmodel::AdminState::Up,
             carrier: netmodel::CarrierState::Up,
             is_virtual: false,
@@ -303,7 +303,7 @@ mod tests {
         let physical = netmodel::Link {
             name: name("eth0"),
             index: 8,
-            mac: netmodel::Mac::default(),
+            mac: mac::Mac::default(),
             admin: netmodel::AdminState::Up,
             carrier: netmodel::CarrierState::Up,
             is_virtual: false,

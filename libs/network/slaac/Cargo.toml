@@ -15,5 +15,8 @@ ip-method = { workspace = true }
 ndp = { workspace = true }
 netmodel = { workspace = true }
 
+[dev-dependencies]
+mac = { workspace = true, default-features = false }
+
 [lints]
 workspace = true

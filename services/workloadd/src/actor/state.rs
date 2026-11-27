@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use btrfs::quota::{DiskUsage, get_usage, set};
 use btrfs::subvolume::{create, delete, list};
-use mac::{format as format_mac, generate as generate_mac};
+use mac::generate as generate_mac;
 use net_runtime_tokio::Tokio;
 use tokio::fs::{read_to_string, write};
 use tokio::sync::mpsc;
@@ -339,10 +339,9 @@ impl VmActor {
             return Err(error);
         }
 
-        let mac = generate_mac(vm_id);
         let tap = TapDevice {
             name: tap_name,
-            mac_address: format_mac(&mac),
+            mac_address: generate_mac(vm_id).to_string(),
         };
         println!(
             "Created TAP device {} with MAC {}",

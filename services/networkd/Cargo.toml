@@ -33,6 +33,7 @@ netmodel = { workspace = true }
 net-observe = { workspace = true }
 
 [dev-dependencies]
+mac = { workspace = true, default-features = false }
 net-runtime = { workspace = true, default-features = false, features = ["mock"] }
 tempfile = { workspace = true }
 

@@ -48,7 +48,7 @@ fn on_down(supervisor: &mut Supervisor, name: &Name) {
     }
 }
 
-fn on_added(supervisor: &mut Supervisor, _name: &Name, _index: u32, _mac: netmodel::Mac) {
+fn on_added(supervisor: &mut Supervisor, _name: &Name, _index: u32, _mac: mac::Mac) {
     supervisor.queue.push_back(Action::Discover);
 }
 

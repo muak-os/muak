@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 
 # Internal
 ip-method = { workspace = true }
+mac = { workspace = true, default-features = false }
 netmodel = { workspace = true }
 
 [dev-dependencies]

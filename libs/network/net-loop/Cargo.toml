@@ -24,6 +24,7 @@ thiserror = { workspace = true }
 # Internal
 iface = { workspace = true, default-features = false }
 ip-method = { workspace = true }
+mac = { workspace = true, default-features = false }
 netmodel = { workspace = true }
 net-observe = { workspace = true }
 net-runtime = { workspace = true }

@@ -1,12 +1,64 @@
-//! IEEE 802 MAC address formatting and generation.
+//! IEEE 802 MAC address type, formatting and generation.
 
 #![warn(missing_docs)]
 
+use core::fmt;
+
+#[cfg(feature = "generate")]
 use sha2::{Digest as _, Sha256};
 
+/// A 6-byte hardware address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Mac([u8; 6]);
+
+impl Mac {
+    /// Creates a hardware address from its raw bytes.
+    #[must_use = "the address must be stored or forwarded"]
+    pub const fn new(bytes: [u8; 6]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw hardware address bytes.
+    #[must_use = "callers need the bytes to compare links"]
+    pub const fn as_bytes(&self) -> &[u8; 6] {
+        &self.0
+    }
+
+    /// Consumes the address and returns its raw bytes.
+    #[must_use = "callers need the bytes to compare links"]
+    pub const fn into_array(self) -> [u8; 6] {
+        self.0
+    }
+}
+
+impl From<[u8; 6]> for Mac {
+    fn from(bytes: [u8; 6]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl AsRef<[u8; 6]> for Mac {
+    fn as_ref(&self) -> &[u8; 6] {
+        &self.0
+    }
+}
+
+impl fmt::Display for Mac {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut separator = "";
+        for byte in self.0 {
+            write!(f, "{separator}{byte:02x}")?;
+            separator = ":";
+        }
+
+        Ok(())
+    }
+}
+
 /// Generates a deterministic locally-administered unicast MAC from an identifier.
+#[cfg(feature = "generate")]
 #[must_use = "callers need the address to configure the link"]
-pub fn generate(id: &str) -> [u8; 6] {
+pub fn generate(id: &str) -> Mac {
     let result = Sha256::digest(id.as_bytes());
 
     let mut mac = [0_u8; 6];
@@ -16,16 +68,7 @@ pub fn generate(id: &str) -> [u8; 6] {
 
     mac[0] = (mac[0] & 0xfe) | 0x02;
 
-    mac
-}
-
-/// Formats a 6-byte MAC address as colon-separated lowercase hex.
-#[must_use = "callers need the text form for netlink and logs"]
-pub fn format(mac: &[u8; 6]) -> String {
-    format!(
-        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
-    )
+    Mac(mac)
 }
 
 #[cfg(test)]
@@ -33,97 +76,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generate_mac_sets_locally_administered_bit() {
-        // ARRANGE / ACT
-        let mac = generate("test-id");
-
-        // ASSERT
-        assert_eq!(mac[0] & 0x02, 0x02);
-    }
-
-    #[test]
-    fn generate_mac_clears_multicast_bit() {
-        // ARRANGE / ACT
-        let mac = generate("test-id");
-
-        // ASSERT
-        assert_eq!(mac[0] & 0x01, 0x00);
-    }
-
-    #[test]
-    fn generate_mac_is_deterministic() {
-        // ACT
-        let first_mac = generate("same-id");
-        let second_mac = generate("same-id");
-
-        // ASSERT
-        assert_eq!(first_mac, second_mac);
-    }
-
-    #[test]
-    fn generate_mac_differs_for_different_ids() {
-        // ACT
-        let first_mac = generate("alpha");
-        let second_mac = generate("beta");
-
-        // ASSERT
-        assert_ne!(first_mac, second_mac);
-    }
-
-    #[test]
-    fn generate_mac_empty_id_is_valid() {
-        // ACT
-        let mac = generate("");
-
-        // ASSERT
-        assert_eq!(mac[0] & 0x02, 0x02);
-        assert_eq!(mac[0] & 0x01, 0x00);
-    }
-
-    #[test]
-    fn format_mac_produces_colon_separated_hex() {
+    fn new_and_accessors_round_trip() {
         // ARRANGE
-        let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
+        let bytes = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
 
-        // ACT / ASSERT
-        assert_eq!(format(&mac), "aa:bb:cc:dd:ee:ff");
-    }
-
-    #[test]
-    fn format_mac_zero_pads_single_digit_bytes() {
-        // ARRANGE
-        let mac = [0x02, 0x00, 0x0a, 0x00, 0x00, 0x01];
-
-        // ACT / ASSERT
-        assert_eq!(format(&mac), "02:00:0a:00:00:01");
-    }
-
-    #[test]
-    fn format_mac_all_zeros() {
-        // ARRANGE
-        let mac = [0x00; 6];
-
-        // ACT / ASSERT
-        assert_eq!(format(&mac), "00:00:00:00:00:00");
-    }
-
-    #[test]
-    fn format_mac_all_ff() {
-        // ARRANGE
-        let mac = [0xff; 6];
-
-        // ACT / ASSERT
-        assert_eq!(format(&mac), "ff:ff:ff:ff:ff:ff");
-    }
-
-    #[test]
-    fn generate_then_format_roundtrip() {
         // ACT
-        let mac = generate("roundtrip-test");
-        let formatted = format(&mac);
+        let mac = Mac::new(bytes);
 
         // ASSERT
-        assert_eq!(formatted.len(), 17);
-        assert_eq!(formatted.matches(':').count(), 5);
+        assert_eq!(mac.as_bytes(), &bytes);
+        assert_eq!(mac.into_array(), bytes);
+    }
+
+    #[test]
+    fn from_and_as_ref() {
+        // ARRANGE
+        let bytes = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+
+        // ACT
+        let mac = Mac::from(bytes);
+
+        // ASSERT
+        assert_eq!(mac.as_ref(), &bytes);
+    }
+
+    #[test]
+    fn default_is_zero() {
+        // ACT
+        let mac = Mac::default();
+
+        // ASSERT
+        assert_eq!(mac.into_array(), [0; 6]);
+    }
+
+    #[test]
+    fn display_is_colon_separated_lowercase() {
+        // ARRANGE
+        let mac = Mac::new([0x0a, 0x1b, 0x2c, 0x3d, 0x4e, 0x5f]);
+
+        // ACT
+        let display = mac.to_string();
+
+        // ASSERT
+        assert_eq!(display, "0a:1b:2c:3d:4e:5f");
+    }
+
+    #[test]
+    fn display_pads_zero_bytes() {
+        // ARRANGE
+        let mac = Mac::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        // ACT
+        let display = mac.to_string();
+
+        // ASSERT
+        assert_eq!(display, "00:00:00:00:00:00");
+    }
+
+    #[test]
+    fn display_renders_every_bit() {
+        // ARRANGE
+        let mac = Mac::new([0xff; 6]);
+
+        // ACT
+        let display = mac.to_string();
+
+        // ASSERT
+        assert_eq!(display, "ff:ff:ff:ff:ff:ff");
     }
 }

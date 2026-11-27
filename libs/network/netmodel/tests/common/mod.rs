@@ -2,7 +2,8 @@
 
 #![cfg(test)]
 
-use netmodel::{AdminState, CarrierState, Link, LinkState, Mac, Name};
+use mac::Mac;
+use netmodel::{AdminState, CarrierState, Link, LinkState, Name};
 
 /// Builds a link with the given name and state.
 #[must_use = "the test needs the link to select against"]

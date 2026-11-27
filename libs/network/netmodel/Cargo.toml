@@ -13,9 +13,8 @@ categories.workspace = true
 # Error handling
 thiserror = { workspace = true }
 
-[dev-dependencies]
-# Deliberate port-parity check for `Mac::Display`.
-mac = { workspace = true }
+# Internal
+mac = { workspace = true, default-features = false }
 
 [lints]
 workspace = true

@@ -15,6 +15,7 @@ netlink-packet-core = { workspace = true }
 netlink-packet-route = { workspace = true }
 
 # Internal
+mac = { workspace = true, default-features = false }
 netmodel = { workspace = true }
 
 [lints]
