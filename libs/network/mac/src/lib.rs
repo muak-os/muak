@@ -144,4 +144,57 @@ mod tests {
         // ASSERT
         assert_eq!(display, "ff:ff:ff:ff:ff:ff");
     }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn generate_sets_locally_administered_bit() {
+        // ARRANGE / ACT
+        let mac = generate("test-id");
+
+        // ASSERT
+        assert_eq!(mac.as_bytes()[0] & 0x02, 0x02);
+    }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn generate_clears_multicast_bit() {
+        // ARRANGE / ACT
+        let mac = generate("test-id");
+
+        // ASSERT
+        assert_eq!(mac.as_bytes()[0] & 0x01, 0x00);
+    }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn generate_is_deterministic() {
+        // ACT
+        let first_mac = generate("same-id");
+        let second_mac = generate("same-id");
+
+        // ASSERT
+        assert_eq!(first_mac, second_mac);
+    }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn generate_differs_for_different_ids() {
+        // ACT
+        let first_mac = generate("alpha");
+        let second_mac = generate("beta");
+
+        // ASSERT
+        assert_ne!(first_mac, second_mac);
+    }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn generate_accepts_an_empty_id() {
+        // ACT
+        let mac = generate("");
+
+        // ASSERT
+        assert_eq!(mac.as_bytes()[0] & 0x02, 0x02);
+        assert_eq!(mac.as_bytes()[0] & 0x01, 0x00);
+    }
 }
