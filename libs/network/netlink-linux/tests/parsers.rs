@@ -2,14 +2,14 @@
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use netlink_linux::{parse_address, parse_address_index, parse_event, parse_link, parse_route};
+use netlink_linux::{parse_address, parse_address_index, parse_event, parse_link};
 use netlink_packet_route::address::{AddressAttribute, AddressMessage};
 use netlink_packet_route::link::{
     InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage, State as OperState,
 };
-use netlink_packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
+use netlink_packet_route::route::RouteMessage;
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netmodel::{Address, AdminState, CarrierState, Link, LinkEvent, LinkState, Mac, Route};
+use netmodel::{Address, AdminState, CarrierState, Link, LinkEvent, LinkState, Mac};
 
 fn link(index: u32, name: &str, flags: LinkFlags, change_mask: LinkFlags) -> LinkMessage {
     let mut message = LinkMessage::default();
@@ -331,64 +331,6 @@ mod tests {
 
         // ASSERT
         assert_eq!(parsed, None);
-    }
-
-    #[test]
-    fn parse_route_reads_destination_and_gateway() {
-        // ARRANGE
-        let mut message = RouteMessage::default();
-        message.header.address_family = AddressFamily::Inet;
-        message.header.destination_prefix_length = 24;
-        message
-            .attributes
-            .push(RouteAttribute::Destination(RouteAddress::Inet(
-                Ipv4Addr::new(198, 51, 100, 0),
-            )));
-        message
-            .attributes
-            .push(RouteAttribute::Gateway(RouteAddress::Inet(Ipv4Addr::new(
-                192, 0, 2, 1,
-            ))));
-        let message = RouteNetlinkMessage::NewRoute(message);
-
-        // ACT
-        let parsed = parse_route(&message);
-
-        // ASSERT
-        assert_eq!(
-            parsed,
-            Some(Route {
-                destination: IpAddr::V4(Ipv4Addr::new(198, 51, 100, 0)),
-                prefix_len: 24,
-                gateway: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))),
-            })
-        );
-    }
-
-    #[test]
-    fn parse_route_defaults_missing_destination_to_family_unspecified() {
-        // ARRANGE
-        let mut message = RouteMessage::default();
-        message.header.address_family = AddressFamily::Inet6;
-        message
-            .attributes
-            .push(RouteAttribute::Gateway(RouteAddress::Inet6(
-                Ipv6Addr::LOCALHOST,
-            )));
-        let message = RouteNetlinkMessage::NewRoute(message);
-
-        // ACT
-        let parsed = parse_route(&message);
-
-        // ASSERT
-        assert_eq!(
-            parsed,
-            Some(Route {
-                destination: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-                prefix_len: 0,
-                gateway: Some(IpAddr::V6(Ipv6Addr::LOCALHOST)),
-            })
-        );
     }
 
     #[test]

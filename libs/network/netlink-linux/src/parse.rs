@@ -1,12 +1,11 @@
 //! Parsing of route netlink messages into domain values.
 
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::IpAddr;
 
+use netlink_packet_route::RouteNetlinkMessage;
 use netlink_packet_route::address::AddressAttribute;
 use netlink_packet_route::link::{LinkAttribute, LinkInfo, LinkMessage};
-use netlink_packet_route::route::{RouteAddress, RouteAttribute};
-use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netmodel::{Address, Link, LinkEvent, LinkState, Mac, Name, Route};
+use netmodel::{Address, Link, LinkEvent, LinkState, Mac, Name};
 
 use crate::carrier;
 
@@ -42,27 +41,6 @@ pub(crate) fn address(message: &RouteNetlinkMessage) -> Option<Address> {
     Some(Address {
         address,
         prefix_len: message.header.prefix_len,
-    })
-}
-
-pub(crate) fn route(message: &RouteNetlinkMessage) -> Option<Route> {
-    let (RouteNetlinkMessage::NewRoute(ref message) | RouteNetlinkMessage::GetRoute(ref message)) =
-        *message
-    else {
-        return None;
-    };
-
-    let destination = message
-        .attributes
-        .iter()
-        .find_map(route_address)
-        .or_else(|| unspecified(message.header.address_family))?;
-    let gateway = message.attributes.iter().find_map(route_gateway);
-
-    Some(Route {
-        destination,
-        prefix_len: message.header.destination_prefix_length,
-        gateway,
     })
 }
 
@@ -154,42 +132,4 @@ const fn address_attribute(attribute: &AddressAttribute) -> Option<IpAddr> {
     };
 
     Some(*address)
-}
-
-const fn route_address(attribute: &RouteAttribute) -> Option<IpAddr> {
-    let RouteAttribute::Destination(ref address) = *attribute else {
-        return None;
-    };
-
-    route_addr(address)
-}
-
-const fn route_gateway(attribute: &RouteAttribute) -> Option<IpAddr> {
-    let RouteAttribute::Gateway(ref address) = *attribute else {
-        return None;
-    };
-
-    route_addr(address)
-}
-
-const fn route_addr(address: &RouteAddress) -> Option<IpAddr> {
-    if let RouteAddress::Inet(ref address) = *address {
-        return Some(IpAddr::V4(*address));
-    }
-    if let RouteAddress::Inet6(ref address) = *address {
-        return Some(IpAddr::V6(*address));
-    }
-
-    None
-}
-
-const fn unspecified(family: AddressFamily) -> Option<IpAddr> {
-    if matches!(family, AddressFamily::Inet) {
-        return Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-    }
-    if matches!(family, AddressFamily::Inet6) {
-        return Some(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
-    }
-
-    None
 }

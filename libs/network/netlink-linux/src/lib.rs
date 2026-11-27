@@ -16,7 +16,7 @@ use netlink_packet_route::link::{
     BridgeStpState, InfoBridge, InfoData, InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage,
 };
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netmodel::{Address, Link, LinkEvent, Name, Route};
+use netmodel::{Address, Link, LinkEvent, Name};
 
 /// A route netlink message with a finalized header.
 pub type Message = NetlinkMessage<RouteNetlinkMessage>;
@@ -207,18 +207,7 @@ pub fn parse_address_index(message: &RouteNetlinkMessage) -> Option<(u32, Addres
     Some((reply.header.index, parse::address(message)?))
 }
 
-/// Parses a route from a route reply message.
-#[must_use = "the parsed route must be stored or forwarded"]
-pub fn parse_route(message: &RouteNetlinkMessage) -> Option<Route> {
-    parse::route(message)
-}
-
 /// Parses link lifecycle events from a route netlink notification.
-///
-/// `previous` is the caller's last known state for the link index. `None` marks an unknown link, so a `NewLink`
-/// notification becomes [`LinkEvent::Added`]. A known link only emits [`LinkEvent::Up`] or [`LinkEvent::Down`] when its
-/// carrier presence changed. `DelLink` always becomes [`LinkEvent::Deleted`]. [`LinkEvent::Error`] is not produced
-/// here.
 #[must_use = "the parsed event must be dispatched or dropped intentionally"]
 pub fn parse_event(
     message: &RouteNetlinkMessage,
