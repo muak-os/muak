@@ -1,43 +1,28 @@
-//! Linux network runtime backend with optional tokio support.
+//! Linux network runtime backend implemented with tokio.
 
 #![warn(missing_docs)]
 
-#[cfg(feature = "tokio")]
 mod address;
-#[cfg(feature = "tokio")]
 mod clock;
-#[cfg(feature = "tokio")]
 mod control;
-#[cfg(feature = "tokio")]
 mod entropy;
-#[cfg(feature = "tokio")]
 mod event;
-#[cfg(feature = "tokio")]
 mod icmpv6;
-#[cfg(feature = "tokio")]
 mod link;
-#[cfg(feature = "tokio")]
 mod packet;
-#[cfg(feature = "tokio")]
 mod route;
-#[cfg(feature = "tokio")]
 mod socket;
-#[cfg(feature = "tokio")]
 mod udp;
 
-#[cfg(feature = "tokio")]
 use std::os::fd::OwnedFd;
 
-#[cfg(feature = "tokio")]
 use tokio::io::unix::AsyncFd;
-#[cfg(feature = "tokio")]
 use tokio::net::UdpSocket;
 
 /// Linux runtime backend implemented with tokio.
 ///
 /// Socket receive operations await readiness and return data, an error, or cancellation. Unlike the deterministic mock
 /// they never report [`std::io::ErrorKind::WouldBlock`].
-#[cfg(feature = "tokio")]
 pub struct Tokio {
     link: control::Handle,
     address: control::Handle,
@@ -51,7 +36,6 @@ pub struct Tokio {
     entropy: entropy::Entropy,
 }
 
-#[cfg(feature = "tokio")]
 impl Tokio {
     /// Opens a route netlink connection and creates the runtime.
     ///
@@ -81,7 +65,6 @@ impl Tokio {
     }
 }
 
-#[cfg(feature = "tokio")]
 impl net_runtime::Runtime for Tokio {
     type Address = Self;
     type Clock = Self;

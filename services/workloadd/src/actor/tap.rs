@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use net_runtime::Link as _;
-use net_runtime_linux::Tokio;
+use net_runtime_tokio::Tokio;
 use netmodel::Name;
 
 const DELETE_ATTEMPTS: usize = 20;

@@ -1,14 +1,12 @@
 //! Tokio backend construction, clock, entropy, and datagram tests.
 
-#![cfg(feature = "tokio")]
-
 #[cfg(test)]
 mod backend {
     use std::io;
     use std::time::{Duration, SystemTime};
 
     use ip_method::{SocketKind, SocketSlot, SocketSpec};
-    use net_runtime_linux::Tokio;
+    use net_runtime_tokio::Tokio;
     use netmodel::Name;
     use tokio::time::timeout;
 

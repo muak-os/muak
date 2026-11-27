@@ -8,7 +8,7 @@ use anyhow::bail;
 use btrfs::quota::{DiskUsage, get_usage, set};
 use btrfs::subvolume::{create, delete, list};
 use mac::{format as format_mac, generate as generate_mac};
-use net_runtime_linux::Tokio;
+use net_runtime_tokio::Tokio;
 use tokio::fs::{read_to_string, write};
 use tokio::sync::mpsc;
 

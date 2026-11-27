@@ -59,7 +59,7 @@ members = [
     "libs/network/netmodel",
     "libs/network/net-observe",
     "libs/network/net-runtime",
-    "libs/network/net-runtime-linux",
+    "libs/network/net-runtime-tokio",
     "libs/network/net-supervisor",
     "libs/network/packet-v4-linux",
     "libs/network/slaac",
@@ -128,7 +128,7 @@ net-loop = { path = "libs/network/net-loop" }
 netmodel = { path = "libs/network/netmodel" }
 net-observe = { path = "libs/network/net-observe" }
 net-runtime = { path = "libs/network/net-runtime", default-features = false }
-net-runtime-linux = { path = "libs/network/net-runtime-linux", default-features = false }
+net-runtime-tokio = { path = "libs/network/net-runtime-tokio" }
 net-supervisor = { path = "libs/network/net-supervisor", default-features = false }
 packet-v4-linux = { path = "libs/network/packet-v4-linux" }
 slaac = { path = "libs/network/slaac" }

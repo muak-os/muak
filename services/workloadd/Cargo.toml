@@ -33,7 +33,7 @@ granola = { workspace = true }
 kmsg = { workspace = true }
 mac = { workspace = true }
 net-runtime = { workspace = true }
-net-runtime-linux = { workspace = true, features = ["tokio"] }
+net-runtime-tokio = { workspace = true }
 netmodel = { workspace = true }
 tap-linux = { workspace = true }
 

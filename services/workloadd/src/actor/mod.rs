@@ -6,7 +6,7 @@ mod tap;
 
 use anyhow::Result;
 use commands::VmCommand;
-use net_runtime_linux::Tokio;
+use net_runtime_tokio::Tokio;
 use state::VmActor;
 use tokio::sync::{mpsc, oneshot};
 

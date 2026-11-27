@@ -1449,7 +1449,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "net-runtime-linux"
+name = "net-runtime-tokio"
 version = "0.0.0"
 dependencies = [
  "futures-channel",
@@ -1558,7 +1558,7 @@ dependencies = [
  "net-loop",
  "net-observe",
  "net-runtime",
- "net-runtime-linux",
+ "net-runtime-tokio",
  "net-supervisor",
  "netmodel",
  "tempfile",
@@ -3038,7 +3038,7 @@ dependencies = [
  "kmsg",
  "mac",
  "net-runtime",
- "net-runtime-linux",
+ "net-runtime-tokio",
  "netmodel",
  "prost",
  "protox",

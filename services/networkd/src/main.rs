@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use granola::runtime::notify::Health;
-use net_runtime_linux::Tokio;
+use net_runtime_tokio::Tokio;
 use networkd::config::convert;
 use networkd::service::{DEGRADED_STATUS, Readiness, Service};
 

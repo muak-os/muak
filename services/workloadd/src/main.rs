@@ -75,7 +75,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
 
     create_dir_all(persistence::VMS_DIR).await?;
 
-    let runtime = net_runtime_linux::Tokio::new()?;
+    let runtime = net_runtime_tokio::Tokio::new()?;
 
     let bridge_name = config::system::network()
         .context("Failed to load network configuration")?
