@@ -3,12 +3,13 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use ip_method::{Command as MethodCommand, Input as MethodInput, State};
+use ip_method::{Command as MethodCommand, Input as MethodInput};
 use net_observe::journal::Journal;
 use net_observe::{Event as ObserveEvent, Level};
+use netmodel::{Family, MethodState};
 
 use crate::method::{Replacement, V4Slot, V6Slot};
-use crate::{Command, Controller, Effect, Family};
+use crate::{Command, Controller, Effect};
 
 pub(super) fn apply(controller: &mut Controller, command: Command) {
     match command {
@@ -28,9 +29,9 @@ pub(super) fn install(controller: &mut Controller, journal: &mut Journal) -> Eff
         controller.v4 = replacement.v4;
         controller.v6 = replacement.v6;
         controller.snapshot.v4 = None;
-        controller.snapshot.v4_state = State::Stopped;
+        controller.snapshot.v4_state = MethodState::Stopped;
         controller.snapshot.v6 = None;
-        controller.snapshot.v6_state = State::Stopped;
+        controller.snapshot.v6_state = MethodState::Stopped;
         controller.pending.clear();
         for notice in &replacement.notices {
             journal.record(

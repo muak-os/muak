@@ -17,7 +17,6 @@ ipv6 = ["iface/ipv6"]
 [dependencies]
 # Internal
 iface = { workspace = true, default-features = false }
-ip-method = { workspace = true }
 netmodel = { workspace = true }
 net-observe = { workspace = true }
 

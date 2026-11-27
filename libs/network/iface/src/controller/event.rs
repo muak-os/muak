@@ -2,13 +2,13 @@
 
 use alloc::string::String;
 
-use ip_method::{Event, Intent, State};
-use net_observe::interface::MethodState as ObserveMethodState;
+use ip_method::{Event, Intent};
 use net_observe::journal::Journal;
 use net_observe::{Event as ObserveEvent, Level};
+use netmodel::{Family, MethodState};
 
-use super::observe::{family as observe_family, refresh};
-use crate::{Controller, Effect, Family};
+use super::observe::refresh;
+use crate::{Controller, Effect};
 
 pub(super) const MAX_NOTICES: usize = 8;
 
@@ -32,8 +32,8 @@ pub(super) fn handle(
                     Level::Info,
                     ObserveEvent::InterfaceState {
                         name: controller.link.name.clone(),
-                        family: observe_family(family),
-                        state: method_state(state),
+                        family,
+                        state,
                     },
                 );
             }
@@ -52,7 +52,7 @@ pub(super) fn handle(
             let text = failure.to_string();
             journal.record(Level::Error, notice(controller, family, text.clone()));
             push_notice(controller, text);
-            set_state(controller, family, State::Degraded);
+            set_state(controller, family, MethodState::Degraded);
             refresh(controller, family, journal);
 
             Effect::Publish
@@ -63,7 +63,7 @@ pub(super) fn handle(
 fn notice(controller: &Controller, family: Family, text: String) -> ObserveEvent {
     ObserveEvent::Notice {
         name: controller.link.name.clone(),
-        family: Some(observe_family(family)),
+        family: Some(family),
         text,
     }
 }
@@ -94,25 +94,16 @@ fn intent_effect(controller: &Controller, intent: Intent) -> Effect<'static> {
     }
 }
 
-const fn current_state(controller: &Controller, family: Family) -> State {
+const fn current_state(controller: &Controller, family: Family) -> MethodState {
     match family {
         Family::V4 => controller.snapshot.v4_state,
         Family::V6 => controller.snapshot.v6_state,
     }
 }
 
-const fn set_state(controller: &mut Controller, family: Family, state: State) {
+const fn set_state(controller: &mut Controller, family: Family, state: MethodState) {
     match family {
         Family::V4 => controller.snapshot.v4_state = state,
         Family::V6 => controller.snapshot.v6_state = state,
-    }
-}
-
-const fn method_state(state: State) -> ObserveMethodState {
-    match state {
-        State::Acquiring => ObserveMethodState::Acquiring,
-        State::Bound => ObserveMethodState::Bound,
-        State::Degraded => ObserveMethodState::Degraded,
-        State::Stopped => ObserveMethodState::Stopped,
     }
 }

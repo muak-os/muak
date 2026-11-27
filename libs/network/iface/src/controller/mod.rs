@@ -9,7 +9,7 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use std::time::{Instant, SystemTime};
 
-use ip_method::State;
+use netmodel::MethodState;
 
 use crate::{Controller, Input, Snapshot, Step};
 
@@ -20,9 +20,9 @@ impl Controller {
         let snapshot = Snapshot {
             link: link.state,
             v4: None,
-            v4_state: State::Stopped,
+            v4_state: MethodState::Stopped,
             v6: None,
-            v6_state: State::Stopped,
+            v6_state: MethodState::Stopped,
             notices: Vec::new(),
         };
 

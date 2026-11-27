@@ -11,8 +11,6 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 use std::time::{Instant, SystemTime};
 
-#[cfg(any(feature = "ipv4", feature = "ipv6"))]
-use iface::Family;
 use iface::{Command, Controller, Effect, Input, Step, V4View, V6View};
 #[cfg(feature = "ipv4")]
 use ip::v4::udp;
@@ -28,6 +26,8 @@ use ndp::message::AdvertisementHeader;
 use ndp::types::PrefixInformation;
 #[cfg(feature = "ipv6")]
 use ndp::{ALL_ROUTERS, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
+#[cfg(any(feature = "ipv4", feature = "ipv6"))]
+use netmodel::Family;
 use netmodel::{Ipv4Config, Ipv6Config, LinkState, Mac, Name};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
@@ -336,8 +336,8 @@ fn new_snapshots_the_link_state() {
     assert!(snapshot.v4.is_none());
     assert!(snapshot.v6.is_none());
     assert_eq!(snapshot.notices.len(), 0);
-    assert_eq!(snapshot.v4_state, ip_method::State::Stopped);
-    assert_eq!(snapshot.v6_state, ip_method::State::Stopped);
+    assert_eq!(snapshot.v4_state, netmodel::MethodState::Stopped);
+    assert_eq!(snapshot.v6_state, netmodel::MethodState::Stopped);
 }
 
 #[test]
@@ -359,7 +359,7 @@ fn static_v4_configure_adds_address_route_and_binds() {
         effect,
         Observed::EnsureRoute { gateway } if *gateway == IpAddr::V4(GATEWAY_V4)
     )));
-    assert_eq!(controller.snapshot().v4_state, ip_method::State::Bound);
+    assert_eq!(controller.snapshot().v4_state, netmodel::MethodState::Bound);
     let Some(V4View::Static(view)) = controller.snapshot().v4.clone() else {
         panic!("static view expected");
     };
@@ -392,7 +392,7 @@ fn static_v6_configure_adds_address_route_and_binds() {
         panic!("static view expected");
     };
     assert_eq!(view.address, ADDRESS_V6);
-    assert_eq!(controller.snapshot().v6_state, ip_method::State::Bound);
+    assert_eq!(controller.snapshot().v6_state, netmodel::MethodState::Bound);
 }
 
 #[cfg(all(feature = "ipv4", feature = "ipv6"))]
@@ -595,7 +595,7 @@ fn dhcp_frame_binds_and_exposes_the_dhcp_view() {
         panic!("DHCP view expected");
     };
     assert_eq!(view.lease.assigned_ip, DHCP_ASSIGNED);
-    assert_eq!(controller.snapshot().v4_state, ip_method::State::Bound);
+    assert_eq!(controller.snapshot().v4_state, netmodel::MethodState::Bound);
 }
 
 #[cfg(feature = "ipv6")]
@@ -696,7 +696,7 @@ fn slaac_advertisement_updates_the_snapshot() {
     };
     assert_eq!(view.addresses, vec![(SLAAC_ADDRESS, 64)]);
     assert_eq!(view.routers, vec![ROUTER]);
-    assert_eq!(controller.snapshot().v6_state, ip_method::State::Bound);
+    assert_eq!(controller.snapshot().v6_state, netmodel::MethodState::Bound);
 }
 
 #[cfg(feature = "ipv6")]
@@ -745,7 +745,10 @@ fn slaac_shutdown_clears_the_view_before_closing_the_socket() {
             slot: SocketSlot::Primary
         }
     )));
-    assert_eq!(controller.snapshot().v6_state, ip_method::State::Stopped);
+    assert_eq!(
+        controller.snapshot().v6_state,
+        netmodel::MethodState::Stopped
+    );
 }
 
 #[cfg(feature = "ipv6")]
@@ -854,7 +857,7 @@ fn link_down_and_up_flow_through_the_static_method() {
     // ASSERT
     assert!(matches!(down, Some(Observed::Publish)));
     assert_eq!(down_link, LinkState::Down);
-    assert_eq!(down_state, ip_method::State::Degraded);
+    assert_eq!(down_state, netmodel::MethodState::Degraded);
     assert!(matches!(
         up,
         Some(Observed::AddAddress { address, .. }) if address == IpAddr::V4(ADDRESS_V4)
@@ -898,8 +901,14 @@ fn configure_without_methods_publishes_a_snapshot() {
 
     // ASSERT
     assert!(matches!(published, Some(Observed::Publish)));
-    assert_eq!(controller.snapshot().v4_state, ip_method::State::Stopped);
-    assert_eq!(controller.snapshot().v6_state, ip_method::State::Stopped);
+    assert_eq!(
+        controller.snapshot().v4_state,
+        netmodel::MethodState::Stopped
+    );
+    assert_eq!(
+        controller.snapshot().v6_state,
+        netmodel::MethodState::Stopped
+    );
 }
 
 #[test]
@@ -1006,7 +1015,7 @@ fn shutdown_closes_dhcp_sockets_and_stops_the_method() {
             .any(|effect| matches!(effect, Observed::Publish))
     );
     let snapshot = controller.snapshot();
-    assert_eq!(snapshot.v4_state, ip_method::State::Stopped);
+    assert_eq!(snapshot.v4_state, netmodel::MethodState::Stopped);
     assert!(snapshot.v4.is_none());
 }
 
@@ -1037,10 +1046,7 @@ fn v4_method_state_is_journaled() {
         .collect();
 
     // ASSERT
-    assert!(states.contains(&(
-        net_observe::interface::Family::V4,
-        net_observe::interface::MethodState::Bound
-    )));
+    assert!(states.contains(&(Family::V4, netmodel::MethodState::Bound)));
 }
 
 #[test]
@@ -1070,10 +1076,7 @@ fn v6_method_state_is_journaled() {
         .collect();
 
     // ASSERT
-    assert!(states.contains(&(
-        net_observe::interface::Family::V6,
-        net_observe::interface::MethodState::Bound
-    )));
+    assert!(states.contains(&(Family::V6, netmodel::MethodState::Bound)));
 }
 
 #[cfg(feature = "ipv4")]

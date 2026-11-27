@@ -257,7 +257,7 @@ fn model_link(text: &str, index: u32, state: netmodel::LinkState) -> netmodel::L
 fn owner(interface: &str, slot: ip_method::SocketSlot) -> SocketOwner {
     SocketOwner {
         interface: name(interface),
-        family: iface::Family::V4,
+        family: netmodel::Family::V4,
         slot,
         kind: ip_method::SocketKind::RawL2,
     }
@@ -457,8 +457,8 @@ fn boot_journals_binding_and_address_assignment() {
     assert!(observations.iter().any(|observation| matches!(
         observation.event,
         net_observe::Event::InterfaceState {
-            family: net_observe::interface::Family::V4,
-            state: net_observe::interface::MethodState::Bound,
+            family: netmodel::Family::V4,
+            state: netmodel::MethodState::Bound,
             ..
         }
     )));
@@ -1015,7 +1015,7 @@ fn slaac_interface() -> netmodel::InterfaceConfig {
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 fn open_socket(
     driver: &Loop<Mock>,
-    family: iface::Family,
+    family: netmodel::Family,
     slot: ip_method::SocketSlot,
 ) -> net_runtime::SocketId {
     driver
@@ -1065,7 +1065,11 @@ fn dhcp_exchange_binds_a_lease_through_the_socket_path() {
     let wall = SystemTime::UNIX_EPOCH;
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![dhcp_interface()]));
     block_on(boot(&mut driver, now, wall));
-    let id = open_socket(&driver, iface::Family::V4, ip_method::SocketSlot::Primary);
+    let id = open_socket(
+        &driver,
+        netmodel::Family::V4,
+        ip_method::SocketSlot::Primary,
+    );
     let kind = driver.sockets().get(id).map(|owner| owner.kind);
     let discover = driver.runtime().sent(id).expect("sent frames");
     let offer = dhcp_reply(DHCP_XID, dhcp_proto::message_type::OFFER);
@@ -1123,7 +1127,11 @@ fn socket_error_reaches_the_address_method() {
     let wall = SystemTime::UNIX_EPOCH;
     let mut driver: Loop<Mock> = Loop::new(runtime(), config(vec![dhcp_interface()]));
     block_on(boot(&mut driver, now, wall));
-    let id = open_socket(&driver, iface::Family::V4, ip_method::SocketSlot::Primary);
+    let id = open_socket(
+        &driver,
+        netmodel::Family::V4,
+        ip_method::SocketSlot::Primary,
+    );
 
     // ACT
     block_on(net_runtime::Packet::close(driver.runtime(), id)).expect("close socket");
@@ -1194,7 +1202,11 @@ fn slaac_advertisement_provisions_an_address_through_the_socket_path() {
     };
     let mut driver: Loop<Mock> = Loop::new(runtime(), announced);
     block_on(boot(&mut driver, now, wall));
-    let id = open_socket(&driver, iface::Family::V6, ip_method::SocketSlot::Primary);
+    let id = open_socket(
+        &driver,
+        netmodel::Family::V6,
+        ip_method::SocketSlot::Primary,
+    );
     let kind = driver.sockets().get(id).map(|owner| owner.kind);
     let solicited = driver.runtime().sent(id).expect("sent frames");
     let packet = advertisement();
@@ -1280,17 +1292,17 @@ fn table_finds_a_socket_by_owner() {
     // ACT
     let found_primary = table.find(
         &name("eth0"),
-        iface::Family::V4,
+        netmodel::Family::V4,
         ip_method::SocketSlot::Primary,
     );
     let found_secondary = table.find(
         &name("eth1"),
-        iface::Family::V4,
+        netmodel::Family::V4,
         ip_method::SocketSlot::Secondary,
     );
     let missing = table.find(
         &name("eth0"),
-        iface::Family::V6,
+        netmodel::Family::V6,
         ip_method::SocketSlot::Primary,
     );
 

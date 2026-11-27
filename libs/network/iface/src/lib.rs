@@ -12,15 +12,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-/// Address family the controller drives for one interface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Family {
-    /// IPv4.
-    V4,
-    /// IPv6.
-    V6,
-}
-
 /// Commands the supervisor sends to an interface controller.
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -53,7 +44,7 @@ pub enum Input<'a> {
     /// Input for one address family method.
     Method {
         /// Family the input belongs to.
-        family: Family,
+        family: netmodel::Family,
         /// Input to hand to the family method.
         input: ip_method::Input<'a>,
     },
@@ -109,7 +100,7 @@ pub enum Effect<'a> {
     /// Open a socket for the family.
     OpenSocket {
         /// Family the socket belongs to.
-        family: Family,
+        family: netmodel::Family,
         /// Specification of the socket to open.
         spec: ip_method::SocketSpec,
     },
@@ -117,7 +108,7 @@ pub enum Effect<'a> {
     /// `UDP`.
     Send {
         /// Family the socket belongs to.
-        family: Family,
+        family: netmodel::Family,
         /// Slot of the socket to send on.
         slot: ip_method::SocketSlot,
         /// Raw frame bytes to send.
@@ -128,14 +119,14 @@ pub enum Effect<'a> {
     /// Close a socket the family opened.
     CloseSocket {
         /// Family the socket belongs to.
-        family: Family,
+        family: netmodel::Family,
         /// Slot of the socket to close.
         slot: ip_method::SocketSlot,
     },
     /// Request fresh entropy for the family method.
     RequestEntropy {
         /// Family the entropy is requested for.
-        family: Family,
+        family: netmodel::Family,
     },
     /// Publish the interface snapshot.
     Publish,
@@ -178,11 +169,11 @@ pub struct Snapshot {
     /// IPv4 method view, when configured.
     pub v4: Option<V4View>,
     /// IPv4 provisioning phase.
-    pub v4_state: ip_method::State,
+    pub v4_state: netmodel::MethodState,
     /// IPv6 method view, when configured.
     pub v6: Option<V6View>,
     /// IPv6 provisioning phase.
-    pub v6_state: ip_method::State,
+    pub v6_state: netmodel::MethodState,
     /// Warnings and failures reported by the family methods.
     pub notices: Vec<String>,
 }
@@ -193,7 +184,7 @@ pub struct Controller {
     pub(crate) snapshot: Snapshot,
     pub(crate) v4: Option<method::V4Slot>,
     pub(crate) v6: Option<method::V6Slot>,
-    pub(crate) pending: VecDeque<(Family, ip_method::Input<'static>)>,
+    pub(crate) pending: VecDeque<(netmodel::Family, ip_method::Input<'static>)>,
     pub(crate) deferred: Option<method::Replacement>,
     pub(crate) shutdown: bool,
 }

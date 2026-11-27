@@ -1,23 +1,23 @@
 //! Snapshot inspection shared by the supervisor's policy modules.
 
-use ip_method::State;
+use netmodel::MethodState;
 
 /// Returns true when at least one enabled address family has bound its configuration.
 pub(crate) fn is_configured(snapshot: &iface::Snapshot) -> bool {
-    (cfg!(feature = "ipv4") && snapshot.v4_state == State::Bound)
-        || (cfg!(feature = "ipv6") && snapshot.v6_state == State::Bound)
+    (cfg!(feature = "ipv4") && snapshot.v4_state == MethodState::Bound)
+        || (cfg!(feature = "ipv6") && snapshot.v6_state == MethodState::Bound)
 }
 
 /// Returns true when an address family has been started and not yet stopped.
 pub(crate) fn is_active(snapshot: &iface::Snapshot) -> bool {
-    (cfg!(feature = "ipv4") && snapshot.v4_state != State::Stopped)
-        || (cfg!(feature = "ipv6") && snapshot.v6_state != State::Stopped)
+    (cfg!(feature = "ipv4") && snapshot.v4_state != MethodState::Stopped)
+        || (cfg!(feature = "ipv6") && snapshot.v6_state != MethodState::Stopped)
 }
 
 /// Returns true when an address family is running in a degraded state.
 pub(crate) fn is_degraded(snapshot: &iface::Snapshot) -> bool {
-    (cfg!(feature = "ipv4") && snapshot.v4_state == State::Degraded)
-        || (cfg!(feature = "ipv6") && snapshot.v6_state == State::Degraded)
+    (cfg!(feature = "ipv4") && snapshot.v4_state == MethodState::Degraded)
+        || (cfg!(feature = "ipv6") && snapshot.v6_state == MethodState::Degraded)
 }
 
 /// Returns true when at least one enabled family still exposes a method view.

@@ -77,7 +77,7 @@ async fn method<R: net_runtime::Runtime>(
     now: Instant,
     wall: SystemTime,
     name: &netmodel::Name,
-    family: iface::Family,
+    family: netmodel::Family,
     input: ip_method::Input<'_>,
 ) -> io::Result<()> {
     let input = iface::Input::Method { family, input };

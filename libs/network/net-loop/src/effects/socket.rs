@@ -9,7 +9,7 @@ use crate::pending::Pending;
 use crate::{SocketOwner, SocketTable};
 
 pub(super) struct Transmit<'a> {
-    pub(super) family: iface::Family,
+    pub(super) family: netmodel::Family,
     pub(super) slot: ip_method::SocketSlot,
     pub(super) frame: &'a [u8],
     pub(super) dst: Option<core::net::SocketAddr>,
@@ -20,7 +20,7 @@ pub(super) async fn open<R: net_runtime::Runtime>(
     interface: &netmodel::Name,
     sockets: &mut SocketTable,
     pending: &mut VecDeque<Pending>,
-    family: iface::Family,
+    family: netmodel::Family,
     spec: ip_method::SocketSpec,
 ) -> io::Result<()> {
     if spec.link != *interface {
@@ -105,7 +105,7 @@ pub(super) async fn close<R: net_runtime::Runtime>(
     interface: &netmodel::Name,
     sockets: &mut SocketTable,
     pending: &mut VecDeque<Pending>,
-    family: iface::Family,
+    family: netmodel::Family,
     slot: ip_method::SocketSlot,
 ) -> io::Result<()> {
     let outcome = match sockets.find(interface, family, slot) {

@@ -8,7 +8,7 @@ use core::net::{IpAddr, SocketAddr};
 use std::io;
 use std::time::{Instant, SystemTime};
 
-use netmodel::{LinkState, Mac, Name};
+use netmodel::{LinkState, Mac, MethodState, Name};
 
 use crate::error::IpMethodError;
 
@@ -25,19 +25,6 @@ pub enum Command {
     LinkUp,
     /// Link transitioned to down.
     LinkDown,
-}
-
-/// Lifecycle phase of an address method.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
-    /// Acquiring address configuration.
-    Acquiring,
-    /// Configuration is bound and stable.
-    Bound,
-    /// Running with degraded configuration.
-    Degraded,
-    /// Method is stopped.
-    Stopped,
 }
 
 /// Address configuration an interface method should apply.
@@ -68,7 +55,7 @@ pub enum Event {
     /// Method produced an intent for the controller to apply.
     Intent(Intent),
     /// Method changed lifecycle phase.
-    State(State),
+    State(MethodState),
     /// Method reported a nonfatal issue.
     Warning(String),
     /// Method failed.
@@ -233,13 +220,13 @@ pub trait Method {
 
 #[cfg(test)]
 mod tests {
-    use crate::State;
+    use netmodel::MethodState;
 
     #[test]
     fn state_variants_are_distinct() {
         // ARRANGE
-        let bound = State::Bound;
-        let stopped = State::Stopped;
+        let bound = MethodState::Bound;
+        let stopped = MethodState::Stopped;
 
         // ACT
         let equal = bound == stopped;

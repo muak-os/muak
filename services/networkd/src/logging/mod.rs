@@ -448,8 +448,8 @@ mod tests {
         assert_eq!(
             render(&Event::InterfaceState {
                 name: name("eth0"),
-                family: interface::Family::V4,
-                state: interface::MethodState::Acquiring,
+                family: netmodel::Family::V4,
+                state: netmodel::MethodState::Acquiring,
             }),
             "eth0: IPv4 state acquiring"
         );
@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(
             render(&Event::Notice {
                 name: name("eth0"),
-                family: Some(interface::Family::V4),
+                family: Some(netmodel::Family::V4),
                 text: "lease renew failed".to_owned(),
             }),
             "eth0: IPv4 lease renew failed"

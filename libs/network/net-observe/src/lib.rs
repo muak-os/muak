@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::net::IpAddr;
 
-use netmodel::{AdminState, CarrierState, Link, LinkEvent, LinkState, Name};
+use netmodel::{AdminState, CarrierState, Family, Link, LinkEvent, LinkState, MethodState, Name};
 
 /// Severity an observation should be reported at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,16 +225,16 @@ pub enum Event {
         /// Interface the method runs on.
         name: Name,
         /// Address family of the method.
-        family: interface::Family,
+        family: Family,
         /// New provisioning state.
-        state: interface::MethodState,
+        state: MethodState,
     },
     /// An interface method reported a warning or failure.
     Notice {
         /// Interface that reported the notice.
         name: Name,
         /// Address family of the reporting method, when known.
-        family: Option<interface::Family>,
+        family: Option<Family>,
         /// Notice text.
         text: String,
     },

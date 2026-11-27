@@ -3,7 +3,8 @@
 use core::net::IpAddr;
 use std::time::Instant;
 
-use ip_method::{Event, Intent, State};
+use ip_method::{Event, Intent};
+use netmodel::MethodState;
 
 use super::{Action, intent};
 use crate::{MAX_RTR_SOLICITATIONS, RTR_SOLICITATION_INTERVAL, Slaac};
@@ -17,7 +18,7 @@ pub(crate) fn start(method: &mut Slaac, now: Instant) {
     if method.open {
         method
             .queue
-            .push_back(Action::Emit(Event::State(State::Acquiring)));
+            .push_back(Action::Emit(Event::State(MethodState::Acquiring)));
         schedule(method, now);
     } else {
         method.queue.push_back(Action::Open);
@@ -31,7 +32,7 @@ pub(crate) fn suspend(method: &mut Slaac) {
     method.running = false;
     method
         .queue
-        .push_back(Action::Emit(Event::State(State::Degraded)));
+        .push_back(Action::Emit(Event::State(MethodState::Degraded)));
 }
 
 pub(crate) fn stop(method: &mut Slaac) {
@@ -50,7 +51,7 @@ pub(crate) fn stop(method: &mut Slaac) {
     method.dns_servers.clear();
     method
         .queue
-        .push_back(Action::Emit(Event::State(State::Stopped)));
+        .push_back(Action::Emit(Event::State(MethodState::Stopped)));
     if method.open {
         method.queue.push_back(Action::Close);
         method.open = false;
@@ -72,5 +73,5 @@ pub(crate) fn exhaust(method: &mut Slaac) {
     ));
     method
         .queue
-        .push_back(Action::Emit(Event::State(State::Degraded)));
+        .push_back(Action::Emit(Event::State(MethodState::Degraded)));
 }

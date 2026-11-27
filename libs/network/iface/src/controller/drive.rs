@@ -4,9 +4,10 @@ use std::time::{Instant, SystemTime};
 
 use ip_method::{Effect as MethodEffect, Method, Step as MethodStep};
 use net_observe::journal::Journal;
+use netmodel::Family;
 
 use super::{command, event};
-use crate::{Controller, Effect, Family, Input, Step};
+use crate::{Controller, Effect, Input, Step};
 
 enum Transport<'a> {
     Open(ip_method::SocketSpec),

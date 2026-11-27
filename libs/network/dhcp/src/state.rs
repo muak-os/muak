@@ -4,7 +4,8 @@ use alloc::collections::VecDeque;
 use std::time::Instant;
 
 use ip_method::error::IpMethodError;
-use ip_method::{Command, Event, State};
+use ip_method::{Command, Event};
+use netmodel::MethodState;
 
 use crate::effects::Action;
 use crate::exchange::{Exchange, SocketState, Transmit};
@@ -99,7 +100,7 @@ pub(super) fn bind(method: &mut Dhcp, now: Instant, kind: Transmit, lease: Lease
     method.lease = Some(lease);
     method.phase = Phase::Bound;
     intent::configure(method);
-    let state = Event::State(State::Bound);
+    let state = Event::State(MethodState::Bound);
     method.queue.push_back(Action::Event(state));
 }
 

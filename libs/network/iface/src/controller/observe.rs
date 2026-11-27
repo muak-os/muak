@@ -3,14 +3,14 @@
 use ip_method::Method;
 #[cfg(feature = "ipv4")]
 use net_observe::interface::DhcpLease;
-use net_observe::interface::Family as ObserveFamily;
 #[cfg(feature = "ipv6")]
 use net_observe::interface::SlaacUpdate;
 use net_observe::journal::Journal;
 #[cfg(any(feature = "ipv4", feature = "ipv6"))]
 use net_observe::{Event as ObserveEvent, Level};
+use netmodel::Family;
 
-use crate::{Controller, Family, V4View, V6View};
+use crate::{Controller, V4View, V6View};
 
 pub(super) fn refresh(controller: &mut Controller, family: Family, journal: &mut Journal) {
     match family {
@@ -30,13 +30,6 @@ pub(super) fn refresh(controller: &mut Controller, family: Family, journal: &mut
             }
             controller.snapshot.v6 = view;
         }
-    }
-}
-
-pub(super) const fn family(family: Family) -> ObserveFamily {
-    match family {
-        Family::V4 => ObserveFamily::V4,
-        Family::V6 => ObserveFamily::V6,
     }
 }
 

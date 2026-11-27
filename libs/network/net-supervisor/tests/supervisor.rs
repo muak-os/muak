@@ -100,9 +100,9 @@ fn configured(link_state: LinkState) -> iface::Snapshot {
             gateway: None,
             dns: Vec::new(),
         })),
-        v4_state: ip_method::State::Bound,
+        v4_state: netmodel::MethodState::Bound,
         v6: None,
-        v6_state: ip_method::State::Stopped,
+        v6_state: netmodel::MethodState::Stopped,
         notices: Vec::new(),
     }
 }
@@ -111,9 +111,9 @@ fn failed() -> iface::Snapshot {
     iface::Snapshot {
         link: LinkState::Down,
         v4: None,
-        v4_state: ip_method::State::Degraded,
+        v4_state: netmodel::MethodState::Degraded,
         v6: None,
-        v6_state: ip_method::State::Stopped,
+        v6_state: netmodel::MethodState::Stopped,
         notices: Vec::new(),
     }
 }

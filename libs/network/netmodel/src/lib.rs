@@ -6,6 +6,7 @@ mod address;
 pub mod error;
 mod event;
 mod hardware;
+mod interface;
 mod link;
 mod name;
 mod selection;
@@ -45,6 +46,28 @@ pub enum CarrierState {
     /// The driver does not report a carrier state.
     #[default]
     Unknown,
+}
+
+/// Address family an address method runs for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// IPv4.
+    V4,
+    /// IPv6.
+    V6,
+}
+
+/// Lifecycle phase of an address method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodState {
+    /// Acquiring address configuration.
+    Acquiring,
+    /// Configuration is bound and stable.
+    Bound,
+    /// Running with degraded configuration.
+    Degraded,
+    /// Method is stopped.
+    Stopped,
 }
 
 /// Administrative and carrier state of a network link.

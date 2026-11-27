@@ -9,14 +9,14 @@ use std::time::{Duration, Instant, SystemTime};
 use ip_method::error::IpMethodError;
 use ip_method::{
     Command, Effect, Event, Input, Intent, LinkInfo, Method as _, SocketKind, SocketSlot,
-    SocketSpec, State, Step,
+    SocketSpec, Step,
 };
 use ndp::build::router::{Advertisement, advertisement as build_advertisement};
 use ndp::message::AdvertisementHeader;
 use ndp::parse::router_solicitation;
 use ndp::types::PrefixInformation;
 use ndp::{ALL_ROUTERS, NEIGHBOR_SOLICITATION, ROUTER_ADVERTISEMENT, ROUTER_SOLICITATION};
-use netmodel::{Ipv6Config, LinkState, Mac, Name};
+use netmodel::{Ipv6Config, LinkState, Mac, MethodState, Name};
 use slaac::{Slaac, View};
 
 const MAC: [u8; 6] = [0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e];
@@ -34,7 +34,7 @@ enum Observed {
     Close,
     Send { dst: SocketAddr, frame: Vec<u8> },
     Intent(Intent),
-    State(State),
+    State(MethodState),
     Warning(String),
     Failed,
 }
@@ -143,7 +143,10 @@ fn start(method: &mut Slaac, now: Instant) {
             slot: SocketSlot::Primary,
         },
     );
-    assert!(matches!(opened, Some(Observed::State(State::Acquiring))));
+    assert!(matches!(
+        opened,
+        Some(Observed::State(MethodState::Acquiring))
+    ));
     let solicitation = poll(method, now);
     assert!(matches!(solicitation, Some(Observed::Send { .. })));
 }
@@ -276,7 +279,10 @@ fn opened_socket_sends_one_router_solicitation_to_all_routers() {
     let solicitation = poll(&mut method, now);
 
     // ASSERT
-    assert!(matches!(acquiring, Some(Observed::State(State::Acquiring))));
+    assert!(matches!(
+        acquiring,
+        Some(Observed::State(MethodState::Acquiring))
+    ));
     let Some(Observed::Send { dst, frame }) = solicitation else {
         panic!("expected a solicitation send");
     };
@@ -313,7 +319,7 @@ fn router_advertisement_configures_address_route_and_binds() {
     ));
     assert!(matches!(
         effects.get(2),
-        Some(Observed::State(State::Bound))
+        Some(Observed::State(MethodState::Bound))
     ));
     assert!(matches!(
         method.view(),
@@ -344,7 +350,10 @@ fn missing_router_advertisement_warns_after_three_attempts() {
         exhausted,
         Some(Observed::Warning(text)) if text.contains("continuing to listen")
     ));
-    assert!(matches!(degraded, Some(Observed::State(State::Degraded))));
+    assert!(matches!(
+        degraded,
+        Some(Observed::State(MethodState::Degraded))
+    ));
     assert!(method.next_wake(at(now, 12)).is_none());
     assert!(method.view().is_none());
 }
@@ -396,7 +405,7 @@ fn stop_deconfigures_removes_route_and_closes_the_socket() {
     ));
     assert!(matches!(
         effects.get(2),
-        Some(Observed::State(State::Stopped))
+        Some(Observed::State(MethodState::Stopped))
     ));
     assert!(matches!(effects.get(3), Some(Observed::Close)));
     assert!(method.next_wake(now).is_none());
@@ -458,14 +467,20 @@ fn link_up_after_suspend_resolicits() {
     let mut method = new_method();
     bind(&mut method, now);
     let degraded = observe(&mut method, now, Input::Command(Command::LinkDown));
-    assert!(matches!(degraded, Some(Observed::State(State::Degraded))));
+    assert!(matches!(
+        degraded,
+        Some(Observed::State(MethodState::Degraded))
+    ));
 
     // ACT
     let acquiring = observe(&mut method, now, Input::Command(Command::LinkUp));
     let solicitation = poll(&mut method, now);
 
     // ASSERT
-    assert!(matches!(acquiring, Some(Observed::State(State::Acquiring))));
+    assert!(matches!(
+        acquiring,
+        Some(Observed::State(MethodState::Acquiring))
+    ));
     assert!(matches!(solicitation, Some(Observed::Send { .. })));
     assert_eq!(method.next_wake(now), Some(at(now, 4)));
 }
@@ -563,7 +578,10 @@ fn suspended_method_has_no_wake_deadline() {
     let wake = method.next_wake(now);
 
     // ASSERT
-    assert!(matches!(effect, Some(Observed::State(State::Degraded))));
+    assert!(matches!(
+        effect,
+        Some(Observed::State(MethodState::Degraded))
+    ));
     assert!(wake.is_none());
 }
 
@@ -867,7 +885,7 @@ fn link_down_suspends() {
     let wake = method.next_wake(now);
 
     // ASSERT
-    assert!(matches!(down, Some(Observed::State(State::Degraded))));
+    assert!(matches!(down, Some(Observed::State(MethodState::Degraded))));
     assert!(wake.is_none());
 }
 
@@ -883,7 +901,7 @@ fn link_up_while_running_resolicits() {
     let solicitation = poll(&mut method, now);
 
     // ASSERT
-    assert!(matches!(up, Some(Observed::State(State::Acquiring))));
+    assert!(matches!(up, Some(Observed::State(MethodState::Acquiring))));
     assert!(matches!(solicitation, Some(Observed::Send { .. })));
     assert_eq!(method.next_wake(now), Some(at(now, 4)));
 }

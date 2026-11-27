@@ -4,7 +4,8 @@ use alloc::collections::VecDeque;
 use core::net::IpAddr;
 use std::time::{Instant, SystemTime};
 
-use ip_method::{AddressConfig, Command, Effect, Event, Input, Intent, Method, State, Step};
+use ip_method::{AddressConfig, Command, Effect, Event, Input, Intent, Method, Step};
+use netmodel::MethodState;
 
 use crate::{Config, Static, View};
 
@@ -28,7 +29,7 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
     fn apply(&mut self, command: Command) {
         match command {
             Command::Start | Command::Reconcile | Command::LinkUp => self.provision(),
-            Command::LinkDown => self.queue.push_back(Event::State(State::Degraded)),
+            Command::LinkDown => self.queue.push_back(Event::State(MethodState::Degraded)),
             Command::Stop => self.stop(),
         }
     }
@@ -43,7 +44,7 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
             let intent = Intent::EnsureDefaultRoute(gateway.into());
             self.queue.push_back(Event::Intent(intent));
         }
-        self.queue.push_back(Event::State(State::Bound));
+        self.queue.push_back(Event::State(MethodState::Bound));
     }
 
     fn stop(&mut self) {
@@ -56,7 +57,7 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
             let intent = Intent::RemoveDefaultRoute(gateway.into());
             self.queue.push_back(Event::Intent(intent));
         }
-        self.queue.push_back(Event::State(State::Stopped));
+        self.queue.push_back(Event::State(MethodState::Stopped));
     }
 
     fn configure(address: A, prefix_len: u8) -> Intent {
@@ -112,7 +113,8 @@ mod tests {
     use core::net::{IpAddr, Ipv4Addr};
     use std::time::{Instant, SystemTime};
 
-    use ip_method::{Command, Effect, Event, Input, Intent, Method as _, State, Step};
+    use ip_method::{Command, Effect, Event, Input, Intent, Method as _, Step};
+    use netmodel::MethodState;
 
     use crate::{Config, Static, View};
 
@@ -199,7 +201,7 @@ mod tests {
             route,
             Intent::EnsureDefaultRoute(IpAddr::V4(GATEWAY))
         ));
-        assert!(matches!(state, Event::State(State::Bound)));
+        assert!(matches!(state, Event::State(MethodState::Bound)));
         assert!(method.next_wake(Instant::now()).is_none());
     }
 
@@ -224,7 +226,7 @@ mod tests {
             route,
             Intent::RemoveDefaultRoute(IpAddr::V4(GATEWAY))
         ));
-        assert!(matches!(state, Event::State(State::Stopped)));
+        assert!(matches!(state, Event::State(MethodState::Stopped)));
         assert!(view.is_none());
     }
 
@@ -276,7 +278,7 @@ mod tests {
             route,
             Intent::EnsureDefaultRoute(IpAddr::V4(GATEWAY))
         ));
-        assert!(matches!(state, Event::State(State::Bound)));
+        assert!(matches!(state, Event::State(MethodState::Bound)));
     }
 
     #[test]
@@ -299,7 +301,7 @@ mod tests {
         // ASSERT
         assert_deconfigure(first, ADDRESS_A);
         assert_deconfigure(second, ADDRESS_B);
-        assert!(matches!(state, Event::State(State::Stopped)));
+        assert!(matches!(state, Event::State(MethodState::Stopped)));
         assert!(idle.is_none());
     }
 
@@ -317,7 +319,7 @@ mod tests {
         let view = method.view();
 
         // ASSERT
-        assert!(matches!(event, Event::State(State::Bound)));
+        assert!(matches!(event, Event::State(MethodState::Bound)));
         assert!(view.is_none());
     }
 
@@ -348,7 +350,7 @@ mod tests {
         let view = method.view();
 
         // ASSERT
-        assert!(matches!(event, Event::State(State::Degraded)));
+        assert!(matches!(event, Event::State(MethodState::Degraded)));
         assert_view(view);
     }
 

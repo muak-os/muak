@@ -6,10 +6,10 @@ use std::time::Instant;
 
 use ip_method::error::IpMethodError;
 use ip_method::{
-    Command, Effect, Event, Input, LinkInfo, SocketKind, SocketSlot, SocketSpec, State, Step,
+    Command, Effect, Event, Input, LinkInfo, SocketKind, SocketSlot, SocketSpec, Step,
 };
 use ndp::ALL_ROUTERS;
-use netmodel::LinkState;
+use netmodel::{LinkState, MethodState};
 
 use super::{Action, intent, ra, solicit, timers};
 use crate::{MAX_RTR_SOLICITATIONS, RTR_SOLICITATION_INTERVAL, Slaac};
@@ -106,7 +106,7 @@ fn opened(method: &mut Slaac, now: Instant) {
     }
     method
         .queue
-        .push_back(Action::Emit(Event::State(State::Acquiring)));
+        .push_back(Action::Emit(Event::State(MethodState::Acquiring)));
     if method.solicitation_at.is_none() {
         solicit::schedule(method, now);
     }

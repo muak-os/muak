@@ -5,6 +5,7 @@ use core::net::Ipv4Addr;
 use std::time::Instant;
 
 use ip_method::{Event, SocketSlot};
+use netmodel::MethodState;
 
 use crate::effects::Action;
 use crate::exchange::{Exchange, Transmit};
@@ -17,7 +18,7 @@ pub(super) fn begin(method: &mut Dhcp) {
     method.retry_at = None;
     method.attempts = 0;
     method.exchange = Exchange::Idle;
-    let state = Event::State(ip_method::State::Acquiring);
+    let state = Event::State(MethodState::Acquiring);
     method.queue.push_back(Action::Event(state));
     exchange::begin(method, Transmit::Discover);
 }

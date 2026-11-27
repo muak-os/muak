@@ -1,6 +1,7 @@
 //! Start, stop and link transitions of the `DHCPv4` method.
 
-use ip_method::{Event, State};
+use ip_method::Event;
+use netmodel::MethodState;
 
 use crate::effects::Action;
 use crate::exchange::Exchange;
@@ -22,7 +23,7 @@ pub(super) fn stop(method: &mut Dhcp) {
     method.attempts = 0;
     method.exchange = Exchange::Idle;
     exchange::release_all(method);
-    let state = Event::State(State::Stopped);
+    let state = Event::State(MethodState::Stopped);
     method.queue.push_back(Action::Event(state));
 }
 
@@ -58,7 +59,7 @@ pub(super) fn link_down(method: &mut Dhcp) {
     method.attempts = 0;
     method.exchange = Exchange::Idle;
     exchange::release_all(method);
-    let state = Event::State(State::Degraded);
+    let state = Event::State(MethodState::Degraded);
     method.queue.push_back(Action::Event(state));
 }
 
@@ -70,6 +71,6 @@ fn reapply(method: &mut Dhcp) {
     method.phase = Phase::Bound;
     method.exchange = Exchange::Idle;
     intent::configure(method);
-    let state = Event::State(State::Bound);
+    let state = Event::State(MethodState::Bound);
     method.queue.push_back(Action::Event(state));
 }

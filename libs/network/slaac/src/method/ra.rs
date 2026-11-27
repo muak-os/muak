@@ -3,9 +3,10 @@
 use core::net::{IpAddr, Ipv6Addr};
 use std::time::Instant;
 
-use ip_method::{Event, Intent, State};
+use ip_method::{Event, Intent};
 use ndp::message::RouterAdvertisement;
 use ndp::types::Option;
+use netmodel::MethodState;
 
 use super::state::{ManagedAddress, ManagedDns, ManagedRouter};
 use super::{Action, intent};
@@ -93,7 +94,7 @@ fn initial(
     }
     method
         .queue
-        .push_back(Action::Emit(Event::State(State::Bound)));
+        .push_back(Action::Emit(Event::State(MethodState::Bound)));
 
     true
 }

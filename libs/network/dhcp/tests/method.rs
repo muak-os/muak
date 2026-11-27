@@ -11,8 +11,9 @@ mod tests {
 
     use dhcp::{Phase, View};
     use ip_method::{
-        AddressConfig, Command, Event, Input, Intent, Method as _, SocketKind, SocketSlot, State,
+        AddressConfig, Command, Event, Input, Intent, Method as _, SocketKind, SocketSlot,
     };
+    use netmodel::MethodState;
 
     use crate::common::{
         ADDRESS_A, ADDRESS_B, GATEWAY, SERVER, Trace, XID, ack, ack_payload, bind, closed, failure,
@@ -75,13 +76,16 @@ mod tests {
         let wake = method.next_wake(now);
 
         // ASSERT
-        assert_eq!(states(&started), [State::Acquiring]);
+        assert_eq!(states(&started), [MethodState::Acquiring]);
         assert_eq!(kind(&payload(&discover)), DISCOVER);
         assert_eq!(kind(&payload(&request)), REQUEST);
         assert_eq!(intents(&bound), [configure(ADDRESS_A), route()]);
-        assert_eq!(states(&bound), [State::Bound]);
+        assert_eq!(states(&bound), [MethodState::Bound]);
         assert!(
-            matches!(bound.last(), Some(Trace::Event(Event::State(State::Bound)))),
+            matches!(
+                bound.last(),
+                Some(Trace::Event(Event::State(MethodState::Bound)))
+            ),
             "the bound state follows the lease intents"
         );
         let Some(View { lease, phase }) = view else {
@@ -133,14 +137,14 @@ mod tests {
             "the REQUEST follows the offer entropy"
         );
         assert_eq!(closed(&bound), [SocketSlot::Primary]);
-        assert_eq!(states(&bound), [State::Bound]);
+        assert_eq!(states(&bound), [MethodState::Bound]);
         assert!(
             matches!(bound.first(), Some(Trace::Closed(SocketSlot::Primary))),
             "the primary socket closes before the lease events"
         );
         assert!(matches!(
             bound.last(),
-            Some(Trace::Event(Event::State(State::Bound)))
+            Some(Trace::Event(Event::State(MethodState::Bound)))
         ));
     }
 
@@ -179,7 +183,7 @@ mod tests {
         assert_eq!(ciaddr(&request), ADDRESS_A, "renew carries ciaddr");
         assert_eq!(closed(&accepted), [SocketSlot::Secondary]);
         assert_eq!(intents(&accepted), [configure(ADDRESS_A), route()]);
-        assert_eq!(states(&accepted), [State::Bound]);
+        assert_eq!(states(&accepted), [MethodState::Bound]);
         assert_eq!(wake, Some(at(now, 100)), "the lease restarts its deadlines");
     }
 
@@ -224,7 +228,7 @@ mod tests {
             ],
             "the replaced lease is torn down before the new one"
         );
-        assert_eq!(states(&accepted), [State::Bound]);
+        assert_eq!(states(&accepted), [MethodState::Bound]);
     }
 
     #[test]
@@ -250,7 +254,7 @@ mod tests {
                 Intent::RemoveDefaultRoute(IpAddr::V4(GATEWAY))
             ]
         );
-        assert_eq!(states(&expired), [State::Acquiring]);
+        assert_eq!(states(&expired), [MethodState::Acquiring]);
         assert!(view.is_none(), "the expired lease is dropped");
         assert_eq!(
             wake,
@@ -294,11 +298,11 @@ mod tests {
             ],
             "the refused lease is removed"
         );
-        assert_eq!(states(&restarted), [State::Acquiring]);
+        assert_eq!(states(&restarted), [MethodState::Acquiring]);
         assert!(view.is_none(), "the refused lease is dropped");
         assert_eq!(kind(&payload(&discover)), DISCOVER);
         assert_eq!(intents(&accepted), [configure(ADDRESS_B), route()]);
-        assert_eq!(states(&accepted), [State::Bound]);
+        assert_eq!(states(&accepted), [MethodState::Bound]);
     }
 
     #[test]
@@ -363,7 +367,7 @@ mod tests {
         let wake = method.next_wake(now);
 
         // ASSERT
-        assert_eq!(states(&events), [State::Degraded]);
+        assert_eq!(states(&events), [MethodState::Degraded]);
         assert_eq!(intents(&events), []);
         assert!(matches!(
             view,
@@ -391,9 +395,9 @@ mod tests {
         let recovered = pump(&mut method, now, Input::Link(up));
 
         // ASSERT
-        assert_eq!(states(&degraded), [State::Degraded]);
+        assert_eq!(states(&degraded), [MethodState::Degraded]);
         assert_eq!(intents(&recovered), [configure(ADDRESS_A), route()]);
-        assert_eq!(states(&recovered), [State::Bound]);
+        assert_eq!(states(&recovered), [MethodState::Bound]);
     }
 
     #[test]
@@ -414,7 +418,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(intents(&recovered), [configure(ADDRESS_A), route()]);
-        assert_eq!(states(&recovered), [State::Bound]);
+        assert_eq!(states(&recovered), [MethodState::Bound]);
         assert_eq!(
             wake,
             Some(at(now, 50)),
@@ -529,7 +533,7 @@ mod tests {
                 Intent::RemoveDefaultRoute(IpAddr::V4(GATEWAY))
             ]
         );
-        assert_eq!(states(&events), [State::Stopped]);
+        assert_eq!(states(&events), [MethodState::Stopped]);
         assert!(view.is_none());
         assert_eq!(wake, None);
     }
@@ -547,7 +551,7 @@ mod tests {
 
         // ASSERT
         assert_eq!(intents(&events), [configure(ADDRESS_A), route()]);
-        assert_eq!(states(&events), [State::Bound]);
+        assert_eq!(states(&events), [MethodState::Bound]);
         assert_eq!(wake, Some(at(now, 50)));
     }
 
@@ -561,7 +565,7 @@ mod tests {
         let events = pump(&mut method, now, Input::Command(Command::Reconcile));
 
         // ASSERT
-        assert_eq!(states(&events), [State::Acquiring]);
+        assert_eq!(states(&events), [MethodState::Acquiring]);
         assert_eq!(intents(&events), []);
     }
 

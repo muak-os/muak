@@ -24,7 +24,7 @@ pub struct SocketOwner {
     /// Interface the socket is bound to.
     pub interface: netmodel::Name,
     /// Address family that opened the socket.
-    pub family: iface::Family,
+    pub family: netmodel::Family,
     /// Method slot the socket occupies on the interface.
     pub slot: ip_method::SocketSlot,
     /// Kind of socket the runtime opened.
@@ -86,7 +86,7 @@ impl SocketTable {
     pub fn find(
         &self,
         interface: &netmodel::Name,
-        family: iface::Family,
+        family: netmodel::Family,
         slot: ip_method::SocketSlot,
     ) -> Option<net_runtime::SocketId> {
         self.entries

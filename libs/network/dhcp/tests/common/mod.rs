@@ -9,10 +9,8 @@ use dhcp::Dhcp;
 use dhcp_proto::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, header, message_type};
 use ip::v4::{Addr, udp};
 use ip_method::error::IpMethodError;
-use ip_method::{
-    Command, Effect, Event, Input, Intent, Method as _, SocketKind, SocketSlot, State, Step,
-};
-use netmodel::{Ipv4Config, LinkState, Mac, Name};
+use ip_method::{Command, Effect, Event, Input, Intent, Method as _, SocketKind, SocketSlot, Step};
+use netmodel::{Ipv4Config, LinkState, Mac, MethodState, Name};
 
 /// Hardware address of the interface the method runs on.
 pub(crate) const MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
@@ -250,7 +248,7 @@ pub(crate) fn intents(trace: &[Trace]) -> Vec<Intent> {
 }
 
 /// Returns the states the method emitted, in order.
-pub(crate) fn states(trace: &[Trace]) -> Vec<State> {
+pub(crate) fn states(trace: &[Trace]) -> Vec<MethodState> {
     trace
         .iter()
         .filter_map(|effect| match effect {

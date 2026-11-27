@@ -81,7 +81,7 @@ pub(crate) enum Pending {
         /// Interface that requested the entropy.
         name: netmodel::Name,
         /// Address family that requested the entropy.
-        family: iface::Family,
+        family: netmodel::Family,
         /// Random value the runtime filled.
         value: u32,
     },
@@ -90,7 +90,7 @@ pub(crate) enum Pending {
         /// Interface that owns the socket.
         name: netmodel::Name,
         /// Address family that owns the socket.
-        family: iface::Family,
+        family: netmodel::Family,
         /// Slot the socket occupies on the method.
         slot: ip_method::SocketSlot,
     },
@@ -99,7 +99,7 @@ pub(crate) enum Pending {
         /// Interface that owns the socket.
         name: netmodel::Name,
         /// Address family that owns the socket.
-        family: iface::Family,
+        family: netmodel::Family,
         /// Slot the send completed on.
         slot: ip_method::SocketSlot,
     },
@@ -108,7 +108,7 @@ pub(crate) enum Pending {
         /// Interface that owned the socket.
         name: netmodel::Name,
         /// Address family that owned the socket.
-        family: iface::Family,
+        family: netmodel::Family,
         /// Slot the socket occupied on the method.
         slot: ip_method::SocketSlot,
     },
@@ -117,7 +117,7 @@ pub(crate) enum Pending {
         /// Interface that owns the socket.
         name: netmodel::Name,
         /// Address family that owns the socket.
-        family: iface::Family,
+        family: netmodel::Family,
         /// Slot that reported the error.
         slot: ip_method::SocketSlot,
         /// Error the runtime reported.
@@ -128,7 +128,7 @@ pub(crate) enum Pending {
         /// Interface that owns the socket.
         name: netmodel::Name,
         /// Address family that owns the socket.
-        family: iface::Family,
+        family: netmodel::Family,
         /// Slot the frame arrived on.
         slot: ip_method::SocketSlot,
         /// Raw frame bytes.
