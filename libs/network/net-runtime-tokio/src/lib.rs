@@ -32,8 +32,8 @@ pub struct Tokio {
     packet: socket::Table<AsyncFd<OwnedFd>>,
     icmpv6: socket::Table<AsyncFd<OwnedFd>>,
     udp: socket::Table<UdpSocket>,
-    clock: clock::Clock,
-    entropy: entropy::Entropy,
+    clock: net_sys_linux::clock::Clock,
+    entropy: net_sys_linux::entropy::Entropy,
 }
 
 impl Tokio {
@@ -59,8 +59,8 @@ impl Tokio {
             packet: socket::Table::new(),
             icmpv6: socket::Table::new(),
             udp: socket::Table::new(),
-            clock: clock::Clock::new(),
-            entropy: entropy::Entropy::new(),
+            clock: net_sys_linux::clock::Clock::new(),
+            entropy: net_sys_linux::entropy::Entropy::new(),
         })
     }
 }

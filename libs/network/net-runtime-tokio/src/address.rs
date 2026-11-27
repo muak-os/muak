@@ -9,7 +9,7 @@ use crate::control;
 
 impl net_runtime::Address for super::Tokio {
     async fn add(&self, link: &Name, address: Address) -> io::Result<()> {
-        let index = control::resolve(link)?;
+        let index = net_sys_linux::index::resolve(link)?;
 
         control::tolerate(
             control::execute(
@@ -22,7 +22,7 @@ impl net_runtime::Address for super::Tokio {
     }
 
     async fn list(&self, link: &Name) -> io::Result<Vec<Address>> {
-        let index = control::resolve(link)?;
+        let index = net_sys_linux::index::resolve(link)?;
         let replies = control::collect(&self.address, netlink_linux::get_addresses()).await?;
 
         Ok(replies
@@ -32,7 +32,7 @@ impl net_runtime::Address for super::Tokio {
     }
 
     async fn remove(&self, link: &Name, address: Address) -> io::Result<()> {
-        let index = control::resolve(link)?;
+        let index = net_sys_linux::index::resolve(link)?;
 
         control::tolerate(
             control::execute(

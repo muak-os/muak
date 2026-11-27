@@ -61,6 +61,7 @@ members = [
     "libs/network/net-runtime",
     "libs/network/net-runtime-tokio",
     "libs/network/net-supervisor",
+    "libs/network/net-sys-linux",
     "libs/network/packet-v4-linux",
     "libs/network/slaac",
     "libs/network/tap-linux",
@@ -130,6 +131,7 @@ net-observe = { path = "libs/network/net-observe" }
 net-runtime = { path = "libs/network/net-runtime", default-features = false }
 net-runtime-tokio = { path = "libs/network/net-runtime-tokio" }
 net-supervisor = { path = "libs/network/net-supervisor", default-features = false }
+net-sys-linux = { path = "libs/network/net-sys-linux" }
 packet-v4-linux = { path = "libs/network/packet-v4-linux" }
 slaac = { path = "libs/network/slaac" }
 tap-linux = { path = "libs/network/tap-linux" }

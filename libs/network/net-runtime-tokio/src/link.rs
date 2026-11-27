@@ -8,13 +8,13 @@ use crate::control;
 
 impl net_runtime::Link for super::Tokio {
     async fn detach(&self, port: &Name) -> io::Result<()> {
-        let index = control::resolve(port)?;
+        let index = net_sys_linux::index::resolve(port)?;
 
         control::execute(&self.link, netlink_linux::detach(index)).await
     }
 
     async fn ensure_bridge(&self, name: &Name, stp: bool) -> io::Result<()> {
-        match control::resolve(name) {
+        match net_sys_linux::index::resolve(name) {
             Ok(_) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
@@ -24,7 +24,7 @@ impl net_runtime::Link for super::Tokio {
     }
 
     async fn link(&self, name: &Name) -> io::Result<Option<netmodel::Link>> {
-        let index = match control::resolve(name) {
+        let index = match net_sys_linux::index::resolve(name) {
             Ok(index) => index,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -43,20 +43,20 @@ impl net_runtime::Link for super::Tokio {
     }
 
     async fn set_down(&self, name: &Name) -> io::Result<()> {
-        let index = control::resolve(name)?;
+        let index = net_sys_linux::index::resolve(name)?;
 
         control::execute(&self.link, netlink_linux::set_link_down(index)).await
     }
 
     async fn set_master(&self, port: &Name, master: &Name) -> io::Result<()> {
-        let port = control::resolve(port)?;
-        let master = control::resolve(master)?;
+        let port = net_sys_linux::index::resolve(port)?;
+        let master = net_sys_linux::index::resolve(master)?;
 
         control::execute(&self.link, netlink_linux::set_master(port, master)).await
     }
 
     async fn set_up(&self, name: &Name) -> io::Result<()> {
-        let index = control::resolve(name)?;
+        let index = net_sys_linux::index::resolve(name)?;
 
         control::execute(&self.link, netlink_linux::set_link_up(index)).await
     }

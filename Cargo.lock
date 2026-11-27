@@ -1454,11 +1454,11 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "futures-util",
- "getrandom 0.4.3",
  "icmpv6-linux",
  "ip-method",
  "libc",
  "net-runtime",
+ "net-sys-linux",
  "netlink-linux",
  "netlink-packet-core",
  "netlink-packet-route",
@@ -1479,6 +1479,16 @@ dependencies = [
  "net-observe",
  "netmodel",
  "slaac",
+]
+
+[[package]]
+name = "net-sys-linux"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+ "net-runtime",
+ "netmodel",
 ]
 
 [[package]]
