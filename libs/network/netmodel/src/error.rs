@@ -20,13 +20,13 @@ pub struct NameError(pub(crate) String);
 )]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum LinkError {
-    /// Netlink notification buffer overran, so link events may have been lost.
-    #[error("netlink notification buffer overran, events may be lost")]
+    /// Link event buffer overran, so link events may have been lost.
+    #[error("event buffer overran, events may be lost")]
     Overrun,
-    /// Netlink reported an error on the event socket.
-    #[error("netlink event socket error: {0}")]
-    Kernel(NonZeroI32),
-    /// Netlink event stream closed, so link events are no longer delivered.
-    #[error("netlink event stream closed")]
+    /// Link monitor reported an error code.
+    #[error("error code {0}")]
+    Errno(NonZeroI32),
+    /// Link event stream closed, so link events are no longer delivered.
+    #[error("event stream closed")]
     Closed,
 }

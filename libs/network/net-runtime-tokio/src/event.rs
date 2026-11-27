@@ -103,7 +103,7 @@ fn classify(
     if let NetlinkPayload::Error(error) = payload {
         return error
             .code
-            .map(|code| LinkEvent::Error(LinkError::Kernel(code)));
+            .map(|code| LinkEvent::Error(LinkError::Errno(code)));
     }
     if let NetlinkPayload::Overrun(_) = payload {
         return Some(LinkEvent::Error(LinkError::Overrun));
@@ -171,7 +171,7 @@ mod tests {
         let event = classify(NetlinkPayload::Error(nack(code.get())), &mut previous);
 
         // ASSERT
-        assert_eq!(event, Some(LinkEvent::Error(LinkError::Kernel(code))));
+        assert_eq!(event, Some(LinkEvent::Error(LinkError::Errno(code))));
     }
 
     #[test]

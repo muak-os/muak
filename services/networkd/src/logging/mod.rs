@@ -351,7 +351,7 @@ mod tests {
     fn monitor_failures_report_the_cause() {
         // ARRANGE
         let event = Event::LinkEvent {
-            event: netmodel::LinkEvent::Error(netmodel::error::LinkError::Kernel(
+            event: netmodel::LinkEvent::Error(netmodel::error::LinkError::Errno(
                 NonZeroI32::new(105_i32).expect("non-zero"),
             )),
         };
@@ -360,10 +360,7 @@ mod tests {
         let text = render(&event);
 
         // ASSERT
-        assert_eq!(
-            text,
-            "Event: Link monitor error: netlink event socket error: 105"
-        );
+        assert_eq!(text, "Event: Link monitor error: error code 105");
     }
 
     #[test]

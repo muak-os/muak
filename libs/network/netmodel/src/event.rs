@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn error_carries_typed_failure() {
         // ARRANGE
-        let failure = LinkError::Kernel(NonZeroI32::new(105_i32).expect("non-zero"));
+        let failure = LinkError::Errno(NonZeroI32::new(105_i32).expect("non-zero"));
 
         // ACT
         let event = LinkEvent::Error(failure);
@@ -47,20 +47,17 @@ mod tests {
     fn failure_messages_match_the_monitor_contract() {
         // ARRANGE
         let overrun = LinkError::Overrun;
-        let kernel = LinkError::Kernel(NonZeroI32::new(105_i32).expect("non-zero"));
+        let errno = LinkError::Errno(NonZeroI32::new(105_i32).expect("non-zero"));
         let closed = LinkError::Closed;
 
         // ACT
         let overrun_message = overrun.to_string();
-        let kernel_message = kernel.to_string();
+        let errno_message = errno.to_string();
         let closed_message = closed.to_string();
 
         // ASSERT
-        assert_eq!(
-            overrun_message,
-            "netlink notification buffer overran, events may be lost"
-        );
-        assert_eq!(kernel_message, "netlink event socket error: 105");
-        assert_eq!(closed_message, "netlink event stream closed");
+        assert_eq!(overrun_message, "event buffer overran, events may be lost");
+        assert_eq!(errno_message, "error code 105");
+        assert_eq!(closed_message, "event stream closed");
     }
 }
