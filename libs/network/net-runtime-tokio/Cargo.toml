@@ -10,20 +10,13 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-# Error handling
-thiserror = { workspace = true }
-
 # Asynchronous
 futures-channel = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { workspace = true }
 tokio = { workspace = true, features = ["net", "time", "sync", "rt"] }
 
-# Networking
-libc = { workspace = true }
-netlink-packet-core = { workspace = true }
-netlink-packet-route = { workspace = true }
-netlink-proto = { workspace = true }
-netlink-sys = { workspace = true, features = ["tokio_socket"] }
+# Error handling
+thiserror = { workspace = true }
 
 # Internal
 afpacket-linux = { workspace = true }
@@ -33,6 +26,13 @@ netlink-linux = { workspace = true }
 net-runtime = { workspace = true }
 net-sys-linux = { workspace = true }
 netmodel = { workspace = true }
+
+# Networking
+libc = { workspace = true }
+netlink-packet-core = { workspace = true }
+netlink-packet-route = { workspace = true }
+netlink-proto = { workspace = true }
+netlink-sys = { workspace = true, features = ["tokio_socket"] }
 
 [lints]
 workspace = true
