@@ -24,8 +24,6 @@ members = [
     "toolchain/yuki",
 
     "libs/config",
-    "libs/kmod",
-    "libs/kmsg",
     "libs/tui",
     "libs/granola-macros",
     "libs/sandbox",
@@ -70,6 +68,9 @@ members = [
 
     "libs/container/oci",
     "libs/container/oci-client",
+
+    "libs/kernel/kmod",
+    "libs/kernel/kmsg",
 ]
 resolver = "3"
 
@@ -99,8 +100,6 @@ yuki = { path = "toolchain/yuki", default-features = false }
 config = { path = "libs/config" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
-kmod = { path = "libs/kmod" }
-kmsg = { path = "libs/kmsg" }
 sandbox = { path = "libs/sandbox", default-features = false }
 tui = { path = "libs/tui", default-features = false }
 
@@ -150,6 +149,10 @@ tpm2 = { path = "libs/crypto/tpm2" }
 ## Container
 oci = { path = "libs/container/oci" }
 oci-client = { path = "libs/container/oci-client", default-features = false }
+
+## Kernel
+kmod = { path = "libs/kernel/kmod" }
+kmsg = { path = "libs/kernel/kmsg" }
 
 # External crates
 
