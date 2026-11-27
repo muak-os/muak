@@ -1,56 +1,57 @@
 //! Conversion from the system network configuration to the network model configuration.
 
+use core::net::{Ipv4Addr, Ipv6Addr};
+
 use config::system::network;
+
+struct Dns {
+    v4: Vec<Ipv4Addr>,
+    v6: Vec<Ipv6Addr>,
+}
 
 /// Converts the system network configuration into a network model configuration.
 #[must_use = "the caller needs the network configuration to build the loop"]
 pub fn convert(config: &network::Config) -> netmodel::Config {
+    let dns = Dns {
+        v4: config.ipv4_dns().collect(),
+        v6: config.ipv6_dns().collect(),
+    };
+
     netmodel::Config {
         ipv6: config.ipv6,
         dns: config.dns.clone(),
         interfaces: config
             .interfaces
             .iter()
-            .map(|interface| interface_config(config, interface))
+            .map(|interface| interface_config(&dns, config.ipv6, interface))
             .collect(),
     }
 }
 
 fn interface_config(
-    config: &network::Config,
+    dns: &Dns,
+    ipv6_enabled: bool,
     source: &network::InterfaceConfig,
 ) -> netmodel::InterfaceConfig {
-    #[cfg(not(feature = "ipv4"))]
-    let ipv4 = None;
-    #[cfg(feature = "ipv4")]
-    let ipv4 = source
-        .ipv4
-        .as_ref()
-        .and_then(|ipv4| ipv4_config(config, ipv4));
-    #[cfg(not(feature = "ipv6"))]
-    let ipv6 = None;
-    #[cfg(feature = "ipv6")]
-    let ipv6 = source
-        .ipv6
-        .as_ref()
-        .and_then(|ipv6| ipv6_config(config, ipv6));
-    #[cfg(not(any(feature = "ipv4", feature = "ipv6")))]
-    let _config = config;
-
     netmodel::InterfaceConfig {
         name: source.name.clone(),
         kind: kind(&source.kind),
-        ipv4,
-        ipv6,
+        ipv4: source
+            .ipv4
+            .as_ref()
+            .and_then(|ipv4| ipv4_config(&dns.v4, ipv4)),
+        ipv6: source
+            .ipv6
+            .as_ref()
+            .and_then(|ipv6| ipv6_config(ipv6_enabled, &dns.v6, ipv6)),
         bridge: source.bridge.as_ref().map(bridge_config),
     }
 }
 
 const fn kind(kind: &network::InterfaceKind) -> netmodel::InterfaceKind {
-    if matches!(kind, network::InterfaceKind::Bridge) {
-        netmodel::InterfaceKind::Bridge
-    } else {
-        netmodel::InterfaceKind::Ethernet
+    match *kind {
+        network::InterfaceKind::Bridge => netmodel::InterfaceKind::Bridge,
+        network::InterfaceKind::Ethernet => netmodel::InterfaceKind::Ethernet,
     }
 }
 
@@ -63,15 +64,14 @@ fn bridge_config(config: &network::BridgeConfig) -> netmodel::BridgeConfig {
 
 #[cfg(feature = "ipv4")]
 fn ipv4_config(
-    config: &network::Config,
+    dns: &[Ipv4Addr],
     source: &network::Ipv4InterfaceConfig,
 ) -> Option<netmodel::Ipv4Config> {
-    let dns = config.ipv4_dns().collect();
     if source.dhcp {
         return Some(netmodel::Ipv4Config {
             addresses: Vec::new(),
             gateway: None,
-            dns,
+            dns: dns.to_vec(),
             dhcp: true,
         });
     }
@@ -86,17 +86,25 @@ fn ipv4_config(
             .map(|cidr| (cidr.address, cidr.prefix))
             .collect(),
         gateway: source.gateway,
-        dns,
+        dns: dns.to_vec(),
         dhcp: false,
     })
 }
 
+#[cfg(not(feature = "ipv4"))]
+fn ipv4_config(
+    _dns: &[Ipv4Addr],
+    _source: &network::Ipv4InterfaceConfig,
+) -> Option<netmodel::Ipv4Config> {
+    None
+}
+
 #[cfg(feature = "ipv6")]
 fn ipv6_config(
-    config: &network::Config,
+    ipv6_enabled: bool,
+    dns: &[Ipv6Addr],
     source: &network::Ipv6InterfaceConfig,
 ) -> Option<netmodel::Ipv6Config> {
-    let dns = config.ipv6_dns().collect();
     if !source.addresses.is_empty() {
         return Some(netmodel::Ipv6Config {
             addresses: source
@@ -105,19 +113,28 @@ fn ipv6_config(
                 .map(|cidr| (cidr.address, cidr.prefix))
                 .collect(),
             gateway: source.gateway,
-            dns,
+            dns: dns.to_vec(),
             autoconf: false,
         });
     }
-    if source.autoconf && config.ipv6 {
+    if source.autoconf && ipv6_enabled {
         return Some(netmodel::Ipv6Config {
             addresses: Vec::new(),
             gateway: None,
-            dns,
+            dns: dns.to_vec(),
             autoconf: true,
         });
     }
 
+    None
+}
+
+#[cfg(not(feature = "ipv6"))]
+fn ipv6_config(
+    _ipv6_enabled: bool,
+    _dns: &[Ipv6Addr],
+    _source: &network::Ipv6InterfaceConfig,
+) -> Option<netmodel::Ipv6Config> {
     None
 }
 
