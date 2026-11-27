@@ -26,8 +26,6 @@ members = [
     "libs/config",
     "libs/kmod",
     "libs/kmsg",
-    "libs/pki",
-    "libs/tpm2",
     "libs/tui",
     "libs/granola-macros",
     "libs/oci",
@@ -68,6 +66,9 @@ members = [
     "libs/boot/esp",
     "libs/boot/firmware",
     "libs/boot/uki",
+
+    "libs/crypto/pki",
+    "libs/crypto/tpm2",
 ]
 resolver = "3"
 
@@ -101,9 +102,7 @@ kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
 oci = { path = "libs/oci" }
 oci-client = { path = "libs/oci-client", default-features = false }
-pki = { path = "libs/pki" }
 sandbox = { path = "libs/sandbox", default-features = false }
-tpm2 = { path = "libs/tpm2" }
 tui = { path = "libs/tui", default-features = false }
 
 ## Network
@@ -144,6 +143,10 @@ fatfs = { path = "libs/fs/fatfs" }
 esp = { path = "libs/boot/esp" }
 firmware = { path = "libs/boot/firmware", default-features = false }
 uki = { path = "libs/boot/uki" }
+
+## Crypto
+pki = { path = "libs/crypto/pki" }
+tpm2 = { path = "libs/crypto/tpm2" }
 
 # External crates
 
