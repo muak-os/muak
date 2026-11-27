@@ -23,7 +23,6 @@ members = [
     "toolchain/sbolt",
     "toolchain/yuki",
 
-    "libs/btrfs",
     "libs/config",
     "libs/esp",
     "libs/kmod",
@@ -31,8 +30,6 @@ members = [
     "libs/pki",
     "libs/tpm2",
     "libs/tui",
-    "libs/erofs",
-    "libs/fatfs",
     "libs/firmware",
     "libs/granola-macros",
     "libs/oci",
@@ -66,6 +63,10 @@ members = [
     "libs/storage/luks2",
     "libs/storage/partdev",
     "libs/storage/parttable",
+
+    "libs/fs/btrfs",
+    "libs/fs/erofs",
+    "libs/fs/fatfs",
 ]
 resolver = "3"
 
@@ -92,12 +93,9 @@ sbolt = { path = "toolchain/sbolt", default-features = false }
 yuki = { path = "toolchain/yuki", default-features = false }
 
 ## Libraries
-btrfs = { path = "libs/btrfs" }
 config = { path = "libs/config" }
-erofs = { path = "libs/erofs" }
 esp = { path = "libs/esp" }
 firmware = { path = "libs/firmware", default-features = false }
-fatfs = { path = "libs/fatfs" }
 granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
@@ -138,6 +136,11 @@ disk = { path = "libs/storage/disk" }
 luks2 = { path = "libs/storage/luks2" }
 partdev = { path = "libs/storage/partdev", default-features = false }
 parttable = { path = "libs/storage/parttable" }
+
+## Fs
+btrfs = { path = "libs/fs/btrfs" }
+erofs = { path = "libs/fs/erofs" }
+fatfs = { path = "libs/fs/fatfs" }
 
 # External crates
 
