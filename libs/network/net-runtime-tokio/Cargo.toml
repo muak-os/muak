@@ -23,13 +23,13 @@ netlink-proto = { workspace = true }
 netlink-sys = { workspace = true, features = ["tokio_socket"] }
 
 # Internal
+afpacket-linux = { workspace = true }
 icmpv6-linux = { workspace = true }
 ip-method = { workspace = true }
 netlink-linux = { workspace = true }
 net-runtime = { workspace = true }
 net-sys-linux = { workspace = true }
 netmodel = { workspace = true }
-packet-v4-linux = { workspace = true }
 
 [lints]
 workspace = true

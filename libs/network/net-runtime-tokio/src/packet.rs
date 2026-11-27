@@ -41,7 +41,7 @@ async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> io::Result<SocketId>
         ));
     }
 
-    let fd = packet_v4_linux::open(&spec.link)?;
+    let fd = afpacket_linux::open(&spec.link)?;
     // SAFETY: the runtime owns the descriptor for the whole registration.
     let socket = unsafe { AsyncFd::register(fd) }?;
 
@@ -54,7 +54,7 @@ async fn recv(runtime: &super::Tokio, id: SocketId, buf: &mut [u8]) -> io::Resul
 
     socket
         .async_io(Interest::READABLE, |fd| {
-            packet_v4_linux::recv(fd.as_fd(), buf)
+            afpacket_linux::recv(fd.as_fd(), buf)
         })
         .await
 }
@@ -65,7 +65,7 @@ async fn send(runtime: &super::Tokio, id: SocketId, frame: &[u8]) -> io::Result<
 
     socket
         .async_io(Interest::WRITABLE, |fd| {
-            packet_v4_linux::send(fd.as_fd(), frame, BROADCAST)
+            afpacket_linux::send(fd.as_fd(), frame, BROADCAST)
         })
         .await
 }

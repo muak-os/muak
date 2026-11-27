@@ -1,5 +1,5 @@
 [package]
-name = "packet-v4-linux"
+name = "afpacket-linux"
 description = "AF_PACKET IPv4 socket adapter for Linux"
 edition.workspace = true
 rust-version.workspace = true
