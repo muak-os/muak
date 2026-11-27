@@ -28,8 +28,6 @@ members = [
     "libs/kmsg",
     "libs/tui",
     "libs/granola-macros",
-    "libs/oci",
-    "libs/oci-client",
     "libs/sandbox",
 
     "libs/network/afpacket-linux",
@@ -69,6 +67,9 @@ members = [
 
     "libs/crypto/pki",
     "libs/crypto/tpm2",
+
+    "libs/container/oci",
+    "libs/container/oci-client",
 ]
 resolver = "3"
 
@@ -100,8 +101,6 @@ granola = { path = "init/granola" }
 granola-macros = { path = "libs/granola-macros" }
 kmod = { path = "libs/kmod" }
 kmsg = { path = "libs/kmsg" }
-oci = { path = "libs/oci" }
-oci-client = { path = "libs/oci-client", default-features = false }
 sandbox = { path = "libs/sandbox", default-features = false }
 tui = { path = "libs/tui", default-features = false }
 
@@ -147,6 +146,10 @@ uki = { path = "libs/boot/uki" }
 ## Crypto
 pki = { path = "libs/crypto/pki" }
 tpm2 = { path = "libs/crypto/tpm2" }
+
+## Container
+oci = { path = "libs/container/oci" }
+oci-client = { path = "libs/container/oci-client", default-features = false }
 
 # External crates
 
