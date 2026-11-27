@@ -1,12 +1,12 @@
 //! Test-facing handle methods for the deterministic mock runtime.
 
 use alloc::collections::VecDeque;
-use std::io::Result;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Instant, SystemTime};
 
 use super::{Frame, Mock, State};
 use crate::SocketId;
+use crate::error::Result;
 
 impl Mock {
     /// Creates a runtime whose clocks start at `now` and `wall`.
@@ -71,7 +71,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn push_inbound(&self, id: SocketId, bytes: &[u8]) -> Result<()> {
         self.push_frame(
             id,
@@ -86,7 +86,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn push_inbound_from(
         &self,
         id: SocketId,
@@ -106,7 +106,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn push_inbound_udp(&self, id: SocketId, bytes: &[u8]) -> Result<()> {
         self.write(|state| {
             state
@@ -119,7 +119,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn udp_sent(&self, id: SocketId) -> Result<Vec<Vec<u8>>> {
         self.read(|state| state.udp(id).map(|datagram| datagram.sent.clone()))
     }
@@ -128,7 +128,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn udp_endpoints(
         &self,
         id: SocketId,
@@ -140,7 +140,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn sent(&self, id: SocketId) -> Result<Vec<Vec<u8>>> {
         self.read(|state| super::sent_frames(state, id))
     }
@@ -149,7 +149,7 @@ impl Mock {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::NotFound`] when the socket is closed.
+    /// Returns [`crate::error::RuntimeError::Io`] carrying [`std::io::ErrorKind::NotFound`] when the socket is closed.
     pub fn sent_with_peer(
         &self,
         id: SocketId,

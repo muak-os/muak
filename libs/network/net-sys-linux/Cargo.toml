@@ -10,6 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+# Error handling
+thiserror = { workspace = true }
+
 # Networking
 getrandom = { workspace = true }
 libc = { workspace = true }

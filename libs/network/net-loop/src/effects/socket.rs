@@ -1,10 +1,10 @@
 //! Socket effects executed against the runtime socket ports.
 
 use alloc::collections::VecDeque;
-use std::io;
 
 use net_runtime::{Icmpv6 as _, Packet as _, Udp as _};
 
+use crate::error::{LoopError, Result};
 use crate::pending::Pending;
 use crate::{SocketOwner, SocketTable};
 
@@ -22,12 +22,9 @@ pub(super) async fn open<R: net_runtime::Runtime>(
     pending: &mut VecDeque<Pending>,
     family: netmodel::Family,
     spec: ip_method::SocketSpec,
-) -> io::Result<()> {
+) -> Result<()> {
     if spec.link != *interface {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "socket spec link does not match the owning interface",
-        ));
+        return Err(LoopError::SocketSpecLink);
     }
     let slot = spec.slot;
     let stale = sockets
@@ -49,7 +46,7 @@ pub(super) async fn open<R: net_runtime::Runtime>(
                 name: interface.clone(),
                 family,
                 slot,
-                error,
+                error: error.into(),
             };
             pending.push_back(failed);
             return Ok(());
@@ -78,7 +75,7 @@ pub(super) async fn send<R: net_runtime::Runtime>(
     sockets: &SocketTable,
     pending: &mut VecDeque<Pending>,
     transmit: Transmit<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     let family = transmit.family;
     let slot = transmit.slot;
     let outcome = write(runtime, sockets, interface, transmit).await;
@@ -92,7 +89,7 @@ pub(super) async fn send<R: net_runtime::Runtime>(
             name: interface.clone(),
             family,
             slot,
-            error,
+            error: error.into(),
         },
     };
     pending.push_back(queued);
@@ -107,7 +104,7 @@ pub(super) async fn close<R: net_runtime::Runtime>(
     pending: &mut VecDeque<Pending>,
     family: netmodel::Family,
     slot: ip_method::SocketSlot,
-) -> io::Result<()> {
+) -> Result<()> {
     let outcome = match sockets.find(interface, family, slot) {
         Some(id) => match sockets.get(id).map(|owner| owner.kind) {
             Some(kind) => release(runtime, sockets, id, kind).await,
@@ -125,7 +122,7 @@ pub(super) async fn close<R: net_runtime::Runtime>(
             name: interface.clone(),
             family,
             slot,
-            error,
+            error: error.into(),
         },
     };
     pending.push_back(queued);
@@ -138,43 +135,35 @@ async fn write<R: net_runtime::Runtime>(
     sockets: &SocketTable,
     interface: &netmodel::Name,
     transmit: Transmit<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     let Some(id) = sockets.find(interface, transmit.family, transmit.slot) else {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "no socket open for the requested slot",
-        ));
+        return Err(LoopError::SocketMissing);
     };
     let Some(kind) = sockets.get(id).map(|owner| owner.kind) else {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "socket table entry disappeared during dispatch",
-        ));
+        return Err(LoopError::SocketTableMissing);
     };
 
     match kind {
         ip_method::SocketKind::RawL2 => {
             reject_destination(transmit.dst)?;
-            runtime.packet().send(id, transmit.frame).await.map(|_| ())
+            runtime.packet().send(id, transmit.frame).await?;
         }
         ip_method::SocketKind::Udp => {
             reject_destination(transmit.dst)?;
-            runtime.udp().send(id, transmit.frame).await.map(|_| ())
+            runtime.udp().send(id, transmit.frame).await?;
         }
         ip_method::SocketKind::RawIcmpv6 => {
             let Some(core::net::SocketAddr::V6(address)) = transmit.dst else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "ICMPv6 send requires an IPv6 destination",
-                ));
+                return Err(LoopError::MissingIcmpv6Destination);
             };
             runtime
                 .icmpv6()
                 .send(id, *address.ip(), transmit.frame)
-                .await
-                .map(|_| ())
+                .await?;
         }
     }
+
+    Ok(())
 }
 
 /// Removes a socket from the table and closes its runtime handle.
@@ -183,22 +172,21 @@ pub(crate) async fn release<R: net_runtime::Runtime>(
     sockets: &mut SocketTable,
     id: net_runtime::SocketId,
     kind: ip_method::SocketKind,
-) -> io::Result<()> {
+) -> Result<()> {
     sockets.remove(id);
 
     match kind {
-        ip_method::SocketKind::RawL2 => runtime.packet().close(id).await,
-        ip_method::SocketKind::Udp => runtime.udp().close(id).await,
-        ip_method::SocketKind::RawIcmpv6 => runtime.icmpv6().close(id).await,
+        ip_method::SocketKind::RawL2 => runtime.packet().close(id).await?,
+        ip_method::SocketKind::Udp => runtime.udp().close(id).await?,
+        ip_method::SocketKind::RawIcmpv6 => runtime.icmpv6().close(id).await?,
     }
+
+    Ok(())
 }
 
-fn reject_destination(dst: Option<core::net::SocketAddr>) -> io::Result<()> {
+const fn reject_destination(dst: Option<core::net::SocketAddr>) -> Result<()> {
     if dst.is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "only an ICMPv6 socket takes a destination address",
-        ));
+        return Err(LoopError::UnexpectedDestination);
     }
 
     Ok(())

@@ -1,8 +1,8 @@
 //! Driver stepping, event waiting, and supervisor dispatch.
 
-use std::io;
 use std::time::{Instant, SystemTime};
 
+use crate::error::Result;
 use crate::pending::Pending;
 use crate::{Loop, Progress, effects, feedback};
 
@@ -21,7 +21,7 @@ pub(crate) async fn run<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
     wall: SystemTime,
-) -> io::Result<Progress> {
+) -> Result<Progress> {
     if !driver.started {
         return Ok(Progress::Idle);
     }
@@ -60,7 +60,7 @@ pub(crate) async fn advance<R: net_runtime::Runtime>(
     input: iface::Input<'_>,
     now: Instant,
     wall: SystemTime,
-) -> io::Result<bool> {
+) -> Result<bool> {
     let Some(name) = driver.names.get(index) else {
         return Ok(false);
     };
@@ -141,9 +141,10 @@ async fn poll_supervisor<R: net_runtime::Runtime>(
                 error: error.to_string(),
             },
         );
-        driver
-            .pending
-            .push_back(Pending::EffectFailed { kind, error });
+        driver.pending.push_back(Pending::EffectFailed {
+            kind,
+            error: error.into(),
+        });
     }
 
     true
@@ -153,7 +154,7 @@ async fn poll_interfaces<R: net_runtime::Runtime>(
     driver: &mut Loop<R>,
     now: Instant,
     wall: SystemTime,
-) -> io::Result<bool> {
+) -> Result<bool> {
     let count = driver.interfaces.len();
     for index in 0..count {
         if advance(driver, index, iface::Input::Poll, now, wall).await? {

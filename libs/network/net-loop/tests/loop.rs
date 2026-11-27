@@ -16,6 +16,7 @@ use ip::v4;
 #[cfg(feature = "ipv6")]
 use ndp::build;
 use net_loop::{Loop, Progress, SocketOwner, SocketTable};
+use net_runtime::error::{Result, RuntimeError};
 use net_runtime::mock::Mock;
 
 #[cfg(feature = "ipv4")]
@@ -85,7 +86,7 @@ impl net_runtime::Runtime for Failing {
 }
 
 impl net_runtime::Link for Failing {
-    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         self.mock.detach(port)
     }
 
@@ -93,22 +94,24 @@ impl net_runtime::Link for Failing {
         &self,
         name: &netmodel::Name,
         stp: bool,
-    ) -> impl Future<Output = io::Result<()>> + Send {
+    ) -> impl Future<Output = Result<()>> + Send {
         self.mock.ensure_bridge(name, stp)
     }
 
     fn link(
         &self,
         name: &netmodel::Name,
-    ) -> impl Future<Output = io::Result<Option<netmodel::Link>>> + Send {
+    ) -> impl Future<Output = Result<Option<netmodel::Link>>> + Send {
         self.mock.link(name)
     }
 
-    fn links(&self) -> impl Future<Output = io::Result<Vec<netmodel::Link>>> + Send {
-        std::future::ready(Err(io::Error::other("link inventory failed")))
+    fn links(&self) -> impl Future<Output = Result<Vec<netmodel::Link>>> + Send {
+        std::future::ready(Err(RuntimeError::Io(io::Error::other(
+            "link inventory failed",
+        ))))
     }
 
-    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         self.mock.set_down(name)
     }
 
@@ -116,11 +119,11 @@ impl net_runtime::Link for Failing {
         &self,
         port: &netmodel::Name,
         master: &netmodel::Name,
-    ) -> impl Future<Output = io::Result<()>> + Send {
+    ) -> impl Future<Output = Result<()>> + Send {
         self.mock.set_master(port, master)
     }
 
-    fn set_up(&self, name: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+    fn set_up(&self, name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         self.mock.set_up(name)
     }
 }
@@ -178,7 +181,7 @@ impl net_runtime::Runtime for SlowPhy {
 }
 
 impl net_runtime::Link for SlowPhy {
-    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         self.mock.detach(port)
     }
 
@@ -186,22 +189,22 @@ impl net_runtime::Link for SlowPhy {
         &self,
         name: &netmodel::Name,
         stp: bool,
-    ) -> impl Future<Output = io::Result<()>> + Send {
+    ) -> impl Future<Output = Result<()>> + Send {
         self.mock.ensure_bridge(name, stp)
     }
 
     fn link(
         &self,
         name: &netmodel::Name,
-    ) -> impl Future<Output = io::Result<Option<netmodel::Link>>> + Send {
+    ) -> impl Future<Output = Result<Option<netmodel::Link>>> + Send {
         self.mock.link(name)
     }
 
-    fn links(&self) -> impl Future<Output = io::Result<Vec<netmodel::Link>>> + Send {
+    fn links(&self) -> impl Future<Output = Result<Vec<netmodel::Link>>> + Send {
         self.mock.links()
     }
 
-    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         self.mock.set_down(name)
     }
 
@@ -209,11 +212,11 @@ impl net_runtime::Link for SlowPhy {
         &self,
         port: &netmodel::Name,
         master: &netmodel::Name,
-    ) -> impl Future<Output = io::Result<()>> + Send {
+    ) -> impl Future<Output = Result<()>> + Send {
         self.mock.set_master(port, master)
     }
 
-    fn set_up(&self, _name: &netmodel::Name) -> impl Future<Output = io::Result<()>> + Send {
+    fn set_up(&self, _name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {
         std::future::ready(Ok(()))
     }
 }

@@ -3,9 +3,9 @@
 #[cfg(test)]
 mod tests {
     use std::future::Future;
-    use std::io;
     use std::time::{Duration, Instant, SystemTime};
 
+    use net_runtime::error::Result;
     use net_runtime::mock::Mock;
     use net_runtime::{Events, Runtime};
     use networkd::service::{Readiness, Service};
@@ -13,7 +13,7 @@ mod tests {
     struct Paused;
 
     impl Events for Paused {
-        fn next(&self) -> impl Future<Output = io::Result<netmodel::LinkEvent>> + Send {
+        fn next(&self) -> impl Future<Output = Result<netmodel::LinkEvent>> + Send {
             std::future::pending()
         }
     }

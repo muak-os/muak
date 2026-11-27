@@ -4,4 +4,5 @@
 
 pub mod clock;
 pub mod entropy;
+pub mod error;
 pub mod index;

@@ -2,9 +2,9 @@
 
 use alloc::collections::VecDeque;
 use core::net::SocketAddr;
-use std::io::Result;
 
 use super::{Mock, State};
+use crate::error::Result;
 use crate::{SocketId, Udp};
 
 pub(super) struct Datagram {

@@ -6,23 +6,24 @@ use netlink_packet_route::RouteNetlinkMessage;
 use netmodel::{Address, Name};
 
 use crate::control;
+use crate::error::TokioError;
 
 impl net_runtime::Address for super::Tokio {
-    async fn add(&self, link: &Name, address: Address) -> io::Result<()> {
-        let index = net_sys_linux::index::resolve(link)?;
+    async fn add(&self, link: &Name, address: Address) -> net_runtime::error::Result<()> {
+        let index = net_sys_linux::index::resolve(link).map_err(TokioError::from)?;
 
-        control::tolerate(
+        Ok(control::tolerate(
             control::execute(
                 &self.address,
                 netlink_linux::add_address(index, address.address, address.prefix_len),
             )
             .await,
             io::ErrorKind::AlreadyExists,
-        )
+        )?)
     }
 
-    async fn list(&self, link: &Name) -> io::Result<Vec<Address>> {
-        let index = net_sys_linux::index::resolve(link)?;
+    async fn list(&self, link: &Name) -> net_runtime::error::Result<Vec<Address>> {
+        let index = net_sys_linux::index::resolve(link).map_err(TokioError::from)?;
         let replies = control::collect(&self.address, netlink_linux::get_addresses()).await?;
 
         Ok(replies
@@ -31,17 +32,17 @@ impl net_runtime::Address for super::Tokio {
             .collect())
     }
 
-    async fn remove(&self, link: &Name, address: Address) -> io::Result<()> {
-        let index = net_sys_linux::index::resolve(link)?;
+    async fn remove(&self, link: &Name, address: Address) -> net_runtime::error::Result<()> {
+        let index = net_sys_linux::index::resolve(link).map_err(TokioError::from)?;
 
-        control::tolerate(
+        Ok(control::tolerate(
             control::execute(
                 &self.address,
                 netlink_linux::remove_address(index, address.address, address.prefix_len),
             )
             .await,
             io::ErrorKind::NotFound,
-        )
+        )?)
     }
 }
 

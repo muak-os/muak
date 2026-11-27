@@ -2,11 +2,11 @@
 
 use alloc::collections::VecDeque;
 use core::net::{Ipv4Addr, Ipv6Addr};
-use std::io;
 use std::time::{Instant, SystemTime};
 
 use net_runtime::Link as _;
 
+use crate::error::Result;
 use crate::resolver::Nameservers;
 use crate::{Loop, Progress, SocketTable, pump, step};
 
@@ -101,9 +101,9 @@ impl<R: net_runtime::Runtime> Loop<R> {
     ///
     /// # Errors
     ///
-    /// Returns the error a runtime port reported while executing an interface effect or feeding a pending input back.
-    /// Supervisor effect failures are fed back to the supervisor instead of being returned.
-    pub async fn step(&mut self, now: Instant, wall: SystemTime) -> io::Result<Progress> {
+    /// Returns a runtime port error or a loop invariant error in [`crate::error::LoopError`]. Supervisor effect failures
+    /// are fed back to the supervisor instead of being returned.
+    pub async fn step(&mut self, now: Instant, wall: SystemTime) -> Result<Progress> {
         step::run(self, now, wall).await
     }
 
@@ -111,8 +111,8 @@ impl<R: net_runtime::Runtime> Loop<R> {
     ///
     /// # Errors
     ///
-    /// Returns the error the link event port reported.
-    pub async fn wait_event(&mut self) -> io::Result<Progress> {
+    /// Returns a runtime port error or a loop invariant error in [`crate::error::LoopError`].
+    pub async fn wait_event(&mut self) -> Result<Progress> {
         pump::wait_event(self).await
     }
 }
@@ -170,7 +170,7 @@ pub(crate) async fn owner_link<R: net_runtime::Runtime>(
     driver: &Loop<R>,
     owner: &netmodel::Name,
     state: netmodel::LinkState,
-) -> io::Result<Option<ip_method::LinkInfo>> {
+) -> Result<Option<ip_method::LinkInfo>> {
     let Some(link) = driver.runtime.link().link(owner).await? else {
         return Ok(None);
     };

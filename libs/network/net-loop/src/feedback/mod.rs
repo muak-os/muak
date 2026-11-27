@@ -2,11 +2,11 @@
 
 mod socket;
 
-use std::io;
 use std::time::{Instant, SystemTime};
 
 use net_runtime::Link as _;
 
+use crate::error::{LoopError, Result};
 use crate::pending::Pending;
 use crate::{Loop, driver, events, step};
 
@@ -15,7 +15,7 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
     pending: Pending,
     now: Instant,
     wall: SystemTime,
-) -> io::Result<()> {
+) -> Result<()> {
     match pending {
         Pending::Links(links) => discover(driver, now, wall, &links).await,
         Pending::Carriers(links) => {
@@ -93,7 +93,7 @@ async fn discover<R: net_runtime::Runtime>(
     now: Instant,
     wall: SystemTime,
     links: &[netmodel::Link],
-) -> io::Result<()> {
+) -> Result<()> {
     let mut first_error = None;
     for link in links {
         let info = driver::link_info(link);
@@ -118,7 +118,7 @@ async fn enslave<R: net_runtime::Runtime>(
     now: Instant,
     port: &netmodel::Name,
     master: &netmodel::Name,
-) -> io::Result<()> {
+) -> Result<()> {
     driver::enslave(driver, port.clone(), master.clone());
     if let Some(link) = driver.runtime.link().link(port).await?
         && let Some(info) = driver::owner_link(driver, master, link.state()).await?
@@ -146,7 +146,7 @@ async fn shutdown<R: net_runtime::Runtime>(
     now: Instant,
     wall: SystemTime,
     name: &netmodel::Name,
-) -> io::Result<()> {
+) -> Result<()> {
     if !driver.names.contains(name) {
         return Ok(());
     }
@@ -160,7 +160,7 @@ async fn command<R: net_runtime::Runtime>(
     wall: SystemTime,
     name: &netmodel::Name,
     command: iface::Command,
-) -> io::Result<()> {
+) -> Result<()> {
     interface_input(driver, now, wall, name, iface::Input::Command(command)).await
 }
 
@@ -170,12 +170,9 @@ pub(crate) async fn interface_input<R: net_runtime::Runtime>(
     wall: SystemTime,
     name: &netmodel::Name,
     input: iface::Input<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     let Some(index) = driver.names.iter().position(|known| known == name) else {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "no interface controller for the input",
-        ));
+        return Err(LoopError::UnknownInterface);
     };
     step::advance(driver, index, input, now, wall).await?;
 

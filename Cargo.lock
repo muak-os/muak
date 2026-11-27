@@ -26,6 +26,7 @@ dependencies = [
  "libc",
  "netmodel",
  "rustix",
+ "thiserror",
 ]
 
 [[package]]
@@ -1016,6 +1017,7 @@ dependencies = [
  "libc",
  "netmodel",
  "rustix",
+ "thiserror",
 ]
 
 [[package]]
@@ -1439,6 +1441,7 @@ dependencies = [
  "net-runtime",
  "net-supervisor",
  "netmodel",
+ "thiserror",
 ]
 
 [[package]]
@@ -1455,6 +1458,7 @@ dependencies = [
  "ip-method",
  "net-runtime",
  "netmodel",
+ "thiserror",
 ]
 
 [[package]]
@@ -1475,6 +1479,7 @@ dependencies = [
  "netlink-proto",
  "netlink-sys",
  "netmodel",
+ "thiserror",
  "tokio",
 ]
 
@@ -1498,6 +1503,7 @@ dependencies = [
  "libc",
  "net-runtime",
  "netmodel",
+ "thiserror",
 ]
 
 [[package]]
@@ -2434,6 +2440,7 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "rustix",
+ "thiserror",
 ]
 
 [[package]]

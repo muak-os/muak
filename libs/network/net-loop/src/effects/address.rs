@@ -1,10 +1,10 @@
 //! Address and default route effects with their observations.
 
-use std::io;
-
 use net_observe::journal::Journal;
 use net_observe::{Event, Level};
 use net_runtime::{Address as _, Route as _};
+
+use crate::error::Result;
 
 pub(super) async fn add<R: net_runtime::Runtime>(
     runtime: &R,
@@ -12,7 +12,7 @@ pub(super) async fn add<R: net_runtime::Runtime>(
     link: netmodel::Name,
     address: core::net::IpAddr,
     prefix_len: u8,
-) -> io::Result<()> {
+) -> Result<()> {
     runtime
         .address()
         .add(
@@ -41,7 +41,7 @@ pub(super) async fn remove<R: net_runtime::Runtime>(
     link: netmodel::Name,
     address: core::net::IpAddr,
     prefix_len: u8,
-) -> io::Result<()> {
+) -> Result<()> {
     runtime
         .address()
         .remove(
@@ -69,7 +69,7 @@ pub(super) async fn ensure_route<R: net_runtime::Runtime>(
     journal: &mut Journal,
     link: netmodel::Name,
     gateway: core::net::IpAddr,
-) -> io::Result<()> {
+) -> Result<()> {
     runtime.route().ensure_default(&link, gateway).await?;
     journal.record(
         Level::Debug,
@@ -87,7 +87,7 @@ pub(super) async fn remove_route<R: net_runtime::Runtime>(
     journal: &mut Journal,
     link: netmodel::Name,
     gateway: core::net::IpAddr,
-) -> io::Result<()> {
+) -> Result<()> {
     runtime.route().remove_default(&link, gateway).await?;
     journal.record(
         Level::Debug,

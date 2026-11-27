@@ -1,9 +1,9 @@
 //! Packet and `ICMPv6` port implementations for the deterministic mock runtime.
 
 use alloc::collections::VecDeque;
-use std::io::Result;
 
 use super::{Frame, Mock, Socket, State};
+use crate::error::Result;
 use crate::{Icmpv6, Packet, SocketId};
 
 impl Packet for Mock {

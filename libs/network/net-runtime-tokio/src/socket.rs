@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use net_runtime::SocketId;
 use tokio::sync::{RwLock, RwLockReadGuard};
 
+use crate::error::{Result, TokioError};
+
 /// Identifier allocator shared by every socket table of one runtime.
 pub(crate) struct Ids {
     next: AtomicU32,
@@ -43,7 +45,7 @@ impl<T> Table<T> {
         id
     }
 
-    pub(crate) async fn close(&self, id: SocketId) -> io::Result<()> {
+    pub(crate) async fn close(&self, id: SocketId) -> Result<()> {
         if self.entries.write().await.remove(&id).is_some() {
             return Ok(());
         }
@@ -57,16 +59,18 @@ impl<T> Table<T> {
     }
 }
 
-pub(crate) fn not_found() -> io::Error {
-    io::Error::from(io::ErrorKind::NotFound)
+pub(crate) fn not_found() -> TokioError {
+    TokioError::Io(io::Error::from(io::ErrorKind::NotFound))
 }
 
-pub(crate) fn invalid_input(reason: &'static str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, reason)
+pub(crate) fn invalid_input(reason: &'static str) -> TokioError {
+    TokioError::Io(io::Error::new(io::ErrorKind::InvalidInput, reason))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::*;
 
     #[tokio::test]
@@ -86,7 +90,7 @@ mod tests {
         assert_eq!(table.read().await.get(&second), Some(&2));
         assert!(matches!(
             closed,
-            Err(error) if error.kind() == io::ErrorKind::NotFound
+            Err(TokioError::Io(error)) if error.kind() == io::ErrorKind::NotFound
         ));
     }
 

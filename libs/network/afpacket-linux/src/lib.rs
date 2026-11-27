@@ -2,12 +2,16 @@
 
 #![warn(missing_docs)]
 
+pub mod error;
+
 use std::io;
 use std::os::fd::{AsFd as _, AsRawFd as _, BorrowedFd, OwnedFd};
 
 use netmodel::Name;
 use rustix::net;
 use rustix::net::addr::{SocketAddrArg, SocketAddrLen, SocketAddrOpaque};
+
+use crate::error::{AfpacketError, Result};
 
 const ETH_ALEN: usize = 6;
 const ETH_ALEN_U8: u8 = 6;
@@ -52,8 +56,11 @@ unsafe impl SocketAddrArg for SockAddrLl {
 ///
 /// # Errors
 ///
-/// Returns an error when socket creation, `SO_BINDTODEVICE`, the interface index lookup, or the interface bind fails.
-pub fn open(link: &Name) -> io::Result<OwnedFd> {
+/// Returns [`AfpacketError::InvalidDevice`] when the link name cannot be applied, [`AfpacketError::InvalidDeviceLength`]
+/// when the name length does not fit the `socklen_t` range, [`AfpacketError::IndexOverflow`] when the interface index
+/// does not fit the `sockaddr_ll` index field, and [`AfpacketError::Io`] when socket creation, `SO_BINDTODEVICE`, the
+/// interface index lookup, or the interface bind fails.
+pub fn open(link: &Name) -> Result<OwnedFd> {
     let fd = net::socket_with(
         net::AddressFamily::PACKET,
         net::SocketType::DGRAM,
@@ -66,12 +73,7 @@ pub fn open(link: &Name) -> io::Result<OwnedFd> {
 
     let index =
         net::netdevice::name_to_index(fd.as_fd(), link.as_str()).map_err(io::Error::from)?;
-    let index = i32::try_from(index).map_err(|_error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "interface index exceeds i32 range",
-        )
-    })?;
+    let index = i32::try_from(index).map_err(|_error| AfpacketError::IndexOverflow)?;
 
     net::bind(fd.as_fd(), &make_sockaddr_ll(index, [0_u8; ETH_ALEN])).map_err(io::Error::from)?;
 
@@ -82,40 +84,39 @@ pub fn open(link: &Name) -> io::Result<OwnedFd> {
 ///
 /// # Errors
 ///
-/// Returns an error when the descriptor is not a bound `AF_PACKET` socket or the send fails.
-/// [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
-pub fn send(fd: BorrowedFd<'_>, frame: &[u8], dst: [u8; ETH_ALEN]) -> io::Result<usize> {
+/// Returns [`AfpacketError::NotBound`] when the descriptor is not a bound `AF_PACKET` socket and [`AfpacketError::Io`]
+/// when the send fails. [`std::io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
+pub fn send(fd: BorrowedFd<'_>, frame: &[u8], dst: [u8; ETH_ALEN]) -> Result<usize> {
     let index = bound_if_index(fd)?;
 
-    net::sendto(
+    let length = net::sendto(
         fd,
         frame,
         net::SendFlags::empty(),
         &make_sockaddr_ll(index, dst),
     )
-    .map_err(io::Error::from)
+    .map_err(io::Error::from)?;
+
+    Ok(length)
 }
 
 /// Receives one frame into `buf`, returning the number of bytes read.
 ///
 /// # Errors
 ///
-/// Returns an error when the receive fails. [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
-pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<usize> {
-    net::recv(fd, buf, net::RecvFlags::empty())
-        .map(|(_flags, len)| len)
-        .map_err(io::Error::from)
+/// Returns [`AfpacketError::Io`] when the receive fails. [`std::io::ErrorKind::WouldBlock`] is a normal result for a
+/// non blocking socket.
+pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> Result<usize> {
+    let (_flags, length) = net::recv(fd, buf, net::RecvFlags::empty()).map_err(io::Error::from)?;
+
+    Ok(length)
 }
 
-fn bind_device(fd: BorrowedFd<'_>, device: &str) -> io::Result<()> {
+fn bind_device(fd: BorrowedFd<'_>, device: &str) -> Result<()> {
     let mut name = [0_u8; IF_NAME_MAX];
     let length = copy_device_name(&mut name, device)?;
-    let length = libc::socklen_t::try_from(length).map_err(|_error| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "device name length exceeds socklen_t range",
-        )
-    })?;
+    let length =
+        libc::socklen_t::try_from(length).map_err(|_error| AfpacketError::InvalidDeviceLength)?;
 
     // SAFETY: `name` holds a NUL terminated device name of `length` bytes and `fd` is a socket.
     let result = unsafe {
@@ -131,18 +132,15 @@ fn bind_device(fd: BorrowedFd<'_>, device: &str) -> io::Result<()> {
     if result == 0 {
         Ok(())
     } else {
-        Err(io::Error::last_os_error())
+        Err(AfpacketError::Io(io::Error::last_os_error()))
     }
 }
 
-fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> io::Result<usize> {
+fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> Result<usize> {
     let bytes = device.as_bytes();
     let length = bytes.len().saturating_add(1);
     if bytes.is_empty() || length > buffer.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "device name does not fit the SO_BINDTODEVICE buffer",
-        ));
+        return Err(AfpacketError::InvalidDevice);
     }
 
     buffer.fill(0);
@@ -152,15 +150,12 @@ fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> io::Result<
     Ok(length)
 }
 
-fn bound_if_index(fd: BorrowedFd<'_>) -> io::Result<i32> {
+fn bound_if_index(fd: BorrowedFd<'_>) -> Result<i32> {
     let addr = net::getsockname(fd).map_err(io::Error::from)?;
     if addr.address_family() != net::AddressFamily::PACKET
         || addr.addr_len() < SOCK_ADDR_LL_INDEX_LEN
     {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "socket is not bound to an AF_PACKET device",
-        ));
+        return Err(AfpacketError::NotBound);
     }
 
     // SAFETY: `addr` reports the `AF_PACKET` family and carries at least the leading
@@ -246,7 +241,7 @@ mod tests {
         let result = copy_device_name(&mut buffer, &too_long);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(AfpacketError::InvalidDevice)));
     }
 
     #[test]
@@ -273,6 +268,6 @@ mod tests {
         let result = send(socket.as_fd(), &frame, [0xff; ETH_ALEN]);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(AfpacketError::NotBound)));
     }
 }

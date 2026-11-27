@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::bail;
+use anyhow::{Result, bail};
 use btrfs::quota::{DiskUsage, get_usage, set};
 use btrfs::subvolume::{create, delete, list};
 use mac::{format as format_mac, generate as generate_mac};
@@ -273,7 +273,7 @@ impl VmActor {
         }
     }
 
-    fn handle_create(&mut self, config: VmConfig) -> anyhow::Result<String> {
+    fn handle_create(&mut self, config: VmConfig) -> Result<String> {
         let vm_id = uuid::Uuid::new_v4().to_string();
 
         println!("Creating VM {} ({})", config.name, vm_id);
@@ -313,7 +313,7 @@ impl VmActor {
         Ok(vm_id)
     }
 
-    async fn handle_start(&mut self, vm_id: &str) -> anyhow::Result<()> {
+    async fn handle_start(&mut self, vm_id: &str) -> Result<()> {
         if !self.kvm_available {
             bail!("KVM is not available: /dev/kvm is missing or inaccessible, cannot start VMs");
         }
@@ -408,7 +408,7 @@ impl VmActor {
         }
     }
 
-    async fn handle_stop(&mut self, vm_id: &str, force: bool) -> anyhow::Result<()> {
+    async fn handle_stop(&mut self, vm_id: &str, force: bool) -> Result<()> {
         let entry = self
             .vms
             .get_mut(vm_id)
@@ -445,7 +445,7 @@ impl VmActor {
         Ok(())
     }
 
-    async fn handle_delete(&mut self, vm_id: &str) -> anyhow::Result<()> {
+    async fn handle_delete(&mut self, vm_id: &str) -> Result<()> {
         let tap_name = self.removable_tap(vm_id)?;
 
         println!("Deleting VM {vm_id}");
@@ -467,7 +467,7 @@ impl VmActor {
         Ok(())
     }
 
-    fn removable_tap(&self, vm_id: &str) -> anyhow::Result<Option<String>> {
+    fn removable_tap(&self, vm_id: &str) -> Result<Option<String>> {
         let entry = self
             .vms
             .get(vm_id)
@@ -480,7 +480,7 @@ impl VmActor {
         Ok(entry.tap_device.as_ref().map(|dev| dev.name.clone()))
     }
 
-    fn handle_get(&self, vm_id: &str) -> anyhow::Result<VmInfo> {
+    fn handle_get(&self, vm_id: &str) -> Result<VmInfo> {
         let entry = self
             .vms
             .get(vm_id)
@@ -501,7 +501,7 @@ impl VmActor {
         filename: &str,
         data: &[u8],
         vm_id: Option<&str>,
-    ) -> anyhow::Result<String> {
+    ) -> Result<String> {
         let vm_id = vm_id.ok_or_else(|| anyhow::anyhow!("vm_id is required for file uploads"))?;
 
         let safe_filename = filename.replace(['/', '\\', '\0'], "_");
@@ -519,7 +519,7 @@ impl VmActor {
         Ok(path.to_string_lossy().to_string())
     }
 
-    async fn handle_get_serial_log(&self, vm_id: &str, tail_lines: i64) -> anyhow::Result<String> {
+    async fn handle_get_serial_log(&self, vm_id: &str, tail_lines: i64) -> Result<String> {
         self.vms
             .get(vm_id)
             .ok_or_else(|| anyhow::anyhow!("VM not found: {vm_id}"))?;
@@ -546,7 +546,7 @@ impl VmActor {
     }
 }
 
-async fn reset_after_failed_start(entry: &mut VmEntry, vm_id: &str) -> anyhow::Result<()> {
+async fn reset_after_failed_start(entry: &mut VmEntry, vm_id: &str) -> Result<()> {
     let stale = entry.tap_device.take().map(|dev| dev.name);
     entry.state = VmState::Created;
     save_vm(vm_id, &entry.to_persisted())?;
@@ -581,7 +581,7 @@ fn reset_if_running(
     }
 }
 
-fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> anyhow::Result<PathBuf> {
+fn resolve_boot_asset(vm_data_dir: &Path, convention_name: &str) -> Result<PathBuf> {
     let path = vm_data_dir.join(convention_name);
 
     if path.exists() {

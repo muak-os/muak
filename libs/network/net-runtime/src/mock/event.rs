@@ -1,9 +1,8 @@
 //! Link event port implementation for the deterministic mock runtime.
 
-use std::io::Result;
-
 use super::Mock;
 use crate::Events;
+use crate::error::Result;
 
 impl Events for Mock {
     fn next(&self) -> impl Future<Output = Result<netmodel::LinkEvent>> + Send {

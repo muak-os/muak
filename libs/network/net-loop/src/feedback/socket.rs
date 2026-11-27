@@ -1,8 +1,8 @@
 //! Socket pending events fed back into the address method that owns the socket.
 
-use std::io;
 use std::time::{Instant, SystemTime};
 
+use crate::error::Result;
 use crate::pending::Pending;
 use crate::{Loop, feedback};
 
@@ -11,7 +11,7 @@ pub(super) async fn feed<R: net_runtime::Runtime>(
     pending: Pending,
     now: Instant,
     wall: SystemTime,
-) -> io::Result<()> {
+) -> Result<()> {
     match pending {
         Pending::Entropy {
             name,
@@ -79,7 +79,7 @@ async fn method<R: net_runtime::Runtime>(
     name: &netmodel::Name,
     family: netmodel::Family,
     input: ip_method::Input<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     let input = iface::Input::Method { family, input };
 
     feedback::interface_input(driver, now, wall, name, input).await

@@ -10,6 +10,7 @@ use futures_util::future::{Either, select};
 use futures_util::stream::FuturesUnordered;
 use net_runtime::{Events as _, Icmpv6 as _, Packet as _, Udp as _};
 
+use crate::error::Result;
 use crate::pending::Pending;
 use crate::{Loop, Progress, SocketEntry, SocketTable, effects};
 
@@ -17,7 +18,7 @@ const FRAME_BUDGET: usize = 2048;
 
 type Payload = (Vec<u8>, Option<IpAddr>);
 
-type Received = (net_runtime::SocketId, io::Result<Payload>);
+type Received = (net_runtime::SocketId, net_runtime::error::Result<Payload>);
 
 enum Next {
     Frame(Received),
@@ -29,9 +30,7 @@ enum Next {
 /// # Errors
 ///
 /// Returns the error the link event port reported.
-pub(crate) async fn wait_event<R: net_runtime::Runtime>(
-    driver: &mut Loop<R>,
-) -> io::Result<Progress> {
+pub(crate) async fn wait_event<R: net_runtime::Runtime>(driver: &mut Loop<R>) -> Result<Progress> {
     match next(&driver.runtime, &driver.sockets).await? {
         Next::Frame(received) => queue(driver, received).await,
         Next::Link(event) => driver.pending.push_back(Pending::LinkEvent(event)),
@@ -40,9 +39,14 @@ pub(crate) async fn wait_event<R: net_runtime::Runtime>(
     Ok(Progress::Worked)
 }
 
-async fn next<R: net_runtime::Runtime>(runtime: &R, sockets: &SocketTable) -> io::Result<Next> {
+async fn next<R: net_runtime::Runtime>(runtime: &R, sockets: &SocketTable) -> Result<Next> {
     if sockets.is_empty() {
-        return runtime.events().next().await.map(Next::Link);
+        return runtime
+            .events()
+            .next()
+            .await
+            .map(Next::Link)
+            .map_err(Into::into);
     }
 
     let frames = pin!(first(runtime, sockets));
@@ -50,8 +54,8 @@ async fn next<R: net_runtime::Runtime>(runtime: &R, sockets: &SocketTable) -> io
 
     match select(frames, events).await {
         Either::Left((Some(received), _)) => Ok(Next::Frame(received)),
-        Either::Left((None, events)) => events.await.map(Next::Link),
-        Either::Right((event, _)) => event.map(Next::Link),
+        Either::Left((None, events)) => events.await.map(Next::Link).map_err(Into::into),
+        Either::Right((event, _)) => event.map(Next::Link).map_err(Into::into),
     }
 }
 
@@ -78,7 +82,7 @@ async fn queue<R: net_runtime::Runtime>(driver: &mut Loop<R>, received: Received
                 name,
                 family,
                 slot,
-                error,
+                error: io::Error::from(error),
             }
         }
     };
@@ -92,7 +96,7 @@ async fn first<R: net_runtime::Runtime>(runtime: &R, sockets: &SocketTable) -> O
     }
 
     while let Some(received) = pending.next().await {
-        if matches!(&received.1, Err(error) if error.kind() == io::ErrorKind::WouldBlock) {
+        if matches!(&received.1, Err(error) if error.is_would_block()) {
             continue;
         }
 

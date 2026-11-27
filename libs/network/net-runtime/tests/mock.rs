@@ -8,6 +8,7 @@ use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant, SystemTime};
 
+use net_runtime::error::RuntimeError;
 use net_runtime::mock::Mock;
 use net_runtime::{
     Address, Clock as _, Entropy as _, Events, Icmpv6, Link, Packet, Route, Runtime, Udp,
@@ -57,6 +58,12 @@ fn bundle_clock<R: Runtime>(runtime: &R) -> Instant {
 }
 
 fn assert_bundle<R: Runtime>() {}
+
+fn kind(error: RuntimeError) -> std::io::ErrorKind {
+    match error {
+        RuntimeError::Io(source) => source.kind(),
+    }
+}
 
 #[test]
 fn clock_is_settable() {
@@ -122,7 +129,7 @@ fn packet_socket_round_trips_frames() {
     assert_eq!(frames, vec![b"hello".to_vec()]);
     assert!(closed);
     assert_eq!(
-        after_close.expect_err("closed socket").kind(),
+        kind(after_close.expect_err("closed socket")),
         std::io::ErrorKind::NotFound
     );
 }
@@ -180,11 +187,11 @@ fn udp_socket_round_trips_payloads_and_preserves_endpoints() {
     assert_eq!(endpoints, (Some(bind), Some(peer)));
     assert_eq!(payloads, vec![b"offer".to_vec()]);
     assert_eq!(
-        empty.expect_err("empty socket").kind(),
+        kind(empty.expect_err("empty socket")),
         std::io::ErrorKind::WouldBlock
     );
     assert_eq!(
-        after_close.expect_err("closed socket").kind(),
+        kind(after_close.expect_err("closed socket")),
         std::io::ErrorKind::NotFound
     );
 }
@@ -202,7 +209,7 @@ fn udp_send_after_close_is_not_found() {
 
     // ASSERT
     assert_eq!(
-        sent.expect_err("closed socket").kind(),
+        kind(sent.expect_err("closed socket")),
         std::io::ErrorKind::NotFound
     );
 }
@@ -237,7 +244,7 @@ fn socket_open_rejects_wrong_kind() {
     // ASSERT
     for result in [packet, icmpv6, datagram] {
         assert_eq!(
-            result.expect_err("wrong kind").kind(),
+            kind(result.expect_err("wrong kind")),
             std::io::ErrorKind::InvalidInput
         );
     }
@@ -265,7 +272,7 @@ fn event_queue_delivers_in_order() {
     assert_eq!(first_out, first);
     assert_eq!(second_out, second);
     assert_eq!(
-        empty.expect_err("empty queue").kind(),
+        kind(empty.expect_err("empty queue")),
         std::io::ErrorKind::WouldBlock
     );
 }
@@ -396,11 +403,11 @@ fn address_and_route_operations_require_known_link() {
     assert_eq!(listed, Vec::new());
     assert_eq!(mock.default_routes(), Vec::new());
     assert_eq!(
-        missing_address.expect_err("unknown link").kind(),
+        kind(missing_address.expect_err("unknown link")),
         std::io::ErrorKind::NotFound
     );
     assert_eq!(
-        missing_route.expect_err("unknown link").kind(),
+        kind(missing_route.expect_err("unknown link")),
         std::io::ErrorKind::NotFound
     );
 }
@@ -420,11 +427,11 @@ fn icmpv6_close_rejects_receive() {
 
     // ASSERT
     assert_eq!(
-        received.expect_err("closed socket").kind(),
+        kind(received.expect_err("closed socket")),
         std::io::ErrorKind::NotFound
     );
     assert_eq!(
-        closed_again.expect_err("closed socket").kind(),
+        kind(closed_again.expect_err("closed socket")),
         std::io::ErrorKind::NotFound
     );
 }

@@ -11,6 +11,8 @@ use netlink_proto::sys::{SocketAddr, protocols};
 use netlink_proto::{Connection, ConnectionHandle, Error};
 use netlink_sys::{AsyncSocket as _, TokioSocket};
 
+use crate::error::{Result, TokioError};
+
 const RTNLGRP_LINK: u32 = 1;
 
 pub(crate) type Handle = ConnectionHandle<RouteNetlinkMessage>;
@@ -21,7 +23,7 @@ pub(crate) const fn link_membership() -> u32 {
     1 << (RTNLGRP_LINK - 1)
 }
 
-pub(crate) fn connect() -> io::Result<(Handle, Messages)> {
+pub(crate) fn connect() -> Result<(Handle, Messages)> {
     let (mut connection, handle, messages) = netlink_proto::new_connection_with_socket::<
         RouteNetlinkMessage,
         TokioSocket,
@@ -32,7 +34,7 @@ pub(crate) fn connect() -> io::Result<(Handle, Messages)> {
     Ok((handle, messages))
 }
 
-pub(crate) async fn execute(handle: &Handle, message: Message) -> io::Result<()> {
+pub(crate) async fn execute(handle: &Handle, message: Message) -> Result<()> {
     let mut responses = handle.request(message, kernel()).map_err(request_error)?;
     while let Some(message) = responses.next().await {
         check(message.payload)?;
@@ -41,10 +43,7 @@ pub(crate) async fn execute(handle: &Handle, message: Message) -> io::Result<()>
     Ok(())
 }
 
-pub(crate) async fn collect(
-    handle: &Handle,
-    message: Message,
-) -> io::Result<Vec<RouteNetlinkMessage>> {
+pub(crate) async fn collect(handle: &Handle, message: Message) -> Result<Vec<RouteNetlinkMessage>> {
     let mut responses = handle.request(message, kernel()).map_err(request_error)?;
     let mut replies = Vec::new();
     while let Some(message) = responses.next().await {
@@ -60,7 +59,7 @@ pub(crate) async fn collect(
     Ok(replies)
 }
 
-pub(crate) async fn links(handle: &Handle) -> io::Result<Vec<netmodel::Link>> {
+pub(crate) async fn links(handle: &Handle) -> Result<Vec<netmodel::Link>> {
     let replies = collect(handle, netlink_linux::get_links()).await?;
 
     Ok(replies
@@ -69,25 +68,27 @@ pub(crate) async fn links(handle: &Handle) -> io::Result<Vec<netmodel::Link>> {
         .collect())
 }
 
-pub(crate) fn tolerate(result: io::Result<()>, kind: io::ErrorKind) -> io::Result<()> {
+pub(crate) fn tolerate(result: Result<()>, kind: io::ErrorKind) -> Result<()> {
     match result {
-        Err(error) if error.kind() == kind => Ok(()),
+        Err(TokioError::Io(error)) if error.kind() == kind => Ok(()),
         other => other,
     }
 }
 
-fn subscribe(connection: &mut Connection<RouteNetlinkMessage, TokioSocket>) -> io::Result<()> {
+fn subscribe(connection: &mut Connection<RouteNetlinkMessage, TokioSocket>) -> Result<()> {
     connection
         .socket_mut()
         .socket_mut()
-        .bind(&SocketAddr::new(0, link_membership()))
+        .bind(&SocketAddr::new(0, link_membership()))?;
+
+    Ok(())
 }
 
 fn kernel() -> SocketAddr {
     SocketAddr::new(0, 0)
 }
 
-fn check(payload: NetlinkPayload<RouteNetlinkMessage>) -> io::Result<()> {
+fn check(payload: NetlinkPayload<RouteNetlinkMessage>) -> Result<()> {
     let NetlinkPayload::Error(error) = payload else {
         return Ok(());
     };
@@ -95,9 +96,9 @@ fn check(payload: NetlinkPayload<RouteNetlinkMessage>) -> io::Result<()> {
     reject(&error)
 }
 
-fn reject(error: &ErrorMessage) -> io::Result<()> {
+fn reject(error: &ErrorMessage) -> Result<()> {
     if error.code.is_some() {
-        return Err(error.to_io());
+        return Err(TokioError::Io(error.to_io()));
     }
 
     Ok(())
@@ -176,7 +177,7 @@ mod tests {
         // ASSERT
         assert!(matches!(
             result,
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists
+            Err(TokioError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists
         ));
     }
 }

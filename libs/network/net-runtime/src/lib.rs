@@ -2,11 +2,15 @@
 
 #![warn(missing_docs)]
 
+pub mod error;
+
 #[cfg(any(test, feature = "mock"))]
 extern crate alloc;
 
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
+
+use crate::error::Result;
 
 /// Identifier of a socket opened by the runtime, unique across all of its ports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -33,7 +37,7 @@ pub trait Link {
     /// # Errors
     ///
     /// Returns an error when the link does not exist or the change fails.
-    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = std::io::Result<()>> + Send;
+    fn detach(&self, port: &netmodel::Name) -> impl Future<Output = Result<()>> + Send;
 
     /// Ensures a bridge device exists with the requested spanning tree setting.
     ///
@@ -44,7 +48,7 @@ pub trait Link {
         &self,
         name: &netmodel::Name,
         stp: bool,
-    ) -> impl Future<Output = std::io::Result<()>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Looks up a single link by interface name.
     ///
@@ -54,21 +58,21 @@ pub trait Link {
     fn link(
         &self,
         name: &netmodel::Name,
-    ) -> impl Future<Output = std::io::Result<Option<netmodel::Link>>> + Send;
+    ) -> impl Future<Output = Result<Option<netmodel::Link>>> + Send;
 
     /// Lists every network link known to the kernel.
     ///
     /// # Errors
     ///
     /// Returns an error when the link query fails.
-    fn links(&self) -> impl Future<Output = std::io::Result<Vec<netmodel::Link>>> + Send;
+    fn links(&self) -> impl Future<Output = Result<Vec<netmodel::Link>>> + Send;
 
     /// Administratively brings a link down.
     ///
     /// # Errors
     ///
     /// Returns an error when the link does not exist or the change fails.
-    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = std::io::Result<()>> + Send;
+    fn set_down(&self, name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send;
 
     /// Enslaves a port link to a master link.
     ///
@@ -79,14 +83,14 @@ pub trait Link {
         &self,
         port: &netmodel::Name,
         master: &netmodel::Name,
-    ) -> impl Future<Output = std::io::Result<()>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Administratively brings a link up.
     ///
     /// # Errors
     ///
     /// Returns an error when the link does not exist or the change fails.
-    fn set_up(&self, name: &netmodel::Name) -> impl Future<Output = std::io::Result<()>> + Send;
+    fn set_up(&self, name: &netmodel::Name) -> impl Future<Output = Result<()>> + Send;
 }
 
 /// Address management capability.
@@ -100,7 +104,7 @@ pub trait Address {
         &self,
         link: &netmodel::Name,
         address: netmodel::Address,
-    ) -> impl Future<Output = std::io::Result<()>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Lists the addresses assigned to a link.
     ///
@@ -110,7 +114,7 @@ pub trait Address {
     fn list(
         &self,
         link: &netmodel::Name,
-    ) -> impl Future<Output = std::io::Result<Vec<netmodel::Address>>> + Send;
+    ) -> impl Future<Output = Result<Vec<netmodel::Address>>> + Send;
 
     /// Removes an address from a link.
     ///
@@ -121,7 +125,7 @@ pub trait Address {
         &self,
         link: &netmodel::Name,
         address: netmodel::Address,
-    ) -> impl Future<Output = std::io::Result<()>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
 /// Default route management capability.
@@ -135,7 +139,7 @@ pub trait Route {
         &self,
         link: &netmodel::Name,
         gateway: core::net::IpAddr,
-    ) -> impl Future<Output = std::io::Result<()>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Removes the default route through the given gateway on the link.
     ///
@@ -146,7 +150,7 @@ pub trait Route {
         &self,
         link: &netmodel::Name,
         gateway: core::net::IpAddr,
-    ) -> impl Future<Output = std::io::Result<()>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
 /// Link event delivery capability.
@@ -157,7 +161,7 @@ pub trait Events {
     ///
     /// Returns an error when link monitoring fails or the stream closes. [`std::io::ErrorKind::WouldBlock`] means no
     /// event is ready yet.
-    fn next(&self) -> impl Future<Output = std::io::Result<netmodel::LinkEvent>> + Send;
+    fn next(&self) -> impl Future<Output = Result<netmodel::LinkEvent>> + Send;
 }
 
 /// Raw packet socket capability.
@@ -167,17 +171,14 @@ pub trait Packet {
     /// # Errors
     ///
     /// Returns an error when the socket is already closed.
-    fn close(&self, id: SocketId) -> impl Future<Output = std::io::Result<()>> + Send;
+    fn close(&self, id: SocketId) -> impl Future<Output = Result<()>> + Send;
 
     /// Opens a packet socket described by the specification.
     ///
     /// # Errors
     ///
     /// Returns an error when the socket cannot be opened.
-    fn open(
-        &self,
-        spec: &ip_method::SocketSpec,
-    ) -> impl Future<Output = std::io::Result<SocketId>> + Send;
+    fn open(&self, spec: &ip_method::SocketSpec) -> impl Future<Output = Result<SocketId>> + Send;
 
     /// Receives a frame from an open socket into the buffer.
     ///
@@ -185,22 +186,14 @@ pub trait Packet {
     ///
     /// Returns an error when the socket is closed or the receive fails. [`std::io::ErrorKind::WouldBlock`] means no
     /// frame is ready yet.
-    fn recv(
-        &self,
-        id: SocketId,
-        buf: &mut [u8],
-    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+    fn recv(&self, id: SocketId, buf: &mut [u8]) -> impl Future<Output = Result<usize>> + Send;
 
     /// Sends a frame on an open socket.
     ///
     /// # Errors
     ///
     /// Returns an error when the socket is closed or the send fails.
-    fn send(
-        &self,
-        id: SocketId,
-        frame: &[u8],
-    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+    fn send(&self, id: SocketId, frame: &[u8]) -> impl Future<Output = Result<usize>> + Send;
 }
 
 /// Datagram (`UDP`) socket capability.
@@ -214,17 +207,14 @@ pub trait Udp {
     /// # Errors
     ///
     /// Returns an error when the socket is already closed.
-    fn close(&self, id: SocketId) -> impl Future<Output = std::io::Result<()>> + Send;
+    fn close(&self, id: SocketId) -> impl Future<Output = Result<()>> + Send;
 
     /// Opens a `UDP` socket described by the specification.
     ///
     /// # Errors
     ///
     /// Returns an error when the socket cannot be opened.
-    fn open(
-        &self,
-        spec: &ip_method::SocketSpec,
-    ) -> impl Future<Output = std::io::Result<SocketId>> + Send;
+    fn open(&self, spec: &ip_method::SocketSpec) -> impl Future<Output = Result<SocketId>> + Send;
 
     /// Receives a datagram payload from an open socket into the buffer.
     ///
@@ -232,22 +222,14 @@ pub trait Udp {
     ///
     /// Returns an error when the socket is closed or the receive fails. [`std::io::ErrorKind::WouldBlock`] means no
     /// datagram is ready yet.
-    fn recv(
-        &self,
-        id: SocketId,
-        buf: &mut [u8],
-    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+    fn recv(&self, id: SocketId, buf: &mut [u8]) -> impl Future<Output = Result<usize>> + Send;
 
     /// Sends a datagram payload on an open socket.
     ///
     /// # Errors
     ///
     /// Returns an error when the socket is closed or the send fails.
-    fn send(
-        &self,
-        id: SocketId,
-        payload: &[u8],
-    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+    fn send(&self, id: SocketId, payload: &[u8]) -> impl Future<Output = Result<usize>> + Send;
 }
 
 /// Raw `ICMPv6` socket capability.
@@ -257,17 +239,14 @@ pub trait Icmpv6 {
     /// # Errors
     ///
     /// Returns an error when the socket is already closed.
-    fn close(&self, id: SocketId) -> impl Future<Output = std::io::Result<()>> + Send;
+    fn close(&self, id: SocketId) -> impl Future<Output = Result<()>> + Send;
 
     /// Opens an `ICMPv6` socket described by the specification.
     ///
     /// # Errors
     ///
     /// Returns an error when the socket cannot be opened.
-    fn open(
-        &self,
-        spec: &ip_method::SocketSpec,
-    ) -> impl Future<Output = std::io::Result<SocketId>> + Send;
+    fn open(&self, spec: &ip_method::SocketSpec) -> impl Future<Output = Result<SocketId>> + Send;
 
     /// Receives an `ICMPv6` payload and its source address.
     ///
@@ -279,7 +258,7 @@ pub trait Icmpv6 {
         &self,
         id: SocketId,
         buf: &mut [u8],
-    ) -> impl Future<Output = std::io::Result<(usize, Option<core::net::Ipv6Addr>)>> + Send;
+    ) -> impl Future<Output = Result<(usize, Option<core::net::Ipv6Addr>)>> + Send;
 
     /// Sends an `ICMPv6` payload to the destination address.
     ///
@@ -291,7 +270,7 @@ pub trait Icmpv6 {
         id: SocketId,
         dst: core::net::Ipv6Addr,
         payload: &[u8],
-    ) -> impl Future<Output = std::io::Result<usize>> + Send;
+    ) -> impl Future<Output = Result<usize>> + Send;
 }
 
 /// Monotonic and wall clock capability.

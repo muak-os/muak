@@ -1,11 +1,11 @@
 //! Execution of supervisor effects against the runtime ports.
 
 use alloc::collections::VecDeque;
-use std::io;
 
 use net_runtime::Link as _;
 
 use crate::driver;
+use crate::error::{LoopError, Result};
 use crate::pending::Pending;
 use crate::resolver::Nameservers;
 
@@ -15,7 +15,7 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
     pending: &mut VecDeque<Pending>,
     resolver: &mut Nameservers,
     effect: net_supervisor::Effect<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     match effect {
         net_supervisor::Effect::Discover => {
             let links = runtime.link().links().await?;
@@ -50,10 +50,7 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             runtime.link().ensure_bridge(&name, config.stp).await?;
             runtime.link().set_up(&name).await?;
             let Some(link) = runtime.link().link(&name).await? else {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "bridge link is missing after creation",
-                ));
+                return Err(LoopError::MissingBridge);
             };
             pending.push_back(Pending::BridgeReady {
                 name,

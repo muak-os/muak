@@ -10,10 +10,11 @@ mod socket;
 mod udp;
 
 use alloc::collections::VecDeque;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind};
 use std::sync::Mutex;
 use std::time::{Instant, SystemTime};
 
+use crate::error::{Result, RuntimeError};
 use crate::{Runtime, SocketId};
 
 /// Deterministic in-memory runtime.
@@ -181,14 +182,14 @@ fn copy_into(bytes: &[u8], buf: &mut [u8]) -> usize {
     len
 }
 
-fn not_found() -> Error {
-    Error::from(ErrorKind::NotFound)
+fn not_found() -> RuntimeError {
+    RuntimeError::Io(Error::from(ErrorKind::NotFound))
 }
 
-fn would_block() -> Error {
-    Error::from(ErrorKind::WouldBlock)
+fn would_block() -> RuntimeError {
+    RuntimeError::Io(Error::from(ErrorKind::WouldBlock))
 }
 
-fn invalid_input() -> Error {
-    Error::from(ErrorKind::InvalidInput)
+fn invalid_input() -> RuntimeError {
+    RuntimeError::Io(Error::from(ErrorKind::InvalidInput))
 }

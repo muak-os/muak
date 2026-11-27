@@ -4,6 +4,8 @@
 
 extern crate alloc;
 
+pub mod error;
+
 mod driver;
 mod effects;
 mod events;

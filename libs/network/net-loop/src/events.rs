@@ -1,10 +1,10 @@
 //! Link events applied to the controllers before the supervisor sees them.
 
-use std::io;
 use std::time::{Instant, SystemTime};
 
 use net_runtime::Link as _;
 
+use crate::error::Result;
 use crate::pending::Pending;
 use crate::{Loop, driver, feedback};
 
@@ -13,7 +13,7 @@ pub(crate) async fn link_event<R: net_runtime::Runtime>(
     now: Instant,
     wall: SystemTime,
     event: netmodel::LinkEvent,
-) -> io::Result<()> {
+) -> Result<()> {
     let applied = if let Some(name) = event_name(&event).cloned() {
         apply_carrier(driver, now, wall, &event, &name).await
     } else {
@@ -35,7 +35,7 @@ pub(crate) async fn interface_link<R: net_runtime::Runtime>(
     wall: SystemTime,
     name: &netmodel::Name,
     info: ip_method::LinkInfo,
-) -> io::Result<()> {
+) -> Result<()> {
     if !driver.names.contains(name) {
         return Ok(());
     }
@@ -49,7 +49,7 @@ async fn apply_carrier<R: net_runtime::Runtime>(
     wall: SystemTime,
     event: &netmodel::LinkEvent,
     name: &netmodel::Name,
-) -> io::Result<()> {
+) -> Result<()> {
     let Some(info) = event_link(driver, event).await? else {
         return Ok(());
     };
@@ -69,7 +69,7 @@ async fn apply_carrier<R: net_runtime::Runtime>(
 async fn event_link<R: net_runtime::Runtime>(
     driver: &Loop<R>,
     event: &netmodel::LinkEvent,
-) -> io::Result<Option<ip_method::LinkInfo>> {
+) -> Result<Option<ip_method::LinkInfo>> {
     let Some(name) = event_name(event) else {
         return Ok(None);
     };

@@ -9,40 +9,41 @@ use net_runtime::SocketId;
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
+use crate::error::Result;
 use crate::socket;
 
 impl net_runtime::Icmpv6 for super::Tokio {
-    fn close(&self, id: SocketId) -> impl Future<Output = io::Result<()>> + Send {
-        close(self, id)
+    async fn close(&self, id: SocketId) -> net_runtime::error::Result<()> {
+        Ok(close(self, id).await?)
     }
 
-    fn open(&self, spec: &SocketSpec) -> impl Future<Output = io::Result<SocketId>> + Send {
-        open(self, spec)
+    async fn open(&self, spec: &SocketSpec) -> net_runtime::error::Result<SocketId> {
+        Ok(open(self, spec).await?)
     }
 
-    fn recv(
+    async fn recv(
         &self,
         id: SocketId,
         buf: &mut [u8],
-    ) -> impl Future<Output = io::Result<(usize, Option<Ipv6Addr>)>> + Send {
-        recv(self, id, buf)
+    ) -> net_runtime::error::Result<(usize, Option<Ipv6Addr>)> {
+        Ok(recv(self, id, buf).await?)
     }
 
-    fn send(
+    async fn send(
         &self,
         id: SocketId,
         dst: Ipv6Addr,
         payload: &[u8],
-    ) -> impl Future<Output = io::Result<usize>> + Send {
-        send(self, id, dst, payload)
+    ) -> net_runtime::error::Result<usize> {
+        Ok(send(self, id, dst, payload).await?)
     }
 }
 
-async fn close(runtime: &super::Tokio, id: SocketId) -> io::Result<()> {
+async fn close(runtime: &super::Tokio, id: SocketId) -> Result<()> {
     runtime.icmpv6.close(id).await
 }
 
-async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> io::Result<SocketId> {
+async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> Result<SocketId> {
     if spec.kind != SocketKind::RawIcmpv6 {
         return Err(socket::invalid_input(
             "icmpv6 port requires a raw ICMPv6 socket",
@@ -51,7 +52,7 @@ async fn open(runtime: &super::Tokio, spec: &SocketSpec) -> io::Result<SocketId>
 
     let fd = icmpv6_linux::open(&spec.link)?;
     // SAFETY: the runtime owns the descriptor for the whole registration.
-    let socket = unsafe { AsyncFd::register(fd) }?;
+    let socket = unsafe { AsyncFd::register(fd) }.map_err(io::Error::from)?;
 
     Ok(runtime.icmpv6.insert(&runtime.ids, socket).await)
 }
@@ -60,13 +61,15 @@ async fn recv(
     runtime: &super::Tokio,
     id: SocketId,
     buf: &mut [u8],
-) -> io::Result<(usize, Option<Ipv6Addr>)> {
+) -> Result<(usize, Option<Ipv6Addr>)> {
     let sockets = runtime.icmpv6.read().await;
     let socket = sockets.get(&id).ok_or_else(socket::not_found)?;
 
-    socket
-        .async_io(Interest::READABLE, |fd| icmpv6_linux::recv(fd.as_fd(), buf))
-        .await
+    Ok(socket
+        .async_io(Interest::READABLE, |fd| {
+            icmpv6_linux::recv(fd.as_fd(), buf).map_err(io::Error::from)
+        })
+        .await?)
 }
 
 async fn send(
@@ -74,13 +77,13 @@ async fn send(
     id: SocketId,
     dst: Ipv6Addr,
     payload: &[u8],
-) -> io::Result<usize> {
+) -> Result<usize> {
     let sockets = runtime.icmpv6.read().await;
     let socket = sockets.get(&id).ok_or_else(socket::not_found)?;
 
-    socket
+    Ok(socket
         .async_io(Interest::WRITABLE, |fd| {
-            icmpv6_linux::send(fd.as_fd(), dst, payload)
+            icmpv6_linux::send(fd.as_fd(), dst, payload).map_err(io::Error::from)
         })
-        .await
+        .await?)
 }

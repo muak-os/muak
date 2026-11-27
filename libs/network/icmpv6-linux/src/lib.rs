@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+pub mod error;
+
 use core::mem::size_of;
 use core::net::{Ipv6Addr, SocketAddrV6};
 use std::io;
@@ -10,6 +12,8 @@ use std::os::fd::{AsFd as _, AsRawFd as _, BorrowedFd, OwnedFd};
 use netmodel::Name;
 use rustix::net;
 use rustix::net::ipproto;
+
+use crate::error::{Icmpv6Error, Result};
 
 const ICMP6_FILTER: libc::c_int = 1;
 const FILTER_WORDS: usize = 8;
@@ -33,8 +37,11 @@ impl Filter {
 ///
 /// # Errors
 ///
-/// Returns an error when socket creation, `SO_BINDTODEVICE`, or the `ICMP6_FILTER` option fails.
-pub fn open(link: &Name) -> io::Result<OwnedFd> {
+/// Returns [`Icmpv6Error::InvalidDevice`] when the link name cannot be applied, [`Icmpv6Error::InvalidDeviceLength`] when
+/// the name length does not fit the `socklen_t` range, [`Icmpv6Error::InvalidFilter`] when the filter length does not fit
+/// the `socklen_t` range, and [`Icmpv6Error::Io`] when socket creation, `SO_BINDTODEVICE`, or the `ICMP6_FILTER` option
+/// fails.
+pub fn open(link: &Name) -> Result<OwnedFd> {
     let fd = net::socket_with(
         net::AddressFamily::INET6,
         net::SocketType::RAW,
@@ -53,33 +60,35 @@ pub fn open(link: &Name) -> io::Result<OwnedFd> {
 ///
 /// # Errors
 ///
-/// Returns an error when the send fails. [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
-pub fn send(fd: BorrowedFd<'_>, dst: Ipv6Addr, payload: &[u8]) -> io::Result<usize> {
+/// Returns [`Icmpv6Error::Io`] when the send fails. [`std::io::ErrorKind::WouldBlock`] is a normal result for a non
+/// blocking socket.
+pub fn send(fd: BorrowedFd<'_>, dst: Ipv6Addr, payload: &[u8]) -> Result<usize> {
     let addr = SocketAddrV6::new(dst, 0, 0, 0);
 
-    net::sendto(fd, payload, net::SendFlags::empty(), &addr).map_err(io::Error::from)
+    let length =
+        net::sendto(fd, payload, net::SendFlags::empty(), &addr).map_err(io::Error::from)?;
+
+    Ok(length)
 }
 
 /// Receives one datagram into `buf`, returning its length and its IPv6 source.
 ///
 /// # Errors
 ///
-/// Returns an error when the receive fails. [`io::ErrorKind::WouldBlock`] is a normal result for a non blocking socket.
-pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<(usize, Option<Ipv6Addr>)> {
-    net::recvfrom(fd, buf, net::RecvFlags::empty())
-        .map(|(_flags, len, addr)| (len, source_address(addr)))
-        .map_err(io::Error::from)
+/// Returns [`Icmpv6Error::Io`] when the receive fails. [`std::io::ErrorKind::WouldBlock`] is a normal result for a non
+/// blocking socket.
+pub fn recv(fd: BorrowedFd<'_>, buf: &mut [u8]) -> Result<(usize, Option<Ipv6Addr>)> {
+    let (_flags, length, addr) =
+        net::recvfrom(fd, buf, net::RecvFlags::empty()).map_err(io::Error::from)?;
+
+    Ok((length, source_address(addr)))
 }
 
-fn bind_device(fd: BorrowedFd<'_>, device: &str) -> io::Result<()> {
+fn bind_device(fd: BorrowedFd<'_>, device: &str) -> Result<()> {
     let mut name = [0_u8; IF_NAME_MAX];
     let length = copy_device_name(&mut name, device)?;
-    let length = libc::socklen_t::try_from(length).map_err(|_error| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "device name length exceeds socklen_t range",
-        )
-    })?;
+    let length =
+        libc::socklen_t::try_from(length).map_err(|_error| Icmpv6Error::InvalidDeviceLength)?;
 
     // SAFETY: `name` holds a NUL terminated device name of `length` bytes and `fd` is a socket.
     let result = unsafe {
@@ -95,18 +104,15 @@ fn bind_device(fd: BorrowedFd<'_>, device: &str) -> io::Result<()> {
     if result == 0 {
         Ok(())
     } else {
-        Err(io::Error::last_os_error())
+        Err(Icmpv6Error::Io(io::Error::last_os_error()))
     }
 }
 
-fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> io::Result<usize> {
+fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> Result<usize> {
     let bytes = device.as_bytes();
     let length = bytes.len().saturating_add(1);
     if bytes.is_empty() || length > buffer.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "device name does not fit the SO_BINDTODEVICE buffer",
-        ));
+        return Err(Icmpv6Error::InvalidDevice);
     }
 
     buffer.fill(0);
@@ -116,13 +122,9 @@ fn copy_device_name(buffer: &mut [u8; IF_NAME_MAX], device: &str) -> io::Result<
     Ok(length)
 }
 
-fn apply_filter(fd: BorrowedFd<'_>, filter: &Filter) -> io::Result<()> {
-    let length = libc::socklen_t::try_from(size_of::<Filter>()).map_err(|_error| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "ICMP6_FILTER length exceeds socklen_t range",
-        )
-    })?;
+fn apply_filter(fd: BorrowedFd<'_>, filter: &Filter) -> Result<()> {
+    let length = libc::socklen_t::try_from(size_of::<Filter>())
+        .map_err(|_error| Icmpv6Error::InvalidFilter)?;
 
     // SAFETY: `filter` is a fully initialized `icmp6_filter` of `length` bytes and `fd` is a socket.
     let result = unsafe {
@@ -138,7 +140,7 @@ fn apply_filter(fd: BorrowedFd<'_>, filter: &Filter) -> io::Result<()> {
     if result == 0 {
         Ok(())
     } else {
-        Err(io::Error::last_os_error())
+        Err(Icmpv6Error::Io(io::Error::last_os_error()))
     }
 }
 
@@ -197,7 +199,7 @@ mod tests {
         let result = copy_device_name(&mut buffer, &too_long);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(Icmpv6Error::InvalidDevice)));
     }
 
     #[test]
@@ -223,7 +225,7 @@ mod tests {
         let result = apply_filter(socket.as_fd(), &Filter::allow_all());
 
         // ASSERT
-        assert!(result.is_err());
+        assert!(matches!(result, Err(Icmpv6Error::Io(_))));
     }
 
     #[test]

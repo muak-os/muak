@@ -1,9 +1,8 @@
 //! Default route port implementation for the deterministic mock runtime.
 
-use std::io::Result;
-
 use super::{Mock, State};
 use crate::Route;
+use crate::error::Result;
 
 impl Route for Mock {
     fn ensure_default(

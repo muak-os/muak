@@ -2,12 +2,15 @@
 
 use std::io;
 
+use crate::error::{NetSysError, Result};
+
 /// Resolves an interface name to its kernel index.
 ///
 /// # Errors
 ///
-/// Returns [`io::ErrorKind::NotFound`] when the link does not exist and propagates any other operating system error.
-pub fn resolve(name: &netmodel::Name) -> io::Result<u32> {
+/// Returns [`NetSysError::NotFound`] when the link does not exist and [`NetSysError::Io`] for any other operating system
+/// error.
+pub fn resolve(name: &netmodel::Name) -> Result<u32> {
     let text = name.as_str();
     let mut buffer = [0_u8; 16];
     for (slot, byte) in buffer.iter_mut().zip(text.bytes()) {
@@ -23,13 +26,10 @@ pub fn resolve(name: &netmodel::Name) -> io::Result<u32> {
     Ok(index)
 }
 
-fn missing(name: &netmodel::Name, error: io::Error) -> io::Error {
+fn missing(name: &netmodel::Name, error: io::Error) -> NetSysError {
     match error.raw_os_error() {
-        Some(libc::ENODEV | libc::ENXIO) => io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("link {name} does not exist"),
-        ),
-        _ => error,
+        Some(libc::ENODEV | libc::ENXIO) => NetSysError::NotFound(name.clone()),
+        _ => NetSysError::Io(error),
     }
 }
 
@@ -58,9 +58,6 @@ mod tests {
         let result = resolve(&name);
 
         // ASSERT
-        assert!(matches!(
-            result,
-            Err(error) if error.kind() == io::ErrorKind::NotFound
-        ));
+        assert!(matches!(result, Err(NetSysError::NotFound(_))));
     }
 }

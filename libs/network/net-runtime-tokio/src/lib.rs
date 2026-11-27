@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+pub mod error;
+
 mod address;
 mod clock;
 mod control;
@@ -46,7 +48,7 @@ impl Tokio {
     /// # Errors
     ///
     /// Returns an error when the netlink socket cannot be opened.
-    pub fn new() -> std::io::Result<Self> {
+    pub fn new() -> error::Result<Self> {
         let (link, messages) = control::connect()?;
         let events = event::Events::new(messages, link.clone());
 

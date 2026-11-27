@@ -15,6 +15,9 @@ ipv4 = ["iface/ipv4", "net-supervisor/ipv4"]
 ipv6 = ["iface/ipv6", "net-supervisor/ipv6"]
 
 [dependencies]
+# Error handling
+thiserror = { workspace = true }
+
 # Asynchronous
 futures-util = { workspace = true, features = ["async-await"] }
 

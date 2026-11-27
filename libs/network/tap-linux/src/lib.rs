@@ -2,11 +2,15 @@
 
 #![warn(missing_docs)]
 
+pub mod error;
+
 use std::io;
 use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
 
 use rustix::fs::{Mode, OFlags, open};
 use rustix::ioctl::{Opcode, Setter, ioctl, opcode};
+
+use crate::error::{Result, TapError};
 
 const TUN_DEVICE: &str = "/dev/net/tun";
 const IF_NAME_MAX: usize = libc::IFNAMSIZ;
@@ -32,9 +36,9 @@ struct IfReq {
 ///
 /// # Errors
 ///
-/// Returns an error when the name is invalid, the tun device cannot be opened, or the `TUNSETIFF` or `TUNSETPERSIST`
-/// ioctls fail.
-pub fn create(name: &str) -> io::Result<OwnedFd> {
+/// Returns [`TapError::InvalidName`] when the name is empty or does not fit `IFNAMSIZ`, and [`TapError::Io`] when the tun
+/// device cannot be opened or the `TUNSETIFF` or `TUNSETPERSIST` ioctls fail.
+pub fn create(name: &str) -> Result<OwnedFd> {
     let fd = attach(name)?;
     set_persist(fd.as_fd(), PERSIST)?;
 
@@ -45,17 +49,18 @@ pub fn create(name: &str) -> io::Result<OwnedFd> {
 ///
 /// # Errors
 ///
-/// Returns an error when the name is invalid or the tun device cannot be opened. Both ioctls also fail when the device
-/// cannot be changed: `TUNSETIFF` returns `EBUSY` while another queue holder keeps the device attached, `EPERM` without
-/// `CAP_NET_ADMIN`, and `EINVAL` when the name exists but is not a TAP device or was created with different queue
-/// flags. The kernel error is kept in the returned [`io::Error`].
-pub fn delete(name: &str) -> io::Result<()> {
+/// Returns [`TapError::InvalidName`] when the name is empty or does not fit `IFNAMSIZ`, and [`TapError::Io`] when the tun
+/// device cannot be opened or an ioctl fails. Both ioctls also fail when the device cannot be changed: `TUNSETIFF`
+/// returns `EBUSY` while another queue holder keeps the device attached, `EPERM` without `CAP_NET_ADMIN`, and `EINVAL`
+/// when the name exists but is not a TAP device or was created with different queue flags. The kernel
+/// [`std::io::Error`] is kept as the source of [`TapError::Io`].
+pub fn delete(name: &str) -> Result<()> {
     let fd = attach(name)?;
 
     set_persist(fd.as_fd(), NON_PERSIST)
 }
 
-fn attach(name: &str) -> io::Result<OwnedFd> {
+fn attach(name: &str) -> Result<OwnedFd> {
     let ifr = IfReq {
         ifr_name: build_ifreq_name(name)?,
         ifr_flags: IFF_TAP | IFF_NO_PI | IFF_VNET_HDR,
@@ -78,7 +83,7 @@ fn attach(name: &str) -> io::Result<OwnedFd> {
     Ok(fd)
 }
 
-fn set_persist(fd: BorrowedFd<'_>, persist: libc::c_int) -> io::Result<()> {
+fn set_persist(fd: BorrowedFd<'_>, persist: libc::c_int) -> Result<()> {
     let set_persist = unsafe {
         // SAFETY: `Setter::new` packages the persistence flag for `TUNSETPERSIST`.
         Setter::<TUNSETPERSIST, libc::c_int>::new(persist)
@@ -88,17 +93,16 @@ fn set_persist(fd: BorrowedFd<'_>, persist: libc::c_int) -> io::Result<()> {
         // SAFETY: The opcode and argument layout match the `TUNSETPERSIST` ioctl contract.
         ioctl(fd, set_persist)
     }
-    .map_err(io::Error::from)
+    .map_err(io::Error::from)?;
+
+    Ok(())
 }
 
-fn build_ifreq_name(name: &str) -> io::Result<[u8; IF_NAME_MAX]> {
+const fn build_ifreq_name(name: &str) -> Result<[u8; IF_NAME_MAX]> {
     let bytes = name.as_bytes();
     let length = bytes.len().saturating_add(1);
     if bytes.is_empty() || length > IF_NAME_MAX {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "tap name must be non empty and shorter than IFNAMSIZ",
-        ));
+        return Err(TapError::InvalidName);
     }
 
     let mut ifr_name = [0_u8; IF_NAME_MAX];
@@ -135,7 +139,7 @@ mod tests {
         let result = build_ifreq_name(name);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(TapError::InvalidName)));
     }
 
     #[test]
@@ -147,7 +151,7 @@ mod tests {
         let result = build_ifreq_name(name);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(TapError::InvalidName)));
     }
 
     #[test]
@@ -172,7 +176,7 @@ mod tests {
         let result = create(name);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(TapError::InvalidName)));
     }
 
     #[test]
@@ -184,6 +188,6 @@ mod tests {
         let result = delete(name);
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(result, Err(TapError::InvalidName)));
     }
 }

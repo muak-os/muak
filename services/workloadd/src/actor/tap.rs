@@ -1,21 +1,18 @@
 //! TAP device setup and teardown for VM networking.
 
-use std::io::{Error, ErrorKind};
+use std::io::ErrorKind;
 use std::time::Duration;
 
-use anyhow::Context as _;
+use anyhow::{Context as _, Result};
 use net_runtime::Link as _;
 use net_runtime_tokio::Tokio;
 use netmodel::Name;
+use tap_linux::error::TapError;
 
 const DELETE_ATTEMPTS: usize = 20;
 const DELETE_RETRY_DELAY: Duration = Duration::from_millis(100);
 
-pub(super) async fn setup(
-    runtime: &Tokio,
-    tap_name: &str,
-    bridge_name: &str,
-) -> anyhow::Result<()> {
+pub(super) async fn setup(runtime: &Tokio, tap_name: &str, bridge_name: &str) -> Result<()> {
     let (tap, bridge) = names(tap_name, bridge_name)?;
 
     let queue = tap_linux::create(tap.as_str()).context("failed to create TAP device")?;
@@ -45,7 +42,7 @@ pub(super) async fn remove(tap_name: &str) {
     }
 }
 
-async fn configure(runtime: &Tokio, tap: &Name, bridge: &Name) -> anyhow::Result<()> {
+async fn configure(runtime: &Tokio, tap: &Name, bridge: &Name) -> Result<()> {
     runtime
         .set_up(tap)
         .await
@@ -58,11 +55,12 @@ async fn configure(runtime: &Tokio, tap: &Name, bridge: &Name) -> anyhow::Result
     Ok(())
 }
 
-fn should_retry(error: &Error, attempt: usize) -> bool {
-    error.kind() == ErrorKind::ResourceBusy && attempt < DELETE_ATTEMPTS
+fn should_retry(error: &TapError, attempt: usize) -> bool {
+    matches!(error, TapError::Io(source) if source.kind() == ErrorKind::ResourceBusy)
+        && attempt < DELETE_ATTEMPTS
 }
 
-fn names(tap_name: &str, bridge_name: &str) -> anyhow::Result<(Name, Name)> {
+fn names(tap_name: &str, bridge_name: &str) -> Result<(Name, Name)> {
     let tap = Name::new(tap_name).context("invalid TAP device name")?;
     let bridge = Name::new(bridge_name).context("invalid bridge name")?;
 

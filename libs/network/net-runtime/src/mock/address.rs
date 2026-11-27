@@ -1,9 +1,8 @@
 //! Address port implementation for the deterministic mock runtime.
 
-use std::io::Result;
-
 use super::{Mock, State};
 use crate::Address;
+use crate::error::Result;
 
 impl Address for Mock {
     fn add(

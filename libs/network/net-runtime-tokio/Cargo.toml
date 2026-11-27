@@ -10,6 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+# Error handling
+thiserror = { workspace = true }
+
 # Asynchronous
 futures-channel = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { workspace = true }

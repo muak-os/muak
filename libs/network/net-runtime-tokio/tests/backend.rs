@@ -6,6 +6,7 @@ mod backend {
     use std::time::{Duration, SystemTime};
 
     use ip_method::{SocketKind, SocketSlot, SocketSpec};
+    use net_runtime::error::RuntimeError;
     use net_runtime_tokio::Tokio;
     use netmodel::Name;
     use tokio::time::timeout;
@@ -159,6 +160,9 @@ mod backend {
         let result = net_runtime::Packet::open(&runtime, &spec).await;
 
         // ASSERT
-        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(matches!(
+            result,
+            Err(RuntimeError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput
+        ));
     }
 }

@@ -1,8 +1,8 @@
 //! Runtime loop that drives the network supervisor and writes the resolver.
 
-use std::io;
 use std::time::{Duration, Instant, SystemTime};
 
+use anyhow::Result;
 use granola::runtime::notify::{Health, Notifier};
 use granola::runtime::signal::shutdown;
 use net_loop::{Loop, Progress};
@@ -51,7 +51,7 @@ impl<R: Runtime> Service<R> {
     /// # Errors
     ///
     /// Returns the error a runtime port reported while draining the loop.
-    pub async fn start(&mut self) -> io::Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         self.driver.start(Instant::now()).await;
 
         self.settle().await
@@ -62,7 +62,7 @@ impl<R: Runtime> Service<R> {
     /// # Errors
     ///
     /// Returns the error a runtime port reported while stepping or waiting.
-    pub async fn wait_ready(&mut self, timeout: Duration) -> io::Result<Readiness> {
+    pub async fn wait_ready(&mut self, timeout: Duration) -> Result<Readiness> {
         let deadline = Instant::now().checked_add(timeout);
         self.settle().await?;
 
@@ -74,7 +74,7 @@ impl<R: Runtime> Service<R> {
     /// # Errors
     ///
     /// Returns the error a runtime port reported while stepping, waiting, or notifying the supervisor.
-    pub async fn run(&mut self, notifier: &Notifier) -> io::Result<()> {
+    pub async fn run(&mut self, notifier: &Notifier) -> Result<()> {
         self.settle().await?;
         self.report(notifier)?;
 
@@ -86,7 +86,7 @@ impl<R: Runtime> Service<R> {
         Ok(())
     }
 
-    async fn await_ready(&mut self, deadline: Option<Instant>) -> io::Result<Readiness> {
+    async fn await_ready(&mut self, deadline: Option<Instant>) -> Result<Readiness> {
         let mut outcome = None;
         while outcome.is_none() && !ready(self.driver.status().state) {
             outcome = self.wait_within(deadline).await?;
@@ -95,7 +95,7 @@ impl<R: Runtime> Service<R> {
         Ok(outcome.unwrap_or(Readiness::Ready))
     }
 
-    async fn wait_within(&mut self, deadline: Option<Instant>) -> io::Result<Option<Readiness>> {
+    async fn wait_within(&mut self, deadline: Option<Instant>) -> Result<Option<Readiness>> {
         let Some(deadline) = deadline else {
             return Ok(Some(Readiness::Degraded));
         };
@@ -110,7 +110,7 @@ impl<R: Runtime> Service<R> {
         Ok(None)
     }
 
-    async fn settle(&mut self) -> io::Result<()> {
+    async fn settle(&mut self) -> Result<()> {
         let now = Instant::now();
         let wall = SystemTime::now();
         while self.drain_step(now, wall).await? == Progress::Worked {}
@@ -126,11 +126,11 @@ impl<R: Runtime> Service<R> {
         Ok(())
     }
 
-    async fn drain_step(&mut self, now: Instant, wall: SystemTime) -> io::Result<Progress> {
+    async fn drain_step(&mut self, now: Instant, wall: SystemTime) -> Result<Progress> {
         let stepped = self.driver.step(now, wall).await;
         self.flush_observations();
 
-        stepped
+        Ok(stepped?)
     }
 
     fn flush_observations(&mut self) {
@@ -139,7 +139,7 @@ impl<R: Runtime> Service<R> {
         }
     }
 
-    fn report(&mut self, notifier: &Notifier) -> io::Result<()> {
+    fn report(&mut self, notifier: &Notifier) -> Result<()> {
         let status = status(self.driver.status().state);
         if status.map(|(_, health)| health) == self.reported {
             return Ok(());
@@ -153,7 +153,7 @@ impl<R: Runtime> Service<R> {
         Ok(())
     }
 
-    async fn wait(&mut self, limit: Option<Instant>) -> io::Result<bool> {
+    async fn wait(&mut self, limit: Option<Instant>) -> Result<bool> {
         let wake = match (self.driver.next_wake(Instant::now()), limit) {
             (Some(wake), Some(limit)) => Some(wake.min(limit)),
             (wake, None) | (None, wake) => wake,

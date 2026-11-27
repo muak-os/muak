@@ -1,9 +1,8 @@
 //! Link port implementation for the deterministic mock runtime.
 
-use std::io::Result;
-
 use super::{Mock, State};
 use crate::Link;
+use crate::error::Result;
 
 impl Link for Mock {
     fn detach(&self, port: &netmodel::Name) -> impl Future<Output = Result<()>> + Send {

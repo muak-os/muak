@@ -5,13 +5,13 @@ mod socket;
 pub(crate) mod supervisor;
 
 use alloc::collections::VecDeque;
-use std::io;
 
 use net_observe::journal::Journal;
 use net_runtime::{Entropy as _, Link as _};
 pub(crate) use socket::release;
 
 use crate::SocketTable;
+use crate::error::Result;
 use crate::pending::Pending;
 
 /// Executes one interface effect with the owning interface name in scope.
@@ -22,10 +22,18 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
     pending: &mut VecDeque<Pending>,
     journal: &mut Journal,
     effect: iface::Effect<'_>,
-) -> io::Result<()> {
+) -> Result<()> {
     match effect {
-        iface::Effect::SetLinkUp { link } => runtime.link().set_up(&link).await,
-        iface::Effect::SetLinkDown { link } => runtime.link().set_down(&link).await,
+        iface::Effect::SetLinkUp { link } => {
+            runtime.link().set_up(&link).await?;
+
+            Ok(())
+        }
+        iface::Effect::SetLinkDown { link } => {
+            runtime.link().set_down(&link).await?;
+
+            Ok(())
+        }
         iface::Effect::AddAddress {
             link,
             address,

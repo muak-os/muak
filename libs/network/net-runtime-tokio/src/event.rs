@@ -11,6 +11,7 @@ use netmodel::{LinkEvent, LinkState};
 use tokio::sync::Mutex;
 
 use crate::control::{self, Messages};
+use crate::error::{Result, TokioError};
 
 pub(crate) struct Events {
     state: Mutex<State>,
@@ -37,18 +38,18 @@ impl Events {
         }
     }
 
-    pub(crate) async fn next(&self) -> io::Result<LinkEvent> {
+    pub(crate) async fn next(&self) -> Result<LinkEvent> {
         drain(&self.state).await
     }
 }
 
 impl net_runtime::Events for super::Tokio {
-    fn next(&self) -> impl Future<Output = io::Result<LinkEvent>> + Send {
-        self.events.next()
+    async fn next(&self) -> net_runtime::error::Result<LinkEvent> {
+        Ok(self.events.next().await?)
     }
 }
 
-async fn drain(state: &Mutex<State>) -> io::Result<LinkEvent> {
+async fn drain(state: &Mutex<State>) -> Result<LinkEvent> {
     let mut state = state.lock().await;
     seed(&mut state).await;
 
@@ -75,19 +76,19 @@ async fn seed(state: &mut State) {
         .collect();
 }
 
-async fn step(state: &mut State) -> io::Result<Option<LinkEvent>> {
+async fn step(state: &mut State) -> Result<Option<LinkEvent>> {
     match state.messages.next().await {
         Some((message, _source)) => Ok(classify(message.payload, &mut state.previous)),
         None => closed(state),
     }
 }
 
-fn closed(state: &mut State) -> io::Result<Option<LinkEvent>> {
+fn closed(state: &mut State) -> Result<Option<LinkEvent>> {
     if state.closed {
-        return Err(io::Error::new(
+        return Err(TokioError::Io(io::Error::new(
             io::ErrorKind::BrokenPipe,
             "netlink event stream closed",
-        ));
+        )));
     }
 
     state.closed = true;
