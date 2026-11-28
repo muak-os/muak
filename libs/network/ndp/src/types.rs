@@ -204,6 +204,10 @@ fn address_at(data: &[u8], offset: usize) -> core::option::Option<Ipv6Addr> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::net::Ipv6Addr;
 
     use super::{Option, Options, PrefixInformation};

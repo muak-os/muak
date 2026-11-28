@@ -126,6 +126,10 @@ fn options(message: &[u8]) -> Result<&[u8]> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::net::Ipv6Addr;
 
     use super::{neighbor_advertisement, neighbor_solicitation, router_advertisement};

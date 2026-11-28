@@ -186,6 +186,9 @@ fn write_recursive_dns_servers(
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::vec::Vec;
     use core::net::Ipv6Addr;
 
     use super::{Advertisement, advertisement};

@@ -1,5 +1,6 @@
-//! RFC 4861 Neighbor Discovery message codec over RFC 4443 `ICMPv6` framing.
+//! No std, sans-io, allocation-free RFC 4861 Neighbor Discovery message codec over RFC 4443 `ICMPv6` framing.
 
+#![no_std]
 #![warn(missing_docs)]
 
 pub mod build;
