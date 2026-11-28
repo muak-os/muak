@@ -1,6 +1,6 @@
 [package]
 name = "dhcp-proto"
-description = "RFC 2131/2132 DHCPv4 message codec"
+description = "No std, sans-io, allocation-free RFC 2131/2132 DHCPv4 message codec"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ categories.workspace = true
 
 [dependencies]
 # Error handling
-thiserror = { workspace = true }
+thiserror = { workspace = true, default-features = false }
 
 [lints]
 workspace = true

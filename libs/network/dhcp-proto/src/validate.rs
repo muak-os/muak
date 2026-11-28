@@ -11,7 +11,7 @@ use crate::error::{DhcpProtoError, Result};
 /// options, [`DhcpProtoError::XidMismatch`] when the transaction ID belongs to another exchange, [`DhcpProtoError::Nak`] when the
 /// server refused the request, [`DhcpProtoError::MessageType`] when the message type is not `expected_type`, and
 /// [`DhcpProtoError::MissingMessageType`] when the option is absent.
-pub fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<ParsedOptions> {
+pub fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<ParsedOptions<'_>> {
     let options_start = field::HEADER_LEN.saturating_add(MAGIC_COOKIE.len());
     if buf.len() < options_start {
         return Err(DhcpProtoError::ResponseTooShort(buf.len()));
@@ -39,6 +39,10 @@ pub fn response(buf: &[u8], expected_xid: u32, expected_type: u8) -> Result<Pars
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::vec::Vec;
+
     use super::*;
     use crate::{header, option};
 

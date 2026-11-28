@@ -24,7 +24,7 @@ impl Lease {
         obtained_at: SystemTime,
         assigned_ip: Ipv4Addr,
         server_ip: Ipv4Addr,
-        options: ParsedOptions,
+        options: ParsedOptions<'_>,
     ) -> Self {
         let lease_seconds = options.lease_time.unwrap_or(DEFAULT_LEASE_SECS);
         let prefix_len = options.subnet_mask.map_or(DEFAULT_PREFIX_LEN, |mask| {
@@ -44,7 +44,7 @@ impl Lease {
             assigned_ip,
             prefix_len,
             gateway: options.router,
-            dns_servers: options.dns_servers,
+            dns_servers: options.dns_servers.collect(),
         }
     }
 }
@@ -54,7 +54,7 @@ mod tests {
     use core::time::Duration;
     use std::time::SystemTime;
 
-    use dhcp_proto::message_type;
+    use dhcp_proto::{message_type, options};
 
     use super::*;
 
@@ -108,14 +108,9 @@ mod tests {
     #[test]
     fn from_ack_defaults() {
         // ARRANGE
-        let options = ParsedOptions {
-            message_type: Some(message_type::ACK),
-            server_id: Some(Ipv4Addr::new(192, 168, 1, 1)),
-            subnet_mask: None,
-            router: None,
-            dns_servers: Vec::new(),
-            lease_time: None,
-        };
+        let mut options = options::parse(&[]);
+        options.message_type = Some(message_type::ACK);
+        options.server_id = Some(Ipv4Addr::new(192, 168, 1, 1));
 
         // ACT
         let lease = Lease::from_ack(
@@ -142,14 +137,9 @@ mod tests {
         // ARRANGE
         let started_with = Ipv4Addr::new(192, 168, 1, 1);
         let answered_by = Ipv4Addr::new(192, 168, 1, 254);
-        let options = ParsedOptions {
-            message_type: Some(message_type::ACK),
-            server_id: Some(answered_by),
-            subnet_mask: None,
-            router: None,
-            dns_servers: Vec::new(),
-            lease_time: None,
-        };
+        let mut options = options::parse(&[]);
+        options.message_type = Some(message_type::ACK);
+        options.server_id = Some(answered_by);
 
         // ACT
         let lease = Lease::from_ack(
@@ -167,14 +157,8 @@ mod tests {
     fn from_ack_keeps_server_without_identifier() {
         // ARRANGE
         let started_with = Ipv4Addr::new(192, 168, 1, 1);
-        let options = ParsedOptions {
-            message_type: Some(message_type::ACK),
-            server_id: None,
-            subnet_mask: None,
-            router: None,
-            dns_servers: Vec::new(),
-            lease_time: None,
-        };
+        let mut options = options::parse(&[]);
+        options.message_type = Some(message_type::ACK);
 
         // ACT
         let lease = Lease::from_ack(
@@ -191,14 +175,13 @@ mod tests {
     #[test]
     fn from_ack_with_all_options() {
         // ARRANGE
-        let options = ParsedOptions {
-            message_type: Some(message_type::ACK),
-            server_id: Some(Ipv4Addr::new(192, 168, 1, 1)),
-            subnet_mask: Some(Ipv4Addr::new(255, 255, 255, 0)),
-            router: Some(Ipv4Addr::new(192, 168, 1, 1)),
-            dns_servers: vec![Ipv4Addr::new(8, 8, 8, 8)],
-            lease_time: Some(7200),
-        };
+        let dns = [6, 4, 8, 8, 8, 8];
+        let mut options = options::parse(&dns);
+        options.message_type = Some(message_type::ACK);
+        options.server_id = Some(Ipv4Addr::new(192, 168, 1, 1));
+        options.subnet_mask = Some(Ipv4Addr::new(255, 255, 255, 0));
+        options.router = Some(Ipv4Addr::new(192, 168, 1, 1));
+        options.lease_time = Some(7200);
 
         // ACT
         let lease = Lease::from_ack(

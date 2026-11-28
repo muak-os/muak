@@ -127,12 +127,12 @@ fn acknowledged(
     state::bind(method, now, kind, lease);
 }
 
-fn accept(
+fn accept<'a>(
     method: &mut Dhcp,
     now: Instant,
     kind: Transmit,
-    payload: &[u8],
-) -> Option<ParsedOptions> {
+    payload: &'a [u8],
+) -> Option<ParsedOptions<'a>> {
     match validate::response(payload, method.xid, kind.expected()) {
         Ok(options) => Some(options),
         Err(DhcpProtoError::Nak) => {

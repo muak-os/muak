@@ -3,17 +3,17 @@
 use core::net::Ipv4Addr;
 
 use super::option;
-use crate::ParsedOptions;
+use crate::{DnsServers, ParsedOptions};
 
 /// Parses the options section of a DHCP response (after the magic cookie).
 #[must_use = "the parsed options hold the response fields"]
-pub fn parse(options_bytes: &[u8]) -> ParsedOptions {
+pub fn parse(options_bytes: &[u8]) -> ParsedOptions<'_> {
     let mut parsed = ParsedOptions {
         message_type: None,
         server_id: None,
         subnet_mask: None,
         router: None,
-        dns_servers: Vec::new(),
+        dns_servers: DnsServers::new(options_bytes),
         lease_time: None,
     };
 
@@ -52,14 +52,6 @@ pub fn parse(options_bytes: &[u8]) -> ParsedOptions {
                     .first_chunk::<4>()
                     .map(|octets| Ipv4Addr::from(*octets));
             }
-            option::DNS_SERVER if length >= 4 && length.is_multiple_of(4) => {
-                parsed.dns_servers.extend(
-                    data.as_chunks::<4>()
-                        .0
-                        .iter()
-                        .map(|chunk| Ipv4Addr::from(*chunk)),
-                );
-            }
             option::LEASE_TIME if length == 4 => {
                 parsed.lease_time = data
                     .first_chunk::<4>()
@@ -81,6 +73,11 @@ pub fn parse(options_bytes: &[u8]) -> ParsedOptions {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::vec;
+    use alloc::vec::Vec;
+
     use super::*;
     use crate::message_type;
 
@@ -94,7 +91,7 @@ mod tests {
         assert!(opts.server_id.is_none());
         assert!(opts.subnet_mask.is_none());
         assert!(opts.router.is_none());
-        assert_eq!(opts.dns_servers, Vec::<Ipv4Addr>::new());
+        assert_eq!(opts.dns_servers.collect::<Vec<_>>(), Vec::<Ipv4Addr>::new());
         assert!(opts.lease_time.is_none());
     }
 
@@ -155,9 +152,10 @@ mod tests {
         let opts = parse(&data);
 
         // ASSERT
-        assert_eq!(opts.dns_servers.len(), 2);
-        assert_eq!(opts.dns_servers.first(), Some(&Ipv4Addr::new(8, 8, 8, 8)));
-        assert_eq!(opts.dns_servers.get(1), Some(&Ipv4Addr::new(8, 8, 4, 4)));
+        assert_eq!(
+            opts.dns_servers.collect::<Vec<_>>(),
+            vec![Ipv4Addr::new(8, 8, 8, 8), Ipv4Addr::new(8, 8, 4, 4)]
+        );
     }
 
     #[test]
@@ -169,7 +167,7 @@ mod tests {
         let opts = parse(&data);
 
         // ASSERT
-        assert_eq!(opts.dns_servers, Vec::<Ipv4Addr>::new());
+        assert_eq!(opts.dns_servers.collect::<Vec<_>>(), Vec::<Ipv4Addr>::new());
     }
 
     #[test]
@@ -278,8 +276,161 @@ mod tests {
         assert_eq!(opts.message_type, Some(message_type::ACK));
         assert_eq!(opts.subnet_mask, Some(Ipv4Addr::new(255, 255, 0, 0)));
         assert_eq!(opts.router, Some(Ipv4Addr::new(10, 0, 0, 1)));
-        assert_eq!(opts.dns_servers, vec![Ipv4Addr::new(1, 1, 1, 1)]);
+        assert_eq!(
+            opts.dns_servers.collect::<Vec<_>>(),
+            vec![Ipv4Addr::new(1, 1, 1, 1)]
+        );
         assert_eq!(opts.lease_time, Some(7200));
         assert_eq!(opts.server_id, Some(Ipv4Addr::new(192, 168, 0, 1)));
+    }
+
+    #[test]
+    fn parse_dns_absent() {
+        // ARRANGE
+        let data = [option::MESSAGE_TYPE, 1, message_type::OFFER, option::END];
+
+        // ACT
+        let opts = parse(&data);
+
+        // ASSERT
+        assert_eq!(opts.dns_servers.collect::<Vec<_>>(), Vec::<Ipv4Addr>::new());
+    }
+
+    #[test]
+    fn parse_dns_repeated_instances() {
+        // ARRANGE
+        let data = [
+            option::DNS_SERVER,
+            4,
+            1,
+            1,
+            1,
+            1,
+            option::DNS_SERVER,
+            4,
+            8,
+            8,
+            8,
+            8,
+            option::END,
+        ];
+
+        // ACT
+        let opts = parse(&data);
+
+        // ASSERT
+        assert_eq!(
+            opts.dns_servers.collect::<Vec<_>>(),
+            vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)]
+        );
+    }
+
+    #[test]
+    fn parse_dns_length_below_four_ignored() {
+        // ARRANGE
+        let data = [option::DNS_SERVER, 2, 8, 8, option::END];
+
+        // ACT
+        let opts = parse(&data);
+
+        // ASSERT
+        assert_eq!(opts.dns_servers.collect::<Vec<_>>(), Vec::<Ipv4Addr>::new());
+    }
+
+    #[test]
+    fn parse_dns_truncation_stops_walk() {
+        // ARRANGE
+        let data = [option::DNS_SERVER, 4, 1, 1, 1, 1, option::ROUTER, 8, 10, 0];
+
+        // ACT
+        let opts = parse(&data);
+
+        // ASSERT
+        assert_eq!(
+            opts.dns_servers.collect::<Vec<_>>(),
+            vec![Ipv4Addr::new(1, 1, 1, 1)]
+        );
+    }
+
+    #[test]
+    fn parse_dns_pads_and_end_boundary() {
+        // ARRANGE
+        let data = [
+            0,
+            0,
+            option::DNS_SERVER,
+            4,
+            1,
+            1,
+            1,
+            1,
+            option::END,
+            option::DNS_SERVER,
+            4,
+            9,
+            9,
+            9,
+            9,
+        ];
+
+        // ACT
+        let opts = parse(&data);
+
+        // ASSERT
+        assert_eq!(
+            opts.dns_servers.collect::<Vec<_>>(),
+            vec![Ipv4Addr::new(1, 1, 1, 1)]
+        );
+    }
+
+    #[test]
+    fn dns_servers_stays_none_after_truncation() {
+        // ARRANGE
+        let mut servers = DnsServers::new(&[option::ROUTER, 6, 4, 9, 9, 9, 9]);
+
+        // ACT
+        let first = servers.next();
+        let second = servers.next();
+
+        // ASSERT
+        assert_eq!(first, None);
+        assert_eq!(second, None);
+    }
+
+    #[test]
+    fn parse_dns_repeated_with_multiple_addresses() {
+        // ARRANGE
+        let data = [
+            option::DNS_SERVER,
+            8,
+            1,
+            1,
+            1,
+            1,
+            8,
+            8,
+            8,
+            8,
+            option::DNS_SERVER,
+            4,
+            9,
+            9,
+            9,
+            9,
+            option::END,
+        ];
+
+        // ACT
+        let opts = parse(&data);
+
+        // ASSERT
+        assert_eq!(
+            opts.dns_servers.collect::<Vec<_>>(),
+            vec![
+                Ipv4Addr::new(1, 1, 1, 1),
+                Ipv4Addr::new(8, 8, 8, 8),
+                Ipv4Addr::new(9, 9, 9, 9),
+            ]
+        );
     }
 }
