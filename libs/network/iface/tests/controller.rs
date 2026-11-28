@@ -364,9 +364,9 @@ fn static_v4_configure_adds_address_route_and_binds() {
     let Some(V4View::Static(view)) = controller.snapshot().v4.clone() else {
         panic!("static view expected");
     };
-    assert_eq!(view.address(), ADDRESS_V4);
+    assert_eq!(view.address(), IpAddr::V4(ADDRESS_V4));
     assert_eq!(view.prefix_len(), 24);
-    assert_eq!(view.gateway(), Some(GATEWAY_V4));
+    assert_eq!(view.gateway(), Some(IpAddr::V4(GATEWAY_V4)));
     assert!(controller.next_wake(now).is_none());
 }
 
@@ -444,7 +444,7 @@ fn static_v6_configure_adds_address_route_and_binds() {
     let Some(V6View::Static(view)) = controller.snapshot().v6.clone() else {
         panic!("static view expected");
     };
-    assert_eq!(view.address(), ADDRESS_V6);
+    assert_eq!(view.address(), IpAddr::V6(ADDRESS_V6));
     assert_eq!(controller.snapshot().v6_state, netmodel::MethodState::Bound);
 }
 

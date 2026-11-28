@@ -10,7 +10,7 @@ mod method;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::IpAddr;
 
 /// Commands the supervisor sends to an interface controller.
 #[derive(Debug, Clone)]
@@ -145,7 +145,7 @@ pub enum Step<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum V4View {
     /// Static address configuration.
-    Static(ip_static::View<Ipv4Addr>),
+    Static(ip_static::View),
     /// `DHCPv4` lease and lifecycle phase.
     #[cfg(feature = "ipv4")]
     Dhcp(dhcp::View),
@@ -155,7 +155,7 @@ pub enum V4View {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum V6View {
     /// Static address configuration.
-    Static(ip_static::View<Ipv6Addr>),
+    Static(ip_static::View),
     /// Stateless autoconfiguration addresses, routers, and DNS.
     #[cfg(feature = "ipv6")]
     Slaac(slaac::View),

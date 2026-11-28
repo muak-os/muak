@@ -34,7 +34,7 @@ impl Family for Ipv4Addr {
 
     fn view_dns(view: &Self::View) -> Vec<Self> {
         match *view {
-            iface::V4View::Static(ref view) => view.dns().to_vec(),
+            iface::V4View::Static(ref view) => view.dns().filter_map(Self::from_ip).collect(),
             #[cfg(feature = "ipv4")]
             iface::V4View::Dhcp(ref view) => view.lease.dns_servers.clone(),
         }
@@ -61,7 +61,7 @@ impl Family for Ipv6Addr {
 
     fn view_dns(view: &Self::View) -> Vec<Self> {
         match *view {
-            iface::V6View::Static(ref view) => view.dns().to_vec(),
+            iface::V6View::Static(ref view) => view.dns().filter_map(Self::from_ip).collect(),
             #[cfg(feature = "ipv6")]
             iface::V6View::Slaac(ref view) => view.dns.clone(),
         }

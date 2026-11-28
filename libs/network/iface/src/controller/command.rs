@@ -8,7 +8,7 @@ use net_observe::journal::Journal;
 use net_observe::{Event as ObserveEvent, Level};
 use netmodel::{Family, MethodState};
 
-use crate::method::{Replacement, V4Slot, V6Slot, static_overflow};
+use crate::method::{Replacement, V4Slot, V6Slot};
 use crate::{Command, Controller, Effect};
 
 pub(super) fn apply(controller: &mut Controller, command: Command) {
@@ -86,10 +86,25 @@ fn configure(
     controller.snapshot.notices.clear();
     controller.shutdown = false;
 
-    let notices = replacement_notices(v4.as_ref(), v6.as_ref());
+    let mut notices = feature_notices(v4.as_ref(), v6.as_ref());
 
-    let v4_slot = v4.and_then(|config| V4Slot::new(&controller.link, config));
-    let v6_slot = v6.and_then(|config| V6Slot::new(&controller.link, config));
+    let (v4_slot, v4_overflow) = v4.map_or((None, false), |config| {
+        V4Slot::new(&controller.link, config)
+    });
+    let (v6_slot, v6_overflow) = v6.map_or((None, false), |config| {
+        V6Slot::new(&controller.link, config)
+    });
+
+    if v4_overflow {
+        notices.push(String::from(
+            "Static ipv4 configuration exceeds the address or DNS capacity",
+        ));
+    }
+    if v6_overflow {
+        notices.push(String::from(
+            "Static ipv6 configuration exceeds the address or DNS capacity",
+        ));
+    }
 
     controller.deferred = Some(Replacement {
         v4: v4_slot,
@@ -100,7 +115,7 @@ fn configure(
     broadcast(controller, MethodCommand::Stop);
 }
 
-fn replacement_notices(
+fn feature_notices(
     v4: Option<&netmodel::Ipv4Config>,
     v6: Option<&netmodel::Ipv6Config>,
 ) -> Vec<String> {
@@ -123,24 +138,6 @@ fn replacement_notices(
     {
         notices.push(String::from(
             "SLAAC requested but the ipv6 feature is disabled",
-        ));
-    }
-
-    if let Some(config) = v4
-        && !config.addresses.is_empty()
-        && static_overflow(&config.addresses, config.gateway, &config.dns)
-    {
-        notices.push(String::from(
-            "Static ipv4 configuration exceeds the address or DNS capacity",
-        ));
-    }
-
-    if let Some(config) = v6
-        && !config.addresses.is_empty()
-        && static_overflow(&config.addresses, config.gateway, &config.dns)
-    {
-        notices.push(String::from(
-            "Static ipv6 configuration exceeds the address or DNS capacity",
         ));
     }
 

@@ -8,10 +8,10 @@ use netmodel::MethodState;
 
 use crate::{Config, Mode, Static, View};
 
-impl<A: Copy + Into<IpAddr>> Static<A> {
+impl Static {
     /// Creates a static method from the given configuration.
     #[must_use = "the method owns the provisioning state"]
-    pub const fn new(config: Config<A>) -> Self {
+    pub const fn new(config: Config) -> Self {
         Self {
             config,
             started: false,
@@ -23,7 +23,7 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
 
     /// Returns the configuration the method was created with.
     #[must_use = "callers need the configuration to report it"]
-    pub const fn config(&self) -> &Config<A> {
+    pub const fn config(&self) -> &Config {
         &self.config
     }
 
@@ -66,18 +66,17 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
         Some(event)
     }
 
-    fn event_of(config: &Config<A>, mode: Mode, index: usize) -> Option<Event> {
+    fn event_of(config: &Config, mode: Mode, index: usize) -> Option<Event> {
         let stop = mode == Mode::Stop;
-        let addresses = config.addresses();
-        if let Some(&(address, prefix_len)) = addresses.get(index) {
+        if let Some((address, prefix_len)) = config.address(index) {
             let intent = Self::intent(address, prefix_len, stop);
 
             return Some(Event::Intent(intent));
         }
 
-        let tail = index.checked_sub(addresses.len())?;
+        let tail = index.checked_sub(config.address_count())?;
         let event = match (config.gateway(), tail) {
-            (Some(gateway), 0) => Event::Intent(Self::route(gateway.into(), stop)),
+            (Some(gateway), 0) => Event::Intent(Self::route(gateway, stop)),
             (Some(_), 1) | (None, 0) => Event::State(Self::terminal(stop)),
             _ => return None,
         };
@@ -85,9 +84,9 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
         Some(event)
     }
 
-    fn intent(address: A, prefix_len: u8, stop: bool) -> Intent {
+    const fn intent(address: IpAddr, prefix_len: u8, stop: bool) -> Intent {
         let config = AddressConfig {
-            address: address.into(),
+            address,
             prefix_len,
         };
         if stop {
@@ -114,8 +113,8 @@ impl<A: Copy + Into<IpAddr>> Static<A> {
     }
 }
 
-impl<A: Copy + Into<IpAddr>> Method for Static<A> {
-    type View = View<A>;
+impl Method for Static {
+    type View = View;
 
     fn step(&mut self, _now: Instant, _wall: SystemTime, input: Input<'_>) -> Step<'_> {
         if let Input::Command(command) = input {
@@ -136,14 +135,9 @@ impl<A: Copy + Into<IpAddr>> Method for Static<A> {
         if !self.started {
             return None;
         }
-        let &(address, prefix_len) = self.config.addresses().first()?;
+        let (address, prefix_len) = self.config.address(0)?;
 
-        View::new(
-            address,
-            prefix_len,
-            self.config.gateway(),
-            self.config.dns(),
-        )
+        Some(View::from_config(&self.config, address, prefix_len))
     }
 }
 
@@ -164,11 +158,11 @@ mod tests {
     const ADDRESSES: &[(Ipv4Addr, u8)] = &[(ADDRESS_A, 24), (ADDRESS_B, 24)];
     const DNS_SERVERS: &[Ipv4Addr] = &[DNS];
 
-    fn config() -> Config<Ipv4Addr> {
+    fn config() -> Config {
         Config::new(ADDRESSES, Some(GATEWAY), DNS_SERVERS).expect("within capacity")
     }
 
-    fn send(method: &mut Static<Ipv4Addr>, input: Input<'_>) -> Option<Event> {
+    fn send(method: &mut Static, input: Input<'_>) -> Option<Event> {
         let step = method.step(Instant::now(), SystemTime::UNIX_EPOCH, input);
 
         match step {
@@ -178,11 +172,11 @@ mod tests {
         }
     }
 
-    fn command(method: &mut Static<Ipv4Addr>, command: Command) -> Event {
+    fn command(method: &mut Static, command: Command) -> Event {
         send(method, Input::Command(command)).expect("command emits its first event")
     }
 
-    fn next_event(method: &mut Static<Ipv4Addr>) -> Event {
+    fn next_event(method: &mut Static) -> Event {
         send(method, Input::Poll).expect("expected an emitted event")
     }
 
@@ -193,11 +187,11 @@ mod tests {
         }
     }
 
-    fn expect_intent(method: &mut Static<Ipv4Addr>) -> Intent {
+    fn expect_intent(method: &mut Static) -> Intent {
         intent_of(&next_event(method))
     }
 
-    fn drain_events(method: &mut Static<Ipv4Addr>, count: usize) {
+    fn drain_events(method: &mut Static, count: usize) {
         for _ in 0_usize..count {
             drop(next_event(method));
         }
@@ -209,21 +203,23 @@ mod tests {
         let config = config();
 
         // ACT
-        let method = Static::<Ipv4Addr>::new(config);
+        let method = Static::new(config);
 
         // ASSERT
-        assert_eq!(
-            method.config().addresses(),
-            &[(ADDRESS_A, 24), (ADDRESS_B, 24)]
+        assert!(
+            method
+                .config()
+                .addresses()
+                .eq([(IpAddr::V4(ADDRESS_A), 24), (IpAddr::V4(ADDRESS_B), 24)])
         );
-        assert_eq!(method.config().gateway(), Some(GATEWAY));
-        assert_eq!(method.config().dns(), &[DNS]);
+        assert_eq!(method.config().gateway(), Some(IpAddr::V4(GATEWAY)));
+        assert!(method.config().dns().eq([IpAddr::V4(DNS)]));
     }
 
     #[test]
     fn start_emits_configure_route_and_bound() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
 
         // ACT
         let first = intent_of(&command(&mut method, Command::Start));
@@ -245,7 +241,7 @@ mod tests {
     #[test]
     fn stop_emits_deconfigure_route_and_stopped() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -270,7 +266,7 @@ mod tests {
     #[test]
     fn poll_waits_after_start_events_drained() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -284,7 +280,7 @@ mod tests {
     #[test]
     fn poll_waits_after_stop_events_drained() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
         drop(command(&mut method, Command::Stop));
@@ -300,7 +296,7 @@ mod tests {
     #[test]
     fn reconcile_emits_configure_route_and_bound() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
 
         // ACT
         let first = intent_of(&command(&mut method, Command::Reconcile));
@@ -321,7 +317,7 @@ mod tests {
     #[test]
     fn stop_without_gateway_deconfigures_and_stops() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(
+        let mut method = Static::new(
             Config::new(&[(ADDRESS_A, 24), (ADDRESS_B, 24)], None, &[]).expect("within capacity"),
         );
         drop(command(&mut method, Command::Start));
@@ -344,7 +340,7 @@ mod tests {
     fn start_without_addresses_binds_without_view() {
         // ARRANGE
         let mut method =
-            Static::<Ipv4Addr>::new(Config::new(&[], None, &[]).expect("within capacity"));
+            Static::new(Config::new::<Ipv4Addr>(&[], None, &[]).expect("within capacity"));
 
         // ACT
         let event = command(&mut method, Command::Start);
@@ -358,7 +354,7 @@ mod tests {
     #[test]
     fn link_up_emits_configure() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -373,7 +369,7 @@ mod tests {
     #[test]
     fn link_down_degrades_and_keeps_view() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
 
@@ -389,7 +385,7 @@ mod tests {
     #[test]
     fn view_is_none_before_start() {
         // ARRANGE
-        let method = Static::<Ipv4Addr>::new(config());
+        let method = Static::new(config());
 
         // ACT
         let view = method.view();
@@ -401,7 +397,7 @@ mod tests {
     #[test]
     fn ignored_input_waits_when_idle() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
 
         // ACT
         let event = send(&mut method, Input::Entropy(7));
@@ -413,7 +409,7 @@ mod tests {
     #[test]
     fn new_command_replaces_undrained_batch() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
 
         // ACT
@@ -437,7 +433,7 @@ mod tests {
     #[test]
     fn link_down_keeps_undrained_stop_batch() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drain_events(&mut method, 3);
         drop(command(&mut method, Command::Stop));
@@ -463,7 +459,7 @@ mod tests {
     #[test]
     fn newer_command_clears_stale_notice() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
         drop(command(&mut method, Command::LinkDown));
 
@@ -488,7 +484,7 @@ mod tests {
     #[test]
     fn view_copies_config_dns() {
         // ARRANGE
-        let mut method = Static::<Ipv4Addr>::new(config());
+        let mut method = Static::new(config());
         drop(command(&mut method, Command::Start));
 
         // ACT
@@ -496,17 +492,17 @@ mod tests {
         let second = method.view().expect("view");
 
         // ASSERT
-        assert_eq!(first.dns(), DNS_SERVERS);
-        assert_eq!(second.dns(), DNS_SERVERS);
+        assert!(first.dns().eq(DNS_SERVERS.iter().copied().map(IpAddr::V4)));
+        assert!(second.dns().eq(DNS_SERVERS.iter().copied().map(IpAddr::V4)));
         assert_eq!(first, second);
     }
 
-    fn assert_view(view: Option<View<Ipv4Addr>>) {
+    fn assert_view(view: Option<View>) {
         let view = view.expect("view");
-        assert_eq!(view.address(), ADDRESS_A);
+        assert_eq!(view.address(), IpAddr::V4(ADDRESS_A));
         assert_eq!(view.prefix_len(), 24);
-        assert_eq!(view.gateway(), Some(GATEWAY));
-        assert_eq!(view.dns(), &[DNS]);
+        assert_eq!(view.gateway(), Some(IpAddr::V4(GATEWAY)));
+        assert!(view.dns().eq([IpAddr::V4(DNS)]));
     }
 
     fn assert_configure(intent: Intent, address: Ipv4Addr) {

@@ -2,7 +2,6 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::net::{Ipv4Addr, Ipv6Addr};
 use std::time::{Instant, SystemTime};
 
 use ip_method::{Input, LinkInfo, Method, Step};
@@ -21,13 +20,13 @@ type SlaacMethod = core::convert::Infallible;
 
 /// Exactly one IPv4 provisioning method active on the interface.
 pub(crate) struct V4Slot {
-    static_method: Option<ip_static::Static<Ipv4Addr>>,
+    static_method: Option<ip_static::Static>,
     dhcp: Option<DhcpMethod>,
 }
 
 /// Exactly one IPv6 provisioning method active on the interface.
 pub(crate) struct V6Slot {
-    static_method: Option<ip_static::Static<Ipv6Addr>>,
+    static_method: Option<ip_static::Static>,
     slaac: Option<SlaacMethod>,
 }
 
@@ -39,16 +38,17 @@ pub(crate) struct Replacement {
 }
 
 impl V4Slot {
-    /// Builds the IPv4 method the configuration asks for.
-    pub(crate) fn new(link: &LinkInfo, config: netmodel::Ipv4Config) -> Option<Self> {
-        if !config.addresses.is_empty() {
-            let static_config =
-                ip_static::Config::new(&config.addresses, config.gateway, &config.dns)?;
-
-            return Some(Self::fixed(ip_static::Static::new(static_config)));
+    /// Builds the IPv4 method the configuration asks for and reports static overflow.
+    pub(crate) fn new(link: &LinkInfo, config: netmodel::Ipv4Config) -> (Option<Self>, bool) {
+        if config.addresses.is_empty() {
+            return (dhcp(link, config), false);
         }
 
-        dhcp(link, config)
+        let static_config = ip_static::Config::new(&config.addresses, config.gateway, &config.dns);
+        match static_config {
+            Some(config) => (Some(Self::fixed(ip_static::Static::new(config))), false),
+            None => (None, true),
+        }
     }
 
     /// Returns whether the slot owns a DHCP method.
@@ -56,7 +56,7 @@ impl V4Slot {
         self.dhcp.is_some()
     }
 
-    const fn fixed(method: ip_static::Static<Ipv4Addr>) -> Self {
+    const fn fixed(method: ip_static::Static) -> Self {
         Self {
             static_method: Some(method),
             dhcp: None,
@@ -73,16 +73,17 @@ impl V4Slot {
 }
 
 impl V6Slot {
-    /// Builds the IPv6 method the configuration asks for.
-    pub(crate) fn new(link: &LinkInfo, config: netmodel::Ipv6Config) -> Option<Self> {
-        if !config.addresses.is_empty() {
-            let static_config =
-                ip_static::Config::new(&config.addresses, config.gateway, &config.dns)?;
-
-            return Some(Self::fixed(ip_static::Static::new(static_config)));
+    /// Builds the IPv6 method the configuration asks for and reports static overflow.
+    pub(crate) fn new(link: &LinkInfo, config: netmodel::Ipv6Config) -> (Option<Self>, bool) {
+        if config.addresses.is_empty() {
+            return (stateless(link, config), false);
         }
 
-        stateless(link, config)
+        let static_config = ip_static::Config::new(&config.addresses, config.gateway, &config.dns);
+        match static_config {
+            Some(config) => (Some(Self::fixed(ip_static::Static::new(config))), false),
+            None => (None, true),
+        }
     }
 
     /// Returns whether the slot owns a SLAAC method.
@@ -90,7 +91,7 @@ impl V6Slot {
         self.slaac.is_some()
     }
 
-    const fn fixed(method: ip_static::Static<Ipv6Addr>) -> Self {
+    const fn fixed(method: ip_static::Static) -> Self {
         Self {
             static_method: Some(method),
             slaac: None,
@@ -184,15 +185,6 @@ impl Method for V6Slot {
 
         None
     }
-}
-
-/// Reports whether a static configuration exceeds the fixed capacity of `ip-static`.
-pub(crate) fn static_overflow<A: Copy + ip_static::Placeholder>(
-    addresses: &[(A, u8)],
-    gateway: Option<A>,
-    dns: &[A],
-) -> bool {
-    ip_static::Config::new(addresses, gateway, dns).is_none()
 }
 
 #[cfg(feature = "ipv4")]

@@ -4,7 +4,7 @@
 
 mod fixed;
 
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::IpAddr;
 
 use netmodel::MethodState;
 
@@ -14,113 +14,113 @@ pub const MAX_ADDRESSES: usize = 8;
 /// Maximum number of DNS servers a configuration or view holds.
 pub const MAX_DNS: usize = 4;
 
-/// Address type that names the value stored in unused fixed-capacity slots.
-pub trait Placeholder: Copy {
-    /// Value stored in slots that no accessor returns.
-    const PLACEHOLDER: Self;
-}
-
-impl Placeholder for Ipv4Addr {
-    const PLACEHOLDER: Self = Self::UNSPECIFIED;
-}
-
-impl Placeholder for Ipv6Addr {
-    const PLACEHOLDER: Self = Self::UNSPECIFIED;
-}
-
 /// Address configuration shared by the static methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Config<A> {
-    addresses: [(A, u8); MAX_ADDRESSES],
-    address_count: usize,
-    gateway: Option<A>,
-    dns: [A; MAX_DNS],
-    dns_count: usize,
+pub struct Config {
+    // Populated slots come first; the remaining slots stay `None`.
+    addresses: [Option<(IpAddr, u8)>; MAX_ADDRESSES],
+    gateway: Option<IpAddr>,
+    dns: [Option<IpAddr>; MAX_DNS],
 }
 
-impl<A: Copy + Placeholder> Config<A> {
+impl Config {
     /// Copies a configuration into fixed-capacity storage.
     #[must_use = "the configuration is the only way to build a static method"]
-    pub fn new(addresses: &[(A, u8)], gateway: Option<A>, dns: &[A]) -> Option<Self> {
+    pub fn new<A: Copy + Into<IpAddr>>(
+        addresses: &[(A, u8)],
+        gateway: Option<A>,
+        dns: &[A],
+    ) -> Option<Self> {
         if addresses.len() > MAX_ADDRESSES || dns.len() > MAX_DNS {
             return None;
         }
 
-        let mut address_slots = [(A::PLACEHOLDER, 0_u8); MAX_ADDRESSES];
-        for (slot, &pair) in address_slots.iter_mut().zip(addresses) {
-            *slot = pair;
+        let mut address_slots: [Option<(IpAddr, u8)>; MAX_ADDRESSES] = [None; MAX_ADDRESSES];
+        for (slot, &(address, prefix_len)) in address_slots.iter_mut().zip(addresses) {
+            *slot = Some((address.into(), prefix_len));
         }
-        let mut dns_slots = [A::PLACEHOLDER; MAX_DNS];
+        let mut dns_slots: [Option<IpAddr>; MAX_DNS] = [None; MAX_DNS];
         for (slot, &server) in dns_slots.iter_mut().zip(dns) {
-            *slot = server;
+            *slot = Some(server.into());
         }
 
         Some(Self {
             addresses: address_slots,
-            address_count: addresses.len(),
-            gateway,
+            gateway: gateway.map(Into::into),
             dns: dns_slots,
-            dns_count: dns.len(),
         })
-    }
-}
-
-impl<A: Copy> Config<A> {
-    /// Returns the configured address and prefix length pairs.
-    #[must_use = "callers need the configuration to provision addresses"]
-    pub fn addresses(&self) -> &[(A, u8)] {
-        self.addresses.get(..self.address_count).unwrap_or_default()
     }
 
     /// Returns the optional default gateway.
     #[must_use = "callers need the configuration to provision routes"]
-    pub const fn gateway(&self) -> Option<A> {
+    pub const fn gateway(&self) -> Option<IpAddr> {
         self.gateway
     }
 
-    /// Returns the configured DNS servers.
+    /// Iterates the populated address and prefix length pairs in order.
+    #[must_use = "callers need the configuration to provision addresses"]
+    pub fn addresses(&self) -> impl Iterator<Item = (IpAddr, u8)> + '_ {
+        self.addresses.iter().flatten().copied()
+    }
+
+    /// Iterates the populated DNS servers in order.
     #[must_use = "callers need the configuration to resolve names"]
-    pub fn dns(&self) -> &[A] {
-        self.dns.get(..self.dns_count).unwrap_or_default()
+    pub fn dns(&self) -> impl Iterator<Item = IpAddr> + '_ {
+        self.dns.iter().flatten().copied()
+    }
+
+    /// Returns the address and prefix length at `index`, when populated.
+    pub(crate) fn address(&self, index: usize) -> Option<(IpAddr, u8)> {
+        self.addresses.get(index).copied().flatten()
+    }
+
+    /// Returns the number of populated address slots.
+    pub(crate) fn address_count(&self) -> usize {
+        self.addresses
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(MAX_ADDRESSES)
     }
 }
 
 /// Static configuration a family exposes as its view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct View<A> {
-    address: A,
+pub struct View {
+    address: IpAddr,
     prefix_len: u8,
-    gateway: Option<A>,
-    // DNS servers followed by the number of populated slots.
-    dns: [A; MAX_DNS],
-    dns_count: usize,
+    gateway: Option<IpAddr>,
+    dns: [Option<IpAddr>; MAX_DNS],
 }
 
-impl<A: Copy> View<A> {
+impl View {
     /// Copies a view for one address into fixed-capacity storage.
     #[must_use = "the view is the only way to report the static configuration"]
-    pub fn new(address: A, prefix_len: u8, gateway: Option<A>, dns: &[A]) -> Option<Self> {
+    pub fn new<A: Copy + Into<IpAddr>>(
+        address: A,
+        prefix_len: u8,
+        gateway: Option<A>,
+        dns: &[A],
+    ) -> Option<Self> {
         if dns.len() > MAX_DNS {
             return None;
         }
 
-        let mut dns_slots = [address; MAX_DNS];
+        let mut dns_slots: [Option<IpAddr>; MAX_DNS] = [None; MAX_DNS];
         for (slot, &server) in dns_slots.iter_mut().zip(dns) {
-            *slot = server;
+            *slot = Some(server.into());
         }
 
         Some(Self {
-            address,
+            address: address.into(),
             prefix_len,
-            gateway,
+            gateway: gateway.map(Into::into),
             dns: dns_slots,
-            dns_count: dns.len(),
         })
     }
 
     /// Returns the primary address.
     #[must_use = "callers report the address"]
-    pub const fn address(&self) -> A {
+    pub const fn address(&self) -> IpAddr {
         self.address
     }
 
@@ -132,20 +132,30 @@ impl<A: Copy> View<A> {
 
     /// Returns the optional default gateway.
     #[must_use = "callers report the gateway"]
-    pub const fn gateway(&self) -> Option<A> {
+    pub const fn gateway(&self) -> Option<IpAddr> {
         self.gateway
     }
 
-    /// Returns the DNS servers.
+    /// Iterates the populated DNS servers in order.
     #[must_use = "callers report the DNS servers"]
-    pub fn dns(&self) -> &[A] {
-        self.dns.get(..self.dns_count).unwrap_or_default()
+    pub fn dns(&self) -> impl Iterator<Item = IpAddr> + '_ {
+        self.dns.iter().flatten().copied()
+    }
+
+    /// Copies a configuration into a view for one of its addresses.
+    pub(crate) const fn from_config(config: &Config, address: IpAddr, prefix_len: u8) -> Self {
+        Self {
+            address,
+            prefix_len,
+            gateway: config.gateway(),
+            dns: config.dns,
+        }
     }
 }
 
-/// Static address method generic over the concrete address type.
-pub struct Static<A: Copy + Into<IpAddr>> {
-    config: Config<A>,
+/// Static address provisioning method.
+pub struct Static {
+    config: Config,
     started: bool,
     pending: Option<Mode>,
     cursor: usize,
@@ -161,7 +171,7 @@ enum Mode {
 
 #[cfg(test)]
 mod tests {
-    use core::net::Ipv4Addr;
+    use core::net::{IpAddr, Ipv4Addr};
 
     use crate::{Config, MAX_ADDRESSES, MAX_DNS, View};
 
@@ -193,24 +203,23 @@ mod tests {
         let config = Config::new(&addresses, Some(GATEWAY), &DNS).expect("within capacity");
 
         // ASSERT
-        assert_eq!(config.addresses(), &addresses);
-        assert_eq!(config.gateway(), Some(GATEWAY));
-        assert_eq!(config.dns(), &DNS);
+        assert!(config.addresses().eq([(IpAddr::V4(ADDRESS), 24)]));
+        assert_eq!(config.gateway(), Some(IpAddr::V4(GATEWAY)));
+        assert!(config.dns().eq(DNS.map(IpAddr::V4)));
     }
 
     #[test]
     fn config_new_accepts_empty_input() {
         // ARRANGE
         let addresses: [(Ipv4Addr, u8); 0] = [];
-        let no_dns: &[Ipv4Addr] = &[];
 
         // ACT
         let config = Config::new(&addresses, None, &[]).expect("within capacity");
 
         // ASSERT
-        assert_eq!(config.addresses(), []);
+        assert!(config.addresses().next().is_none());
         assert_eq!(config.gateway(), None);
-        assert_eq!(config.dns(), no_dns);
+        assert!(config.dns().next().is_none());
     }
 
     #[test]
@@ -236,10 +245,39 @@ mod tests {
 
         // ASSERT
         assert_eq!(copied, reused);
-        assert_eq!(copied.address(), ADDRESS);
+        assert_eq!(copied.address(), IpAddr::V4(ADDRESS));
         assert_eq!(copied.prefix_len(), 24);
-        assert_eq!(copied.gateway(), Some(GATEWAY));
-        assert_eq!(copied.dns(), &DNS);
-        assert_eq!(reused.dns(), &DNS);
+        assert_eq!(copied.gateway(), Some(IpAddr::V4(GATEWAY)));
+        assert!(copied.dns().eq(DNS.map(IpAddr::V4)));
+        assert!(reused.dns().eq(DNS.map(IpAddr::V4)));
+    }
+
+    #[test]
+    fn views_from_same_config_compare_equal() {
+        // ARRANGE
+        let config = Config::new(&[(ADDRESS, 24)], Some(GATEWAY), &DNS).expect("within capacity");
+
+        // ACT
+        let first = View::from_config(&config, IpAddr::V4(ADDRESS), 24);
+        let second = View::from_config(&config, IpAddr::V4(ADDRESS), 24);
+
+        // ASSERT
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn views_with_different_dns_lengths_compare_unequal() {
+        // ARRANGE
+        let config = Config::new(&[(ADDRESS, 24)], Some(GATEWAY), &DNS).expect("within capacity");
+        let full = View::new(ADDRESS, 24, Some(GATEWAY), &DNS).expect("within capacity");
+        let short = View::new(ADDRESS, 24, Some(GATEWAY), &DNS[..1]).expect("within capacity");
+
+        // ACT
+        let config_view = View::from_config(&config, IpAddr::V4(ADDRESS), 24);
+
+        // ASSERT
+        assert!(short.dns().eq(full.dns().take(1)));
+        assert_ne!(full, short);
+        assert_eq!(full, config_view);
     }
 }
