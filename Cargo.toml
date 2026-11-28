@@ -214,7 +214,7 @@ tonic-prost-build = { version = "0.14", default-features = false, features = ["t
 protox = "0.9"
 
 ## HTTP
-hyper = { version = "1.11", features = ["http2", "server", "client"] }
+hyper = { version = "1.12", features = ["http2", "server", "client"] }
 hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring"] }
 http-body-util = "0.1"
