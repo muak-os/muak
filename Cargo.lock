@@ -1334,6 +1334,7 @@ dependencies = [
  "rustix",
  "tempfile",
  "tpm2",
+ "zeroize",
 ]
 
 [[package]]
@@ -2004,6 +2005,7 @@ dependencies = [
  "uki",
  "uuid",
  "wizard",
+ "zeroize",
 ]
 
 [[package]]
@@ -2738,7 +2740,6 @@ dependencies = [
  "getrandom 0.4.3",
  "sha2",
  "thiserror",
- "zeroize",
 ]
 
 [[package]]

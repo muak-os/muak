@@ -59,6 +59,15 @@ pub enum Tpm2Error {
         /// Maximum supported buffer length in bytes.
         max: usize,
     },
+
+    /// Caller-provided output buffer is too small for the produced bytes.
+    #[error("TPM2 output buffer too small: needs {needed} bytes, has {provided}")]
+    OutputTooSmall {
+        /// Required output length in bytes.
+        needed: usize,
+        /// Provided output buffer length in bytes.
+        provided: usize,
+    },
 }
 
 /// Result type for TPM2 operations.

@@ -33,6 +33,9 @@ tpm2 = { workspace = true, features = ["linux"] }
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }
 
+# Utilities
+zeroize = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 

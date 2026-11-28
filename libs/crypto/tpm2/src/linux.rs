@@ -3,8 +3,6 @@
 use std::io::{Read, Write as _};
 use std::path::Path;
 
-use zeroize::Zeroizing;
-
 use crate::blob::Sealed;
 use crate::error::{Result, Tpm2Error};
 use crate::operations::{self, SealResult};
@@ -48,17 +46,20 @@ pub fn seal(data: &[u8], expected_pcr: &Digest) -> Result<SealResult> {
     operations::seal(&mut device, data, expected_pcr)
 }
 
-/// Unseals data using the default TPM2 device.
+/// Unseals data into the caller buffer using the default TPM2 device.
+///
+/// The caller owns zeroizing `out` once it holds key material.
 ///
 /// # Errors
 ///
-/// Returns an error if the device cannot be opened, randomness fails, or the unseal operation fails.
-pub fn unseal(blob: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
+/// Returns an error if the device cannot be opened, randomness fails, the unseal
+/// operation fails, or `out` cannot hold the unsealed bytes.
+pub fn unseal<'a>(blob: &Sealed, out: &'a mut [u8]) -> Result<&'a [u8]> {
     let mut device = open(None)?;
     let mut nonce = [0_u8; NONCE_SIZE];
     getrandom::fill(&mut nonce).map_err(|_rng_error| Tpm2Error::RngFailed)?;
 
-    operations::unseal(&mut device, blob, &nonce)
+    operations::unseal(&mut device, blob, &nonce, out)
 }
 
 /// Opens the provided TPM device path, defaulting to `/dev/tpmrm0`.
@@ -374,11 +375,12 @@ mod tests {
     #[test]
     fn seal_and_unseal_propagate_open_failures() {
         // ARRANGE
-        let blob = Sealed::try_new(Vec::new(), Vec::new()).expect("empty blob should be valid");
+        let blob = Sealed::try_new(&[], &[]).expect("empty blob should be valid");
+        let mut out = [0_u8; 64];
 
         // ACT
         let seal_result = seal(&[], &[0x11; 32]);
-        let unseal_result = unseal(&blob);
+        let unseal_result = unseal(&blob, &mut out);
 
         // ASSERT
         assert!(

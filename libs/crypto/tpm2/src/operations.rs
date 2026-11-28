@@ -1,14 +1,12 @@
 //! High-level TPM2 seal/unseal operations.
 
-use zeroize::Zeroizing;
-
 use crate::blob::Sealed;
 use crate::commands::{
     self, CreateCommand, CreatePrimaryCommand, EvictControlCommand, FlushContextCommand,
     HandleExistsCommand, LoadCommand, PolicyPcrCommand, StartAuthSessionCommand, UnsealCommand,
 };
-use crate::error::Result;
-use crate::handles::{HierarchyHandle, PersistentHandle};
+use crate::error::{Result, Tpm2Error};
+use crate::handles::{HierarchyHandle, PersistentHandle, SessionHandle, TransientHandle};
 use crate::pcr::{Digest, compute_policy_digest};
 use crate::transport::Transport;
 
@@ -26,9 +24,12 @@ pub struct SealResult {
 ///
 /// # Errors
 ///
-/// Returns an error if the transport exchange or command execution fails, or if the
-/// encoded command exceeds `MAX_COMMAND_SIZE` bytes (plaintext roughly above 930 bytes)
-/// with `Tpm2Error::BufferTooLarge`.
+/// Returns an error if the transport exchange or command execution fails. The
+/// encoded command is capped at `MAX_COMMAND_SIZE`, and both sealed parts must
+/// fit the caps enforced by `Sealed::try_new`, where the private-part cap is the
+/// binding limit in practice; either limit fails with `Tpm2Error::BufferTooLarge`.
+/// Both caps comfortably cover the crate's intended secret sizes, so larger
+/// plaintext fails loudly rather than corrupting anything.
 pub fn seal<T: Transport>(
     transport: &mut T,
     data: &[u8],
@@ -47,23 +48,27 @@ pub fn seal<T: Transport>(
     )?;
 
     Ok(SealResult {
-        blob: Sealed::try_new(pub_data.to_vec(), priv_data.to_vec())?,
+        blob: Sealed::try_new(pub_data, priv_data)?,
         policy_digest,
     })
 }
 
 /// Unseals data using the given nonce and current PCR#11 values.
 ///
+/// The unsealed bytes are copied into `out` and returned as a prefix of it;
+/// the caller owns zeroizing that buffer once it holds key material.
+///
 /// # Errors
 ///
 /// Returns an error if the transport exchange, object loading, policy setup, or
-/// unsealing fails, or if the encoded command for an oversized sealed blob exceeds
-/// `MAX_COMMAND_SIZE` bytes with `Tpm2Error::BufferTooLarge`.
-pub fn unseal<T: Transport>(
+/// unsealing fails, or if `out` cannot hold the unsealed bytes with
+/// `Tpm2Error::OutputTooSmall`.
+pub fn unseal<'a, T: Transport>(
     transport: &mut T,
     blob: &Sealed,
     nonce: &[u8],
-) -> Result<Zeroizing<Vec<u8>>> {
+    out: &'a mut [u8],
+) -> Result<&'a [u8]> {
     ensure_srk(transport)?;
 
     let obj_handle = commands::execute(
@@ -76,24 +81,7 @@ pub fn unseal<T: Transport>(
     )?;
     let session = commands::execute(transport, &StartAuthSessionCommand { nonce })?;
 
-    let result = (|| -> Result<Zeroizing<Vec<u8>>> {
-        commands::execute(
-            transport,
-            &PolicyPcrCommand {
-                session_handle: session,
-                pcr_digest: &[],
-            },
-        )?;
-        let data = commands::execute(
-            transport,
-            &UnsealCommand {
-                object_handle: obj_handle,
-                session_handle: session,
-            },
-        )?;
-
-        Ok(Zeroizing::new(data.to_vec()))
-    })();
+    let result = unseal_with_policy(transport, obj_handle, session, out);
 
     drop(commands::execute(
         transport,
@@ -105,6 +93,43 @@ pub fn unseal<T: Transport>(
     ));
 
     result
+}
+
+/// Applies the PCR policy, unseals into `out`, and copies the result before flushing.
+fn unseal_with_policy<'a, T: Transport>(
+    transport: &mut T,
+    object_handle: TransientHandle,
+    session_handle: SessionHandle,
+    out: &'a mut [u8],
+) -> Result<&'a [u8]> {
+    commands::execute(
+        transport,
+        &PolicyPcrCommand {
+            session_handle,
+            pcr_digest: &[],
+        },
+    )?;
+    let data = commands::execute(
+        transport,
+        &UnsealCommand {
+            object_handle,
+            session_handle,
+        },
+    )?;
+
+    copy_out(data, out)
+}
+
+fn copy_out<'a>(data: &[u8], out: &'a mut [u8]) -> Result<&'a [u8]> {
+    let Some(target) = out.get_mut(..data.len()) else {
+        return Err(Tpm2Error::OutputTooSmall {
+            needed: data.len(),
+            provided: out.len(),
+        });
+    };
+    target.copy_from_slice(data);
+
+    Ok(target)
 }
 
 /// Ensures the SRK exists at the well-known persistent handle.
@@ -272,6 +297,34 @@ mod tests {
     }
 
     #[test]
+    fn seal_rejects_private_part_above_cap() {
+        // ARRANGE
+        let oversized_private = [0xCC_u8; 257];
+        let public = [0xDD_u8; 2];
+        let param_size = 2_usize
+            .checked_add(oversized_private.len())
+            .and_then(|size| size.checked_add(2 + public.len()))
+            .expect("param size should fit usize");
+        let mut create_body = Vec::new();
+        create_body.extend_from_slice(&u32::try_from(param_size).ok().unwrap_or(0).to_be_bytes());
+        create_body.extend_from_slice(&sized(&oversized_private));
+        create_body.extend_from_slice(&sized(&public));
+        let mut transport = MockTransport::new(vec![
+            handle_exists_response(true),
+            body_response(&create_body),
+        ]);
+
+        // ACT
+        let result = seal(&mut transport, &[9], &[0xAA; 32]);
+
+        // ASSERT
+        assert!(
+            matches!(result, Err(Tpm2Error::BufferTooLarge { max: 256, .. })),
+            "private part above the cap should be rejected"
+        );
+    }
+
+    #[test]
     fn seal_propagates_create_failure() {
         // ARRANGE
         let mut transport = MockTransport::new(vec![handle_exists_response(true)]);
@@ -286,7 +339,7 @@ mod tests {
     #[test]
     fn unseal_loads_policy_and_flushes() {
         // ARRANGE
-        let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
+        let blob = Sealed::try_new(&[1], &[2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
         let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
         let mut unseal_body = Vec::new();
@@ -301,23 +354,67 @@ mod tests {
             body_response(&[]),
             body_response(&[]),
         ]);
+        let mut out = [0_u8; 8];
 
         // ACT
-        let result = unseal(&mut transport, &blob, &TEST_NONCE);
+        let result = unseal(&mut transport, &blob, &TEST_NONCE, &mut out);
 
         // ASSERT
         let result = result.expect("data should unseal");
-        assert_eq!(result.as_slice(), [0xAA].as_slice(), "data should unseal");
+        assert_eq!(result, [0xAA].as_slice(), "data should unseal");
+        assert_eq!(out, [0xAA, 0, 0, 0, 0, 0, 0, 0], "out should hold the data");
+    }
+
+    #[test]
+    fn unseal_rejects_short_output_buffer_after_flushing() {
+        // ARRANGE
+        let blob = Sealed::try_new(&[1], &[2]).expect("small sealed blob should be valid");
+        let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
+        let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
+        let mut unseal_body = Vec::new();
+        unseal_body.extend_from_slice(&4_u32.to_be_bytes());
+        unseal_body.extend_from_slice(&sized(&[0xAA, 0xBB]));
+        let mut transport = MockTransport::new(vec![
+            handle_exists_response(true),
+            body_response(&load_body),
+            body_response(&session_body),
+            body_response(&[]),
+            body_response(&unseal_body),
+            body_response(&[]),
+            body_response(&[]),
+        ]);
+        let mut out = [0_u8; 1];
+
+        // ACT
+        let result = unseal(&mut transport, &blob, &TEST_NONCE, &mut out);
+
+        // ASSERT
+        assert!(
+            matches!(
+                result,
+                Err(Tpm2Error::OutputTooSmall {
+                    needed: 2,
+                    provided: 1
+                })
+            ),
+            "short output buffer should report the needed and provided sizes"
+        );
+        assert_eq!(out, [0_u8; 1], "short output buffer should stay untouched");
+        assert_eq!(
+            transport.next_response, 7,
+            "both handles should still be flushed"
+        );
     }
 
     #[test]
     fn unseal_propagates_load_failure() {
         // ARRANGE
-        let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
+        let blob = Sealed::try_new(&[1], &[2]).expect("small sealed blob should be valid");
         let mut transport = MockTransport::new(vec![handle_exists_response(true)]);
+        let mut out = [0_u8; 8];
 
         // ACT
-        let result = unseal(&mut transport, &blob, &TEST_NONCE);
+        let result = unseal(&mut transport, &blob, &TEST_NONCE, &mut out);
 
         // ASSERT
         assert!(result.is_err(), "missing load response should fail");
@@ -326,7 +423,7 @@ mod tests {
     #[test]
     fn unseal_propagates_policy_failure() {
         // ARRANGE
-        let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
+        let blob = Sealed::try_new(&[1], &[2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
         let session_body = 0x0300_0000_u32.to_be_bytes().to_vec();
         let policy_failure = {
@@ -344,9 +441,10 @@ mod tests {
             body_response(&[]),
             body_response(&[]),
         ]);
+        let mut out = [0_u8; 8];
 
         // ACT
-        let result = unseal(&mut transport, &blob, &TEST_NONCE);
+        let result = unseal(&mut transport, &blob, &TEST_NONCE, &mut out);
 
         // ASSERT
         assert!(result.is_err(), "policy failure should be propagated");

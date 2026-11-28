@@ -7,6 +7,7 @@ use luks2::key::Passphrase;
 use luks2::metadata::tokens::Tpm2Token;
 use uki::measure::MeasuredSection;
 use uki::section::canonical_rank;
+use zeroize::Zeroizing;
 
 use crate::efi;
 
@@ -115,8 +116,12 @@ fn unseal_token(token: &Tpm2Token) -> Result<Passphrase> {
         .context("Failed to decode the TPM2 blob")?;
     let blob = tpm2::blob::Sealed::deserialize(&blob_bytes)
         .context("Failed to deserialize the TPM2 blob")?;
+    let mut out = Zeroizing::new([0_u8; luks2::key::VOLUME_KEY_SIZE]);
 
-    tpm2::linux::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")
+    let key = tpm2::linux::unseal(&blob, &mut out[..])
+        .context("Failed to unseal the LUKS key from TPM2")?;
+
+    Ok(luks2::key::from_raw(key.to_vec())?)
 }
 
 fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2Token> {
@@ -124,12 +129,13 @@ fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2To
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
     let sealed =
         tpm2::linux::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
+    let mut wire = [0_u8; tpm2::blob::Sealed::MAX_SERIALIZED_SIZE];
+    let wire = sealed
+        .blob
+        .serialize_into(&mut wire)
+        .context("Failed to serialize the TPM2 blob")?;
 
-    Ok(Tpm2Token::new(
-        &[11],
-        &sealed.blob.serialize(),
-        &sealed.policy_digest,
-    ))
+    Ok(Tpm2Token::new(&[11], wire, &sealed.policy_digest))
 }
 
 fn sorted_sections(sections: &[MeasuredSection]) -> Vec<(&str, &[u8; 32])> {

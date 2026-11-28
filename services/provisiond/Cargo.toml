@@ -54,6 +54,7 @@ libc = { workspace = true }
 
 # Utilities
 uuid = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

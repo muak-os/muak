@@ -17,7 +17,6 @@ linux = ["dep:getrandom"]
 # Cryptography
 getrandom = { workspace = true, optional = true }
 sha2 = { workspace = true }
-zeroize = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
