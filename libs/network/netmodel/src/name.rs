@@ -1,5 +1,7 @@
 //! Interface name validation and string conversions.
 
+#[cfg(feature = "serde")]
+use alloc::string::String;
 use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt;
@@ -151,6 +153,12 @@ impl serde::de::Visitor<'_> for NameVisitor {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+    extern crate std;
+
+    use alloc::format;
+    use alloc::string::ToString as _;
+    use alloc::vec::Vec;
     use core::borrow::Borrow;
     use core::mem::size_of;
     use std::collections::HashMap;

@@ -1,5 +1,7 @@
 //! Priority-based link selection.
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 use core::cmp::Ordering;
 
 use crate::{Link, Name, Selector};
@@ -18,6 +20,7 @@ impl Selector {
     }
 
     /// Returns all non-primary links sorted by descending priority.
+    #[cfg(feature = "alloc")]
     #[must_use = "callers need the remaining links to build the bond"]
     pub fn backups<'a>(links: &'a [Link], primary_name: &Name) -> Vec<&'a Link> {
         let mut backups: Vec<&Link> = links

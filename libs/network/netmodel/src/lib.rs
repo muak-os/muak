@@ -1,6 +1,10 @@
-//! Network domain model and configuration vocabulary.
+//! Sans-io network domain model vocabulary.
 
+#![no_std]
 #![warn(missing_docs)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 pub mod error;
 mod interface;
@@ -9,7 +13,11 @@ mod name;
 mod selection;
 mod state;
 
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::net::IpAddr;
+#[cfg(feature = "alloc")]
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 use mac::Mac;
 
@@ -124,6 +132,7 @@ pub struct Route {
 }
 
 /// Network configuration covering DNS, IPv6 toggle, and interfaces.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Config {
     /// Whether IPv6 networking is enabled.
@@ -135,6 +144,7 @@ pub struct Config {
 }
 
 /// Declarative configuration for a single network interface.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterfaceConfig {
     /// Interface name.
@@ -150,6 +160,7 @@ pub struct InterfaceConfig {
 }
 
 /// Kind of network interface.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceKind {
     /// Bridge interface connecting multiple networks.
@@ -159,6 +170,7 @@ pub enum InterfaceKind {
 }
 
 /// Bridge-specific configuration.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BridgeConfig {
     /// Member ports attached to the bridge.
@@ -168,6 +180,7 @@ pub struct BridgeConfig {
 }
 
 /// IPv4 address provisioning configuration.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ipv4Config {
     /// Address and prefix length pairs.
@@ -181,6 +194,7 @@ pub struct Ipv4Config {
 }
 
 /// IPv6 address provisioning configuration.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ipv6Config {
     /// Address and prefix length pairs.

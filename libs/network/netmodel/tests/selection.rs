@@ -4,7 +4,9 @@ pub mod common;
 
 #[cfg(test)]
 mod tests {
-    use netmodel::{AdminState, CarrierState, Link, LinkState, Name, Selector};
+    #[cfg(feature = "alloc")]
+    use netmodel::Name;
+    use netmodel::{AdminState, CarrierState, Link, LinkState, Selector};
 
     use crate::common;
 
@@ -163,6 +165,7 @@ mod tests {
         assert_eq!(primary.expect("should have primary").name, "eth0");
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn backups_excludes_primary() {
         // ARRANGE
@@ -181,6 +184,7 @@ mod tests {
         assert!(backups.iter().all(|link| link.name != "eth0"));
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn backups_sorted_by_priority() {
         // ARRANGE

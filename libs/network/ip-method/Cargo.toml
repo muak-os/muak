@@ -15,7 +15,7 @@ thiserror = { workspace = true }
 
 # Internal
 mac = { workspace = true, default-features = false }
-netmodel = { workspace = true }
+netmodel = { workspace = true, default-features = false }
 
 [lints]
 workspace = true

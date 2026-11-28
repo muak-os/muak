@@ -1,6 +1,6 @@
 [package]
 name = "netmodel"
-description = "Network domain model and configuration vocabulary"
+description = "No std, sans-io network domain vocabulary with an allocation-free core and configuration types behind the alloc feature"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,14 +10,16 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-serde = ["dep:serde"]
+default = ["alloc"]
+alloc = []
+serde = ["dep:serde", "alloc"]
 
 [dependencies]
 # Encoding
-serde = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, default-features = false, features = ["alloc"] }
 
 # Error handling
-thiserror = { workspace = true }
+thiserror = { workspace = true, default-features = false }
 
 # Internal
 mac = { workspace = true, default-features = false }

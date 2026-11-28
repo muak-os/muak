@@ -26,6 +26,10 @@ impl fmt::Display for MethodState {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::string::ToString as _;
+
     use crate::{Family, MethodState};
 
     #[test]

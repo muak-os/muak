@@ -73,6 +73,10 @@ impl fmt::Display for LinkState {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::string::ToString as _;
+
     use crate::{AdminState, CarrierState, LinkState};
 
     #[test]

@@ -42,6 +42,10 @@ pub enum LinkError {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::string::ToString as _;
+
     use super::*;
 
     #[test]
