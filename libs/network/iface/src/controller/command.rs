@@ -8,7 +8,7 @@ use net_observe::journal::Journal;
 use net_observe::{Event as ObserveEvent, Level};
 use netmodel::{Family, MethodState};
 
-use crate::method::{Replacement, V4Slot, V6Slot};
+use crate::method::{Replacement, V4Slot, V6Slot, static_overflow};
 use crate::{Command, Controller, Effect};
 
 pub(super) fn apply(controller: &mut Controller, command: Command) {
@@ -123,6 +123,24 @@ fn replacement_notices(
     {
         notices.push(String::from(
             "SLAAC requested but the ipv6 feature is disabled",
+        ));
+    }
+
+    if let Some(config) = v4
+        && !config.addresses.is_empty()
+        && static_overflow(&config.addresses, config.gateway, &config.dns)
+    {
+        notices.push(String::from(
+            "Static ipv4 configuration exceeds the address or DNS capacity",
+        ));
+    }
+
+    if let Some(config) = v6
+        && !config.addresses.is_empty()
+        && static_overflow(&config.addresses, config.gateway, &config.dns)
+    {
+        notices.push(String::from(
+            "Static ipv6 configuration exceeds the address or DNS capacity",
         ));
     }
 

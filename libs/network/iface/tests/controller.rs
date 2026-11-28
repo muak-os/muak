@@ -364,10 +364,62 @@ fn static_v4_configure_adds_address_route_and_binds() {
     let Some(V4View::Static(view)) = controller.snapshot().v4.clone() else {
         panic!("static view expected");
     };
-    assert_eq!(view.address, ADDRESS_V4);
-    assert_eq!(view.prefix_len, 24);
-    assert_eq!(view.gateway, Some(GATEWAY_V4));
+    assert_eq!(view.address(), ADDRESS_V4);
+    assert_eq!(view.prefix_len(), 24);
+    assert_eq!(view.gateway(), Some(GATEWAY_V4));
     assert!(controller.next_wake(now).is_none());
+}
+
+#[cfg(feature = "ipv4")]
+#[test]
+fn static_v4_overflow_configures_no_method_and_warns() {
+    // ARRANGE
+    let now = Instant::now();
+    let mut controller = Controller::new(link());
+    let mut journal = net_observe::journal::Journal::new();
+    let addresses = vec![(ADDRESS_V4, 24); ip_static::MAX_ADDRESSES + 1];
+
+    // ACT
+    let effects = configure_with(
+        &mut controller,
+        &mut journal,
+        now,
+        Some(Ipv4Config {
+            addresses,
+            gateway: Some(GATEWAY_V4),
+            dns: Vec::new(),
+            dhcp: true,
+        }),
+        None,
+    );
+    let notices: Vec<_> = journal
+        .drain()
+        .filter_map(|observation| {
+            if let net_observe::Event::Notice { text, .. } = observation.event {
+                Some(text)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // ASSERT
+    assert!(
+        notices
+            .iter()
+            .any(|notice| notice.contains("ipv4 configuration exceeds"))
+    );
+    assert!(controller.snapshot().v4.is_none());
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Observed::AddAddress { .. }))
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Observed::RequestEntropy { .. }))
+    );
 }
 
 #[test]
@@ -392,7 +444,7 @@ fn static_v6_configure_adds_address_route_and_binds() {
     let Some(V6View::Static(view)) = controller.snapshot().v6.clone() else {
         panic!("static view expected");
     };
-    assert_eq!(view.address, ADDRESS_V6);
+    assert_eq!(view.address(), ADDRESS_V6);
     assert_eq!(controller.snapshot().v6_state, netmodel::MethodState::Bound);
 }
 

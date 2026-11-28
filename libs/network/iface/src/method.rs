@@ -42,13 +42,10 @@ impl V4Slot {
     /// Builds the IPv4 method the configuration asks for.
     pub(crate) fn new(link: &LinkInfo, config: netmodel::Ipv4Config) -> Option<Self> {
         if !config.addresses.is_empty() {
-            let config = ip_static::Config {
-                addresses: config.addresses,
-                gateway: config.gateway,
-                dns: config.dns,
-            };
+            let static_config =
+                ip_static::Config::new(&config.addresses, config.gateway, &config.dns)?;
 
-            return Some(Self::fixed(ip_static::Static::new(config)));
+            return Some(Self::fixed(ip_static::Static::new(static_config)));
         }
 
         dhcp(link, config)
@@ -79,13 +76,10 @@ impl V6Slot {
     /// Builds the IPv6 method the configuration asks for.
     pub(crate) fn new(link: &LinkInfo, config: netmodel::Ipv6Config) -> Option<Self> {
         if !config.addresses.is_empty() {
-            let config = ip_static::Config {
-                addresses: config.addresses,
-                gateway: config.gateway,
-                dns: config.dns,
-            };
+            let static_config =
+                ip_static::Config::new(&config.addresses, config.gateway, &config.dns)?;
 
-            return Some(Self::fixed(ip_static::Static::new(config)));
+            return Some(Self::fixed(ip_static::Static::new(static_config)));
         }
 
         stateless(link, config)
@@ -190,6 +184,15 @@ impl Method for V6Slot {
 
         None
     }
+}
+
+/// Reports whether a static configuration exceeds the fixed capacity of `ip-static`.
+pub(crate) fn static_overflow<A: Copy + ip_static::Placeholder>(
+    addresses: &[(A, u8)],
+    gateway: Option<A>,
+    dns: &[A],
+) -> bool {
+    ip_static::Config::new(addresses, gateway, dns).is_none()
 }
 
 #[cfg(feature = "ipv4")]

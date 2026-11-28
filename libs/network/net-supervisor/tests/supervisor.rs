@@ -95,12 +95,10 @@ fn config(interfaces: Vec<InterfaceConfig>) -> Config {
 fn configured(link_state: LinkState) -> iface::Snapshot {
     iface::Snapshot {
         link: link_state,
-        v4: Some(iface::V4View::Static(ip_static::View {
-            address: Ipv4Addr::new(10, 0, 0, 2),
-            prefix_len: 24,
-            gateway: None,
-            dns: Vec::new(),
-        })),
+        v4: Some(iface::V4View::Static(
+            ip_static::View::new(Ipv4Addr::new(10, 0, 0, 2), 24, None, &[])
+                .expect("view within capacity"),
+        )),
         v4_state: netmodel::MethodState::Bound,
         v6: None,
         v6_state: netmodel::MethodState::Stopped,

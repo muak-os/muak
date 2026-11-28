@@ -1,6 +1,6 @@
 [package]
 name = "ip-static"
-description = "Static IPv4 and IPv6 provisioning method"
+description = "Sans-io, allocation-free static IPv4 and IPv6 provisioning method"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
