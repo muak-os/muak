@@ -1,5 +1,6 @@
-//! RFC 791/8200/768 framing and RFC 1071 checksums.
+//! No std, sans-io, allocation-free RFC 791/768 framing, RFC 8200 IPv6 upper-layer and RFC 1071 checksums.
 
+#![no_std]
 #![warn(missing_docs)]
 
 pub mod checksum;

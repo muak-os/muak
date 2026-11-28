@@ -1,6 +1,6 @@
 [package]
 name = "ip"
-description = "IPv4 (RFC 791), IPv6 (RFC 8200), UDP (RFC 768), and RFC 1071 checksums"
+description = "No std, sans-io, allocation-free IPv4 (RFC 791) and UDP (RFC 768) framing, RFC 8200 IPv6 upper-layer and RFC 1071 checksums"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-thiserror = { workspace = true }
+thiserror = { workspace = true, default-features = false }
 
 [features]
 default = ["v4", "v6"]
