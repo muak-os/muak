@@ -1,5 +1,6 @@
-//! IEEE 802 MAC address type, formatting and generation.
+//! No std, sans-io, allocation-free IEEE 802 MAC address type, formatting and generation.
 
+#![no_std]
 #![warn(missing_docs)]
 
 use core::fmt;
@@ -73,6 +74,10 @@ pub fn generate(id: &str) -> Mac {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::string::ToString as _;
+
     use super::*;
 
     #[test]

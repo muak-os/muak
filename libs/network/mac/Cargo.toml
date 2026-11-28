@@ -1,6 +1,6 @@
 [package]
 name = "mac"
-description = "IEEE 802 MAC address type, formatting and generation"
+description = "No std, sans-io, allocation-free IEEE 802 MAC address type, formatting and generation"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ categories.workspace = true
 
 [dependencies]
 # Cryptography
-sha2 = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true, default-features = false }
 
 [features]
 default = ["generate"]
