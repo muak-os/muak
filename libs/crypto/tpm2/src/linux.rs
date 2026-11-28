@@ -74,7 +74,6 @@ pub fn unseal<'a>(blob: &Sealed, out: &'a mut [u8]) -> Result<&'a [u8]> {
 /// Returns an error if the TPM resource manager cannot be opened.
 pub(crate) fn open(path: Option<&Path>) -> Result<Device> {
     let device_path = path.unwrap_or_else(|| Path::new(TPM_DEVICE));
-    // rustix keeps short paths allocation free and only paths above its small path buffer take the allocating fallback.
     let descriptor = rustix::fs::open(device_path, OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())
         .map_err(|error| match error {
         Errno::NOENT => Tpm2Error::DeviceNotFound,

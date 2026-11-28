@@ -4,14 +4,6 @@ use crate::buffer::u16_len;
 use crate::error::{Result, Tpm2Error};
 
 /// Maximum encoded public area size of a sealed object.
-///
-/// The keyedhash public template written by `commands/template.rs` is 46 bytes,
-/// and the TPM appends its unique digest to it, so the encoded public area stays
-/// close to that size. The private area carries a 32-byte integrity value plus
-/// the AES-CFB encrypted sensitive area. Capping each part at 256 bytes leaves a
-/// wide margin for a 64-byte sealed secret while keeping a `Load` command far
-/// below `MAX_COMMAND_SIZE`; a TPM that returns a larger part fails loudly with
-/// `Tpm2Error::BufferTooLarge`.
 const MAX_PUBLIC_SIZE: usize = 256;
 
 /// Maximum encoded private area size of a sealed object.
@@ -105,14 +97,12 @@ impl Sealed {
     /// Public area bytes of the sealed object.
     #[must_use = "callers need the public area to load the object"]
     pub(crate) fn public(&self) -> &[u8] {
-        // The length is only ever set from a copy that fits the array cap.
         self.public.get(..self.public_len).unwrap_or_default()
     }
 
     /// Private area bytes of the sealed object.
     #[must_use = "callers need the private area to unseal the object"]
     pub(crate) fn private(&self) -> &[u8] {
-        // The length is only ever set from a copy that fits the array cap.
         self.private.get(..self.private_len).unwrap_or_default()
     }
 }

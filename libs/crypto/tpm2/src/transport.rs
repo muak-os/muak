@@ -1,4 +1,4 @@
-//! Sans-I/O transport boundary for TPM2 command exchange.
+//! Sans-io transport boundary for TPM2 command exchange.
 
 use crate::error::Result;
 

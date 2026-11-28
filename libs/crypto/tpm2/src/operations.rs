@@ -95,7 +95,6 @@ pub fn unseal<'a, T: Transport>(
     result
 }
 
-/// Applies the PCR policy, unseals into `out`, and copies the result before flushing.
 fn unseal_with_policy<'a, T: Transport>(
     transport: &mut T,
     object_handle: TransientHandle,

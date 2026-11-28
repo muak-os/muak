@@ -23,7 +23,6 @@ mod tests {
     const PUBLIC: [u8; 2] = [3, 4];
     const PRIVATE: [u8; 2] = [1, 2];
 
-    // Bodies mirrored from the response fixtures in `src/operations.rs`.
     const HANDLE_EXISTS_FOUND_BODY: [u8; 13] = [0, 0, 0, 0, 1, 0, 0, 0, 1, 0x81, 0, 0, 1];
     const CREATE_BODY: [u8; 12] = [0, 0, 0, 8, 0, 2, 1, 2, 0, 2, 3, 4];
     const LOAD_BODY: [u8; 4] = [0x80, 0, 0, 2];
@@ -64,7 +63,6 @@ mod tests {
         }
     }
 
-    // Fake transport that hands out borrowed responses without allocating.
     struct NoAllocTransport<'a> {
         responses: &'a [&'a [u8]],
         index: usize,
@@ -117,7 +115,6 @@ mod tests {
         ALLOCATIONS.load(Ordering::SeqCst).saturating_sub(before)
     }
 
-    // Paths longer than rustix's small path buffer fall back to an allocating conversion, and this test does not cover them.
     #[test]
     fn allocation_free_paths_do_not_allocate() {
         // ARRANGE
@@ -143,7 +140,6 @@ mod tests {
         let nonce = [0x55_u8; NONCE_SIZE];
         let device_path = Path::new("/dev/tpmrm0");
 
-        // Warm up every path once so any lazy initialization happens before measuring.
         {
             let mut transport = NoAllocTransport::new(&seal_responses);
             let warmup = operations::seal(&mut transport, &DATA, &PCR);
@@ -161,7 +157,6 @@ mod tests {
         assert!(warmup.is_ok(), "deserialize warmup should succeed");
         let _warmup_available = tpm2::linux::is_available(Some(device_path));
 
-        // Positive control: the counting allocator must observe a deliberate allocation, otherwise every measurement below is a silent no-op. This sits outside every measured region on purpose.
         let control_before = ALLOCATIONS.load(Ordering::SeqCst);
         drop(Vec::<u8>::with_capacity(1));
         let control_allocations = delta(control_before);
