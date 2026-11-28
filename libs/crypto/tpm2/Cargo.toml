@@ -1,6 +1,6 @@
 [package]
 name = "tpm2"
-description = "Sans-io, allocation-free TPM2 core for PCR-sealed blobs with an optional /dev/tpmrm0 transport"
+description = "No std, sans-io, allocation-free TPM2 core for PCR-sealed blobs with an optional /dev/tpmrm0 transport"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

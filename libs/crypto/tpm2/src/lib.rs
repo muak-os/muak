@@ -1,4 +1,4 @@
-//! Sans-io, allocation-free TPM2 core for PCR-sealed blobs, with an optional Linux transport behind the `linux` feature, enabled by default.
+//! No std, sans-io, allocation-free TPM2 core for PCR-sealed blobs, with an optional Linux transport behind the `linux` feature, enabled by default.
 
 #![no_std]
 #![warn(missing_docs)]
