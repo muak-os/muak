@@ -1,6 +1,7 @@
 //! TPM2 response parsing helpers.
 
 use crate::error::{Result, Tpm2Error};
+use crate::tags::{TPM2_ST_NO_SESSIONS, TPM2_ST_SESSIONS};
 
 pub(crate) const RESPONSE_HEADER_SIZE: usize = 10;
 
@@ -110,9 +111,89 @@ impl<'a> ResponseBody<'a> {
     }
 }
 
+/// Validates a response header and checks for TPM errors.
+///
+/// # Errors
+///
+/// Returns an error when the response is too short, has an unexpected tag, or carries a nonzero TPM return code.
+pub(crate) fn validate(response: &[u8]) -> Result<()> {
+    if response.len() < RESPONSE_HEADER_SIZE {
+        return Err(Tpm2Error::ResponseTooShort {
+            expected: RESPONSE_HEADER_SIZE,
+            actual: response.len(),
+        });
+    }
+
+    let mut reader = ResponseReader::new(response);
+    let tag = reader.read_u16()?;
+
+    if tag != TPM2_ST_NO_SESSIONS && tag != TPM2_ST_SESSIONS {
+        return Err(Tpm2Error::BadResponseTag);
+    }
+
+    let _size = reader.read_u32()?;
+    let rc = reader.read_u32()?;
+
+    if rc != 0 {
+        return Err(Tpm2Error::TpmError(rc));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn response(tag: u16, rc: u32, body: &[u8]) -> Vec<u8> {
+        let size = 10_usize
+            .checked_add(body.len())
+            .expect("response size should fit usize");
+        let mut out = Vec::with_capacity(size);
+        out.extend_from_slice(&tag.to_be_bytes());
+        let size = u32::try_from(size).ok().unwrap_or(0);
+        out.extend_from_slice(&size.to_be_bytes());
+        out.extend_from_slice(&rc.to_be_bytes());
+        out.extend_from_slice(body);
+
+        out
+    }
+
+    #[test]
+    fn validate_accepts_success_tags() {
+        // ARRANGE
+        let no_sessions = response(TPM2_ST_NO_SESSIONS, 0, &[]);
+        let sessions = response(TPM2_ST_SESSIONS, 0, &[]);
+
+        // ACT
+        let no_sessions_result = validate(&no_sessions);
+        let sessions_result = validate(&sessions);
+
+        // ASSERT
+        assert!(
+            no_sessions_result.is_ok(),
+            "no-sessions response should validate"
+        );
+        assert!(sessions_result.is_ok(), "sessions response should validate");
+    }
+
+    #[test]
+    fn validate_rejects_bad_headers() {
+        // ARRANGE
+        let short = [0_u8; 9];
+        let bad_tag = response(0xFFFF, 0, &[]);
+        let tpm_error = response(TPM2_ST_NO_SESSIONS, 0x101, &[]);
+
+        // ACT
+        let short_result = validate(&short);
+        let bad_tag_result = validate(&bad_tag);
+        let tpm_error_result = validate(&tpm_error);
+
+        // ASSERT
+        assert!(short_result.is_err(), "short response should fail");
+        assert!(bad_tag_result.is_err(), "bad tag should fail");
+        assert!(tpm_error_result.is_err(), "TPM error code should fail");
+    }
 
     #[test]
     fn response_reader_reads_values_in_order() {

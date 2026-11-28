@@ -1,4 +1,4 @@
-//! Interact with TPM2 via `/dev/tpmrm0`.
+//! Interact with TPM2 through a sans-io core with a `/dev/tpmrm0` default transport.
 
 #![warn(missing_docs)]
 
@@ -13,3 +13,4 @@ pub mod operations;
 pub mod pcr;
 mod response;
 mod tags;
+pub mod transport;

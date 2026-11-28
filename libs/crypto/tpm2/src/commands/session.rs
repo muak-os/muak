@@ -2,7 +2,7 @@
 
 use super::TpmCommand;
 use crate::buffer::CommandBuffer;
-use crate::error::{Result, Tpm2Error};
+use crate::error::Result;
 use crate::handles::{HierarchyHandle, SessionHandle};
 use crate::pcr::pcr11_selection_bytes;
 use crate::response::ResponseBody;
@@ -15,21 +15,20 @@ const TPM2_ALG_SHA256: u16 = 0x000B;
 const TPM2_ALG_NULL: u16 = 0x0010;
 const TPM2_SE_POLICY: u8 = 0x01;
 
-pub(crate) struct StartAuthSessionCommand;
+pub(crate) struct StartAuthSessionCommand<'a> {
+    pub(crate) nonce: &'a [u8],
+}
 
-impl TpmCommand for StartAuthSessionCommand {
+impl TpmCommand for StartAuthSessionCommand<'_> {
     type Output = SessionHandle;
 
     const TAG: u16 = TPM2_ST_NO_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_START_AUTH_SESSION;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        let mut nonce = [0_u8; 16];
-        getrandom::fill(&mut nonce).map_err(|_rng_error| Tpm2Error::RngFailed)?;
-
         command.write_handle(HierarchyHandle::NULL);
         command.write_handle(HierarchyHandle::NULL);
-        command.write_sized(&nonce)?;
+        command.write_sized(self.nonce)?;
         command.write_sized(&[])?;
         command.write_u8(TPM2_SE_POLICY);
         command.write_u16(TPM2_ALG_NULL);
@@ -109,7 +108,8 @@ mod tests {
     #[test]
     fn start_auth_session_encodes_and_decodes() {
         // ARRANGE
-        let command = StartAuthSessionCommand;
+        let nonce = [0xAA_u8; 32];
+        let command = StartAuthSessionCommand { nonce: &nonce };
         let mut buffer = CommandBuffer::new(
             StartAuthSessionCommand::TAG,
             StartAuthSessionCommand::COMMAND_CODE,
@@ -132,11 +132,11 @@ mod tests {
         );
         assert_eq!(
             finalized.get(18..20),
-            Some(16_u16.to_be_bytes().as_slice()),
-            "nonce should be 16 bytes"
+            Some(32_u16.to_be_bytes().as_slice()),
+            "nonce should be 32 bytes"
         );
         assert_eq!(
-            finalized.get(36..41),
+            finalized.get(52..57),
             Some(&[0x00, 0x00, TPM2_SE_POLICY, 0x00, 0x10][..]),
             "session parameters should match expected tail bytes"
         );

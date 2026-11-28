@@ -10,11 +10,11 @@ pub(crate) use persistence::{EvictControlCommand, HandleExistsCommand};
 pub(crate) use session::{FlushContextCommand, PolicyPcrCommand, StartAuthSessionCommand};
 
 use crate::buffer::CommandBuffer;
-use crate::device::TpmDevice;
 use crate::error::Result;
-use crate::response::ResponseBody;
+use crate::response::{self, ResponseBody};
+use crate::transport::Transport;
 
-/// A TPM command that can be encoded, sent to the device, and decoded.
+/// A TPM command that can be encoded, sent over a `Transport`, and decoded.
 pub(crate) trait TpmCommand {
     const COMMAND_CODE: u32;
     const TAG: u16;
@@ -26,61 +26,40 @@ pub(crate) trait TpmCommand {
     fn encode(&self, command: &mut CommandBuffer) -> Result<()>;
 }
 
-/// Execute a TPM command by encoding it, sending it to the device, and decoding the response.
-pub(crate) fn execute<T, C>(dev: &mut T, command: &C) -> Result<C::Output>
+/// Execute a TPM command by encoding it, sending it to the transport, validating, and decoding the response.
+pub(crate) fn execute<T, C>(transport: &mut T, command: &C) -> Result<C::Output>
 where
-    T: TpmDevice,
+    T: Transport,
     C: TpmCommand,
 {
     let mut buffer = CommandBuffer::new(C::TAG, C::COMMAND_CODE);
     command.encode(&mut buffer)?;
-    let response = dev.transact(&buffer.finalize()?)?;
-    let mut body = ResponseBody::from_response(&response)?;
+    let response = transport.transact(&buffer.finalize()?)?;
+    response::validate(response)?;
+    let mut body = ResponseBody::from_response(response)?;
+
     command.decode(&mut body)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
-
     use super::*;
     use crate::error::Tpm2Error;
     use crate::tags::TPM2_ST_NO_SESSIONS;
+    use crate::transport::Transport;
 
     #[derive(Default)]
-    struct MockDevice {
+    struct MockTransport {
         response: Vec<u8>,
         written: Vec<u8>,
     }
 
-    impl Read for MockDevice {
-        fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-            let read_len = buf.len().min(self.response.len());
-            let target = buf
-                .get_mut(..read_len)
-                .ok_or_else(|| IoError::new(ErrorKind::UnexpectedEof, "short read buffer"))?;
-            let source = self
-                .response
-                .get(..read_len)
-                .ok_or_else(|| IoError::new(ErrorKind::UnexpectedEof, "short mock response"))?;
-            target.copy_from_slice(source);
-            self.response.drain(..read_len);
-            Ok(read_len)
+    impl Transport for MockTransport {
+        fn transact(&mut self, request: &[u8]) -> Result<&[u8]> {
+            self.written.extend_from_slice(request);
+            Ok(&self.response)
         }
     }
-
-    impl Write for MockDevice {
-        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-            self.written.extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> IoResult<()> {
-            Ok(())
-        }
-    }
-
-    impl TpmDevice for MockDevice {}
 
     struct MockCommand;
 
@@ -117,38 +96,42 @@ mod tests {
         }
     }
 
-    fn response(body: &[u8]) -> Vec<u8> {
+    fn response_with(tag: u16, rc: u32, body: &[u8]) -> Vec<u8> {
         let size = 10_usize
             .checked_add(body.len())
             .expect("response size should fit usize");
         let mut out = Vec::with_capacity(size);
-        out.extend_from_slice(&TPM2_ST_NO_SESSIONS.to_be_bytes());
+        out.extend_from_slice(&tag.to_be_bytes());
         out.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
-        out.extend_from_slice(&0_u32.to_be_bytes());
+        out.extend_from_slice(&rc.to_be_bytes());
         out.extend_from_slice(body);
         out
+    }
+
+    fn response(body: &[u8]) -> Vec<u8> {
+        response_with(TPM2_ST_NO_SESSIONS, 0, body)
     }
 
     #[test]
     fn execute_encodes_transacts_and_decodes() {
         // ARRANGE
-        let mut dev = MockDevice {
+        let mut transport = MockTransport {
             response: response(&0xDEAD_BEEF_u32.to_be_bytes()),
             written: Vec::new(),
         };
 
         // ACT
-        let result = execute(&mut dev, &MockCommand);
+        let result = execute(&mut transport, &MockCommand);
 
         // ASSERT
         assert_eq!(result.ok(), Some(0xDEAD_BEEF), "decoded value should match");
         assert_eq!(
-            dev.written.get(0..2),
+            transport.written.get(0..2),
             Some(TPM2_ST_NO_SESSIONS.to_be_bytes().as_slice()),
             "command tag should be written"
         );
         assert_eq!(
-            dev.written.get(6..10),
+            transport.written.get(6..10),
             Some(0x0000_00FF_u32.to_be_bytes().as_slice()),
             "command code should be written"
         );
@@ -157,17 +140,41 @@ mod tests {
     #[test]
     fn execute_propagates_encode_errors() {
         // ARRANGE
-        let mut dev = MockDevice::default();
+        let mut transport = MockTransport::default();
 
         // ACT
-        let result = execute(&mut dev, &FailingCommand);
+        let result = execute(&mut transport, &FailingCommand);
 
         // ASSERT
         assert!(result.is_err(), "encode failure should be propagated");
         assert!(
-            dev.written.is_empty(),
-            "device should not be used on encode failure"
+            transport.written.is_empty(),
+            "transport should not be used on encode failure"
         );
+    }
+
+    #[test]
+    fn execute_rejects_invalid_responses() {
+        // ARRANGE
+        let mut error_transport = MockTransport {
+            response: response_with(TPM2_ST_NO_SESSIONS, 0x101, &[]),
+            written: Vec::new(),
+        };
+        let mut bad_tag_transport = MockTransport {
+            response: response_with(0xFFFF, 0, &[]),
+            written: Vec::new(),
+        };
+
+        // ACT
+        let error_result = execute(&mut error_transport, &MockCommand);
+        let bad_tag_result = execute(&mut bad_tag_transport, &MockCommand);
+
+        // ASSERT
+        assert!(
+            error_result.is_err(),
+            "non-zero return code should be rejected"
+        );
+        assert!(bad_tag_result.is_err(), "bad tag should be rejected");
     }
 
     #[test]

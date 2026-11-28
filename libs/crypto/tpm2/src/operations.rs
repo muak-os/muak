@@ -7,10 +7,10 @@ use crate::commands::{
     self, CreateCommand, CreatePrimaryCommand, EvictControlCommand, FlushContextCommand,
     HandleExistsCommand, LoadCommand, PolicyPcrCommand, StartAuthSessionCommand, UnsealCommand,
 };
-use crate::device::{self, TpmDevice};
 use crate::error::Result;
 use crate::handles::{HierarchyHandle, PersistentHandle};
 use crate::pcr::{Digest, compute_policy_digest};
+use crate::transport::Transport;
 
 const SRK_HANDLE: PersistentHandle = PersistentHandle::new(0x8100_0001);
 
@@ -26,23 +26,17 @@ pub struct SealResult {
 ///
 /// # Errors
 ///
-/// Returns an error if TPM access or command execution fails.
-pub fn seal(data: &[u8], expected_pcr: &Digest) -> Result<SealResult> {
-    let mut dev = device::open(None)?;
-
-    seal_with_device(&mut dev, data, expected_pcr)
-}
-
-fn seal_with_device(
-    dev: &mut impl TpmDevice,
+/// Returns an error if the transport exchange or command execution fails.
+pub fn seal<T: Transport>(
+    transport: &mut T,
     data: &[u8],
     expected_pcr: &Digest,
 ) -> Result<SealResult> {
-    ensure_srk(dev)?;
+    ensure_srk(transport)?;
 
     let policy_digest = compute_policy_digest(expected_pcr);
     let (pub_data, priv_data) = commands::execute(
-        dev,
+        transport,
         &CreateCommand {
             parent_handle: SRK_HANDLE,
             policy_digest: &policy_digest,
@@ -56,40 +50,39 @@ fn seal_with_device(
     })
 }
 
-/// Unseals data using current PCR#11 values.
+/// Unseals data using the given nonce and current PCR#11 values.
 ///
 /// # Errors
 ///
-/// Returns an error if TPM access, object loading, policy setup, or unsealing fails.
-pub fn unseal(blob: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
-    let mut dev = device::open(None)?;
-
-    unseal_with_device(&mut dev, blob)
-}
-
-fn unseal_with_device(dev: &mut impl TpmDevice, blob: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
-    ensure_srk(dev)?;
+/// Returns an error if the transport exchange, object loading, policy setup, or
+/// unsealing fails.
+pub fn unseal<T: Transport>(
+    transport: &mut T,
+    blob: &Sealed,
+    nonce: &[u8],
+) -> Result<Zeroizing<Vec<u8>>> {
+    ensure_srk(transport)?;
 
     let obj_handle = commands::execute(
-        dev,
+        transport,
         &LoadCommand {
             parent_handle: SRK_HANDLE,
             pub_data: blob.public(),
             priv_data: blob.private(),
         },
     )?;
-    let session = commands::execute(dev, &StartAuthSessionCommand)?;
+    let session = commands::execute(transport, &StartAuthSessionCommand { nonce })?;
 
     let result = (|| -> Result<Zeroizing<Vec<u8>>> {
         commands::execute(
-            dev,
+            transport,
             &PolicyPcrCommand {
                 session_handle: session,
                 pcr_digest: &[],
             },
         )?;
         commands::execute(
-            dev,
+            transport,
             &UnsealCommand {
                 object_handle: obj_handle,
                 session_handle: session,
@@ -98,11 +91,11 @@ fn unseal_with_device(dev: &mut impl TpmDevice, blob: &Sealed) -> Result<Zeroizi
     })();
 
     drop(commands::execute(
-        dev,
+        transport,
         &FlushContextCommand { handle: session },
     ));
     drop(commands::execute(
-        dev,
+        transport,
         &FlushContextCommand { handle: obj_handle },
     ));
 
@@ -110,15 +103,15 @@ fn unseal_with_device(dev: &mut impl TpmDevice, blob: &Sealed) -> Result<Zeroizi
 }
 
 /// Ensures the SRK exists at the well-known persistent handle.
-fn ensure_srk(dev: &mut impl TpmDevice) -> Result<()> {
-    if commands::execute(dev, &HandleExistsCommand { handle: SRK_HANDLE })? {
+fn ensure_srk<T: Transport>(transport: &mut T) -> Result<()> {
+    if commands::execute(transport, &HandleExistsCommand { handle: SRK_HANDLE })? {
         return Ok(());
     }
 
-    let (transient_handle, _pub) = commands::execute(dev, &CreatePrimaryCommand)?;
+    let (transient_handle, _pub) = commands::execute(transport, &CreatePrimaryCommand)?;
 
     let result = commands::execute(
-        dev,
+        transport,
         &EvictControlCommand {
             auth: HierarchyHandle::OWNER,
             object: transient_handle,
@@ -126,7 +119,7 @@ fn ensure_srk(dev: &mut impl TpmDevice) -> Result<()> {
         },
     );
     drop(commands::execute(
-        dev,
+        transport,
         &FlushContextCommand {
             handle: transient_handle,
         },
@@ -138,21 +131,21 @@ fn ensure_srk(dev: &mut impl TpmDevice) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Result as IoResult, Write};
-
     use super::*;
     use crate::commands::TpmCommand as _;
     use crate::tags::{TPM2_ST_NO_SESSIONS, TPM2_ST_SESSIONS};
+    use crate::transport::Transport;
 
     const TPM2_CAP_HANDLES: u32 = 0x0000_0001;
+    const TEST_NONCE: [u8; 32] = [0x55; 32];
 
     #[derive(Default)]
-    struct MockDevice {
+    struct MockTransport {
         responses: Vec<Vec<u8>>,
         next_response: usize,
     }
 
-    impl MockDevice {
+    impl MockTransport {
         fn new(responses: Vec<Vec<u8>>) -> Self {
             Self {
                 responses,
@@ -161,8 +154,8 @@ mod tests {
         }
     }
 
-    impl Read for MockDevice {
-        fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+    impl Transport for MockTransport {
+        fn transact(&mut self, _request: &[u8]) -> Result<&[u8]> {
             let response = self
                 .responses
                 .get(self.next_response)
@@ -172,25 +165,9 @@ mod tests {
                 .checked_add(1)
                 .expect("response index should fit usize");
 
-            let read_len = response.len();
-            buf.get_mut(..read_len)
-                .expect("target slice should contain response")
-                .copy_from_slice(response);
-            Ok(read_len)
+            Ok(response)
         }
     }
-
-    impl Write for MockDevice {
-        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> IoResult<()> {
-            Ok(())
-        }
-    }
-
-    impl TpmDevice for MockDevice {}
 
     fn body_response(body: &[u8]) -> Vec<u8> {
         let size = 10_usize
@@ -231,30 +208,30 @@ mod tests {
     #[test]
     fn ensure_srk_returns_when_handle_exists() {
         // ARRANGE
-        let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
+        let mut transport = MockTransport::new(vec![handle_exists_response(true)]);
 
         // ACT
-        let result = ensure_srk(&mut dev);
+        let result = ensure_srk(&mut transport);
 
         // ASSERT
         assert!(result.is_ok(), "existing SRK should succeed");
     }
 
     #[test]
-    fn seal_with_device_creates_blob_when_srk_exists() {
+    fn seal_creates_blob_when_srk_exists() {
         // ARRANGE
         let mut create_body = Vec::new();
         create_body.extend_from_slice(&8_u32.to_be_bytes());
         create_body.extend_from_slice(&sized(&[1, 2]));
         create_body.extend_from_slice(&sized(&[3, 4]));
-        let mut dev = MockDevice::new(vec![
+        let mut transport = MockTransport::new(vec![
             handle_exists_response(true),
             body_response(&create_body),
         ]);
         let pcr = [0xAA; 32];
 
         // ACT
-        let result = seal_with_device(&mut dev, &[9], &pcr);
+        let result = seal(&mut transport, &[9], &pcr);
 
         // ASSERT
         assert!(result.is_ok(), "seal should succeed");
@@ -275,7 +252,7 @@ mod tests {
         create_primary_body.extend_from_slice(&0x8000_0001_u32.to_be_bytes());
         create_primary_body.extend_from_slice(&5_u32.to_be_bytes());
         create_primary_body.extend_from_slice(&sized(&[1]));
-        let mut dev = MockDevice::new(vec![
+        let mut transport = MockTransport::new(vec![
             handle_exists_response(false),
             body_response(&create_primary_body),
             body_response(&[]),
@@ -283,26 +260,26 @@ mod tests {
         ]);
 
         // ACT
-        let result = ensure_srk(&mut dev);
+        let result = ensure_srk(&mut transport);
 
         // ASSERT
         assert!(result.is_ok(), "missing SRK should be created");
     }
 
     #[test]
-    fn seal_with_device_propagates_create_failure() {
+    fn seal_propagates_create_failure() {
         // ARRANGE
-        let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
+        let mut transport = MockTransport::new(vec![handle_exists_response(true)]);
 
         // ACT
-        let result = seal_with_device(&mut dev, &[9], &[0xAA; 32]);
+        let result = seal(&mut transport, &[9], &[0xAA; 32]);
 
         // ASSERT
         assert!(result.is_err(), "missing create response should fail");
     }
 
     #[test]
-    fn unseal_with_device_loads_policy_and_flushes() {
+    fn unseal_loads_policy_and_flushes() {
         // ARRANGE
         let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
@@ -310,7 +287,7 @@ mod tests {
         let mut unseal_body = Vec::new();
         unseal_body.extend_from_slice(&4_u32.to_be_bytes());
         unseal_body.extend_from_slice(&sized(&[0xAA]));
-        let mut dev = MockDevice::new(vec![
+        let mut transport = MockTransport::new(vec![
             handle_exists_response(true),
             body_response(&load_body),
             body_response(&session_body),
@@ -321,7 +298,7 @@ mod tests {
         ]);
 
         // ACT
-        let result = unseal_with_device(&mut dev, &blob);
+        let result = unseal(&mut transport, &blob, &TEST_NONCE);
 
         // ASSERT
         let result = result.expect("data should unseal");
@@ -329,20 +306,20 @@ mod tests {
     }
 
     #[test]
-    fn unseal_with_device_propagates_load_failure() {
+    fn unseal_propagates_load_failure() {
         // ARRANGE
         let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
-        let mut dev = MockDevice::new(vec![handle_exists_response(true)]);
+        let mut transport = MockTransport::new(vec![handle_exists_response(true)]);
 
         // ACT
-        let result = unseal_with_device(&mut dev, &blob);
+        let result = unseal(&mut transport, &blob, &TEST_NONCE);
 
         // ASSERT
         assert!(result.is_err(), "missing load response should fail");
     }
 
     #[test]
-    fn unseal_with_device_propagates_policy_failure() {
+    fn unseal_propagates_policy_failure() {
         // ARRANGE
         let blob = Sealed::try_new(vec![1], vec![2]).expect("small sealed blob should be valid");
         let load_body = 0x8000_0002_u32.to_be_bytes().to_vec();
@@ -354,7 +331,7 @@ mod tests {
             out.extend_from_slice(&0x101_u32.to_be_bytes());
             out
         };
-        let mut dev = MockDevice::new(vec![
+        let mut transport = MockTransport::new(vec![
             handle_exists_response(true),
             body_response(&load_body),
             body_response(&session_body),
@@ -364,7 +341,7 @@ mod tests {
         ]);
 
         // ACT
-        let result = unseal_with_device(&mut dev, &blob);
+        let result = unseal(&mut transport, &blob, &TEST_NONCE);
 
         // ASSERT
         assert!(result.is_err(), "policy failure should be propagated");
@@ -382,26 +359,6 @@ mod tests {
             StartAuthSessionCommand::COMMAND_CODE,
             0x0000_0176,
             "start auth session code should match"
-        );
-    }
-
-    #[test]
-    fn public_entrypoints_propagate_open_failures() {
-        // ARRANGE
-        let blob = Sealed::try_new(vec![], vec![]).expect("empty blob should be valid");
-
-        // ACT
-        let seal_result = seal(&[], &[0x11; 32]);
-        let unseal_result = unseal(&blob);
-
-        // ASSERT
-        assert!(
-            seal_result.is_err(),
-            "seal wrapper should propagate open failure"
-        );
-        assert!(
-            unseal_result.is_err(),
-            "unseal wrapper should propagate open failure"
         );
     }
 }

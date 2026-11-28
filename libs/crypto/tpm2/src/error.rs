@@ -30,6 +30,15 @@ pub enum Tpm2Error {
         actual: usize,
     },
 
+    /// TPM2 response is larger than the transport buffer.
+    #[error("TPM2 response too large: {actual} bytes exceeds {max} bytes")]
+    ResponseTooLarge {
+        /// Maximum buffer length in bytes.
+        max: usize,
+        /// Reported response length in bytes.
+        actual: usize,
+    },
+
     /// TPM2 response tag is not recognized.
     #[error("TPM2 response tag mismatch")]
     BadResponseTag,

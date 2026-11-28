@@ -8,7 +8,7 @@ use luks2::metadata::tokens::Tpm2Token;
 use rustix::fs::{AtFlags, CWD, Mode, mkdirat, unlinkat};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
-use tpm2::{blob, device, operations};
+use tpm2::{blob, device};
 
 const ESP_MOUNT: &str = "/run/efi";
 const ESP_KEY_NAME: &str = "luks";
@@ -77,7 +77,7 @@ fn try_token(
 fn unseal_tpm2(bytes: &[u8]) -> Result<Passphrase> {
     let sealed = blob::Sealed::deserialize(bytes).context("Failed to deserialize TPM2 blob")?;
 
-    Ok(operations::unseal(&sealed)?)
+    Ok(device::unseal(&sealed)?)
 }
 
 fn try_esp_key() -> Option<Passphrase> {

@@ -116,14 +116,14 @@ fn unseal_token(token: &Tpm2Token) -> Result<Passphrase> {
     let blob = tpm2::blob::Sealed::deserialize(&blob_bytes)
         .context("Failed to deserialize the TPM2 blob")?;
 
-    tpm2::operations::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")
+    tpm2::device::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")
 }
 
 fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2Token> {
     let sections = sorted_sections(sections);
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
-    let sealed = tpm2::operations::seal(luks_key, &expected_pcr)
-        .context("Failed to seal LUKS key to TPM2")?;
+    let sealed =
+        tpm2::device::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
 
     Ok(Tpm2Token::new(
         &[11],
