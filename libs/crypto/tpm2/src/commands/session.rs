@@ -20,23 +20,23 @@ pub(crate) struct StartAuthSessionCommand<'a> {
 }
 
 impl TpmCommand for StartAuthSessionCommand<'_> {
-    type Output = SessionHandle;
+    type Output<'a> = SessionHandle;
 
     const TAG: u16 = TPM2_ST_NO_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_START_AUTH_SESSION;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(HierarchyHandle::NULL);
-        command.write_handle(HierarchyHandle::NULL);
+        command.write_handle(HierarchyHandle::NULL)?;
+        command.write_handle(HierarchyHandle::NULL)?;
         command.write_sized(self.nonce)?;
         command.write_sized(&[])?;
-        command.write_u8(TPM2_SE_POLICY);
-        command.write_u16(TPM2_ALG_NULL);
-        command.write_u16(TPM2_ALG_SHA256);
+        command.write_u8(TPM2_SE_POLICY)?;
+        command.write_u16(TPM2_ALG_NULL)?;
+        command.write_u16(TPM2_ALG_SHA256)?;
         Ok(())
     }
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         body.read_handle::<SessionHandle>()
     }
 }
@@ -47,19 +47,19 @@ pub(crate) struct PolicyPcrCommand<'a> {
 }
 
 impl TpmCommand for PolicyPcrCommand<'_> {
-    type Output = ();
+    type Output<'a> = ();
 
     const TAG: u16 = TPM2_ST_NO_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_POLICY_PCR;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(self.session_handle);
+        command.write_handle(self.session_handle)?;
         command.write_sized(self.pcr_digest)?;
-        command.write_bytes(pcr11_selection_bytes());
+        command.write_bytes(pcr11_selection_bytes())?;
         Ok(())
     }
 
-    fn decode(&self, _body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, _body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         Ok(())
     }
 }
@@ -72,17 +72,17 @@ impl<H> TpmCommand for FlushContextCommand<H>
 where
     H: Copy + Into<u32>,
 {
-    type Output = ();
+    type Output<'a> = ();
 
     const TAG: u16 = TPM2_ST_NO_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_FLUSH_CONTEXT;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(self.handle);
+        command.write_handle(self.handle)?;
         Ok(())
     }
 
-    fn decode(&self, _body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, _body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         Ok(())
     }
 }
@@ -92,7 +92,7 @@ mod tests {
     use super::*;
     use crate::handles::TransientHandle;
 
-    fn response_body(body: &[u8]) -> ResponseBody<'_> {
+    fn response_bytes(body: &[u8]) -> Vec<u8> {
         let size = 10_usize
             .checked_add(body.len())
             .expect("response size should fit usize");
@@ -101,8 +101,7 @@ mod tests {
         response.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
         response.extend_from_slice(&0_u32.to_be_bytes());
         response.extend_from_slice(body);
-        let leaked = Box::leak(response.into_boxed_slice());
-        ResponseBody::from_response(leaked).expect("response should parse")
+        response
     }
 
     #[test]
@@ -114,7 +113,8 @@ mod tests {
             StartAuthSessionCommand::TAG,
             StartAuthSessionCommand::COMMAND_CODE,
         );
-        let mut body = response_body(&[0x03, 0x00, 0x00, 0x01]);
+        let response = response_bytes(&[0x03, 0x00, 0x00, 0x01]);
+        let mut body = ResponseBody::from_response(&response).expect("response should parse");
 
         // ACT
         let encode_result = command.encode(&mut buffer);
@@ -163,8 +163,12 @@ mod tests {
             FlushContextCommand::<TransientHandle>::TAG,
             FlushContextCommand::<TransientHandle>::COMMAND_CODE,
         );
-        let mut empty_body = response_body(&[]);
-        let mut another_empty_body = response_body(&[]);
+        let empty_response = response_bytes(&[]);
+        let mut empty_body =
+            ResponseBody::from_response(&empty_response).expect("response should parse");
+        let another_empty_response = response_bytes(&[]);
+        let mut another_empty_body =
+            ResponseBody::from_response(&another_empty_response).expect("response should parse");
 
         // ACT
         let policy_encode = policy.encode(&mut policy_buffer);

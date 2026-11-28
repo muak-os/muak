@@ -17,19 +17,19 @@ pub(crate) struct HandleExistsCommand {
 }
 
 impl TpmCommand for HandleExistsCommand {
-    type Output = bool;
+    type Output<'a> = bool;
 
     const TAG: u16 = TPM2_ST_NO_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_GET_CAPABILITY;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_u32(TPM2_CAP_HANDLES);
-        command.write_handle(self.handle);
-        command.write_u32(1);
+        command.write_u32(TPM2_CAP_HANDLES)?;
+        command.write_handle(self.handle)?;
+        command.write_u32(1)?;
         Ok(())
     }
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         let _more = body.read_u8()?;
         let _cap = body.read_u32()?;
         let count = body.read_u32()?;
@@ -50,20 +50,20 @@ pub(crate) struct EvictControlCommand {
 }
 
 impl TpmCommand for EvictControlCommand {
-    type Output = ();
+    type Output<'a> = ();
 
     const TAG: u16 = TPM2_ST_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_EVICT_CONTROL;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(self.auth);
-        command.write_handle(self.object);
-        AuthArea::Password.encode_sized(command);
-        command.write_handle(self.persistent);
+        command.write_handle(self.auth)?;
+        command.write_handle(self.object)?;
+        AuthArea::Password.encode_sized(command)?;
+        command.write_handle(self.persistent)?;
         Ok(())
     }
 
-    fn decode(&self, _body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, _body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         Ok(())
     }
 }
@@ -72,7 +72,7 @@ impl TpmCommand for EvictControlCommand {
 mod tests {
     use super::*;
 
-    fn response_body(tag: u16, body: &[u8]) -> ResponseBody<'_> {
+    fn response_bytes(tag: u16, body: &[u8]) -> Vec<u8> {
         let size = 10_usize
             .checked_add(body.len())
             .expect("response size should fit usize");
@@ -81,8 +81,7 @@ mod tests {
         response.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
         response.extend_from_slice(&0_u32.to_be_bytes());
         response.extend_from_slice(body);
-        let leaked = Box::leak(response.into_boxed_slice());
-        ResponseBody::from_response(leaked).expect("response should parse")
+        response
     }
 
     #[test]
@@ -93,16 +92,20 @@ mod tests {
         };
         let mut buffer =
             CommandBuffer::new(HandleExistsCommand::TAG, HandleExistsCommand::COMMAND_CODE);
-        let mut found_body = response_body(
+        let found_response = response_bytes(
             TPM2_ST_NO_SESSIONS,
             &[
                 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x81, 0x00, 0x00, 0x01,
             ],
         );
-        let mut missing_body = response_body(
+        let mut found_body =
+            ResponseBody::from_response(&found_response).expect("response should parse");
+        let missing_response = response_bytes(
             TPM2_ST_NO_SESSIONS,
             &[0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00],
         );
+        let mut missing_body =
+            ResponseBody::from_response(&missing_response).expect("response should parse");
 
         // ACT
         let encode_result = command.encode(&mut buffer);
@@ -131,7 +134,8 @@ mod tests {
         };
         let mut buffer =
             CommandBuffer::new(EvictControlCommand::TAG, EvictControlCommand::COMMAND_CODE);
-        let mut body = response_body(TPM2_ST_SESSIONS, &[]);
+        let response = response_bytes(TPM2_ST_SESSIONS, &[]);
+        let mut body = ResponseBody::from_response(&response).expect("response should parse");
 
         // ACT
         let encode_result = command.encode(&mut buffer);

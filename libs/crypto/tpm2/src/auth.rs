@@ -1,6 +1,7 @@
 //! TPM2 authorization helpers.
 
 use crate::buffer::CommandBuffer;
+use crate::error::Result;
 use crate::handles::SessionHandle;
 
 const TPM2_RS_PW: u32 = 0x4000_0009;
@@ -16,22 +17,24 @@ pub(crate) enum AuthArea {
 }
 
 impl AuthArea {
-    pub(crate) fn encode_sized(&self, command: &mut CommandBuffer) {
-        command.write_u32(SINGLE_AUTH_AREA_SIZE);
+    pub(crate) fn encode_sized(&self, command: &mut CommandBuffer) -> Result<()> {
+        command.write_u32(SINGLE_AUTH_AREA_SIZE)?;
         match *self {
             Self::Password => {
-                command.write_u32(TPM2_RS_PW);
-                command.write_u16(EMPTY_NONCE_SIZE);
-                command.write_u8(PASSWORD_SESSION_ATTRIBUTES);
-                command.write_u16(EMPTY_HMAC_SIZE);
+                command.write_u32(TPM2_RS_PW)?;
+                command.write_u16(EMPTY_NONCE_SIZE)?;
+                command.write_u8(PASSWORD_SESSION_ATTRIBUTES)?;
+                command.write_u16(EMPTY_HMAC_SIZE)?;
             }
             Self::Policy(session) => {
-                command.write_handle(session);
-                command.write_u16(EMPTY_NONCE_SIZE);
-                command.write_u8(POLICY_SESSION_ATTRIBUTES);
-                command.write_u16(EMPTY_HMAC_SIZE);
+                command.write_handle(session)?;
+                command.write_u16(EMPTY_NONCE_SIZE)?;
+                command.write_u8(POLICY_SESSION_ATTRIBUTES)?;
+                command.write_u16(EMPTY_HMAC_SIZE)?;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -45,11 +48,12 @@ mod tests {
         let mut command = CommandBuffer::new(0, 0);
 
         // ACT
-        AuthArea::Password.encode_sized(&mut command);
+        let encoded = AuthArea::Password.encode_sized(&mut command);
         let finalized = command.finalize();
 
         // ASSERT
-        assert!(finalized.is_ok(), "password auth area should encode");
+        assert!(encoded.is_ok(), "password auth area should encode");
+        assert!(finalized.is_ok(), "password auth area should finalize");
         let finalized = finalized.ok().unwrap_or_default();
         assert_eq!(
             finalized.get(10..23),
@@ -64,11 +68,12 @@ mod tests {
         let mut command = CommandBuffer::new(0, 0);
 
         // ACT
-        AuthArea::Policy(SessionHandle::from(0x0300_0000)).encode_sized(&mut command);
+        let encoded = AuthArea::Policy(SessionHandle::from(0x0300_0000)).encode_sized(&mut command);
         let finalized = command.finalize();
 
         // ASSERT
-        assert!(finalized.is_ok(), "policy auth area should encode");
+        assert!(encoded.is_ok(), "policy auth area should encode");
+        assert!(finalized.is_ok(), "policy auth area should finalize");
         let finalized = finalized.ok().unwrap_or_default();
         assert_eq!(
             finalized.get(10..23),

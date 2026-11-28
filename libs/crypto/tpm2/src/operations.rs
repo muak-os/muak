@@ -26,7 +26,9 @@ pub struct SealResult {
 ///
 /// # Errors
 ///
-/// Returns an error if the transport exchange or command execution fails.
+/// Returns an error if the transport exchange or command execution fails, or if the
+/// encoded command exceeds `MAX_COMMAND_SIZE` bytes (plaintext roughly above 930 bytes)
+/// with `Tpm2Error::BufferTooLarge`.
 pub fn seal<T: Transport>(
     transport: &mut T,
     data: &[u8],
@@ -45,7 +47,7 @@ pub fn seal<T: Transport>(
     )?;
 
     Ok(SealResult {
-        blob: Sealed::try_new(pub_data, priv_data)?,
+        blob: Sealed::try_new(pub_data.to_vec(), priv_data.to_vec())?,
         policy_digest,
     })
 }
@@ -55,7 +57,8 @@ pub fn seal<T: Transport>(
 /// # Errors
 ///
 /// Returns an error if the transport exchange, object loading, policy setup, or
-/// unsealing fails.
+/// unsealing fails, or if the encoded command for an oversized sealed blob exceeds
+/// `MAX_COMMAND_SIZE` bytes with `Tpm2Error::BufferTooLarge`.
 pub fn unseal<T: Transport>(
     transport: &mut T,
     blob: &Sealed,
@@ -81,13 +84,15 @@ pub fn unseal<T: Transport>(
                 pcr_digest: &[],
             },
         )?;
-        commands::execute(
+        let data = commands::execute(
             transport,
             &UnsealCommand {
                 object_handle: obj_handle,
                 session_handle: session,
             },
-        )
+        )?;
+
+        Ok(Zeroizing::new(data.to_vec()))
     })();
 
     drop(commands::execute(
@@ -108,7 +113,7 @@ fn ensure_srk<T: Transport>(transport: &mut T) -> Result<()> {
         return Ok(());
     }
 
-    let (transient_handle, _pub) = commands::execute(transport, &CreatePrimaryCommand)?;
+    let transient_handle = commands::execute(transport, &CreatePrimaryCommand)?;
 
     let result = commands::execute(
         transport,

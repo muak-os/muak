@@ -1,7 +1,5 @@
 //! TPM object commands.
 
-use zeroize::Zeroizing;
-
 use super::TpmCommand;
 use super::template::{write_seal_template, write_sensitive_create, write_srk_template};
 use crate::auth::AuthArea;
@@ -19,26 +17,22 @@ const TPM2_CC_UNSEAL: u32 = 0x0000_015E;
 pub(crate) struct CreatePrimaryCommand;
 
 impl TpmCommand for CreatePrimaryCommand {
-    type Output = (TransientHandle, Vec<u8>);
+    type Output<'a> = TransientHandle;
 
     const TAG: u16 = TPM2_ST_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_CREATE_PRIMARY;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(HierarchyHandle::OWNER);
-        AuthArea::Password.encode_sized(command);
+        command.write_handle(HierarchyHandle::OWNER)?;
+        AuthArea::Password.encode_sized(command)?;
         write_sensitive_create(command, &[], &[])?;
-        write_srk_template(command);
+        write_srk_template(command)?;
         command.write_sized(&[])?;
-        command.write_u32(0);
-        Ok(())
+        command.write_u32(0)
     }
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
-        let handle = body.read_handle()?;
-        let _param_size = body.read_param_size()?;
-        let pub_data = body.read_tpm2b()?;
-        Ok((handle, pub_data.to_vec()))
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
+        body.read_handle()
     }
 }
 
@@ -49,25 +43,24 @@ pub(crate) struct CreateCommand<'a> {
 }
 
 impl TpmCommand for CreateCommand<'_> {
-    type Output = (Vec<u8>, Vec<u8>);
+    type Output<'a> = (&'a [u8], &'a [u8]);
 
     const TAG: u16 = TPM2_ST_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_CREATE;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(self.parent_handle);
-        AuthArea::Password.encode_sized(command);
+        command.write_handle(self.parent_handle)?;
+        AuthArea::Password.encode_sized(command)?;
         write_sensitive_create(command, &[], self.data)?;
         write_seal_template(command, self.policy_digest)?;
         command.write_sized(&[])?;
-        command.write_u32(0);
-        Ok(())
+        command.write_u32(0)
     }
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         let _param_size = body.read_param_size()?;
-        let priv_data = body.read_tpm2b()?.to_vec();
-        let pub_data = body.read_tpm2b()?.to_vec();
+        let priv_data = body.read_tpm2b()?;
+        let pub_data = body.read_tpm2b()?;
         Ok((pub_data, priv_data))
     }
 }
@@ -79,20 +72,20 @@ pub(crate) struct LoadCommand<'a> {
 }
 
 impl TpmCommand for LoadCommand<'_> {
-    type Output = TransientHandle;
+    type Output<'a> = TransientHandle;
 
     const TAG: u16 = TPM2_ST_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_LOAD;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(self.parent_handle);
-        AuthArea::Password.encode_sized(command);
+        command.write_handle(self.parent_handle)?;
+        AuthArea::Password.encode_sized(command)?;
         command.write_sized(self.priv_data)?;
         command.write_sized(self.pub_data)?;
         Ok(())
     }
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         body.read_handle::<TransientHandle>()
     }
 }
@@ -103,21 +96,20 @@ pub(crate) struct UnsealCommand {
 }
 
 impl TpmCommand for UnsealCommand {
-    type Output = Zeroizing<Vec<u8>>;
+    type Output<'a> = &'a [u8];
 
     const TAG: u16 = TPM2_ST_SESSIONS;
     const COMMAND_CODE: u32 = TPM2_CC_UNSEAL;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-        command.write_handle(self.object_handle);
-        AuthArea::Policy(self.session_handle).encode_sized(command);
+        command.write_handle(self.object_handle)?;
+        AuthArea::Policy(self.session_handle).encode_sized(command)?;
         Ok(())
     }
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
         let _param_size = body.read_param_size()?;
-        let data = body.read_tpm2b()?;
-        Ok(Zeroizing::new(data.to_vec()))
+        body.read_tpm2b()
     }
 }
 
@@ -125,7 +117,7 @@ impl TpmCommand for UnsealCommand {
 mod tests {
     use super::*;
 
-    fn response_body(body: &[u8]) -> ResponseBody<'_> {
+    fn response_bytes(body: &[u8]) -> Vec<u8> {
         let size = 10_usize
             .checked_add(body.len())
             .expect("response size should fit usize");
@@ -134,8 +126,7 @@ mod tests {
         response.extend_from_slice(&u32::try_from(size).unwrap_or(0).to_be_bytes());
         response.extend_from_slice(&0_u32.to_be_bytes());
         response.extend_from_slice(body);
-        let leaked = Box::leak(response.into_boxed_slice());
-        ResponseBody::from_response(leaked).expect("response should parse")
+        response
     }
 
     #[test]
@@ -146,9 +137,10 @@ mod tests {
             CreatePrimaryCommand::TAG,
             CreatePrimaryCommand::COMMAND_CODE,
         );
-        let mut body = response_body(&[
+        let response = response_bytes(&[
             0x80, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x02, 0xAA, 0xBB,
         ]);
+        let mut body = ResponseBody::from_response(&response).expect("response should parse");
 
         // ACT
         let encode_result = command.encode(&mut buffer);
@@ -160,8 +152,8 @@ mod tests {
         assert!(finalized.is_ok(), "encoded create primary should finalize");
         assert_eq!(
             decode_result.ok(),
-            Some((TransientHandle::from(0x8000_0001), vec![0xAA, 0xBB])),
-            "create primary should decode handle and public area"
+            Some(TransientHandle::from(0x8000_0001)),
+            "create primary should decode the key handle"
         );
     }
 
@@ -174,9 +166,10 @@ mod tests {
             data: &[0x33, 0x44],
         };
         let mut buffer = CommandBuffer::new(CreateCommand::TAG, CreateCommand::COMMAND_CODE);
-        let mut body = response_body(&[
+        let response = response_bytes(&[
             0x00, 0x00, 0x00, 0x07, 0x00, 0x02, 0x10, 0x20, 0x00, 0x03, 0x30, 0x40, 0x50,
         ]);
+        let mut body = ResponseBody::from_response(&response).expect("response should parse");
 
         // ACT
         let encode_result = command.encode(&mut buffer);
@@ -188,8 +181,8 @@ mod tests {
         assert!(finalized.is_ok(), "encoded create should finalize");
         assert_eq!(
             decode_result.ok(),
-            Some((vec![0x30, 0x40, 0x50], vec![0x10, 0x20])),
-            "create should decode public and private blobs"
+            Some((&[0x30, 0x40, 0x50][..], &[0x10, 0x20][..])),
+            "create should borrow public and private blobs from the response"
         );
     }
 
@@ -207,9 +200,13 @@ mod tests {
         };
         let mut load_buffer = CommandBuffer::new(LoadCommand::TAG, LoadCommand::COMMAND_CODE);
         let mut unseal_buffer = CommandBuffer::new(UnsealCommand::TAG, UnsealCommand::COMMAND_CODE);
-        let mut load_body = response_body(&[0x80, 0x00, 0x00, 0x02]);
+        let load_response = response_bytes(&[0x80, 0x00, 0x00, 0x02]);
+        let mut load_body =
+            ResponseBody::from_response(&load_response).expect("response should parse");
+        let unseal_response =
+            response_bytes(&[0x00, 0x00, 0x00, 0x04, 0x00, 0x03, 0x01, 0x02, 0x03]);
         let mut unseal_body =
-            response_body(&[0x00, 0x00, 0x00, 0x04, 0x00, 0x03, 0x01, 0x02, 0x03]);
+            ResponseBody::from_response(&unseal_response).expect("response should parse");
 
         // ACT
         let load_encode = load.encode(&mut load_buffer);
@@ -231,9 +228,9 @@ mod tests {
         );
         let unseal_decode = unseal_decode.expect("unseal should decode returned data");
         assert_eq!(
-            &unseal_decode[..],
+            unseal_decode,
             [1, 2, 3].as_slice(),
-            "unseal should decode returned data"
+            "unseal should borrow returned data from the response"
         );
     }
 
@@ -253,8 +250,12 @@ mod tests {
         };
         let mut create_buffer = CommandBuffer::new(CreateCommand::TAG, CreateCommand::COMMAND_CODE);
         let mut load_buffer = CommandBuffer::new(LoadCommand::TAG, LoadCommand::COMMAND_CODE);
-        let mut short_body = response_body(&[]);
-        let mut short_unseal_body = response_body(&[0x00, 0x00, 0x00, 0x04]);
+        let short_response = response_bytes(&[]);
+        let mut short_body =
+            ResponseBody::from_response(&short_response).expect("response should parse");
+        let short_unseal_response = response_bytes(&[0x00, 0x00, 0x00, 0x04]);
+        let mut short_unseal_body =
+            ResponseBody::from_response(&short_unseal_response).expect("response should parse");
 
         // ACT
         let create_encode = create.encode(&mut create_buffer);

@@ -19,22 +19,23 @@ pub(crate) trait TpmCommand {
     const COMMAND_CODE: u32;
     const TAG: u16;
 
-    type Output;
+    type Output<'a>;
 
-    fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output>;
+    fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>>;
 
     fn encode(&self, command: &mut CommandBuffer) -> Result<()>;
 }
 
 /// Execute a TPM command by encoding it, sending it to the transport, validating, and decoding the response.
-pub(crate) fn execute<T, C>(transport: &mut T, command: &C) -> Result<C::Output>
+pub(crate) fn execute<'t, T, C>(transport: &'t mut T, command: &C) -> Result<C::Output<'t>>
 where
     T: Transport,
     C: TpmCommand,
 {
     let mut buffer = CommandBuffer::new(C::TAG, C::COMMAND_CODE);
     command.encode(&mut buffer)?;
-    let response = transport.transact(&buffer.finalize()?)?;
+    let request = buffer.finalize()?;
+    let response = transport.transact(request)?;
     response::validate(response)?;
     let mut body = ResponseBody::from_response(response)?;
 
@@ -64,17 +65,17 @@ mod tests {
     struct MockCommand;
 
     impl TpmCommand for MockCommand {
-        type Output = u32;
+        type Output<'a> = u32;
 
         const TAG: u16 = TPM2_ST_NO_SESSIONS;
         const COMMAND_CODE: u32 = 0x0000_00FF;
 
         fn encode(&self, command: &mut CommandBuffer) -> Result<()> {
-            command.write_u16(0xABCD);
+            command.write_u16(0xABCD)?;
             Ok(())
         }
 
-        fn decode(&self, body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+        fn decode<'a>(&self, body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
             body.read_u32()
         }
     }
@@ -82,7 +83,7 @@ mod tests {
     struct FailingCommand;
 
     impl TpmCommand for FailingCommand {
-        type Output = ();
+        type Output<'a> = ();
 
         const TAG: u16 = TPM2_ST_NO_SESSIONS;
         const COMMAND_CODE: u32 = 0x0000_00EE;
@@ -91,7 +92,7 @@ mod tests {
             Err(Tpm2Error::InvalidBlob)
         }
 
-        fn decode(&self, _body: &mut ResponseBody<'_>) -> Result<Self::Output> {
+        fn decode<'a>(&self, _body: &mut ResponseBody<'a>) -> Result<Self::Output<'a>> {
             Ok(())
         }
     }

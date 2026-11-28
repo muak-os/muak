@@ -18,19 +18,17 @@ pub(crate) fn write_sensitive_create(
     data: &[u8],
 ) -> Result<()> {
     let inner_size = checked_sum(&[2, user_auth.len(), 2, data.len()])?;
-    command.write_u16(u16_len(inner_size)?);
-    command.write_u16(u16_len(user_auth.len())?);
-    command.write_bytes(user_auth);
-    command.write_u16(u16_len(data.len())?);
-    command.write_bytes(data);
-
-    Ok(())
+    command.write_u16(u16_len(inner_size)?)?;
+    command.write_u16(u16_len(user_auth.len())?)?;
+    command.write_bytes(user_auth)?;
+    command.write_u16(u16_len(data.len())?)?;
+    command.write_bytes(data)
 }
 
 /// Writes a `TPM2B_PUBLIC` template for the Storage Root Key (SRK).
-pub(crate) fn write_srk_template(command: &mut CommandBuffer) {
-    command.write_u16(u16::try_from(SRK_TEMPLATE.len()).ok().unwrap_or(0));
-    command.write_bytes(&SRK_TEMPLATE);
+pub(crate) fn write_srk_template(command: &mut CommandBuffer) -> Result<()> {
+    command.write_u16(u16::try_from(SRK_TEMPLATE.len()).ok().unwrap_or(0))?;
+    command.write_bytes(&SRK_TEMPLATE)
 }
 
 /// Writes a `TPM2B_PUBLIC` template for a sealed object with the given policy digest.
@@ -42,16 +40,14 @@ pub(crate) fn write_seal_template(command: &mut CommandBuffer, policy_digest: &[
                 actual: policy_digest.len(),
                 max: usize::MAX.saturating_sub(14),
             })?;
-    command.write_u16(u16_len(template_len)?);
-    command.write_u16(TPM2_ALG_KEYEDHASH);
-    command.write_u16(TPM2_ALG_SHA256);
-    command.write_u32(0x0000_0012);
-    command.write_u16(u16_len(policy_digest.len())?);
-    command.write_bytes(policy_digest);
-    command.write_u16(TPM2_ALG_NULL);
-    command.write_u16(0);
-
-    Ok(())
+    command.write_u16(u16_len(template_len)?)?;
+    command.write_u16(TPM2_ALG_KEYEDHASH)?;
+    command.write_u16(TPM2_ALG_SHA256)?;
+    command.write_u32(0x0000_0012)?;
+    command.write_u16(u16_len(policy_digest.len())?)?;
+    command.write_bytes(policy_digest)?;
+    command.write_u16(TPM2_ALG_NULL)?;
+    command.write_u16(0)
 }
 
 fn checked_sum(values: &[usize]) -> Result<usize> {
@@ -77,7 +73,7 @@ mod tests {
 
         // ACT
         let sensitive_result = write_sensitive_create(&mut sensitive_command, &[1, 2], &[3, 4, 5]);
-        write_srk_template(&mut srk_command);
+        let srk_result = write_srk_template(&mut srk_command);
         let seal_result = write_seal_template(&mut seal_command, &policy);
         let sensitive = sensitive_command.finalize();
         let srk = srk_command.finalize();
@@ -85,6 +81,7 @@ mod tests {
 
         // ASSERT
         assert!(sensitive_result.is_ok(), "sensitive writer should succeed");
+        assert!(srk_result.is_ok(), "SRK template writer should succeed");
         assert!(seal_result.is_ok(), "seal template writer should succeed");
         assert!(sensitive.is_ok(), "sensitive area should build");
         assert!(seal.is_ok(), "seal template should build");
