@@ -88,7 +88,7 @@ async fn install_volumes(
     cache::init();
     cache::enforce();
 
-    let tpm_available = tpm2::device::is_available(None);
+    let tpm_available = tpm2::linux::is_available(None);
     let sb_hierarchy = if enroll_secureboot {
         Some(Bundle::generate("Muak").context("Failed to generate Secure Boot keys")?)
     } else {

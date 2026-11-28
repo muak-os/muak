@@ -143,7 +143,7 @@ fn reseal_luks_key(
     ephemeral_device: Option<&str>,
     sections: &[MeasuredSection],
 ) -> Result<()> {
-    if !tpm2::device::is_available(None) {
+    if !tpm2::linux::is_available(None) {
         bail!("TPM2 disappeared during the reseal");
     }
 

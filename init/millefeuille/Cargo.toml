@@ -28,7 +28,7 @@ disk = { workspace = true }
 kmod = { workspace = true }
 kmsg = { workspace = true }
 luks2 = { workspace = true }
-tpm2 = { workspace = true }
+tpm2 = { workspace = true, features = ["linux"] }
 
 # System/platform APIs
 rustix = { workspace = true, features = ["process"] }

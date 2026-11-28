@@ -29,7 +29,7 @@ pub(crate) enum LuksKey {
 
 /// Seals a LUKS key to TPM2 or signals writing it to the ESP when the TPM is unavailable.
 pub(crate) fn seal_luks_key(key: &[u8], sections: &[MeasuredSection]) -> Result<SealResult> {
-    if tpm2::device::is_available(None) {
+    if tpm2::linux::is_available(None) {
         let token = seal_to_token(key, sections).context("Failed to seal LUKS key to TPM2")?;
         return Ok(SealResult::Sealed(token));
     }
@@ -50,7 +50,7 @@ pub(crate) fn expected_policy(sections: &[MeasuredSection]) -> [u8; 32] {
 /// Returns an error when the TPM2 is available but the STATE partition is
 /// missing, or when the tokens cannot be read or unsealed.
 pub(crate) fn resolve_luks_key(state_device: Option<&str>, efi_device: &str) -> Result<LuksKey> {
-    if !tpm2::device::is_available(None) {
+    if !tpm2::linux::is_available(None) {
         return read_esp_key(efi_device)
             .map(LuksKey::Esp)
             .context("Failed to read the ESP LUKS key");
@@ -116,14 +116,14 @@ fn unseal_token(token: &Tpm2Token) -> Result<Passphrase> {
     let blob = tpm2::blob::Sealed::deserialize(&blob_bytes)
         .context("Failed to deserialize the TPM2 blob")?;
 
-    tpm2::device::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")
+    tpm2::linux::unseal(&blob).context("Failed to unseal the LUKS key from TPM2")
 }
 
 fn seal_to_token(luks_key: &[u8], sections: &[MeasuredSection]) -> Result<Tpm2Token> {
     let sections = sorted_sections(sections);
     let expected_pcr = tpm2::pcr::predict_pcr11(&sections);
     let sealed =
-        tpm2::device::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
+        tpm2::linux::seal(luks_key, &expected_pcr).context("Failed to seal LUKS key to TPM2")?;
 
     Ok(Tpm2Token::new(
         &[11],

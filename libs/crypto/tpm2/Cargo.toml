@@ -9,9 +9,13 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["linux"]
+linux = ["dep:getrandom"]
+
 [dependencies]
 # Cryptography
-getrandom = { workspace = true }
+getrandom = { workspace = true, optional = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }
 

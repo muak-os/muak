@@ -8,7 +8,7 @@ use luks2::metadata::tokens::Tpm2Token;
 use rustix::fs::{AtFlags, CWD, Mode, mkdirat, unlinkat};
 use rustix::io::Errno;
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
-use tpm2::{blob, device};
+use tpm2::{blob, linux};
 
 const ESP_MOUNT: &str = "/run/efi";
 const ESP_KEY_NAME: &str = "luks";
@@ -16,7 +16,7 @@ const ESP_FSTYPE: &str = "vfat";
 
 // Resolves the LUKS key for the given device: every TPM2 token when the TPM is available, the ESP key file otherwise.
 pub(super) fn resolve_key(device: &str) -> Result<Option<Passphrase>> {
-    if !device::is_available(None) {
+    if !linux::is_available(None) {
         return Ok(try_esp_key());
     }
 
@@ -77,7 +77,7 @@ fn try_token(
 fn unseal_tpm2(bytes: &[u8]) -> Result<Passphrase> {
     let sealed = blob::Sealed::deserialize(bytes).context("Failed to deserialize TPM2 blob")?;
 
-    Ok(device::unseal(&sealed)?)
+    Ok(linux::unseal(&sealed)?)
 }
 
 fn try_esp_key() -> Option<Passphrase> {

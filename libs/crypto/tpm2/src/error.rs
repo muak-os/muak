@@ -9,11 +9,11 @@ use thiserror::Error;
 )]
 #[derive(Debug, Error)]
 pub enum Tpm2Error {
-    /// TPM2 device is not available.
+    /// TPM2 device is not available, as reported by a transport implementation.
     #[error("TPM2 device not found")]
     DeviceNotFound,
 
-    /// Underlying I/O operation failed.
+    /// Underlying I/O operation failed, as reported by a transport implementation.
     #[error("TPM2 I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -47,7 +47,7 @@ pub enum Tpm2Error {
     #[error("invalid sealed blob format")]
     InvalidBlob,
 
-    /// Random number generation failed.
+    /// Random number generation failed, as reported by a transport implementation.
     #[error("random number generation failed")]
     RngFailed,
 

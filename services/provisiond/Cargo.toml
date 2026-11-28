@@ -44,7 +44,7 @@ partdev = { workspace = true, features = ["linux"] }
 parttable = { workspace = true }
 pki = { workspace = true }
 sbolt = { workspace = true, features = ["linux"] }
-tpm2 = { workspace = true }
+tpm2 = { workspace = true, features = ["linux"] }
 uki = { workspace = true }
 wizard = { workspace = true }
 

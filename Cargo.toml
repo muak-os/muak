@@ -144,7 +144,7 @@ uki = { path = "libs/boot/uki" }
 
 ## Crypto
 pki = { path = "libs/crypto/pki" }
-tpm2 = { path = "libs/crypto/tpm2" }
+tpm2 = { path = "libs/crypto/tpm2", default-features = false }
 
 ## Container
 oci = { path = "libs/container/oci" }

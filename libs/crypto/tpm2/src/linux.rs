@@ -1,4 +1,4 @@
-//! Default TPM2 transport backed by `/dev/tpmrm0`.
+//! Linux TPM2 transport backed by `/dev/tpmrm0`.
 
 use std::io::{Read, Write as _};
 use std::path::Path;
