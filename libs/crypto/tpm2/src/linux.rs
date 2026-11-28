@@ -3,6 +3,9 @@
 use std::io::{Read, Write as _};
 use std::path::Path;
 
+use rustix::fs::{Mode, OFlags};
+use rustix::io::Errno;
+
 use crate::blob::Sealed;
 use crate::error::{Result, Tpm2Error};
 use crate::operations::{self, SealResult};
@@ -32,7 +35,9 @@ impl Transport for Device {
 /// Returns true if the TPM2 resource manager device exists.
 #[must_use = "callers must branch on whether a TPM is present"]
 pub fn is_available(path: Option<&Path>) -> bool {
-    path.unwrap_or_else(|| Path::new(TPM_DEVICE)).exists()
+    let device_path = path.unwrap_or_else(|| Path::new(TPM_DEVICE));
+
+    rustix::fs::stat(device_path).is_ok()
 }
 
 /// Seals data to the default TPM2 device.
@@ -69,21 +74,17 @@ pub fn unseal<'a>(blob: &Sealed, out: &'a mut [u8]) -> Result<&'a [u8]> {
 /// Returns an error if the TPM resource manager cannot be opened.
 pub(crate) fn open(path: Option<&Path>) -> Result<Device> {
     let device_path = path.unwrap_or_else(|| Path::new(TPM_DEVICE));
-    let file_result = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(device_path);
+    // rustix keeps short paths allocation free and only paths above its small path buffer take the allocating fallback.
+    let descriptor = rustix::fs::open(device_path, OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())
+        .map_err(|error| match error {
+        Errno::NOENT => Tpm2Error::DeviceNotFound,
+        error => Tpm2Error::Io(std::io::Error::from(error)),
+    })?;
 
-    match file_result {
-        Ok(file) => Ok(Device {
-            file,
-            response: [0_u8; MAX_RESPONSE_SIZE],
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Err(Tpm2Error::DeviceNotFound)
-        }
-        Err(error) => Err(Tpm2Error::Io(error)),
-    }
+    Ok(Device {
+        file: std::fs::File::from(descriptor),
+        response: [0_u8; MAX_RESPONSE_SIZE],
+    })
 }
 
 fn read_response<'b>(reader: &mut impl Read, buffer: &'b mut [u8]) -> Result<&'b [u8]> {
@@ -295,17 +296,16 @@ mod tests {
     fn transact_propagates_io_errors() {
         // ARRANGE
         let path = temp_path("transact-readonly");
-        std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&path)
-            .expect("temporary file should be created");
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .open(&path)
+        rustix::fs::open(
+            &path,
+            OFlags::CREATE | OFlags::EXCL | OFlags::WRONLY,
+            Mode::RUSR | Mode::WUSR,
+        )
+        .expect("temporary file should be created");
+        let descriptor = rustix::fs::open(&path, OFlags::RDONLY, Mode::empty())
             .expect("temporary file should be reopened read-only");
         let mut device = Device {
-            file,
+            file: std::fs::File::from(descriptor),
             response: [0_u8; MAX_RESPONSE_SIZE],
         };
 
@@ -354,11 +354,11 @@ mod tests {
     fn open_uses_custom_file_path() {
         // ARRANGE
         let path = temp_path("open");
-        let file_result = std::fs::OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(&path);
+        let file_result = rustix::fs::open(
+            &path,
+            OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
+            Mode::RUSR | Mode::WUSR,
+        );
         assert!(file_result.is_ok(), "temporary file should be created");
 
         // ACT
@@ -401,7 +401,7 @@ mod tests {
         // ASSERT
         assert_eq!(
             available,
-            Path::new(TPM_DEVICE).exists(),
+            std::fs::metadata(TPM_DEVICE).is_ok(),
             "availability should check TPM path"
         );
     }
@@ -416,5 +416,27 @@ mod tests {
 
         // ASSERT
         assert!(!available, "missing custom path should report unavailable");
+    }
+
+    #[test]
+    fn availability_accepts_existing_custom_path() {
+        // ARRANGE
+        let path = temp_path("availability");
+        let file_result = rustix::fs::open(
+            &path,
+            OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
+            Mode::RUSR | Mode::WUSR,
+        );
+        assert!(file_result.is_ok(), "temporary file should be created");
+
+        // ACT
+        let available = is_available(Some(&path));
+
+        // ASSERT
+        assert!(available, "existing custom path should report available");
+        assert!(
+            std::fs::remove_file(&path).is_ok(),
+            "temporary file should be removed"
+        );
     }
 }

@@ -11,7 +11,7 @@ categories.workspace = true
 
 [features]
 default = ["linux"]
-linux = ["dep:getrandom"]
+linux = ["dep:getrandom", "dep:rustix"]
 
 [dependencies]
 # Cryptography
@@ -20,6 +20,9 @@ sha2 = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
+
+# System/platform APIs
+rustix = { workspace = true, optional = true }
 
 [lints]
 workspace = true

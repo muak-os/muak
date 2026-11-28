@@ -2738,6 +2738,7 @@ name = "tpm2"
 version = "0.0.0"
 dependencies = [
  "getrandom 0.4.3",
+ "rustix",
  "sha2",
  "thiserror",
 ]
