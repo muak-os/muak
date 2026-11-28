@@ -396,14 +396,14 @@ mod tests {
         assert_eq!(
             render(&Event::EffectStarted {
                 kind: EffectKind::ConfigureInterface,
-                target: target.clone(),
+                target,
             }),
             "Configuring br0"
         );
         assert_eq!(
             render(&Event::EffectFinished {
                 kind: EffectKind::ConfigureInterface,
-                target: target.clone(),
+                target,
             }),
             "Configured br0"
         );
@@ -426,7 +426,7 @@ mod tests {
         assert_eq!(
             render(&Event::EffectStarted {
                 kind: EffectKind::ReconcileInterface,
-                target: target.clone(),
+                target,
             }),
             "Reconciling br0"
         );

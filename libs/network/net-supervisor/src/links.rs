@@ -6,8 +6,8 @@ use crate::actions::Action;
 use crate::{State, Supervisor, dns, failover, owner, reconcile};
 
 /// Applies one link lifecycle event.
-pub(crate) fn apply(supervisor: &mut Supervisor, event: LinkEvent) {
-    match event {
+pub(crate) fn apply(supervisor: &mut Supervisor, event: &LinkEvent) {
+    match *event {
         LinkEvent::Up { name, .. } => on_up(supervisor, &name),
         LinkEvent::Down { name, .. } => on_down(supervisor, &name),
         LinkEvent::Added { name, index, mac } => on_added(supervisor, &name, index, mac),
@@ -62,7 +62,7 @@ fn on_deleted(supervisor: &mut Supervisor, name: &Name) {
     if registered {
         supervisor
             .queue
-            .push_back(Action::ShutdownInterface { name: name.clone() });
+            .push_back(Action::ShutdownInterface { name: *name });
     }
 
     if supervisor.state.primary.as_ref() == Some(name) {
@@ -77,7 +77,7 @@ fn on_deleted(supervisor: &mut Supervisor, name: &Name) {
 }
 
 fn refresh_owner(supervisor: &mut Supervisor) {
-    let Some(owner) = owner::owner(supervisor).cloned() else {
+    let Some(owner) = owner::owner(supervisor).copied() else {
         return;
     };
     if !supervisor.known.contains(&owner) {

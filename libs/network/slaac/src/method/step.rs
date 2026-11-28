@@ -202,11 +202,11 @@ fn send_solicitation(method: &mut Slaac) -> Step<'_> {
     })
 }
 
-fn spec(method: &Slaac) -> SocketSpec {
+const fn spec(method: &Slaac) -> SocketSpec {
     SocketSpec {
         slot: SocketSlot::Primary,
         kind: SocketKind::RawIcmpv6,
-        link: method.link.name.clone(),
+        link: method.link.name,
         bind: None,
         peer: None,
     }

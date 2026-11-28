@@ -41,7 +41,7 @@ fn open(method: &mut Dhcp, slot: SocketSlot) -> Step<'_> {
 }
 
 fn spec(method: &Dhcp, slot: SocketSlot) -> Option<SocketSpec> {
-    let link = method.link.name.clone();
+    let link = method.link.name;
     if slot == SocketSlot::Primary {
         return Some(SocketSpec {
             slot,

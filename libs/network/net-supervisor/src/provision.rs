@@ -53,7 +53,7 @@ pub(crate) fn configure_master(supervisor: &mut Supervisor, master: &Name) {
             continue;
         };
         if &resolve_owner(supervisor, &name) == master {
-            queue_reapply(supervisor, index, master.clone());
+            queue_reapply(supervisor, index, *master);
         }
     }
 }
@@ -69,7 +69,7 @@ pub(crate) fn queue_bridge(supervisor: &mut Supervisor, index: usize) -> bool {
     let Some(config) = supervisor.config.interfaces.get(index) else {
         return false;
     };
-    let Ok(bridge) = Name::new(config.name.clone()) else {
+    let Ok(bridge) = Name::new(&config.name) else {
         return false;
     };
 
@@ -80,13 +80,13 @@ pub(crate) fn queue_bridge(supervisor: &mut Supervisor, index: usize) -> bool {
     if !supervisor.known.contains(&bridge) || !bridge_up {
         supervisor.queue.push_back(Action::EnsureBridge {
             index,
-            name: bridge.clone(),
+            name: bridge,
         });
     }
     if supervisor.enslaved.get(&port) != Some(&bridge) {
         supervisor.queue.push_back(Action::Enslave {
-            port: port.clone(),
-            master: bridge.clone(),
+            port,
+            master: bridge,
         });
     }
     release_stale(supervisor, &bridge, &port);
@@ -137,7 +137,7 @@ pub(crate) fn queue_reapply(supervisor: &mut Supervisor, index: usize, target: N
 /// Resolves a configured interface name, expanding the `auto` alias.
 pub(crate) fn resolve_name(supervisor: &Supervisor, name: &str) -> Option<Name> {
     if name == "auto" {
-        return supervisor.state.primary.clone();
+        return supervisor.state.primary;
     }
 
     Name::new(name).ok()
@@ -146,7 +146,7 @@ pub(crate) fn resolve_name(supervisor: &Supervisor, name: &str) -> Option<Name> 
 /// Returns the bridge that owns `name` as a port, or `name` itself.
 pub(crate) fn resolve_owner(supervisor: &Supervisor, name: &Name) -> Name {
     let Some(primary) = supervisor.state.primary.as_ref() else {
-        return name.clone();
+        return *name;
     };
 
     supervisor
@@ -158,8 +158,8 @@ pub(crate) fn resolve_owner(supervisor: &Supervisor, name: &Name) -> Name {
             config.kind == InterfaceKind::Bridge
                 && bridge_port_for(supervisor, index, primary).as_ref() == Some(name)
         })
-        .and_then(|(_, config)| Name::new(config.name.clone()).ok())
-        .unwrap_or_else(|| name.clone())
+        .and_then(|(_, config)| Name::new(&config.name).ok())
+        .unwrap_or(*name)
 }
 
 /// Resolves the port a bridge should attach to, expanding the `auto` alias.
@@ -202,7 +202,7 @@ fn bridge_port_for(supervisor: &Supervisor, index: usize, primary: &Name) -> Opt
         .and_then(|bridge| bridge.port.first());
 
     match port.map(String::as_str) {
-        Some("auto") | None => Some(primary.clone()),
+        Some("auto") | None => Some(*primary),
         Some(port) => Name::new(port).ok(),
     }
 }
@@ -212,11 +212,11 @@ fn release_stale(supervisor: &mut Supervisor, bridge: &Name, desired: &Name) {
         .enslaved
         .iter()
         .filter(|&(port, master)| master == bridge && port != desired)
-        .map(|(port, _)| port.clone())
+        .map(|(port, _)| *port)
         .collect();
     for port in stale {
         supervisor.enslaved.remove(&port);
-        supervisor.owners.insert(port.clone(), port.clone());
+        supervisor.owners.insert(port, port);
         supervisor.queue.push_back(Action::Detach { port });
     }
 }

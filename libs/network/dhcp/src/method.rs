@@ -23,7 +23,7 @@ impl Method for Dhcp {
 
     fn step(&mut self, now: Instant, wall: SystemTime, input: Input<'_>) -> Step<'_> {
         state::advance(self, now);
-        consume(self, now, wall, input);
+        consume(self, now, wall, &input);
         state::advance(self, now);
 
         effects::emit(self, now)
@@ -49,8 +49,8 @@ fn bound_wake(method: &Dhcp, now: Instant) -> Option<Instant> {
     method.deadlines.next()
 }
 
-fn consume(method: &mut Dhcp, now: Instant, wall: SystemTime, input: Input<'_>) {
-    match input {
+fn consume(method: &mut Dhcp, now: Instant, wall: SystemTime, input: &Input<'_>) {
+    match *input {
         Input::Poll | Input::Timer | Input::SendCompleted { .. } => {}
         Input::Command(command) => state::command(method, command),
         Input::Link(link) => state::on_link(method, link),

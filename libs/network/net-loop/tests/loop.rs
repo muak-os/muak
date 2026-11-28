@@ -511,7 +511,7 @@ fn bridge_setup_enslaves_the_port_and_takes_ownership() {
     let names: Vec<netmodel::Name> = driver
         .interfaces()
         .iter()
-        .map(|controller| controller.link().name.clone())
+        .map(|controller| controller.link().name)
         .collect();
     assert_eq!(names, vec![name("eth0"), name("br0")]);
     let port = block_on(net_runtime::Link::link(driver.runtime(), &name("eth0")))

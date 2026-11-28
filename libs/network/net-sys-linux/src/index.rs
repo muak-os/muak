@@ -28,7 +28,7 @@ pub fn resolve(name: &netmodel::Name) -> Result<u32> {
 
 fn missing(name: &netmodel::Name, error: io::Error) -> NetSysError {
     match error.raw_os_error() {
-        Some(libc::ENODEV | libc::ENXIO) => NetSysError::NotFound(name.clone()),
+        Some(libc::ENODEV | libc::ENXIO) => NetSysError::NotFound(*name),
         _ => NetSysError::Io(error),
     }
 }

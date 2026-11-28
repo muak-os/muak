@@ -64,10 +64,10 @@ impl V4Slot {
     }
 
     #[cfg(feature = "ipv4")]
-    fn dhcp_method(link: &LinkInfo, config: netmodel::Ipv4Config) -> Self {
+    const fn dhcp_method(link: &LinkInfo, config: netmodel::Ipv4Config) -> Self {
         Self {
             static_method: None,
-            dhcp: Some(dhcp::Dhcp::new(link.clone(), config)),
+            dhcp: Some(dhcp::Dhcp::new(*link, config)),
         }
     }
 }
@@ -102,7 +102,7 @@ impl V6Slot {
     fn stateless_method(link: &LinkInfo, config: netmodel::Ipv6Config) -> Self {
         Self {
             static_method: None,
-            slaac: Some(slaac::Slaac::new(link.clone(), config)),
+            slaac: Some(slaac::Slaac::new(*link, config)),
         }
     }
 }

@@ -84,7 +84,7 @@ pub enum SocketKind {
 }
 
 /// Specification for a socket the runtime must open.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SocketSpec {
     /// Slot the method uses to refer to the socket.
     pub slot: SocketSlot,
@@ -99,7 +99,7 @@ pub struct SocketSpec {
 }
 
 /// A snapshot of the link an address method runs on.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkInfo {
     /// Interface name.
     pub name: Name,

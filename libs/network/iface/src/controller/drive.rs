@@ -153,7 +153,7 @@ fn advance<'a>(
     match reaction {
         Reaction::Wait => Step::Wait,
         Reaction::Entropy => Step::Effect(Effect::RequestEntropy { family }),
-        Reaction::Transport(transport) => Step::Effect(translate(family, transport)),
+        Reaction::Transport(transport) => Step::Effect(translate(family, &transport)),
         Reaction::Event(event) => Step::Effect(event::handle(controller, family, event, journal)),
     }
 }
@@ -180,8 +180,8 @@ fn react<'a, M: Method>(
     }
 }
 
-fn translate(family: Family, transport: Transport<'_>) -> Effect<'_> {
-    match transport {
+const fn translate<'a>(family: Family, transport: &Transport<'a>) -> Effect<'a> {
+    match *transport {
         Transport::Open(spec) => Effect::OpenSocket { family, spec },
         Transport::Send { slot, frame, dst } => Effect::Send {
             family,

@@ -153,7 +153,7 @@ fn observe_with(
 ) -> Option<Observed> {
     match controller.step(journal, now, SystemTime::UNIX_EPOCH, input) {
         Step::Wait => None,
-        Step::Effect(effect) => Some(convert(effect)),
+        Step::Effect(effect) => Some(convert(&effect)),
     }
 }
 
@@ -180,8 +180,8 @@ fn drain_with(
     effects
 }
 
-fn convert(effect: Effect<'_>) -> Observed {
-    match effect {
+fn convert(effect: &Effect<'_>) -> Observed {
+    match *effect {
         Effect::AddAddress {
             link,
             address,
@@ -462,14 +462,14 @@ fn dual_family_methods_interleave_and_wake_at_minimum() {
         Some(dhcp_config()),
         Some(slaac_config()),
     );
-    drop(method(
+    let _unused = method(
         &mut controller,
         now,
         Family::V4,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
+    );
     let v4_sent = observe(
         &mut controller,
         now,
@@ -478,14 +478,14 @@ fn dual_family_methods_interleave_and_wake_at_minimum() {
             input: ip_method::Input::Entropy(DHCP_XID),
         },
     );
-    drop(method(
+    let _unused = method(
         &mut controller,
         now,
         Family::V6,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
+    );
     let v6_sent = poll(&mut controller, now);
     let wake = controller.next_wake(now);
 
@@ -580,23 +580,23 @@ fn dhcp_frame_binds_and_exposes_the_dhcp_view() {
     let mut controller = Controller::new(link());
     let offer = dhcp_frame(dhcp_proto::message_type::OFFER);
     let ack = dhcp_frame(dhcp_proto::message_type::ACK);
-    drop(configure(&mut controller, now, Some(dhcp_config()), None));
-    drop(method(
+    let _unused = configure(&mut controller, now, Some(dhcp_config()), None);
+    let _unused = method(
         &mut controller,
         now,
         Family::V4,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
-    drop(observe(
+    );
+    let _unused = observe(
         &mut controller,
         now,
         Input::Method {
             family: Family::V4,
             input: ip_method::Input::Entropy(DHCP_XID),
         },
-    ));
+    );
 
     // ACT
     let requested = observe(
@@ -611,15 +611,15 @@ fn dhcp_frame_binds_and_exposes_the_dhcp_view() {
             },
         },
     );
-    drop(observe(
+    let _unused = observe(
         &mut controller,
         now,
         Input::Method {
             family: Family::V4,
             input: ip_method::Input::Entropy(DHCP_XID),
         },
-    ));
-    drop(observe(
+    );
+    let _unused = observe(
         &mut controller,
         now,
         Input::Method {
@@ -630,7 +630,7 @@ fn dhcp_frame_binds_and_exposes_the_dhcp_view() {
                 source: None,
             },
         },
-    ));
+    );
     let effects = drain(&mut controller, now);
 
     assert!(matches!(
@@ -712,19 +712,19 @@ fn slaac_advertisement_updates_the_snapshot() {
     let now = Instant::now();
     let mut controller = Controller::new(link());
     let packet = advertisement();
-    drop(configure(&mut controller, now, None, Some(slaac_config())));
-    drop(method(
+    let _unused = configure(&mut controller, now, None, Some(slaac_config()));
+    let _unused = method(
         &mut controller,
         now,
         Family::V6,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
-    drop(poll(&mut controller, now));
+    );
+    let _unused = poll(&mut controller, now);
 
     // ACT
-    drop(observe(
+    let _unused = observe(
         &mut controller,
         now,
         Input::Method {
@@ -735,7 +735,7 @@ fn slaac_advertisement_updates_the_snapshot() {
                 source: Some(IpAddr::V6(ROUTER)),
             },
         },
-    ));
+    );
     let effects = drain(&mut controller, now);
 
     // ASSERT
@@ -759,17 +759,17 @@ fn slaac_shutdown_clears_the_view_before_closing_the_socket() {
     let now = Instant::now();
     let mut controller = Controller::new(link());
     let packet = advertisement();
-    drop(configure(&mut controller, now, None, Some(slaac_config())));
-    drop(method(
+    let _unused = configure(&mut controller, now, None, Some(slaac_config()));
+    let _unused = method(
         &mut controller,
         now,
         Family::V6,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
-    drop(poll(&mut controller, now));
-    drop(observe(
+    );
+    let _unused = poll(&mut controller, now);
+    let _unused = observe(
         &mut controller,
         now,
         Input::Method {
@@ -780,8 +780,8 @@ fn slaac_shutdown_clears_the_view_before_closing_the_socket() {
                 source: Some(IpAddr::V6(ROUTER)),
             },
         },
-    ));
-    drop(drain(&mut controller, now));
+    );
+    let _unused = drain(&mut controller, now);
 
     // ACT
     let removed = observe(&mut controller, now, Input::Command(Command::Shutdown));
@@ -810,16 +810,16 @@ fn malformed_advertisement_records_a_notice() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, None, Some(slaac_config())));
-    drop(method(
+    let _unused = configure(&mut controller, now, None, Some(slaac_config()));
+    let _unused = method(
         &mut controller,
         now,
         Family::V6,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
-    drop(poll(&mut controller, now));
+    );
+    let _unused = poll(&mut controller, now);
 
     // ACT
     let published = observe(
@@ -846,20 +846,20 @@ fn notices_are_capped_and_cleared_on_configure() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, None, Some(slaac_config())));
-    drop(method(
+    let _unused = configure(&mut controller, now, None, Some(slaac_config()));
+    let _unused = method(
         &mut controller,
         now,
         Family::V6,
         ip_method::Input::SocketOpened {
             slot: SocketSlot::Primary,
         },
-    ));
-    drop(poll(&mut controller, now));
+    );
+    let _unused = poll(&mut controller, now);
 
     // ACT
     for _ in 0_usize..12 {
-        drop(observe(
+        let _unused = observe(
             &mut controller,
             now,
             Input::Method {
@@ -870,10 +870,10 @@ fn notices_are_capped_and_cleared_on_configure() {
                     source: Some(IpAddr::V6(ROUTER)),
                 },
             },
-        ));
+        );
     }
     let capped = controller.snapshot().notices.len();
-    drop(configure(&mut controller, now, Some(v4_config()), None));
+    let _unused = configure(&mut controller, now, Some(v4_config()), None);
 
     // ASSERT
     assert_eq!(capped, 8);
@@ -885,7 +885,7 @@ fn link_down_and_up_flow_through_the_static_method() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, Some(v4_config()), None));
+    let _unused = configure(&mut controller, now, Some(v4_config()), None);
 
     // ACT
     let down = observe(
@@ -969,7 +969,7 @@ fn reconcile_reapplies_the_static_configuration() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, Some(v4_config()), None));
+    let _unused = configure(&mut controller, now, Some(v4_config()), None);
 
     // ACT
     let readded = observe(&mut controller, now, Input::Command(Command::Reconcile));
@@ -986,7 +986,7 @@ fn reconfigure_stops_outgoing_static_before_installing_the_new_one() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, Some(v4_config()), None));
+    let _unused = configure(&mut controller, now, Some(v4_config()), None);
 
     // ACT
     let removed = observe(
@@ -1015,7 +1015,7 @@ fn reconfigure_closes_outgoing_dhcp_socket_before_the_new_config() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, Some(dhcp_config()), None));
+    let _unused = configure(&mut controller, now, Some(dhcp_config()), None);
 
     // ACT
     let closed = observe(
@@ -1048,7 +1048,7 @@ fn shutdown_closes_dhcp_sockets_and_stops_the_method() {
     // ARRANGE
     let now = Instant::now();
     let mut controller = Controller::new(link());
-    drop(configure(&mut controller, now, Some(dhcp_config()), None));
+    let _unused = configure(&mut controller, now, Some(dhcp_config()), None);
 
     // ACT
     let closed = observe(&mut controller, now, Input::Command(Command::Shutdown));
@@ -1080,13 +1080,7 @@ fn v4_method_state_is_journaled() {
     let mut journal = net_observe::journal::Journal::new();
 
     // ACT
-    drop(configure_with(
-        &mut controller,
-        &mut journal,
-        now,
-        Some(v4_config()),
-        None,
-    ));
+    let _unused = configure_with(&mut controller, &mut journal, now, Some(v4_config()), None);
     let states: Vec<_> = journal
         .drain()
         .filter_map(|observation| {
@@ -1110,13 +1104,7 @@ fn v6_method_state_is_journaled() {
     let mut journal = net_observe::journal::Journal::new();
 
     // ACT
-    drop(configure_with(
-        &mut controller,
-        &mut journal,
-        now,
-        None,
-        Some(v6_config()),
-    ));
+    let _unused = configure_with(&mut controller, &mut journal, now, None, Some(v6_config()));
     let states: Vec<_> = journal
         .drain()
         .filter_map(|observation| {
@@ -1143,14 +1131,14 @@ fn dhcp_lease_is_journaled_when_the_view_changes() {
     let ack = dhcp_frame(dhcp_proto::message_type::ACK);
 
     // ACT
-    drop(configure_with(
+    let _unused = configure_with(
         &mut controller,
         &mut journal,
         now,
         Some(dhcp_config()),
         None,
-    ));
-    drop(observe_with(
+    );
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1160,8 +1148,8 @@ fn dhcp_lease_is_journaled_when_the_view_changes() {
                 slot: SocketSlot::Primary,
             },
         },
-    ));
-    drop(observe_with(
+    );
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1169,9 +1157,9 @@ fn dhcp_lease_is_journaled_when_the_view_changes() {
             family: Family::V4,
             input: ip_method::Input::Entropy(DHCP_XID),
         },
-    ));
+    );
 
-    drop(observe_with(
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1183,8 +1171,8 @@ fn dhcp_lease_is_journaled_when_the_view_changes() {
                 source: None,
             },
         },
-    ));
-    drop(observe_with(
+    );
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1192,8 +1180,8 @@ fn dhcp_lease_is_journaled_when_the_view_changes() {
             family: Family::V4,
             input: ip_method::Input::Entropy(DHCP_XID),
         },
-    ));
-    drop(observe_with(
+    );
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1205,8 +1193,8 @@ fn dhcp_lease_is_journaled_when_the_view_changes() {
                 source: None,
             },
         },
-    ));
-    drop(drain_with(&mut controller, &mut journal, now));
+    );
+    let _unused = drain_with(&mut controller, &mut journal, now);
     let lease = journal.drain().find_map(|observation| {
         if let net_observe::Event::DhcpLease { lease, .. } = observation.event {
             Some(lease)
@@ -1235,14 +1223,14 @@ fn slaac_update_is_journaled_when_the_view_changes() {
     let packet = advertisement();
 
     // ACT
-    drop(configure_with(
+    let _unused = configure_with(
         &mut controller,
         &mut journal,
         now,
         None,
         Some(slaac_config()),
-    ));
-    drop(observe_with(
+    );
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1252,15 +1240,10 @@ fn slaac_update_is_journaled_when_the_view_changes() {
                 slot: SocketSlot::Primary,
             },
         },
-    ));
-    drop(observe_with(
-        &mut controller,
-        &mut journal,
-        now,
-        Input::Poll,
-    ));
+    );
+    let _unused = observe_with(&mut controller, &mut journal, now, Input::Poll);
 
-    drop(observe_with(
+    let _unused = observe_with(
         &mut controller,
         &mut journal,
         now,
@@ -1272,7 +1255,7 @@ fn slaac_update_is_journaled_when_the_view_changes() {
                 source: Some(IpAddr::V6(ROUTER)),
             },
         },
-    ));
+    );
     let update = journal.drain().find_map(|observation| {
         if let net_observe::Event::SlaacUpdate { update, .. } = observation.event {
             Some(update)
@@ -1296,7 +1279,7 @@ fn ipv4_replacement_notice_is_journaled() {
     let mut journal = net_observe::journal::Journal::new();
 
     // ACT
-    drop(configure_with(
+    let _unused = configure_with(
         &mut controller,
         &mut journal,
         now,
@@ -1305,7 +1288,7 @@ fn ipv4_replacement_notice_is_journaled() {
             ..Ipv4Config::default()
         }),
         None,
-    ));
+    );
     let notices: Vec<_> = journal
         .drain()
         .filter_map(|observation| {
@@ -1334,7 +1317,7 @@ fn ipv6_replacement_notice_is_journaled() {
     let mut journal = net_observe::journal::Journal::new();
 
     // ACT
-    drop(configure_with(
+    let _unused = configure_with(
         &mut controller,
         &mut journal,
         now,
@@ -1343,7 +1326,7 @@ fn ipv6_replacement_notice_is_journaled() {
             autoconf: true,
             ..Ipv6Config::default()
         }),
-    ));
+    );
     let notices: Vec<_> = journal
         .drain()
         .filter_map(|observation| {
@@ -1372,7 +1355,7 @@ fn replacement_with_enabled_features_journals_no_notice() {
     let mut journal = net_observe::journal::Journal::new();
 
     // ACT
-    drop(configure_with(
+    let _unused = configure_with(
         &mut controller,
         &mut journal,
         now,
@@ -1384,7 +1367,7 @@ fn replacement_with_enabled_features_journals_no_notice() {
             autoconf: true,
             ..Ipv6Config::default()
         }),
-    ));
+    );
 
     // ASSERT
     assert!(

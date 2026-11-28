@@ -55,7 +55,7 @@ fn record_v4(controller: &Controller, view: &V4View, journal: &mut Journal) {
     journal.record(
         level,
         ObserveEvent::DhcpLease {
-            name: controller.link.name.clone(),
+            name: controller.link.name,
             lease,
         },
     );
@@ -78,7 +78,7 @@ fn record_v6(controller: &Controller, view: &V6View, journal: &mut Journal) {
     journal.record(
         Level::Info,
         ObserveEvent::SlaacUpdate {
-            name: controller.link.name.clone(),
+            name: controller.link.name,
             update,
         },
     );

@@ -9,9 +9,18 @@ use thiserror::Error;
     clippy::module_name_repetitions,
     reason = "The public error type name intentionally includes the crate name"
 )]
-#[derive(Debug, Error)]
-#[error("invalid interface name: {0:?}")]
-pub struct NameError(pub(crate) String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum NameError {
+    /// The interface name was empty.
+    #[error("invalid interface name: empty")]
+    Empty,
+    /// The interface name was longer than the maximum of 15 bytes.
+    #[error("invalid interface name: longer than 15 bytes")]
+    TooLong,
+    /// The interface name contained a NUL byte.
+    #[error("invalid interface name: contains a NUL byte")]
+    Nul,
+}
 
 /// Errors reported by link monitoring.
 #[expect(

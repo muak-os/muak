@@ -126,7 +126,7 @@ pub(crate) fn ensure<R: net_runtime::Runtime>(
         return false;
     }
 
-    driver.names.push(link.name.clone());
+    driver.names.push(link.name);
     driver.interfaces.push(iface::Controller::new(link));
 
     true
@@ -162,7 +162,7 @@ pub(crate) fn owner_of<R: net_runtime::Runtime>(
         .owners
         .iter()
         .find(|entry| &entry.0 == port)
-        .map(|entry| entry.1.clone())
+        .map(|entry| entry.1)
 }
 
 /// Builds the owner link view carrying the carrier state of one of its ports.
@@ -175,7 +175,7 @@ pub(crate) async fn owner_link<R: net_runtime::Runtime>(
         return Ok(None);
     };
     let info = ip_method::LinkInfo {
-        name: owner.clone(),
+        name: *owner,
         index: link.index,
         mac: link.mac,
         state,
@@ -185,9 +185,9 @@ pub(crate) async fn owner_link<R: net_runtime::Runtime>(
 }
 
 /// Converts a discovered link into the controller view of that link.
-pub(crate) fn link_info(link: &netmodel::Link) -> ip_method::LinkInfo {
+pub(crate) const fn link_info(link: &netmodel::Link) -> ip_method::LinkInfo {
     ip_method::LinkInfo {
-        name: link.name.clone(),
+        name: link.name,
         index: link.index,
         mac: link.mac,
         state: link.state(),

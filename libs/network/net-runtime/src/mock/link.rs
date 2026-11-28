@@ -71,7 +71,7 @@ fn ensure_bridge(state: &mut State, name: &netmodel::Name, stp: bool) {
     state.next_link_index = state.next_link_index.wrapping_add(1);
     let link_state = netmodel::LinkState::Down;
     state.links.push(netmodel::Link {
-        name: name.clone(),
+        name: *name,
         index,
         mac: mac::Mac::default(),
         admin: link_state.admin(),
@@ -84,7 +84,7 @@ fn ensure_bridge(state: &mut State, name: &netmodel::Name, stp: bool) {
 fn record_bridge_stp(state: &mut State, name: &netmodel::Name, stp: bool) {
     match state.bridges.iter_mut().find(|entry| &entry.0 == name) {
         Some(entry) => entry.1 = stp,
-        None => state.bridges.push((name.clone(), stp)),
+        None => state.bridges.push((*name, stp)),
     }
 }
 

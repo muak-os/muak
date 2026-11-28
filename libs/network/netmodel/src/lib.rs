@@ -15,9 +15,15 @@ use mac::Mac;
 
 use crate::error::LinkError;
 
+// Maximum interface name payload length in bytes, excluding the NUL terminator.
+const MAX_LEN: usize = 15;
+
 /// A validated Linux network interface name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Name(String);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Name {
+    bytes: [u8; MAX_LEN],
+    len: u8,
+}
 
 /// Administrative state of a network link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

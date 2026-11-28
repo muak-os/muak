@@ -31,7 +31,7 @@ pub(super) fn handle(
                 journal.record(
                     Level::Info,
                     ObserveEvent::InterfaceState {
-                        name: controller.link.name.clone(),
+                        name: controller.link.name,
                         family,
                         state,
                     },
@@ -60,9 +60,9 @@ pub(super) fn handle(
     }
 }
 
-fn notice(controller: &Controller, family: Family, text: String) -> ObserveEvent {
+const fn notice(controller: &Controller, family: Family, text: String) -> ObserveEvent {
     ObserveEvent::Notice {
-        name: controller.link.name.clone(),
+        name: controller.link.name,
         family: Some(family),
         text,
     }
@@ -75,8 +75,8 @@ fn push_notice(controller: &mut Controller, message: String) {
     controller.snapshot.notices.push(message);
 }
 
-fn intent_effect(controller: &Controller, intent: Intent) -> Effect<'static> {
-    let link = controller.link.name.clone();
+const fn intent_effect(controller: &Controller, intent: Intent) -> Effect<'static> {
+    let link = controller.link.name;
 
     match intent {
         Intent::Configure(address) => Effect::AddAddress {

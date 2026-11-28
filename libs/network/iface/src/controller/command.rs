@@ -37,7 +37,7 @@ pub(super) fn install(controller: &mut Controller, journal: &mut Journal) -> Eff
             journal.record(
                 Level::Warn,
                 ObserveEvent::Notice {
-                    name: controller.link.name.clone(),
+                    name: controller.link.name,
                     family: None,
                     text: notice.clone(),
                 },
@@ -63,7 +63,7 @@ pub(super) fn install(controller: &mut Controller, journal: &mut Journal) -> Eff
 pub(super) fn link(controller: &mut Controller, info: &ip_method::LinkInfo) {
     let changed = info.state != controller.link.state;
     controller.snapshot.link = info.state;
-    controller.link = info.clone();
+    controller.link = *info;
     if !changed {
         return;
     }
@@ -181,13 +181,13 @@ fn link_input(
     }
 }
 
-fn transition_input(
+const fn transition_input(
     dynamic: bool,
     info: &ip_method::LinkInfo,
     command: MethodCommand,
 ) -> MethodInput<'static> {
     if dynamic {
-        MethodInput::Link(info.clone())
+        MethodInput::Link(*info)
     } else {
         MethodInput::Command(command)
     }

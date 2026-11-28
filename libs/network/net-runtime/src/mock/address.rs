@@ -31,7 +31,7 @@ impl Address for Mock {
 
 fn add(state: &mut State, link: &netmodel::Name, address: netmodel::Address) -> Result<()> {
     super::require_link(state, link)?;
-    let entry = (link.clone(), address);
+    let entry = (*link, address);
     if !state.addresses.contains(&entry) {
         state.addresses.push(entry);
     }

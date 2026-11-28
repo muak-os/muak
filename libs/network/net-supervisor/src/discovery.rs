@@ -34,9 +34,9 @@ pub(crate) fn on_links(
 
     let discovered = supervisor.links.is_empty() && !physical.is_empty();
     supervisor.links.clone_from(&physical);
-    supervisor.physical = physical.iter().map(|link| link.name.clone()).collect();
+    supervisor.physical = physical.iter().map(|link| link.name).collect();
     for link in &physical {
-        supervisor.known.insert(link.name.clone());
+        supervisor.known.insert(link.name);
     }
 
     if discovered {
@@ -70,9 +70,9 @@ pub(crate) fn on_links(
         if link.is_admin_up() {
             continue;
         }
-        supervisor.queue.push_back(Action::SetLinkUp {
-            name: link.name.clone(),
-        });
+        supervisor
+            .queue
+            .push_back(Action::SetLinkUp { name: link.name });
     }
     supervisor.queue.push_back(Action::ProbeCarriers);
 }
@@ -100,14 +100,14 @@ pub(crate) fn on_carriers(supervisor: &mut Supervisor, now: Instant, links: &[Li
         return;
     }
 
-    let Some(primary) = Selector::primary(&supervisor.links).map(|link| link.name.clone()) else {
+    let Some(primary) = Selector::primary(&supervisor.links).map(|link| link.name) else {
         supervisor.state.ensure_degraded();
         retry::schedule(supervisor, now);
         return;
     };
     let backups: Vec<Name> = Selector::backups(&supervisor.links, &primary)
         .iter()
-        .map(|link| link.name.clone())
+        .map(|link| link.name)
         .collect();
     supervisor.state.primary = Some(primary);
     supervisor.state.backups = backups;
@@ -120,12 +120,12 @@ pub(crate) fn on_carriers(supervisor: &mut Supervisor, now: Instant, links: &[Li
 }
 
 fn refresh(supervisor: &mut Supervisor, physical: Vec<Link>) {
-    let present: HashSet<Name> = physical.iter().map(|link| link.name.clone()).collect();
+    let present: HashSet<Name> = physical.iter().map(|link| link.name).collect();
     let vanished: Vec<Name> = supervisor
         .physical
         .iter()
         .filter(|name| !present.contains(*name))
-        .cloned()
+        .copied()
         .collect();
     for name in vanished {
         supervisor.physical.remove(&name);
@@ -135,7 +135,7 @@ fn refresh(supervisor: &mut Supervisor, physical: Vec<Link>) {
     }
 
     for link in physical {
-        let name = link.name.clone();
+        let name = link.name;
         if let Some(existing) = supervisor.links.iter_mut().find(|entry| entry.name == name) {
             *existing = link;
             continue;
@@ -144,8 +144,8 @@ fn refresh(supervisor: &mut Supervisor, physical: Vec<Link>) {
         if supervisor.physical.contains(&name) {
             continue;
         }
-        supervisor.physical.insert(name.clone());
-        supervisor.known.insert(name.clone());
+        supervisor.physical.insert(name);
+        supervisor.known.insert(name);
         if supervisor.state.primary.as_ref() != Some(&name)
             && !supervisor.state.backups.contains(&name)
         {

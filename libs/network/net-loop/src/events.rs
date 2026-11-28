@@ -14,7 +14,7 @@ pub(crate) async fn link_event<R: net_runtime::Runtime>(
     wall: SystemTime,
     event: netmodel::LinkEvent,
 ) -> Result<()> {
-    let applied = if let Some(name) = event_name(&event).cloned() {
+    let applied = if let Some(name) = event_name(&event).copied() {
         apply_carrier(driver, now, wall, &event, &name).await
     } else {
         if let netmodel::LinkEvent::Deleted { ref name, .. } = event {

@@ -64,7 +64,7 @@ async fn queue<R: net_runtime::Runtime>(driver: &mut Loop<R>, received: Received
     let Some(owner) = driver.sockets.get(id) else {
         return;
     };
-    let name = owner.interface.clone();
+    let name = owner.interface;
     let family = owner.family;
     let slot = owner.slot;
     let kind = owner.kind;

@@ -24,7 +24,7 @@ impl Route for Mock {
 
 fn ensure(state: &mut State, link: &netmodel::Name, gateway: core::net::IpAddr) -> Result<()> {
     super::require_link(state, link)?;
-    let entry = (link.clone(), gateway);
+    let entry = (*link, gateway);
     if !state.default_routes.contains(&entry) {
         state.default_routes.push(entry);
     }

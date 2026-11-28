@@ -8,7 +8,7 @@ pub(crate) fn on_snapshot(
     name: &netmodel::Name,
     snapshot: &iface::Snapshot,
 ) {
-    supervisor.snapshots.insert(name.clone(), snapshot.clone());
+    supervisor.snapshots.insert(*name, snapshot.clone());
     if owner::owner(supervisor).is_none_or(|owner| owner != name) {
         return;
     }
@@ -26,9 +26,9 @@ pub(crate) fn on_bridge_ready(
     mac: mac::Mac,
     state: netmodel::LinkState,
 ) {
-    supervisor.known.insert(name.clone());
-    supervisor.owners.insert(name.clone(), name.clone());
-    supervisor.state.l3_owner = Some(name.clone());
+    supervisor.known.insert(*name);
+    supervisor.owners.insert(*name, *name);
+    supervisor.state.l3_owner = Some(*name);
     upsert_link(supervisor, name, index, mac, state);
     dns::flush(supervisor);
 }
@@ -39,10 +39,10 @@ pub(crate) fn on_enslaved(
     port: &netmodel::Name,
     master: &netmodel::Name,
 ) {
-    supervisor.known.insert(master.clone());
-    supervisor.owners.insert(port.clone(), master.clone());
-    supervisor.enslaved.insert(port.clone(), master.clone());
-    supervisor.state.l3_owner = Some(master.clone());
+    supervisor.known.insert(*master);
+    supervisor.owners.insert(*port, *master);
+    supervisor.enslaved.insert(*port, *master);
+    supervisor.state.l3_owner = Some(*master);
     provision::configure_master(supervisor, master);
     dns::flush(supervisor);
 }
@@ -50,7 +50,7 @@ pub(crate) fn on_enslaved(
 /// Records a port that left its bridge.
 pub(crate) fn on_detached(supervisor: &mut Supervisor, port: &netmodel::Name) {
     supervisor.enslaved.remove(port);
-    supervisor.owners.insert(port.clone(), port.clone());
+    supervisor.owners.insert(*port, *port);
     dns::flush(supervisor);
 }
 
@@ -68,7 +68,7 @@ fn upsert_link(
     }
 
     supervisor.links.push(netmodel::Link {
-        name: name.clone(),
+        name: *name,
         index,
         mac,
         admin: state.admin(),

@@ -43,7 +43,7 @@ pub(super) async fn open<R: net_runtime::Runtime>(
         Ok(id) => id,
         Err(error) => {
             let failed = Pending::SocketError {
-                name: interface.clone(),
+                name: *interface,
                 family,
                 slot,
                 error: error.into(),
@@ -53,14 +53,14 @@ pub(super) async fn open<R: net_runtime::Runtime>(
         }
     };
     let owner = SocketOwner {
-        interface: interface.clone(),
+        interface: *interface,
         family,
         slot,
         kind: spec.kind,
     };
     sockets.insert(id, owner);
     let opened = Pending::SocketOpened {
-        name: interface.clone(),
+        name: *interface,
         family,
         slot,
     };
@@ -81,12 +81,12 @@ pub(super) async fn send<R: net_runtime::Runtime>(
     let outcome = write(runtime, sockets, interface, transmit).await;
     let queued = match outcome {
         Ok(()) => Pending::SendCompleted {
-            name: interface.clone(),
+            name: *interface,
             family,
             slot,
         },
         Err(error) => Pending::SocketError {
-            name: interface.clone(),
+            name: *interface,
             family,
             slot,
             error: error.into(),
@@ -114,12 +114,12 @@ pub(super) async fn close<R: net_runtime::Runtime>(
     };
     let queued = match outcome {
         Ok(()) => Pending::SocketClosed {
-            name: interface.clone(),
+            name: *interface,
             family,
             slot,
         },
         Err(error) => Pending::SocketError {
-            name: interface.clone(),
+            name: *interface,
             family,
             slot,
             error: error.into(),

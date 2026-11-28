@@ -134,7 +134,7 @@ pub struct LinkSnapshot {
 impl From<&Link> for LinkSnapshot {
     fn from(link: &Link) -> Self {
         Self {
-            name: link.name.clone(),
+            name: link.name,
             index: link.index,
             admin: link.admin,
             carrier: link.carrier,

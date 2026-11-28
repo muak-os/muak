@@ -74,7 +74,7 @@ pub(crate) async fn apply<R: net_runtime::Runtime>(
             let mut bytes = [0_u8; 4];
             runtime.entropy().fill(&mut bytes);
             pending.push_back(Pending::Entropy {
-                name: interface.clone(),
+                name: *interface,
                 family,
                 value: u32::from_le_bytes(bytes),
             });

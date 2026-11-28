@@ -70,7 +70,7 @@ impl Family for Ipv6Addr {
 
 /// Emits a resolver write when the desired nameservers changed.
 pub(crate) fn flush(supervisor: &mut Supervisor) {
-    let Some(owner) = owner::owner(supervisor).cloned() else {
+    let Some(owner) = owner::owner(supervisor).copied() else {
         return;
     };
     let v4 = desired::<Ipv4Addr>(supervisor, &owner);

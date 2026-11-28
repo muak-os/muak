@@ -82,7 +82,7 @@ impl Supervisor {
         }
 
         match self.queue.pop_front() {
-            Some(action) => self.render(action),
+            Some(action) => self.render(&action),
             None => Step::Wait,
         }
     }
@@ -105,7 +105,7 @@ impl Supervisor {
     /// Returns the supervisor's current status.
     #[must_use = "callers need the status to report network readiness"]
     pub fn status(&self) -> Status {
-        let owner = owner::owner(self).cloned();
+        let owner = owner::owner(self).copied();
         let owner_link = owner
             .as_ref()
             .and_then(|owner| self.snapshots.get(owner))
@@ -113,7 +113,7 @@ impl Supervisor {
 
         Status {
             state: self.state.state,
-            primary: self.state.primary.clone(),
+            primary: self.state.primary,
             owner,
             owner_link,
             backups: self.state.backups.clone(),
@@ -128,7 +128,7 @@ impl Supervisor {
     }
 
     fn status_key(&self) -> StatusKey {
-        let owner = owner::owner(self).cloned();
+        let owner = owner::owner(self).copied();
         let owner_link = owner
             .as_ref()
             .and_then(|owner| self.snapshots.get(owner))
@@ -136,15 +136,15 @@ impl Supervisor {
 
         (
             self.state.state,
-            self.state.primary.clone(),
+            self.state.primary,
             owner,
             owner_link,
             self.state.backups.clone(),
         )
     }
 
-    fn render(&self, action: Action) -> Step<'_> {
-        let effect = match action {
+    fn render(&self, action: &Action) -> Step<'_> {
+        let effect = match *action {
             Action::Discover => Effect::Discover,
             Action::ProbeCarriers => Effect::ProbeCarriers,
             Action::SetLinkUp { name } => Effect::SetLinkUp { name },

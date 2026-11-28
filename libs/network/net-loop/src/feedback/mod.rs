@@ -37,7 +37,7 @@ pub(crate) async fn feed<R: net_runtime::Runtime>(
             state,
         } => {
             let info = ip_method::LinkInfo {
-                name: name.clone(),
+                name,
                 index,
                 mac,
                 state,
@@ -97,10 +97,10 @@ async fn discover<R: net_runtime::Runtime>(
     let mut first_error = None;
     for link in links {
         let info = driver::link_info(link);
-        if driver::ensure(driver, info.clone()) {
+        if driver::ensure(driver, info) {
             continue;
         }
-        let name = info.name.clone();
+        let name = info.name;
         first_error = first_error.or(events::interface_link(driver, now, wall, &name, info)
             .await
             .err());
@@ -119,12 +119,12 @@ async fn enslave<R: net_runtime::Runtime>(
     port: &netmodel::Name,
     master: &netmodel::Name,
 ) -> Result<()> {
-    driver::enslave(driver, port.clone(), master.clone());
+    driver::enslave(driver, *port, *master);
     if let Some(link) = driver.runtime.link().link(port).await?
         && let Some(info) = driver::owner_link(driver, master, link.state()).await?
     {
         driver.pending.push_back(Pending::InterfaceLink {
-            name: master.clone(),
+            name: *master,
             info,
         });
     }
@@ -132,8 +132,8 @@ async fn enslave<R: net_runtime::Runtime>(
         driver,
         now,
         net_supervisor::Input::Enslaved {
-            port: port.clone(),
-            master: master.clone(),
+            port: *port,
+            master: *master,
         },
     )
     .await;

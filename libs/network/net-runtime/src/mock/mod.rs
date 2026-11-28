@@ -219,7 +219,7 @@ mod tests {
         let state = netmodel::LinkState::Down;
 
         netmodel::Link {
-            name: name.clone(),
+            name: *name,
             index,
             mac: mac::Mac::default(),
             admin: state.admin(),
@@ -453,10 +453,7 @@ mod tests {
         // ARRANGE
         let mock = runtime();
         let name = netmodel::Name::new("eth0").expect("valid name");
-        let first = netmodel::LinkEvent::Up {
-            name: name.clone(),
-            index: 1,
-        };
+        let first = netmodel::LinkEvent::Up { name, index: 1 };
         let second = netmodel::LinkEvent::Deleted { name, index: 1 };
         mock.push_event(first.clone());
         mock.push_event(second.clone());

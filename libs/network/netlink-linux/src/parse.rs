@@ -92,7 +92,7 @@ fn link_name(message: &LinkMessage) -> Option<Name> {
         let LinkAttribute::IfName(ref name) = *attribute else {
             return None;
         };
-        Name::new(name.clone()).ok()
+        Name::new(name).ok()
     })
 }
 

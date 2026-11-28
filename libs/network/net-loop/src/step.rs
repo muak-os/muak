@@ -76,7 +76,7 @@ pub(crate) async fn advance<R: net_runtime::Runtime>(
         iface::Effect::Publish => {
             let snapshot = controller.snapshot().clone();
             driver.pending.push_back(Pending::Snapshot {
-                name: name.clone(),
+                name: *name,
                 snapshot,
             });
         }
@@ -117,12 +117,12 @@ async fn poll_supervisor<R: net_runtime::Runtime>(
     };
     let kind = effect.kind();
     let observed = net_observe::EffectKind::from(kind);
-    let target = effect.target().cloned();
+    let target = effect.target().copied();
     driver.journal.record(
         observed.level(),
         net_observe::Event::EffectStarted {
             kind: observed,
-            target: target.clone(),
+            target,
         },
     );
     let applied = effects::supervisor::apply(

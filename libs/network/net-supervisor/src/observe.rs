@@ -42,7 +42,7 @@ pub(crate) fn record(journal: &mut Journal, before: &StatusKey, after: &StatusKe
         journal.record(
             Level::Info,
             Event::PrimaryChanged {
-                primary: after.1.clone(),
+                primary: after.1,
                 backups: after.4.clone(),
             },
         );
@@ -53,7 +53,7 @@ pub(crate) fn record(journal: &mut Journal, before: &StatusKey, after: &StatusKe
         journal.record(
             Level::Info,
             Event::OwnerChanged {
-                owner: after.2.clone(),
+                owner: after.2,
                 link: after.3,
             },
         );

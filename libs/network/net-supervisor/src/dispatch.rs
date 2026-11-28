@@ -27,7 +27,7 @@ pub(crate) fn handle(
                     event: event.clone(),
                 },
             );
-            links::apply(supervisor, event);
+            links::apply(supervisor, &event);
         }
         Input::InterfaceSnapshot { name, snapshot } => {
             feedback::on_snapshot(supervisor, &name, snapshot);
@@ -41,11 +41,7 @@ pub(crate) fn handle(
             if link_state_changed(supervisor, &name, state) {
                 journal.record(
                     net_observe::Level::Info,
-                    net_observe::Event::BridgeReady {
-                        name: name.clone(),
-                        index,
-                        state,
-                    },
+                    net_observe::Event::BridgeReady { name, index, state },
                 );
             }
             feedback::on_bridge_ready(supervisor, &name, index, mac, state);
@@ -54,10 +50,7 @@ pub(crate) fn handle(
             if supervisor.enslaved.get(&port) != Some(&master) {
                 journal.record(
                     net_observe::Level::Info,
-                    net_observe::Event::Enslaved {
-                        port: port.clone(),
-                        master: master.clone(),
-                    },
+                    net_observe::Event::Enslaved { port, master },
                 );
             }
             feedback::on_enslaved(supervisor, &port, &master);
@@ -66,7 +59,7 @@ pub(crate) fn handle(
             if supervisor.enslaved.contains_key(&port) {
                 journal.record(
                     net_observe::Level::Info,
-                    net_observe::Event::Detached { port: port.clone() },
+                    net_observe::Event::Detached { port },
                 );
             }
             feedback::on_detached(supervisor, &port);

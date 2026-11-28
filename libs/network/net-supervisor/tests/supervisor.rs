@@ -117,8 +117,8 @@ fn failed() -> iface::Snapshot {
     }
 }
 
-fn describe(effect: Effect<'_>) -> Seen {
-    match effect {
+fn describe(effect: &Effect<'_>) -> Seen {
+    match *effect {
         Effect::Discover => Seen::Discover,
         Effect::ProbeCarriers => Seen::Probe,
         Effect::SetLinkUp { name } => Seen::SetLinkUp(name),
@@ -147,7 +147,7 @@ fn describe(effect: Effect<'_>) -> Seen {
 fn consume(supervisor: &mut Supervisor, now: Instant, input: Input<'_>) -> Option<Seen> {
     let mut journal = net_observe::journal::Journal::new();
     match supervisor.step(now, input, &mut journal) {
-        Step::Effect(effect) => Some(describe(effect)),
+        Step::Effect(effect) => Some(describe(&effect)),
         Step::Wait => None,
     }
 }
@@ -182,7 +182,7 @@ fn observed(
     input: Input<'_>,
 ) -> Vec<net_observe::Observation> {
     let mut journal = net_observe::journal::Journal::new();
-    drop(supervisor.step(now, input, &mut journal));
+    let _unused = supervisor.step(now, input, &mut journal);
 
     journal.drain().collect()
 }

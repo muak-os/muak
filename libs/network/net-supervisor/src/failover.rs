@@ -9,7 +9,7 @@ pub(crate) fn switch_if_needed(supervisor: &mut Supervisor) {
     if !is_owner_failed(supervisor) {
         return;
     }
-    let Some(primary) = supervisor.state.primary.clone() else {
+    let Some(primary) = supervisor.state.primary else {
         return;
     };
     handle_primary_failure(supervisor, &primary);
@@ -20,7 +20,7 @@ pub(crate) fn recover_if_possible(supervisor: &mut Supervisor) {
     if supervisor.state.is_operational() {
         return;
     }
-    let Some(owner) = owner::owner(supervisor).cloned() else {
+    let Some(owner) = owner::owner(supervisor).copied() else {
         return;
     };
     let healthy = supervisor
@@ -45,7 +45,7 @@ pub(crate) fn handle_primary_recovery(supervisor: &mut Supervisor, _name: &Name)
 
 /// Restores a recovered backup as primary when the current primary is not configured.
 pub(crate) fn handle_backup_recovery(supervisor: &mut Supervisor, recovered: &Name) {
-    let Some(current) = supervisor.state.primary.clone() else {
+    let Some(current) = supervisor.state.primary else {
         return;
     };
     if is_configured(supervisor, &current) {
@@ -54,7 +54,7 @@ pub(crate) fn handle_backup_recovery(supervisor: &mut Supervisor, recovered: &Na
 
     supervisor.state.backups.retain(|name| name != recovered);
     supervisor.state.backups.push(current);
-    supervisor.state.primary = Some(recovered.clone());
+    supervisor.state.primary = Some(*recovered);
     rebridge(supervisor, recovered);
     supervisor.state.ensure_operational();
 }
@@ -62,7 +62,7 @@ pub(crate) fn handle_backup_recovery(supervisor: &mut Supervisor, recovered: &Na
 /// Promotes the first eligible backup when the primary interface disappears.
 pub(crate) fn handle_primary_removed(supervisor: &mut Supervisor, _name: &Name) {
     if let Some(backup) = first_eligible_backup(supervisor) {
-        supervisor.state.primary = Some(backup.clone());
+        supervisor.state.primary = Some(backup);
         supervisor.state.backups.retain(|name| name != &backup);
         rebridge(supervisor, &backup);
         return;
@@ -78,14 +78,14 @@ fn try_failover_to_backup(supervisor: &mut Supervisor, failed: &Name) {
         .backups
         .iter()
         .find(|backup| is_configured(supervisor, backup) && is_eligible(supervisor, backup))
-        .cloned();
+        .copied();
     let Some(new_primary) = configured.or_else(|| first_eligible_backup(supervisor)) else {
         return;
     };
 
     supervisor.state.backups.retain(|name| name != &new_primary);
-    supervisor.state.backups.push(failed.clone());
-    supervisor.state.primary = Some(new_primary.clone());
+    supervisor.state.backups.push(*failed);
+    supervisor.state.primary = Some(new_primary);
 
     if !rebridge(supervisor, &new_primary) && !is_configured(supervisor, &new_primary) {
         configure_promoted(supervisor, &new_primary);
@@ -99,7 +99,7 @@ fn first_eligible_backup(supervisor: &Supervisor) -> Option<Name> {
         .backups
         .iter()
         .find(|backup| is_eligible(supervisor, backup))
-        .cloned()
+        .copied()
 }
 
 fn is_eligible(supervisor: &Supervisor, name: &Name) -> bool {
@@ -168,7 +168,7 @@ fn configure_promoted(supervisor: &mut Supervisor, name: &Name) {
         return;
     };
     if config.ipv4.as_ref().is_some_and(|ipv4| ipv4.dhcp) {
-        provision::queue_configure(supervisor, index, name.clone());
+        provision::queue_configure(supervisor, index, *name);
     }
 }
 
