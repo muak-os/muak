@@ -6,6 +6,9 @@ use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 use crate::error::NameError;
 use crate::{MAX_LEN, Name};
 
@@ -109,6 +112,40 @@ impl PartialEq<str> for Name {
 impl PartialEq<&str> for Name {
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for Name {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for Name {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(NameVisitor)
+    }
+}
+
+#[cfg(feature = "serde")]
+struct NameVisitor;
+
+#[cfg(feature = "serde")]
+impl serde::de::Visitor<'_> for NameVisitor {
+    type Value = Name;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a validated interface name string")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        Name::new(v).map_err(E::custom)
+    }
+
+    fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+        Name::new(v).map_err(E::custom)
     }
 }
 

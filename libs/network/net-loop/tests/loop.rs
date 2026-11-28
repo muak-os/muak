@@ -275,7 +275,7 @@ fn runtime() -> Mock {
 
 fn ethernet() -> netmodel::InterfaceConfig {
     netmodel::InterfaceConfig {
-        name: String::from("eth0"),
+        name: name("eth0"),
         kind: netmodel::InterfaceKind::Ethernet,
         ipv4: Some(address()),
         ipv6: None,
@@ -285,12 +285,12 @@ fn ethernet() -> netmodel::InterfaceConfig {
 
 fn bridge() -> netmodel::InterfaceConfig {
     netmodel::InterfaceConfig {
-        name: String::from("br0"),
+        name: name("br0"),
         kind: netmodel::InterfaceKind::Bridge,
         ipv4: Some(address()),
         ipv6: None,
         bridge: Some(netmodel::BridgeConfig {
-            port: vec![String::from("auto")],
+            port: vec![name("auto")],
             stp: false,
         }),
     }
@@ -990,7 +990,7 @@ fn add_interface_exposes_the_controller_without_a_wake() {
 #[cfg(feature = "ipv4")]
 fn dhcp_interface() -> netmodel::InterfaceConfig {
     netmodel::InterfaceConfig {
-        name: String::from("eth0"),
+        name: name("eth0"),
         kind: netmodel::InterfaceKind::Ethernet,
         ipv4: Some(netmodel::Ipv4Config {
             dhcp: true,
@@ -1004,7 +1004,7 @@ fn dhcp_interface() -> netmodel::InterfaceConfig {
 #[cfg(feature = "ipv6")]
 fn slaac_interface() -> netmodel::InterfaceConfig {
     netmodel::InterfaceConfig {
-        name: String::from("eth0"),
+        name: name("eth0"),
         kind: netmodel::InterfaceKind::Ethernet,
         ipv4: None,
         ipv6: Some(netmodel::Ipv6Config {

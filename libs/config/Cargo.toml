@@ -19,6 +19,9 @@ toml = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# Internal
+netmodel = { workspace = true, features = ["serde"] }
+
 # Utilities
 semver = { workspace = true }
 

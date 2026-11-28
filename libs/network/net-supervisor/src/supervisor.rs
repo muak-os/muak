@@ -5,8 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use netmodel::BridgeConfig;
-#[cfg(any(feature = "ipv4", feature = "ipv6"))]
-use netmodel::{InterfaceConfig, InterfaceKind};
 
 use crate::actions::Action;
 use crate::state::Snapshot;
@@ -38,14 +36,6 @@ impl Supervisor {
             resolver_v4: Vec::new(),
             resolver_v6: Vec::new(),
             empty_bridge: BridgeConfig::default(),
-            #[cfg(any(feature = "ipv4", feature = "ipv6"))]
-            empty_interface: InterfaceConfig {
-                name: String::new(),
-                kind: InterfaceKind::Ethernet,
-                ipv4: None,
-                ipv6: None,
-                bridge: None,
-            },
             processed_events: 0,
             reconcile_at: None,
             retry_at: None,
@@ -161,19 +151,15 @@ impl Supervisor {
             Action::Detach { port } => Effect::Detach { port },
             #[cfg(any(feature = "ipv4", feature = "ipv6"))]
             Action::Configure { index, target } => {
-                let config = self
-                    .config
-                    .interfaces
-                    .get(index)
-                    .unwrap_or(&self.empty_interface);
+                let config = self.config.interfaces.get(index);
                 #[cfg(not(feature = "ipv4"))]
                 let v4 = None;
                 #[cfg(feature = "ipv4")]
-                let v4 = config.ipv4.as_ref();
+                let v4 = config.and_then(|config| config.ipv4.as_ref());
                 #[cfg(not(feature = "ipv6"))]
                 let v6 = None;
                 #[cfg(feature = "ipv6")]
-                let v6 = config.ipv6.as_ref();
+                let v6 = config.and_then(|config| config.ipv6.as_ref());
                 Effect::ConfigureInterface {
                     name: target,
                     v4,

@@ -24,7 +24,7 @@ pub(crate) fn reconcile_interface(supervisor: &mut Supervisor, index: usize) {
         (
             config.kind == InterfaceKind::Bridge,
             has_config(config),
-            resolve_name(supervisor, &config.name),
+            resolve_name(supervisor, config.name),
         )
     };
     if is_bridge {
@@ -49,7 +49,7 @@ pub(crate) fn configure_master(supervisor: &mut Supervisor, master: &Name) {
         if !has_config(config) {
             continue;
         }
-        let Some(name) = resolve_name(supervisor, &config.name) else {
+        let Some(name) = resolve_name(supervisor, config.name) else {
             continue;
         };
         if &resolve_owner(supervisor, &name) == master {
@@ -69,9 +69,7 @@ pub(crate) fn queue_bridge(supervisor: &mut Supervisor, index: usize) -> bool {
     let Some(config) = supervisor.config.interfaces.get(index) else {
         return false;
     };
-    let Ok(bridge) = Name::new(&config.name) else {
-        return false;
-    };
+    let bridge = config.name;
 
     let bridge_up = supervisor
         .links
@@ -135,12 +133,12 @@ pub(crate) fn queue_reapply(supervisor: &mut Supervisor, index: usize, target: N
 }
 
 /// Resolves a configured interface name, expanding the `auto` alias.
-pub(crate) fn resolve_name(supervisor: &Supervisor, name: &str) -> Option<Name> {
+pub(crate) fn resolve_name(supervisor: &Supervisor, name: Name) -> Option<Name> {
     if name == "auto" {
         return supervisor.state.primary;
     }
 
-    Name::new(name).ok()
+    Some(name)
 }
 
 /// Returns the bridge that owns `name` as a port, or `name` itself.
@@ -158,8 +156,7 @@ pub(crate) fn resolve_owner(supervisor: &Supervisor, name: &Name) -> Name {
             config.kind == InterfaceKind::Bridge
                 && bridge_port_for(supervisor, index, primary).as_ref() == Some(name)
         })
-        .and_then(|(_, config)| Name::new(&config.name).ok())
-        .unwrap_or(*name)
+        .map_or(*name, |(_, config)| config.name)
 }
 
 /// Resolves the port a bridge should attach to, expanding the `auto` alias.
@@ -185,7 +182,7 @@ fn provision_addresses(supervisor: &mut Supervisor, index: usize) {
     if !has_config(config) {
         return;
     }
-    let Some(name) = resolve_name(supervisor, &config.name) else {
+    let Some(name) = resolve_name(supervisor, config.name) else {
         return;
     };
     let owner = resolve_owner(supervisor, &name);
@@ -201,9 +198,10 @@ fn bridge_port_for(supervisor: &Supervisor, index: usize, primary: &Name) -> Opt
         .as_ref()
         .and_then(|bridge| bridge.port.first());
 
-    match port.map(String::as_str) {
-        Some("auto") | None => Some(*primary),
-        Some(port) => Name::new(port).ok(),
+    match port {
+        Some(port) if *port == "auto" => Some(*primary),
+        Some(port) => Some(*port),
+        None => Some(*primary),
     }
 }
 

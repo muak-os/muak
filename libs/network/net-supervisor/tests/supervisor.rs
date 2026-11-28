@@ -24,7 +24,7 @@ enum Seen {
     Bridge {
         name: Name,
         stp: bool,
-        ports: Vec<String>,
+        ports: Vec<Name>,
     },
     Enslave {
         port: Name,
@@ -57,7 +57,7 @@ fn link(label: &str, index: u32, state: LinkState) -> Link {
 
 fn ethernet(label: &str, dhcp: bool) -> InterfaceConfig {
     InterfaceConfig {
-        name: label.to_owned(),
+        name: name(label),
         kind: InterfaceKind::Ethernet,
         ipv4: Some(netmodel::Ipv4Config {
             dhcp,
@@ -70,7 +70,7 @@ fn ethernet(label: &str, dhcp: bool) -> InterfaceConfig {
 
 fn bridge() -> InterfaceConfig {
     InterfaceConfig {
-        name: "br0".to_owned(),
+        name: name("br0"),
         kind: InterfaceKind::Bridge,
         ipv4: Some(netmodel::Ipv4Config {
             addresses: vec![(Ipv4Addr::new(10, 0, 0, 2), 24)],
@@ -78,7 +78,7 @@ fn bridge() -> InterfaceConfig {
         }),
         ipv6: None,
         bridge: Some(BridgeConfig {
-            port: vec!["auto".to_owned()],
+            port: vec![name("auto")],
             stp: false,
         }),
     }
@@ -131,7 +131,7 @@ fn describe(effect: &Effect<'_>) -> Seen {
         Effect::EnsureBridge { name, config } => Seen::Bridge {
             name,
             stp: config.stp,
-            ports: config.port.clone(),
+            ports: Vec::from_iter(config.port.iter().copied()),
         },
         Effect::Enslave { port, master } => Seen::Enslave { port, master },
         Effect::Detach { port } => Seen::Detach(port),
@@ -251,7 +251,7 @@ fn initialize_discovers_then_probes_then_provisions() {
     assert!(provision.contains(&Seen::Bridge {
         name: name("br0"),
         stp: false,
-        ports: vec!["auto".to_owned()],
+        ports: vec![name("auto")],
     }));
     assert!(provision.contains(&Seen::Enslave {
         port: name("eth0"),
@@ -852,7 +852,7 @@ fn timer_reconciles_only_when_due() {
     assert!(due_effects.contains(&Seen::Bridge {
         name: name("br0"),
         stp: false,
-        ports: vec!["auto".to_owned()],
+        ports: vec![name("auto")],
     }));
     assert!(due_effects.contains(&Seen::Reconcile(name("br0"))));
 }
@@ -1054,7 +1054,7 @@ fn reconcile_configures_an_owner_that_lost_its_methods() {
 fn configure_renders_only_enabled_families() {
     // ARRANGE
     let dual = InterfaceConfig {
-        name: "auto".to_owned(),
+        name: name("auto"),
         kind: InterfaceKind::Ethernet,
         ipv4: Some(netmodel::Ipv4Config {
             dhcp: true,
@@ -1331,7 +1331,7 @@ fn failed_ensure_bridge_keeps_the_primary_as_owner() {
     assert!(provisioned.contains(&Seen::Bridge {
         name: name("br0"),
         stp: false,
-        ports: vec!["auto".to_owned()],
+        ports: vec![name("auto")],
     }));
 
     // ACT

@@ -91,7 +91,7 @@ mod tests {
             ipv6: false,
             dns: Vec::new(),
             interfaces: vec![netmodel::InterfaceConfig {
-                name: String::from("eth0"),
+                name: netmodel::Name::new("eth0").expect("valid name"),
                 kind: netmodel::InterfaceKind::Ethernet,
                 ipv4: Some(netmodel::Ipv4Config {
                     addresses: vec![(core::net::Ipv4Addr::new(10, 0, 0, 2), 24)],

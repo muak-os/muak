@@ -41,7 +41,7 @@ impl Config {
 #[serde(deny_unknown_fields)]
 pub struct InterfaceConfig {
     /// Interface name (e.g. `eth0`, `br0`).
-    pub name: String,
+    pub name: netmodel::Name,
     /// Interface type: `bridge` or `ethernet`.
     #[serde(rename = "type")]
     pub kind: InterfaceKind,
@@ -197,7 +197,7 @@ pub struct Ipv6InterfaceConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct BridgeConfig {
     /// Member ports attached to the bridge.
-    pub port: Vec<String>,
+    pub port: Vec<netmodel::Name>,
     /// Whether Spanning Tree Protocol is enabled.
     pub stp: bool,
 }
@@ -502,5 +502,87 @@ ipv6.autoconf = true
         assert_eq!(iface.kind, InterfaceKind::Ethernet);
         assert!(iface.ipv4.as_ref().unwrap().dhcp);
         assert!(iface.ipv6.as_ref().unwrap().autoconf);
+    }
+
+    #[test]
+    fn interface_name_longer_than_fifteen_bytes_is_rejected() {
+        // ARRANGE
+        let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
+[[network.interfaces]]
+name = "a-name-longer-than-fifteen-bytes"
+type = "ethernet"
+"#;
+
+        // ACT
+        let error = TomlCodec::decode::<crate::system::Config>(toml_str).unwrap_err();
+
+        // ASSERT
+        let message = error.to_string();
+        assert!(message.contains("invalid interface name"));
+        assert!(message.contains("a-name-longer-than-fifteen-bytes"));
+    }
+
+    #[test]
+    fn interface_name_with_a_nul_byte_is_rejected() {
+        // ARRANGE
+        let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
+[[network.interfaces]]
+name = "eth\u0000"
+type = "ethernet"
+"#;
+
+        // ACT
+        let error = TomlCodec::decode::<crate::system::Config>(toml_str).unwrap_err();
+
+        // ASSERT
+        assert!(error.to_string().contains("contains a NUL byte"));
+    }
+
+    #[test]
+    fn interface_names_and_bridge_ports_round_trip_as_plain_strings() {
+        // ARRANGE
+        let toml_str = r#"
+api_version = "muak.dev/config/v1-beta"
+
+[[network.interfaces]]
+name = "auto"
+type = "ethernet"
+
+[[network.interfaces]]
+name = "br0"
+type = "bridge"
+bridge.port = ["eth0", "eth1"]
+"#;
+
+        // ACT
+        let decoded: crate::system::Config = TomlCodec::decode(toml_str).unwrap();
+        let encoded = TomlCodec::encode(&decoded).unwrap();
+        let document: toml::Value = toml::from_str(&encoded).unwrap();
+        let round_tripped: crate::system::Config = TomlCodec::decode(&encoded).unwrap();
+
+        // ASSERT
+        let interfaces = document
+            .get("network")
+            .and_then(|network| network.get("interfaces"))
+            .and_then(toml::Value::as_array)
+            .expect("interfaces array");
+        assert_eq!(
+            interfaces[0].get("name").and_then(toml::Value::as_str),
+            Some("auto")
+        );
+        let ports: Vec<&str> = interfaces[1]
+            .get("bridge")
+            .and_then(|bridge| bridge.get("port"))
+            .and_then(toml::Value::as_array)
+            .expect("port array")
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .collect();
+        assert_eq!(ports, ["eth0", "eth1"]);
+        assert_eq!(round_tripped.network, decoded.network);
     }
 }

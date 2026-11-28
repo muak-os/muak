@@ -373,6 +373,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "base64ct",
+ "netmodel",
  "semver",
  "serde",
  "tempfile",
@@ -1577,6 +1578,7 @@ name = "netmodel"
 version = "0.0.0"
 dependencies = [
  "mac",
+ "serde",
  "thiserror",
 ]
 

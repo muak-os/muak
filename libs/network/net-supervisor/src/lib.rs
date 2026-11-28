@@ -270,8 +270,6 @@ pub struct Supervisor {
     pub(crate) resolver_v4: Vec<Ipv4Addr>,
     pub(crate) resolver_v6: Vec<Ipv6Addr>,
     pub(crate) empty_bridge: netmodel::BridgeConfig,
-    #[cfg(any(feature = "ipv4", feature = "ipv6"))]
-    pub(crate) empty_interface: netmodel::InterfaceConfig,
     pub(crate) processed_events: u64,
     pub(crate) reconcile_at: Option<std::time::Instant>,
     pub(crate) retry_at: Option<std::time::Instant>,

@@ -9,7 +9,13 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+serde = ["dep:serde"]
+
 [dependencies]
+# Encoding
+serde = { workspace = true, optional = true }
+
 # Error handling
 thiserror = { workspace = true }
 

@@ -34,7 +34,7 @@ fn interface_config(
     source: &network::InterfaceConfig,
 ) -> netmodel::InterfaceConfig {
     netmodel::InterfaceConfig {
-        name: source.name.clone(),
+        name: source.name,
         kind: kind(&source.kind),
         ipv4: source
             .ipv4
@@ -57,7 +57,7 @@ const fn kind(kind: &network::InterfaceKind) -> netmodel::InterfaceKind {
 
 fn bridge_config(config: &network::BridgeConfig) -> netmodel::BridgeConfig {
     netmodel::BridgeConfig {
-        port: config.port.clone(),
+        port: Vec::from_iter(config.port.iter().copied()),
         stp: config.stp,
     }
 }
@@ -148,7 +148,7 @@ mod tests {
 
     fn interface(name: &str, kind: network::InterfaceKind) -> network::InterfaceConfig {
         network::InterfaceConfig {
-            name: name.to_owned(),
+            name: netmodel::Name::new(name).expect("valid name"),
             kind,
             ipv4: None,
             ipv6: None,
@@ -215,7 +215,10 @@ mod tests {
         // ARRANGE
         let mut iface = interface("br0", network::InterfaceKind::Bridge);
         iface.bridge = Some(network::BridgeConfig {
-            port: vec!["eth0".to_owned(), "eth1".to_owned()],
+            port: vec![
+                netmodel::Name::new("eth0").expect("valid name"),
+                netmodel::Name::new("eth1").expect("valid name"),
+            ],
             stp: true,
         });
         let source = network::Config {
@@ -230,7 +233,13 @@ mod tests {
         // ASSERT
         assert_eq!(config.interfaces[0].kind, netmodel::InterfaceKind::Bridge);
         let bridge = config.interfaces[0].bridge.as_ref().expect("bridge config");
-        assert_eq!(bridge.port, vec!["eth0".to_owned(), "eth1".to_owned()]);
+        assert_eq!(
+            bridge.port,
+            vec![
+                netmodel::Name::new("eth0").expect("valid name"),
+                netmodel::Name::new("eth1").expect("valid name"),
+            ]
+        );
         assert!(bridge.stp);
     }
 

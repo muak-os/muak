@@ -138,7 +138,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterfaceConfig {
     /// Interface name.
-    pub name: String,
+    pub name: Name,
     /// Interface kind.
     pub kind: InterfaceKind,
     /// Optional IPv4 configuration.
@@ -162,7 +162,7 @@ pub enum InterfaceKind {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BridgeConfig {
     /// Member ports attached to the bridge.
-    pub port: Vec<String>,
+    pub port: Vec<Name>,
     /// Whether Spanning Tree Protocol is enabled.
     pub stp: bool,
 }

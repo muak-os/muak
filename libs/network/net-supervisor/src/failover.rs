@@ -180,7 +180,7 @@ fn promoted_config(supervisor: &Supervisor, name: &Name) -> Option<usize> {
         .enumerate()
         .find(|&(_, config)| {
             config.kind == InterfaceKind::Ethernet
-                && provision::resolve_name(supervisor, &config.name).as_ref() == Some(name)
+                && provision::resolve_name(supervisor, config.name).as_ref() == Some(name)
         })
         .map(|(index, _)| index)
 }

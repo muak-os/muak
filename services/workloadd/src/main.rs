@@ -82,7 +82,7 @@ async fn main(notifier: NotifyClient) -> Result<()> {
         .interfaces
         .iter()
         .find(|i| i.kind == InterfaceKind::Bridge)
-        .map(|i| i.name.clone())
+        .map(|i| i.name.to_string())
         .context("no bridge interface found in network config")?;
 
     let auto_restart = config::system::vm()
