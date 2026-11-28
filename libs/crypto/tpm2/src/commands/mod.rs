@@ -44,6 +44,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
     use crate::error::Tpm2Error;
     use crate::tags::TPM2_ST_NO_SESSIONS;

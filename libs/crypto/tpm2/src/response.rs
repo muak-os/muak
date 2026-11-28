@@ -143,6 +143,8 @@ pub(crate) fn validate(response: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
 
     fn response(tag: u16, rc: u32, body: &[u8]) -> Vec<u8> {

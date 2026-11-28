@@ -16,10 +16,10 @@ linux = ["dep:getrandom", "dep:rustix"]
 [dependencies]
 # Cryptography
 getrandom = { workspace = true, optional = true }
-sha2 = { workspace = true }
+sha2 = { workspace = true, default-features = false }
 
 # Error handling
-thiserror = { workspace = true }
+thiserror = { workspace = true, default-features = false }
 
 # System/platform APIs
 rustix = { workspace = true, optional = true }

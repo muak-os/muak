@@ -61,6 +61,8 @@ fn checked_sum(values: &[usize]) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use super::*;
 
     #[test]

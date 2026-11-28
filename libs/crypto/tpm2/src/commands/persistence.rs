@@ -70,6 +70,8 @@ impl TpmCommand for EvictControlCommand {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
 
     fn response_bytes(tag: u16, body: &[u8]) -> Vec<u8> {

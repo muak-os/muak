@@ -115,6 +115,9 @@ impl TpmCommand for UnsealCommand {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+    use alloc::vec::Vec;
+
     use super::*;
 
     fn response_bytes(body: &[u8]) -> Vec<u8> {

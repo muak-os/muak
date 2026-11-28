@@ -14,8 +14,16 @@ pub enum Tpm2Error {
     DeviceNotFound,
 
     /// Underlying I/O operation failed, as reported by a transport implementation.
+    #[cfg(feature = "linux")]
     #[error("TPM2 I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Transport failed to exchange the command, with a code from the transport implementation.
+    #[error("TPM2 transport error: code {code}")]
+    Transport {
+        /// Platform-specific failure code reported by the transport.
+        code: i32,
+    },
 
     /// TPM2 command returned a failure response code.
     #[error("TPM2 command failed: RC=0x{0:08X}")]
@@ -72,3 +80,25 @@ pub enum Tpm2Error {
 
 /// Result type for TPM2 operations.
 pub type Result<T> = core::result::Result<T, Tpm2Error>;
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::ToString as _;
+
+    use super::*;
+
+    #[test]
+    fn transport_displays_code() {
+        // ARRANGE
+        let error = Tpm2Error::Transport { code: -5_i32 };
+
+        // ACT
+        let displayed = error.to_string();
+
+        // ASSERT
+        assert_eq!(
+            displayed, "TPM2 transport error: code -5",
+            "transport error should display its code"
+        );
+    }
+}

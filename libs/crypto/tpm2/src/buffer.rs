@@ -113,6 +113,8 @@ pub(crate) fn u32_len(len: usize) -> Result<u32> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use super::*;
     use crate::tags::TPM2_ST_NO_SESSIONS;
 

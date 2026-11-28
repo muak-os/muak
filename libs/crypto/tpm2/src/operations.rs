@@ -160,6 +160,9 @@ fn ensure_srk<T: Transport>(transport: &mut T) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+    use alloc::vec::Vec;
+
     use super::*;
     use crate::commands::TpmCommand as _;
     use crate::tags::{TPM2_ST_NO_SESSIONS, TPM2_ST_SESSIONS};

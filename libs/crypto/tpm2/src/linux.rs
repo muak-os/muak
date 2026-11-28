@@ -123,6 +123,8 @@ fn response_size(header: &[u8]) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+    use alloc::vec::Vec;
     use std::os::fd::OwnedFd;
     use std::os::unix::net::UnixStream;
     use std::time::{SystemTime, UNIX_EPOCH};

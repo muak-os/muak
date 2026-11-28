@@ -1,6 +1,12 @@
 //! Sans-io, allocation-free TPM2 core for PCR-sealed blobs, with an optional Linux transport behind the `linux` feature, enabled by default.
 
+#![no_std]
 #![warn(missing_docs)]
+
+#[cfg(test)]
+extern crate alloc;
+#[cfg(any(feature = "linux", test))]
+extern crate std;
 
 #[cfg(all(feature = "linux", not(target_os = "linux")))]
 compile_error!("the `linux` tpm2 feature requires a Linux target");
